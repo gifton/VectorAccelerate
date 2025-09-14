@@ -1,0 +1,331 @@
+# Swift and Xcode
+# ================
+
+## Build generated
+build/
+DerivedData/
+*.xcscmblueprint
+
+## Various settings
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+
+## Other
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+
+## Obj-C/Swift specific
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Playgrounds
+timeline.json
+playground.xcworkspace
+
+# Swift Package Manager
+# ======================
+.build/
+.swiftpm/
+Packages/
+Package.pins
+Package.resolved
+*.xcodeproj
+# Uncomment if you have a Package.resolved you want to check in
+# Package.resolved
+
+# CocoaPods
+# ==========
+# We recommend against adding the Pods directory to your .gitignore. However
+# you should judge for yourself, the pros and cons are mentioned at:
+# https://guides.cocoapods.org/using/using-cocoapods.html#should-i-check-the-pods-directory-into-source-control
+# Pods/
+# Add this line if you want to avoid checking in source code from the Xcode workspace
+# *.xcworkspace
+
+# Carthage
+# ========
+# Add this line if you want to avoid checking in source code from Carthage dependencies.
+# Carthage/Checkouts
+Carthage/Build/
+
+# Accio dependency management
+Dependencies/
+.accio/
+
+# fastlane
+# =========
+# It is recommended to not store the screenshots in the git repo.
+# Instead, use fastlane to re-generate the screenshots whenever they are needed.
+# For more information about the recommended setup visit:
+# https://docs.fastlane.tools/best-practices/source-control/#source-control
+
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Code Injection
+# ==============
+# After new code Injection tools there's a generated folder /iOSInjectionProject
+# https://github.com/johnno1962/injectionforxcode
+
+iOSInjectionProject/
+
+# macOS
+# =====
+.DS_Store
+.AppleDouble
+.LSOverride
+
+## Icon must end with two \r
+Icon
+
+## Thumbnails
+._*
+
+## Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+## Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# IDE - VSCode
+# ============
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+.history/
+*.vsix
+
+# IDE - JetBrains
+# ===============
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.idea_modules/
+
+# IDE - Sublime Text
+# ==================
+*.sublime-project
+*.sublime-workspace
+
+# IDE - Vim
+# =========
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+Session.vim
+Sessionx.vim
+.netrwhist
+*~
+tags
+[._]*.un~
+
+# Metal Shader Compilation
+# ========================
+*.air
+*.metallib
+*.metallib.tmp
+default.metallib
+
+# Benchmark and Performance
+# =========================
+*.trace
+*.memgraph
+*.cpuprofile
+*.heapprofile
+*.heapsnapshot
+BenchmarkResults/
+PerformanceTests/
+
+# Documentation
+# =============
+docs/_build/
+docs/.build/
+*.docset
+jazzy/
+
+# Testing
+# ========
+coverage/
+*.lcov
+.coverage
+*.cover
+.hypothesis/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.coveragerc
+.tox/
+TestResults/
+test-results/
+*.trx
+
+# Logs and Databases
+# ==================
+*.log
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+
+# Temporary Files
+# ===============
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.backup
+tmp/
+temp/
+
+# Security and Secrets
+# ====================
+*.pem
+*.key
+*.cer
+*.crt
+*.p12
+.env
+.env.local
+.env.*.local
+secrets.json
+secrets.yml
+config.secret.json
+
+# Build Artifacts
+# ===============
+*.o
+*.a
+*.dylib
+*.so
+*.dll
+*.exe
+
+# Package Files
+# =============
+*.tar
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# Project Specific
+# ================
+# Add any project-specific patterns here
+VectorAccelerateBenchmarks.xcodeproj/
+VectorAccelerate.xcodeproj/
+.benchmark/
+.metal-cache/
+
+# Development Tools
+# =================
+.devcontainer/
+.vagrant/
+*.vagrant
+Vagrantfile.local
+
+# CI/CD
+# =====
+.github/actions/*/dist/
+.gitlab-ci-local/
+.circleci/local/
+
+# Node.js (if using any JS tooling)
+# ==================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python (if using any Python scripts)
+# ====================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+venv/
+ENV/
+
+# Ruby (if using any Ruby tooling like fastlane)
+# ===============================================
+*.gem
+.bundle/
+vendor/bundle/
+.ruby-version
+.ruby-gemset
+
+# Miscellaneous
+# =============
+*.orig
+.cache/
+.parcel-cache/
+.grunt/
+.sass-cache/
+*.pid
+*.seed
+*.pid.lock
+
+# Archives
+# ========
+# It's better to unpack these files and commit the raw source because
+# git has its own built-in compression methods.
+*.jar
+*.war
+*.ear
+
+# Editor backup files
+# ===================
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# Windows
+# =======
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+*.lnk
+
+# Linux
+# =====
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*

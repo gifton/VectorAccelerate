@@ -1,0 +1,430 @@
+//
+//  VectorCoreIntegrationEnhancedTests.swift
+//  VectorAccelerate
+//
+//  Comprehensive tests for VectorCore integration
+//
+
+@preconcurrency import XCTest
+@testable import VectorAccelerate
+import VectorCore
+
+final class VectorCoreIntegrationEnhancedTests: XCTestCase {
+    var integration: VectorCoreIntegration!
+    var context: MetalContext!
+    
+    override func setUp() async throws {
+        try await super.setUp()
+        context = try await MetalContext()
+        integration = VectorCoreIntegration(context: context)
+    }
+    
+    override func tearDown() async throws {
+        integration = nil
+        context = nil
+        try await super.tearDown()
+    }
+    
+    // MARK: - Factory Pattern Tests
+    
+    func testDefaultProviderFactory() async throws {
+        let provider = try await integration.createDistanceProvider()
+        XCTAssertNotNil(provider)
+        
+        // Test basic operation
+        let v1 = [Float](repeating: 1.0, count: 128)
+        let v2 = [Float](repeating: 2.0, count: 128)
+        
+        let distance = try await provider.distance(v1, v2, metric: .euclidean)
+        XCTAssertGreaterThan(distance, 0)
+    }
+    
+    func testCustomProviderConfiguration() async throws {
+        let config = VectorCoreIntegration.Configuration(
+            preferGPU: true,
+            fallbackToCPU: true,
+            cachingEnabled: true,
+            batchThreshold: 100
+        )
+        
+        let customIntegration = VectorCoreIntegration(
+            context: context,
+            configuration: config
+        )
+        
+        let provider = try await customIntegration.createDistanceProvider()
+        XCTAssertNotNil(provider)
+    }
+    
+    // MARK: - Distance Provider Tests
+    
+    func testEuclideanDistance() async throws {
+        let provider = try await integration.createDistanceProvider()
+        
+        let v1 = [Float](repeating: 0.0, count: 3)
+        let v2 = [Float]([3.0, 4.0, 0.0])
+        
+        let distance = try await provider.distance(v1, v2, metric: .euclidean)
+        XCTAssertEqual(distance, 5.0, accuracy: 1e-5) // 3-4-5 triangle
+    }
+    
+    func testCosineDistance() async throws {
+        let provider = try await integration.createDistanceProvider()
+        
+        // Orthogonal vectors
+        let v1 = [Float]([1.0, 0.0, 0.0])
+        let v2 = [Float]([0.0, 1.0, 0.0])
+        
+        let distance = try await provider.distance(v1, v2, metric: .cosine)
+        XCTAssertEqual(distance, 1.0, accuracy: 1e-5) // Cosine distance of orthogonal = 1
+    }
+    
+    func testDotProduct() async throws {
+        let provider = try await integration.createDistanceProvider()
+        
+        let v1 = [Float]([1.0, 2.0, 3.0])
+        let v2 = [Float]([4.0, 5.0, 6.0])
+        
+        let dot = try await provider.distance(v1, v2, metric: .dotProduct)
+        XCTAssertEqual(dot, 32.0, accuracy: 1e-5) // 1*4 + 2*5 + 3*6 = 32
+    }
+    
+    // MARK: - Batch Operations
+    
+    func testBatchDistanceComputation() async throws {
+        let provider = try await integration.createDistanceProvider()
+        
+        let query = [Float](repeating: 1.0, count: 128)
+        let database = (0..<100).map { _ in
+            (0..<128).map { _ in Float.random(in: -1...1) }
+        }
+        
+        let distances = try await provider.batchDistance(
+            query: query,
+            database: database,
+            metric: .euclidean
+        )
+        
+        XCTAssertEqual(distances.count, 100)
+        for distance in distances {
+            XCTAssertGreaterThanOrEqual(distance, 0)
+        }
+    }
+    
+    func testBatchPerformanceVsSingle() async throws {
+        let provider = try await integration.createDistanceProvider()
+        let query = [Float](repeating: 1.0, count: 256)
+        let database = (0..<500).map { _ in
+            (0..<256).map { _ in Float.random(in: -1...1) }
+        }
+        
+        // Measure batch operation
+        let batchStart = CFAbsoluteTimeGetCurrent()
+        let batchDistances = try await provider.batchDistance(
+            query: query,
+            database: database,
+            metric: .euclidean
+        )
+        let batchTime = CFAbsoluteTimeGetCurrent() - batchStart
+        
+        // Measure individual operations
+        let singleStart = CFAbsoluteTimeGetCurrent()
+        var singleDistances: [Float] = []
+        for vector in database {
+            let distance = try await provider.distance(query, vector, metric: .euclidean)
+            singleDistances.append(distance)
+        }
+        let singleTime = CFAbsoluteTimeGetCurrent() - singleStart
+        
+        XCTAssertEqual(batchDistances.count, singleDistances.count)
+        
+        // Batch should be faster
+        print("Batch time: \(batchTime)s, Single time: \(singleTime)s")
+        XCTAssertLessThan(batchTime, singleTime * 2.0) // Allow some variance
+    }
+    
+    // MARK: - Vector Operations
+    
+    func testVectorAddition() async throws {
+        let ops = try await integration.createVectorOperations()
+        
+        let v1 = [Float]([1.0, 2.0, 3.0])
+        let v2 = [Float]([4.0, 5.0, 6.0])
+        
+        let result = try await ops.add(v1, v2)
+        XCTAssertEqual(result, [5.0, 7.0, 9.0])
+    }
+    
+    func testVectorMultiplication() async throws {
+        let ops = try await integration.createVectorOperations()
+        
+        let v1 = [Float]([2.0, 3.0, 4.0])
+        let v2 = [Float]([5.0, 6.0, 7.0])
+        
+        let result = try await ops.multiply(v1, v2)
+        XCTAssertEqual(result, [10.0, 18.0, 28.0])
+    }
+    
+    func testVectorScaling() async throws {
+        let ops = try await integration.createVectorOperations()
+        
+        let vector = [Float]([1.0, 2.0, 3.0])
+        let scalar: Float = 2.5
+        
+        let result = try await ops.scale(vector, by: scalar)
+        XCTAssertEqual(result, [2.5, 5.0, 7.5])
+    }
+    
+    func testVectorNormalization() async throws {
+        let ops = try await integration.createVectorOperations()
+        
+        let vector = [Float]([3.0, 4.0, 0.0])
+        let normalized = try await ops.normalize(vector)
+        
+        // Should have unit length
+        let magnitude = sqrt(normalized.reduce(0) { $0 + $1 * $1 })
+        XCTAssertEqual(magnitude, 1.0, accuracy: 1e-5)
+        
+        // Check direction preserved
+        XCTAssertEqual(normalized[0], 0.6, accuracy: 1e-5)
+        XCTAssertEqual(normalized[1], 0.8, accuracy: 1e-5)
+    }
+    
+    // MARK: - GPU vs CPU Comparison
+    
+    func testGPUCPUConsistency() async throws {
+        // Create GPU-enabled integration
+        let gpuConfig = VectorCoreIntegration.Configuration(
+            preferGPU: true,
+            fallbackToCPU: false
+        )
+        let gpuIntegration = VectorCoreIntegration(context: context, configuration: gpuConfig)
+        
+        // Create CPU-only integration
+        let cpuConfig = VectorCoreIntegration.Configuration(
+            preferGPU: false,
+            fallbackToCPU: true
+        )
+        let cpuIntegration = VectorCoreIntegration(context: context, configuration: cpuConfig)
+        
+        let v1 = (0..<512).map { Float($0) / 512.0 }
+        let v2 = (0..<512).map { Float(512 - $0) / 512.0 }
+        
+        // Test distance computation
+        let gpuProvider = try await gpuIntegration.createDistanceProvider()
+        let cpuProvider = try await cpuIntegration.createDistanceProvider()
+        
+        let gpuDistance = try await gpuProvider.distance(v1, v2, metric: .euclidean)
+        let cpuDistance = try await cpuProvider.distance(v1, v2, metric: .euclidean)
+        
+        XCTAssertEqual(gpuDistance, cpuDistance, accuracy: 1e-4)
+    }
+    
+    func testGPUPerformanceAdvantage() async throws {
+        let gpuProvider = try await integration.createDistanceProvider()
+        
+        // Large vectors for GPU advantage
+        let size = 10000
+        let v1 = (0..<size).map { Float($0) / Float(size) }
+        let v2 = (0..<size).map { Float(size - $0) / Float(size) }
+        
+        // Warm up
+        _ = try await gpuProvider.distance(v1, v2, metric: .euclidean)
+        
+        // Measure GPU time
+        let gpuStart = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<10 {
+            _ = try await gpuProvider.distance(v1, v2, metric: .euclidean)
+        }
+        let gpuTime = CFAbsoluteTimeGetCurrent() - gpuStart
+        
+        print("GPU time for 10 iterations: \(gpuTime)s")
+        XCTAssertLessThan(gpuTime, 1.0) // Should be fast
+    }
+    
+    // MARK: - Hybrid Execution Strategy
+    
+    func testHybridExecutionStrategy() async throws {
+        let config = VectorCoreIntegration.Configuration(
+            preferGPU: true,
+            fallbackToCPU: true,
+            batchThreshold: 100
+        )
+        let hybrid = VectorCoreIntegration(context: context, configuration: config)
+        
+        // Small batch - should use CPU
+        let smallBatch = (0..<10).map { _ in
+            [Float](repeating: 1.0, count: 128)
+        }
+        
+        // Large batch - should use GPU
+        let largeBatch = (0..<1000).map { _ in
+            [Float](repeating: 1.0, count: 128)
+        }
+        
+        let provider = try await hybrid.createDistanceProvider()
+        let query = [Float](repeating: 0.5, count: 128)
+        
+        // Both should work seamlessly
+        let smallResults = try await provider.batchDistance(
+            query: query,
+            database: smallBatch,
+            metric: .euclidean
+        )
+        XCTAssertEqual(smallResults.count, 10)
+        
+        let largeResults = try await provider.batchDistance(
+            query: query,
+            database: largeBatch,
+            metric: .euclidean
+        )
+        XCTAssertEqual(largeResults.count, 1000)
+    }
+    
+    // MARK: - VectorCore Protocol Extensions
+    
+    func testVectorCoreProtocolConformance() async throws {
+        // Test that our types properly conform to VectorCore protocols
+        let provider = try await integration.createDistanceProvider()
+        
+        // Should conform to DistanceProvider protocol
+        XCTAssertTrue(provider is DistanceProvider)
+        
+        let ops = try await integration.createVectorOperations()
+        
+        // Should conform to VectorOperations protocol
+        XCTAssertTrue(ops is VectorOperations)
+    }
+    
+    func testCustomMetricSupport() async throws {
+        let provider = try await integration.createDistanceProvider()
+        
+        let v1 = [Float]([1.0, 2.0, 3.0])
+        let v2 = [Float]([4.0, 5.0, 6.0])
+        
+        // Test various metrics
+        let metrics: [DistanceMetric] = [.euclidean, .cosine, .manhattan, .dotProduct]
+        
+        for metric in metrics {
+            let distance = try await provider.distance(v1, v2, metric: metric)
+            XCTAssertGreaterThanOrEqual(distance, 0)
+        }
+    }
+    
+    // MARK: - Error Handling
+    
+    func testDimensionMismatch() async throws {
+        let provider = try await integration.createDistanceProvider()
+        
+        let v1 = [Float]([1.0, 2.0, 3.0])
+        let v2 = [Float]([4.0, 5.0]) // Different dimension
+        
+        do {
+            _ = try await provider.distance(v1, v2, metric: .euclidean)
+            XCTFail("Should throw dimension mismatch error")
+        } catch {
+            XCTAssertTrue(error is VectorCoreIntegration.IntegrationError)
+        }
+    }
+    
+    func testEmptyVectorHandling() async throws {
+        let provider = try await integration.createDistanceProvider()
+        
+        let v1: [Float] = []
+        let v2: [Float] = []
+        
+        do {
+            _ = try await provider.distance(v1, v2, metric: .euclidean)
+            XCTFail("Should throw error for empty vectors")
+        } catch {
+            XCTAssertTrue(error is VectorCoreIntegration.IntegrationError)
+        }
+    }
+    
+    func testSpecialValueHandling() async throws {
+        let provider = try await integration.createDistanceProvider()
+        
+        let v1 = [Float]([1.0, Float.nan, 3.0])
+        let v2 = [Float]([4.0, 5.0, Float.infinity])
+        
+        do {
+            let distance = try await provider.distance(v1, v2, metric: .euclidean)
+            // Should handle special values gracefully
+            XCTAssertTrue(distance.isNaN || distance.isInfinite)
+        } catch {
+            // Also acceptable to throw error
+            XCTAssertTrue(true)
+        }
+    }
+    
+    // MARK: - Performance and Memory Tests
+    
+    func testMemoryEfficiency() async throws {
+        let provider = try await integration.createDistanceProvider()
+        
+        // Large dataset
+        let database = (0..<10000).map { _ in
+            (0..<256).map { _ in Float.random(in: -1...1) }
+        }
+        let query = [Float](repeating: 1.0, count: 256)
+        
+        // Should handle large dataset without excessive memory
+        let distances = try await provider.batchDistance(
+            query: query,
+            database: database,
+            metric: .euclidean
+        )
+        
+        XCTAssertEqual(distances.count, 10000)
+    }
+    
+    func testConcurrentOperations() async throws {
+        let provider = try await integration.createDistanceProvider()
+        let iterations = 100
+        
+        await withTaskGroup(of: Float.self) { group in
+            for i in 0..<iterations {
+                group.addTask {
+                    let v1 = [Float](repeating: Float(i), count: 128)
+                    let v2 = [Float](repeating: Float(i + 1), count: 128)
+                    
+                    do {
+                        return try await provider.distance(v1, v2, metric: .euclidean)
+                    } catch {
+                        return -1.0
+                    }
+                }
+            }
+            
+            var successCount = 0
+            for await distance in group {
+                if distance >= 0 {
+                    successCount += 1
+                }
+            }
+            
+            XCTAssertEqual(successCount, iterations)
+        }
+    }
+}
+
+// MARK: - Mock Protocols for Testing
+
+protocol DistanceProvider {
+    func distance(_ v1: [Float], _ v2: [Float], metric: DistanceMetric) async throws -> Float
+    func batchDistance(query: [Float], database: [[Float]], metric: DistanceMetric) async throws -> [Float]
+}
+
+protocol VectorOperations {
+    func add(_ v1: [Float], _ v2: [Float]) async throws -> [Float]
+    func multiply(_ v1: [Float], _ v2: [Float]) async throws -> [Float]
+    func scale(_ vector: [Float], by scalar: Float) async throws -> [Float]
+    func normalize(_ vector: [Float]) async throws -> [Float]
+}
+
+enum DistanceMetric {
+    case euclidean
+    case cosine
+    case manhattan
+    case dotProduct
+}

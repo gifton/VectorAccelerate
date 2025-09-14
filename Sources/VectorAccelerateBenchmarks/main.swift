@@ -1,0 +1,125 @@
+//
+//  main.swift
+//  VectorAccelerateBenchmarks
+//
+//  Simple benchmark runner for VectorAccelerate performance testing
+//
+
+import Foundation
+import VectorAccelerate
+import VectorCore
+
+struct BenchmarkRunner {
+    static func main() async throws {
+        print("🚀 VectorAccelerate Benchmark Suite")
+        print("===================================\n")
+        
+        // Check Metal availability
+        guard MetalDevice.isAvailable else {
+            print("❌ Metal is not available on this system")
+            return
+        }
+        
+        print("✅ Metal is available")
+        
+        do {
+            // Initialize Metal context and compute engine
+            let context = try await VectorAccelerate.MetalContext()
+            let engine = try await ComputeEngine(context: context)
+            
+            print("✅ Metal context and compute engine initialized")
+            print("📊 Starting benchmarks...\n")
+            
+            // Create benchmark suite
+            let suite = BenchmarkSuite(engine: engine, context: context)
+            
+            // Define benchmark configurations
+            let configurations = [
+                BenchmarkConfiguration(
+                    iterations: 50,
+                    warmupIterations: 5,
+                    dimension: 64,
+                    batchSize: 100,
+                    additionalInfo: ["description": "Small vectors"]
+                ),
+                BenchmarkConfiguration(
+                    iterations: 50,
+                    warmupIterations: 5,
+                    dimension: 256,
+                    batchSize: 100,
+                    additionalInfo: ["description": "Medium vectors"]
+                ),
+                BenchmarkConfiguration(
+                    iterations: 25,
+                    warmupIterations: 3,
+                    dimension: 1024,
+                    batchSize: 100,
+                    additionalInfo: ["description": "Large vectors"]
+                )
+            ]
+            
+            // Run benchmarks
+            print("Running benchmarks for dimensions: 64, 256, 1024")
+            let results = try await suite.runAllBenchmarks(configurations: configurations)
+            
+            // Generate and print report
+            let report = BenchmarkReport.consoleReport(results: results)
+            print(report)
+            
+            // Save JSON report
+            let jsonData = try BenchmarkReport.jsonReport(results: results)
+            let url = URL(fileURLWithPath: "benchmark_results.json")
+            try jsonData.write(to: url)
+            print("📄 Detailed results saved to: \(url.path)")
+            
+            // Print summary
+            printSummary(results: results)
+            
+        } catch {
+            print("❌ Benchmark failed: \(error)")
+            throw error
+        }
+    }
+    
+    private static func printSummary(results: [VectorAccelerate.BenchmarkResult]) {
+        print("\n🏆 Performance Summary")
+        print("=====================")
+        
+        // Group by operation type
+        let groupedResults = Dictionary(grouping: results) { result in
+            result.name.components(separatedBy: " ").first ?? "Unknown"
+        }
+        
+        for (operation, operationResults) in groupedResults.sorted(by: { $0.key < $1.key }) {
+            print("\n\(operation):")
+            
+            for result in operationResults.sorted(by: { $0.configuration.dimension < $1.configuration.dimension }) {
+                let timeMs = result.medianTime * 1000
+                let opsPerSec = result.operationsPerSecond
+                
+                print("  dim \(result.configuration.dimension): \(String(format: "%.2f", timeMs))ms (\(String(format: "%.0f", opsPerSec)) ops/sec)")
+                
+                if let vectorsPerSec = result.vectorsPerSecond {
+                    print("    ↳ \(String(format: "%.0f", vectorsPerSec)) vectors/sec")
+                }
+            }
+        }
+        
+        // Find fastest operations
+        let fastestResult = results.min(by: { $0.medianTime < $1.medianTime })
+        if let fastest = fastestResult {
+            print("\n⚡ Fastest Operation: \(fastest.name)")
+            print("   Time: \(String(format: "%.3f", fastest.medianTime * 1000))ms")
+        }
+        
+        // Calculate average performance across dimensions
+        let dimensionGroups = Dictionary(grouping: results) { $0.configuration.dimension }
+        print("\n📈 Performance by Dimension:")
+        
+        for dimension in dimensionGroups.keys.sorted() {
+            let dimensionResults = dimensionGroups[dimension]!
+            let avgTime = dimensionResults.map(\.medianTime).reduce(0, +) / Double(dimensionResults.count)
+            print("  \(dimension)D: \(String(format: "%.3f", avgTime * 1000))ms average")
+        }
+    }
+}
