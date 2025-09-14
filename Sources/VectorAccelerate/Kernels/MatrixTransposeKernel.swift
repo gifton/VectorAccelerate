@@ -10,7 +10,7 @@ import QuartzCore
 
 /// GPU-accelerated matrix transpose using tiled algorithm
 /// Optimized to avoid bank conflicts with padding strategy
-public final class MatrixTransposeKernel: Sendable {
+public final class MatrixTransposeKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let pipelineState: any MTLComputePipelineState

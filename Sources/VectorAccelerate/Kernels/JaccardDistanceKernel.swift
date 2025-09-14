@@ -10,7 +10,7 @@ import QuartzCore
 
 /// GPU-accelerated Jaccard distance computation
 /// Optimized for binary vector comparisons with reduction pattern
-public final class JaccardDistanceKernel {
+public final class JaccardDistanceKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let pipelineState: any MTLComputePipelineState

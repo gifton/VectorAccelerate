@@ -12,7 +12,7 @@ import QuartzCore
 
 /// GPU-accelerated Minkowski distance computation
 /// Supports arbitrary p values with optimizations for common cases (p=1, p=2, p→∞)
-public final class MinkowskiDistanceKernel {
+public final class MinkowskiDistanceKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let pipeline: any MTLComputePipelineState

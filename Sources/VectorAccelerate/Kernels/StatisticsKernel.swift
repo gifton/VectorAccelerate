@@ -219,7 +219,7 @@ public struct StatisticsBenchmarkResult: Sendable {
 
 // MARK: - StatisticsKernel Implementation
 
-public final class StatisticsKernel: Sendable {
+public final class StatisticsKernel: @unchecked Sendable {
     // MARK: Properties
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue

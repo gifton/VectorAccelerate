@@ -12,7 +12,7 @@ import QuartzCore
 
 /// GPU-accelerated Hamming distance computation
 /// Supports bit-packed binary vectors and float vectors with binarization
-public final class HammingDistanceKernel {
+public final class HammingDistanceKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let kernelContext: KernelContext
     private let batchKernel: any MTLComputePipelineState

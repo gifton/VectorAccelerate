@@ -12,7 +12,7 @@ import QuartzCore
 
 /// Top-K selection kernel for GPU acceleration
 /// Finds the K largest or smallest elements from a dataset along with their indices
-public final class TopKSelectionKernel {
+public final class TopKSelectionKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let kernelContext: KernelContext
     private let pipelineStateBatch: any MTLComputePipelineState

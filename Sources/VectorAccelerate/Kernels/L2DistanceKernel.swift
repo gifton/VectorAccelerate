@@ -131,16 +131,24 @@ public final class L2DistanceKernel {
         var params = parameters
         encoder.setBytes(&params, length: MemoryLayout<Parameters>.size, index: 3)
         
-        // Calculate thread groups for 2D dispatch
+        // Calculate thread groups for 2D dispatch based on device capabilities
+        let w = selectedPipeline.threadExecutionWidth
+        let maxThreads = selectedPipeline.maxTotalThreadsPerThreadgroup
+
+        // Optimize for 2D dispatch - aim for square-ish thread groups
+        let threadsPerSide = Int(sqrt(Double(min(maxThreads, 256))))
+        let threadWidth = min(threadsPerSide, Int(parameters.numQueries))
+        let threadHeight = min(threadsPerSide, Int(parameters.numDatabase))
+
         let threadsPerThreadgroup = MTLSize(
-            width: 8,
-            height: 8,
+            width: threadWidth,
+            height: threadHeight,
             depth: 1
         )
-        
+
         let threadgroups = MTLSize(
-            width: (Int(parameters.numQueries) + 7) / 8,
-            height: (Int(parameters.numDatabase) + 7) / 8,
+            width: (Int(parameters.numQueries) + threadWidth - 1) / threadWidth,
+            height: (Int(parameters.numDatabase) + threadHeight - 1) / threadHeight,
             depth: 1
         )
         
@@ -177,19 +185,35 @@ public final class L2DistanceKernel {
         let numQueries = queries.count
         let numDatabase = database.count
         
-        // Allocate buffers
-        guard let queryBuffer = kernelContext.createBuffer(
-            from: queries.flatMap { $0 },
-            options: MTLResourceOptions.storageModeShared
+        // Allocate buffers with alignment for SIMD operations
+        let flatQueries = queries.flatMap { $0 }
+        let flatDatabase = database.flatMap { $0 }
+
+        // Use aligned buffer creation for better SIMD performance
+        guard let queryBuffer = kernelContext.createAlignedBuffer(
+            from: flatQueries,
+            options: MTLResourceOptions.storageModeShared,
+            alignment: 16  // Align for float4 SIMD operations
         ) else {
             throw AccelerationError.bufferCreationFailed("Failed to create query buffer")
         }
 
-        guard let databaseBuffer = kernelContext.createBuffer(
-            from: database.flatMap { $0 },
-            options: MTLResourceOptions.storageModeShared
+        guard let databaseBuffer = kernelContext.createAlignedBuffer(
+            from: flatDatabase,
+            options: MTLResourceOptions.storageModeShared,
+            alignment: 16  // Align for float4 SIMD operations
         ) else {
             throw AccelerationError.bufferCreationFailed("Failed to create database buffer")
+        }
+
+        // Validate SIMD compatibility for optimal performance
+        if dimension >= 4 {  // Only check if we can use SIMD
+            if !KernelContext.isBufferSIMDCompatible(queryBuffer, elementSize: MemoryLayout<Float>.stride) {
+                print("Warning: Query buffer may not be optimally aligned for SIMD operations")
+            }
+            if !KernelContext.isBufferSIMDCompatible(databaseBuffer, elementSize: MemoryLayout<Float>.stride) {
+                print("Warning: Database buffer may not be optimally aligned for SIMD operations")
+            }
         }
         
         let distanceBuffer = device.makeBuffer(

@@ -9,7 +9,7 @@ import VectorCore
 
 /// Scalar quantization kernel for GPU acceleration
 /// Reduces memory footprint by converting float32 to int8/int4 with scale and offset
-public final class ScalarQuantizationKernel {
+public final class ScalarQuantizationKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let kernelContext: KernelContext
 

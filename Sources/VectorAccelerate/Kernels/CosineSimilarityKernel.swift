@@ -9,7 +9,7 @@ import VectorCore
 import QuartzCore
 
 /// Cosine Similarity computation kernel for GPU acceleration
-public final class CosineSimilarityKernel {
+public final class CosineSimilarityKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let kernelContext: KernelContext
     

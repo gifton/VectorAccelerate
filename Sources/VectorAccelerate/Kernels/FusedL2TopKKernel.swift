@@ -209,9 +209,12 @@ public final class FusedL2TopKKernel {
             let currentChunkSize = min(chunkSize, remainingCount)
             
             // Create buffer for chunk of dataset
-            let chunkData = Array(dataset[processedCount * dimension..<(processedCount + currentChunkSize) * dimension])
-            guard let chunkBuffer = kernelContext.createBuffer(
-                from: chunkData,
+            let offset = processedCount * dimension * MemoryLayout<Float>.stride
+            let length = currentChunkSize * dimension * MemoryLayout<Float>.stride
+            let pointer = dataset.contents().advanced(by: offset)
+            guard let chunkBuffer = device.makeBuffer(
+                bytes: pointer,
+                length: length,
                 options: MTLResourceOptions.storageModeShared
             ) else {
                 throw AccelerationError.bufferCreationFailed("Failed to create chunk buffer")

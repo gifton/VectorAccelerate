@@ -10,7 +10,7 @@ import QuartzCore
 
 /// GPU-accelerated matrix-vector multiplication
 /// Optimized using SIMD group operations for efficient reduction
-public final class MatrixVectorKernel: Sendable {
+public final class MatrixVectorKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let simdgroupKernel: any MTLComputePipelineState

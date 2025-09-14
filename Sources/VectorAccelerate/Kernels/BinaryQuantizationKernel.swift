@@ -11,7 +11,7 @@ import Accelerate
 
 /// GPU-accelerated binary quantization and Hamming distance computation
 /// Optimized for bit-packed storage and efficient binary operations
-public final class BinaryQuantizationKernel {
+public final class BinaryQuantizationKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let quantizeKernel: any MTLComputePipelineState

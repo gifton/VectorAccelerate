@@ -11,7 +11,7 @@ import Accelerate
 
 /// GPU-accelerated quantization statistics computation
 /// Optimized for batch processing with comprehensive quality metrics
-public final class QuantizationStatisticsKernel {
+public final class QuantizationStatisticsKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let pipelineState: any MTLComputePipelineState

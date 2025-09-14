@@ -10,7 +10,7 @@ import VectorCore
 
 /// Parallel reduction kernel for GPU acceleration
 /// Performs aggregation operations (sum, min, max, etc.) across large datasets
-public final class ParallelReductionKernel {
+public final class ParallelReductionKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let kernelContext: KernelContext
     private let pipelineStateGeneric: any MTLComputePipelineState

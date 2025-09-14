@@ -10,7 +10,7 @@ import VectorCore
 import QuartzCore
 
 /// Dot Product computation kernel for GPU acceleration
-public final class DotProductKernel {
+public final class DotProductKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let kernelContext: KernelContext
     

@@ -49,4 +49,54 @@ public final class KernelContext: @unchecked Sendable {
             device.makeBuffer(bytes: bytes.baseAddress!, length: size, options: options)
         }
     }
+
+    /// Create a buffer with guaranteed alignment for SIMD operations
+    /// - Parameters:
+    ///   - data: Input data array
+    ///   - options: Metal resource options
+    ///   - alignment: Required alignment in bytes (default 16 for SIMD)
+    /// - Returns: Aligned buffer or nil if creation fails
+    public func createAlignedBuffer<T>(
+        from data: [T],
+        options: MTLResourceOptions,
+        alignment: Int = 16
+    ) -> (any MTLBuffer)? {
+        let size = data.count * MemoryLayout<T>.stride
+        // Ensure size is aligned
+        let alignedSize = (size + alignment - 1) & ~(alignment - 1)
+
+        return data.withUnsafeBytes { bytes in
+            // Metal buffers are already 256-byte aligned by default
+            // But we add explicit alignment for documentation
+            device.makeBuffer(bytes: bytes.baseAddress!, length: alignedSize, options: options)
+        }
+    }
+
+    /// Validate buffer alignment for SIMD operations
+    /// - Parameters:
+    ///   - buffer: Buffer to validate
+    ///   - requiredAlignment: Required alignment in bytes
+    /// - Returns: True if buffer is properly aligned
+    public static func isBufferAligned(_ buffer: any MTLBuffer, alignment: Int = 16) -> Bool {
+        // Check if buffer address is aligned
+        let address = buffer.contents()
+        let addressInt = Int(bitPattern: address)
+        return addressInt % alignment == 0
+    }
+
+    /// Validate that buffer size is suitable for SIMD operations
+    /// - Parameters:
+    ///   - buffer: Buffer to validate
+    ///   - elementSize: Size of each element in bytes
+    ///   - simdWidth: SIMD width (e.g., 4 for float4)
+    /// - Returns: True if buffer can be processed with SIMD
+    public static func isBufferSIMDCompatible(
+        _ buffer: any MTLBuffer,
+        elementSize: Int,
+        simdWidth: Int = 4
+    ) -> Bool {
+        let elementCount = buffer.length / elementSize
+        // Check if we have at least one full SIMD vector
+        return elementCount >= simdWidth && isBufferAligned(buffer, alignment: elementSize * simdWidth)
+    }
 }

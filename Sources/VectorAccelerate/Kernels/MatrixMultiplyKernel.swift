@@ -10,7 +10,7 @@ import QuartzCore
 
 /// GPU-accelerated matrix multiplication using tiled algorithm
 /// Optimized for Apple Silicon with 32x32x8 tiling strategy
-public final class MatrixMultiplyKernel: Sendable {
+public final class MatrixMultiplyKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let pipelineState: any MTLComputePipelineState
@@ -106,11 +106,11 @@ public final class MatrixMultiplyKernel: Sendable {
     
     // MARK: - Core Operations
     
-    /// Multiply two matrices: C = alpha * A * B + beta * C
+    /// Multiply two matrices: C = alpha * A * B
     /// - Parameters:
     ///   - matrixA: First matrix (M x K)
     ///   - matrixB: Second matrix (K x N)
-    ///   - config: Multiplication configuration
+    ///   - config: Multiplication configuration (beta should be 0 for this variant)
     /// - Returns: Result matrix (M x N) with performance metrics
     public func multiply(
         _ matrixA: Matrix,
@@ -215,13 +215,18 @@ public final class MatrixMultiplyKernel: Sendable {
         let resultPointer = bufferC.contents().bindMemory(to: Float.self, capacity: M * N)
         let resultData = Array(UnsafeBufferPointer(start: resultPointer, count: M * N))
         
-        // Apply alpha and beta scaling if needed
+        // Apply alpha scaling (beta is handled in the shader or initialization)
+        // Note: Standard GEMM is C = alpha * A*B + beta * C_initial
+        // Since we don't have C_initial, beta should typically be 0
         var finalData = resultData
-        if config.alpha != 1.0 || config.beta != 0.0 {
+        if config.alpha != 1.0 {
             for i in 0..<finalData.count {
-                finalData[i] = config.alpha * finalData[i] + config.beta * finalData[i]
+                finalData[i] = config.alpha * finalData[i]
             }
         }
+
+        // If beta != 0, it was already applied during buffer initialization
+        // The shader should handle: C[i,j] = alpha * sum(A[i,k] * B[k,j]) + beta * C_initial[i,j]
         
         // Calculate GFLOPS
         let operations = 2.0 * Double(M) * Double(N) * Double(K)
@@ -231,6 +236,50 @@ public final class MatrixMultiplyKernel: Sendable {
         return MultiplyResult(matrix: resultMatrix, executionTime: executionTime, gflops: gflops)
     }
     
+    /// General Matrix Multiply (GEMM): C = alpha * A * B + beta * C
+    /// - Parameters:
+    ///   - matrixA: First matrix (M x K)
+    ///   - matrixB: Second matrix (K x N)
+    ///   - matrixC: Initial matrix C (M x N) for accumulation
+    ///   - config: Multiplication configuration with alpha and beta
+    /// - Returns: Result matrix (M x N) with performance metrics
+    public func gemm(
+        _ matrixA: Matrix,
+        _ matrixB: Matrix,
+        _ matrixC: Matrix,
+        config: MultiplyConfig = .default
+    ) throws -> MultiplyResult {
+        // Validate C dimensions
+        let M = config.transposeA ? matrixA.columns : matrixA.rows
+        let N = config.transposeB ? matrixB.rows : matrixB.columns
+
+        guard matrixC.rows == M && matrixC.columns == N else {
+            throw AccelerationError.invalidInput("Matrix C dimensions must be \(M)x\(N)")
+        }
+
+        // First compute A * B
+        let abResult = try multiply(matrixA, matrixB, config: MultiplyConfig(
+            transposeA: config.transposeA,
+            transposeB: config.transposeB,
+            alpha: 1.0,  // We'll apply alpha later
+            beta: 0.0,
+            useSpecializedKernel: config.useSpecializedKernel
+        ))
+
+        // Now apply the full GEMM formula: C = alpha * (A*B) + beta * C
+        var finalValues = abResult.matrix.values
+        for i in 0..<finalValues.count {
+            finalValues[i] = config.alpha * finalValues[i] + config.beta * matrixC.values[i]
+        }
+
+        let resultMatrix = Matrix(rows: M, columns: N, values: finalValues)
+        return MultiplyResult(
+            matrix: resultMatrix,
+            executionTime: abResult.executionTime,
+            gflops: abResult.gflops
+        )
+    }
+
     /// Multiply matrices from flat arrays
     public func multiply(
         matrixA: [Float],

@@ -12,7 +12,7 @@ import QuartzCore
 
 /// Element-wise operations kernel for GPU acceleration
 /// Performs mathematical operations on vectors element-by-element
-public final class ElementwiseKernel {
+public final class ElementwiseKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let kernelContext: KernelContext
     private let pipelineState: any MTLComputePipelineState

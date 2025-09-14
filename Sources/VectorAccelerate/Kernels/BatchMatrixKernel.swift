@@ -10,7 +10,7 @@ import QuartzCore
 
 /// GPU-accelerated batch matrix operations
 /// Supports both fused operations with bias and strided tensor operations
-public final class BatchMatrixKernel: Sendable {
+public final class BatchMatrixKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let fusedKernel: any MTLComputePipelineState

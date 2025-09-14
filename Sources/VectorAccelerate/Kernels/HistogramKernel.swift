@@ -11,7 +11,7 @@ import Accelerate
 
 /// GPU-accelerated histogram computation
 /// Optimized for large-scale data analysis with multiple binning strategies
-public final class HistogramKernel {
+public final class HistogramKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let uniformBinningKernel: any MTLComputePipelineState

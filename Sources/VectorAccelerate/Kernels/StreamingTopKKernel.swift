@@ -12,7 +12,7 @@ import QuartzCore
 
 /// GPU-accelerated streaming top-k selection for massive datasets
 /// Processes data in chunks and maintains running top-k using max-heap
-public final class StreamingTopKKernel {
+public final class StreamingTopKKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let kernelContext: KernelContext
     private let initKernel: any MTLComputePipelineState
@@ -166,9 +166,10 @@ public final class StreamingTopKKernel {
         encoder.setBytes(&params, length: MemoryLayout.size(ofValue: params), index: 2)
         
         let totalElements = config.queryCount * config.k
-        let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
-        let numThreadgroups = (totalElements + 255) / 256
-        let gridSize = MTLSize(width: numThreadgroups * 256, height: 1, depth: 1)
+        let optimalThreads = min(initKernel.maxTotalThreadsPerThreadgroup, 256)
+        let threadsPerThreadgroup = MTLSize(width: optimalThreads, height: 1, depth: 1)
+        let numThreadgroups = (totalElements + optimalThreads - 1) / optimalThreads
+        let gridSize = MTLSize(width: numThreadgroups * optimalThreads, height: 1, depth: 1)
         
         encoder.dispatchThreads(gridSize, threadsPerThreadgroup: threadsPerThreadgroup)
         encoder.endEncoding()
@@ -217,9 +218,10 @@ public final class StreamingTopKKernel {
         encoder.setBytes(&config, length: MemoryLayout.size(ofValue: config), index: 5)
         
         // One thread per query
-        let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
-        let numThreadgroups = (state.config.queryCount + 255) / 256
-        let gridSize = MTLSize(width: numThreadgroups * 256, height: 1, depth: 1)
+        let optimalThreads = min(processKernel.maxTotalThreadsPerThreadgroup, 256)
+        let threadsPerThreadgroup = MTLSize(width: optimalThreads, height: 1, depth: 1)
+        let numThreadgroups = (state.config.queryCount + optimalThreads - 1) / optimalThreads
+        let gridSize = MTLSize(width: numThreadgroups * optimalThreads, height: 1, depth: 1)
         
         encoder.dispatchThreads(gridSize, threadsPerThreadgroup: threadsPerThreadgroup)
         encoder.endEncoding()
@@ -293,9 +295,10 @@ public final class StreamingTopKKernel {
         encoder.setBytes(&params, length: MemoryLayout.size(ofValue: params), index: 2)
         
         // One thread per query
-        let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
-        let numThreadgroups = (state.config.queryCount + 255) / 256
-        let gridSize = MTLSize(width: numThreadgroups * 256, height: 1, depth: 1)
+        let optimalThreads = min(processKernel.maxTotalThreadsPerThreadgroup, 256)
+        let threadsPerThreadgroup = MTLSize(width: optimalThreads, height: 1, depth: 1)
+        let numThreadgroups = (state.config.queryCount + optimalThreads - 1) / optimalThreads
+        let gridSize = MTLSize(width: numThreadgroups * optimalThreads, height: 1, depth: 1)
         
         encoder.dispatchThreads(gridSize, threadsPerThreadgroup: threadsPerThreadgroup)
         encoder.endEncoding()

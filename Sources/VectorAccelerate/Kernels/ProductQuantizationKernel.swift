@@ -12,7 +12,7 @@ import QuartzCore
 
 /// GPU-accelerated Product Quantization for vector compression and fast similarity search
 /// Splits vectors into M subspaces and quantizes each using K-means clustering
-public final class ProductQuantizationKernel {
+public final class ProductQuantizationKernel: @unchecked Sendable {
     private let device: any MTLDevice
     private let kernelContext: KernelContext
     
