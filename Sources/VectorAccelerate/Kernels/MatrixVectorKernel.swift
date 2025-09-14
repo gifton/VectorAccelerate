@@ -10,7 +10,7 @@ import QuartzCore
 
 /// GPU-accelerated matrix-vector multiplication
 /// Optimized using SIMD group operations for efficient reduction
-public final class MatrixVectorKernel {
+public final class MatrixVectorKernel: Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let simdgroupKernel: any MTLComputePipelineState
@@ -23,7 +23,7 @@ public final class MatrixVectorKernel {
     // MARK: - Result Types
     
     /// Result from matrix-vector multiplication
-    public struct MatrixVectorResult {
+    public struct MatrixVectorResult: Sendable {
         public let vector: [Float]
         public let executionTime: TimeInterval
         public let gflops: Double
@@ -41,7 +41,7 @@ public final class MatrixVectorKernel {
     }
     
     /// Batch result for multiple operations
-    public struct BatchResult {
+    public struct BatchResult: Sendable {
         public let vectors: [[Float]]
         public let totalExecutionTime: TimeInterval
         public let averageGflops: Double
@@ -326,7 +326,7 @@ public final class MatrixVectorKernel {
         vector: [Float],
         config: MatrixVectorConfig = .default
     ) async throws -> MatrixVectorResult {
-        return try await Task.detached(priority: .userInitiated) {
+        return try await Task.detached(priority: .userInitiated) { [self] in
             return try self.multiply(matrix: matrix, vector: vector, config: config)
         }.value
     }
@@ -437,7 +437,7 @@ public final class MatrixVectorKernel {
         return results
     }
     
-    public struct BenchmarkResult {
+    public struct BenchmarkResult: Sendable {
         public let matrixDimensions: String
         public let executionTime: TimeInterval
         public let gflops: Double

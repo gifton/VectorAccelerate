@@ -11,7 +11,7 @@ import QuartzCore
 /// Normalizes vectors to unit length using the L2 (Euclidean) norm
 public final class L2NormalizationKernel {
     private let device: any MTLDevice
-    private let computeEngine: ComputeEngine
+    private let kernelContext: KernelContext
 
     // Pipeline states for different variants
     private let pipelineStateGeneral: any MTLComputePipelineState
@@ -43,7 +43,7 @@ public final class L2NormalizationKernel {
             outputStride: Int? = nil
         ) {
             self.numVectors = UInt32(numVectors)
-            self.count = UInt32(dimension)
+            self.dimension = UInt32(dimension)
             self.epsilon = epsilon
             self.computeStats = computeStats ? 1 : 0
             self.storeNorms = storeNorms ? 1 : 0
@@ -57,7 +57,7 @@ public final class L2NormalizationKernel {
     /// Initialize the L2NormalizationKernel with Metal device
     public init(device: any MTLDevice) throws {
         self.device = device
-        self.computeEngine = try ComputeEngine(context: MetalContext(device: device))
+        self.kernelContext = try KernelContext.shared(for: device)
 
         guard let library = device.makeDefaultLibrary() else {
             throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
@@ -97,7 +97,7 @@ public final class L2NormalizationKernel {
     public func normalize(
         input: any MTLBuffer,
         output: any MTLBuffer,
-        norms: any MTLBuffer? = nil,
+        norms: (any MTLBuffer)? = nil,
         parameters: Parameters,
         commandBuffer: any MTLCommandBuffer
     ) throws {
@@ -156,7 +156,7 @@ public final class L2NormalizationKernel {
     ///   - commandBuffer: Command buffer for GPU execution
     public func normalizeInPlace(
         vectors: any MTLBuffer,
-        norms: any MTLBuffer? = nil,
+        norms: (any MTLBuffer)? = nil,
         parameters: Parameters,
         commandBuffer: any MTLCommandBuffer
     ) throws {
@@ -221,10 +221,12 @@ public final class L2NormalizationKernel {
 
         // Create buffers
         let flattenedVectors = vectors.flatMap { $0 }
-        let inputBuffer = try computeEngine.createBuffer(
+        guard let inputBuffer = kernelContext.createBuffer(
             from: flattenedVectors,
             options: MTLResourceOptions.storageModeShared
-        )
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create input buffer")
+        }
 
         let totalElements = numVectors * dimension
         guard let outputBuffer = device.makeBuffer(
@@ -249,7 +251,7 @@ public final class L2NormalizationKernel {
         )
 
         // Execute
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
         try normalize(
             input: inputBuffer,
@@ -311,10 +313,7 @@ public final class L2NormalizationKernel {
         
         // Convert back to VectorProtocol type
         let normalizedVectors = try normalizedArrays.map { array in
-            guard let vector = V(scalars: array) else {
-                throw AccelerationError.invalidInput("Failed to create vector from normalized scalars")
-            }
-            return vector
+            return try V(array)
         }
         
         return (normalizedVectors, norms)
@@ -323,7 +322,7 @@ public final class L2NormalizationKernel {
     // MARK: - Performance Extensions
 
     /// Performance statistics for kernel execution
-    public struct PerformanceStats {
+    public struct PerformanceStats: Sendable {
         public let vectorsPerSecond: Double
         public let executionTime: TimeInterval
         public let throughput: Double  // GB/s
@@ -357,7 +356,7 @@ public final class L2NormalizationKernel {
 
     private func selectPipeline(for parameters: Parameters) -> any MTLComputePipelineState {
         // Optimized pipelines require dense packing (stride == dimension) for both input and output
-        let dimension = parameters.count
+        let dimension = parameters.dimension
         guard parameters.inputStride == dimension && parameters.outputStride == dimension else {
             return pipelineStateGeneral
         }
@@ -378,12 +377,12 @@ public final class L2NormalizationKernel {
     private func validateBuffers(
         input: any MTLBuffer,
         output: any MTLBuffer,
-        norms: any MTLBuffer?,
+        norms: (any MTLBuffer)?,
         parameters: Parameters
     ) throws {
         let floatSize = MemoryLayout<Float>.stride
         let numVectors = Int(parameters.numVectors)
-        let dimension = Int(parameters.count)
+        let dimension = Int(parameters.dimension)
 
         if numVectors == 0 {
             return // Nothing to do

@@ -368,7 +368,7 @@ public final class MinkowskiDistanceKernel {
     
     // MARK: - Performance Analysis
     
-    public struct PerformanceMetrics {
+    public struct PerformanceMetrics: Sendable {
         public let executionTime: TimeInterval
         public let throughput: Double // distances per second
         public let effectiveMemoryBandwidth: Double // GB/s

@@ -14,7 +14,7 @@ import QuartzCore
 /// Achieves significant performance improvement by avoiding intermediate distance matrix
 public final class FusedL2TopKKernel {
     private let device: any MTLDevice
-    private let computeEngine: ComputeEngine
+    private let kernelContext: KernelContext
     private let fusedKernel: any MTLComputePipelineState
     private let streamingUpdateKernel: any MTLComputePipelineState
     
@@ -26,7 +26,7 @@ public final class FusedL2TopKKernel {
     /// Result from fused L2 top-k operation
     public struct FusedResult {
         public let indices: any MTLBuffer
-        public let distances: any MTLBuffer?
+        public let distances: (any MTLBuffer)?
         public let queryCount: Int
         public let k: Int
         
@@ -65,7 +65,7 @@ public final class FusedL2TopKKernel {
     
     public init(device: any MTLDevice) throws {
         self.device = device
-        self.computeEngine = try ComputeEngine(context: MetalContext(device: device))
+        self.kernelContext = try KernelContext.shared(for: device)
         
         guard let library = device.makeDefaultLibrary() else {
             throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
@@ -187,7 +187,7 @@ public final class FusedL2TopKKernel {
         // Initialize with first chunk
         let firstChunkSize = min(chunkSize, datasetCount)
         
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         var result = try fusedL2TopK(
             queries: queries,
             dataset: dataset,
@@ -208,13 +208,16 @@ public final class FusedL2TopKKernel {
             let remainingCount = datasetCount - processedCount
             let currentChunkSize = min(chunkSize, remainingCount)
             
-            let chunkBuffer = try computeEngine.createSubBuffer(
-                from: dataset,
-                offset: processedCount * dimension * MemoryLayout<Float>.stride,
-                length: currentChunkSize * dimension * MemoryLayout<Float>.stride
-            )
+            // Create buffer for chunk of dataset
+            let chunkData = Array(dataset[processedCount * dimension..<(processedCount + currentChunkSize) * dimension])
+            guard let chunkBuffer = kernelContext.createBuffer(
+                from: chunkData,
+                options: MTLResourceOptions.storageModeShared
+            ) else {
+                throw AccelerationError.bufferCreationFailed("Failed to create chunk buffer")
+            }
             
-            let updateCommand = computeEngine.commandQueue.makeCommandBuffer()!
+            let updateCommand = kernelContext.commandQueue.makeCommandBuffer()!
             try updateWithChunk(
                 queries: queries,
                 chunk: chunkBuffer,
@@ -251,21 +254,27 @@ public final class FusedL2TopKKernel {
         
         let dimension = queries[0].count
         guard dataset.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.countMismatch
+            throw AccelerationError.countMismatch()
         }
         
         // Create buffers
-        let queryBuffer = try computeEngine.createBuffer(
+        guard let queryBuffer = kernelContext.createBuffer(
             from: queries.flatMap { $0 },
             options: MTLResourceOptions.storageModeShared
-        )
         
-        let datasetBuffer = try computeEngine.createBuffer(
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+        }
+        
+        guard let datasetBuffer = kernelContext.createBuffer(
             from: dataset.flatMap { $0 },
             options: MTLResourceOptions.storageModeShared
-        )
         
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+        }
+        
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
         let result = try fusedL2TopK(
             queries: queryBuffer,
@@ -351,7 +360,7 @@ public final class FusedL2TopKKernel {
     
     // MARK: - Performance Analysis
     
-    public struct PerformanceMetrics {
+    public struct PerformanceMetrics: Sendable {
         public let totalTime: TimeInterval
         public let distanceComputeTime: TimeInterval
         public let topKSelectionTime: TimeInterval
@@ -409,16 +418,19 @@ public final class FusedL2TopKKernel {
 
 // MARK: - Extensions
 
-extension ComputeEngine {
+extension FusedL2TopKKernel {
     /// Create a sub-buffer view for chunked processing
     fileprivate func createSubBuffer(
         from buffer: any MTLBuffer,
         offset: Int,
         length: Int
     ) throws -> any MTLBuffer {
-        guard let subBuffer = buffer.makeBuffer(
-            offset: offset,
-            length: length
+        // Create a new buffer with data from the specified offset
+        let pointer = buffer.contents().advanced(by: offset)
+        guard let subBuffer = device.makeBuffer(
+            bytes: pointer,
+            length: length,
+            options: MTLResourceOptions.storageModeShared
         ) else {
             throw AccelerationError.bufferCreationFailed("Failed to create sub-buffer")
         }

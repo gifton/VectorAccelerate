@@ -219,7 +219,7 @@ public struct StatisticsBenchmarkResult: Sendable {
 
 // MARK: - StatisticsKernel Implementation
 
-public final class StatisticsKernel {
+public final class StatisticsKernel: Sendable {
     // MARK: Properties
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
@@ -655,7 +655,7 @@ public final class StatisticsKernel {
         data: [Float],
         config: StatisticsConfig = .default
     ) async throws -> StatisticsResult {
-        return try await Task.detached(priority: .userInitiated) {
+        return try await Task.detached(priority: .userInitiated) { [self] in
             return try self.computeStatistics(data: data, config: config)
         }.value
     }
@@ -664,7 +664,7 @@ public final class StatisticsKernel {
         datasets: [[Float]],
         config: StatisticsConfig = .default
     ) async throws -> BatchStatisticsResult {
-        return try await Task.detached(priority: .userInitiated) {
+        return try await Task.detached(priority: .userInitiated) { [self] in
             return try self.computeBatchStatistics(datasets: datasets, config: config)
         }.value
     }

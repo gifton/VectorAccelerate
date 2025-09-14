@@ -10,7 +10,7 @@ import QuartzCore
 public class MinkowskiCalculator {
     let device: any MTLDevice
     let commandQueue: any MTLCommandQueue
-    var pipelineState: any MTLComputePipelineState!
+    var pipelineState: (any MTLComputePipelineState)!
 
     // Constants matching the Metal kernel TILE_M/TILE_N
     private let TILE_SIZE = 16
@@ -33,7 +33,7 @@ public class MinkowskiCalculator {
     
     // MARK: - Result Types
     
-    public struct DistanceMatrix {
+    public struct DistanceMatrix: Sendable {
         public let data: [Float]
         public let rows: Int  // M
         public let cols: Int  // N
@@ -70,7 +70,7 @@ public class MinkowskiCalculator {
         }
     }
     
-    public struct PerformanceMetrics {
+    public struct PerformanceMetrics: Sendable {
         public let executionTime: TimeInterval
         public let throughput: Double  // distances per second
         public let pValue: Float

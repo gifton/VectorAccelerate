@@ -12,7 +12,7 @@ import VectorCore
 /// Uses warp-level primitives and SIMD shuffle operations for maximum performance
 public final class WarpOptimizedSelectionKernel {
     private let device: any MTLDevice
-    private let computeEngine: ComputeEngine
+    private let kernelContext: KernelContext
     private let warpSmallKAscending: any MTLComputePipelineState
     private let warpSmallKDescending: any MTLComputePipelineState
     private let batchSelectAscending: any MTLComputePipelineState
@@ -37,7 +37,8 @@ public final class WarpOptimizedSelectionKernel {
     }
     
     /// Result from warp-optimized selection
-    public struct WarpResult {
+    /// - Note: Uses @unchecked Sendable because MTLBuffer is thread-safe for reads
+    public struct WarpResult: @unchecked Sendable {
         public let indices: any MTLBuffer
         public let values: (any MTLBuffer)?
         public let queryCount: Int
@@ -65,7 +66,8 @@ public final class WarpOptimizedSelectionKernel {
     }
     
     /// Batch result for multiple batches of queries
-    public struct BatchResult {
+    /// - Note: Uses @unchecked Sendable because MTLBuffer is thread-safe for reads
+    public struct BatchResult: @unchecked Sendable {
         public let indices: any MTLBuffer
         public let values: (any MTLBuffer)?
         public let batchSize: Int
@@ -97,7 +99,7 @@ public final class WarpOptimizedSelectionKernel {
     
     public init(device: any MTLDevice) throws {
         self.device = device
-        self.computeEngine = try ComputeEngine(context: MetalContext(device: device))
+        self.kernelContext = try KernelContext.shared(for: device)
         
         guard let library = device.makeDefaultLibrary() else {
             throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
@@ -306,12 +308,14 @@ public final class WarpOptimizedSelectionKernel {
         
         // Flatten values
         let flatValues = values.flatMap { $0 }
-        let distanceBuffer = try computeEngine.createBuffer(
+        guard let distanceBuffer = kernelContext.createBuffer(
             from: flatValues,
             options: MTLResourceOptions.storageModeShared
-        )
-        
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create distance buffer")
+        }
+
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
         // Choose optimal kernel based on k
         if k <= MAX_SMALL_K {
@@ -365,12 +369,14 @@ public final class WarpOptimizedSelectionKernel {
             batch.flatMap { $0 }
         }
         
-        let distanceBuffer = try computeEngine.createBuffer(
+        guard let distanceBuffer = kernelContext.createBuffer(
             from: flatValues,
             options: MTLResourceOptions.storageModeShared
-        )
-        
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create distance buffer")
+        }
+
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
         let result = try batchSelect(
             distances: distanceBuffer,
@@ -416,7 +422,7 @@ public final class WarpOptimizedSelectionKernel {
     
     // MARK: - Performance Analysis
     
-    public struct WarpPerformanceMetrics {
+    public struct WarpPerformanceMetrics: Sendable {
         public let kernelType: String
         public let executionTime: TimeInterval
         public let throughput: Double // selections per second
@@ -468,11 +474,13 @@ public final class WarpOptimizedSelectionKernel {
         
         // Generate test data once
         let flatValues = (0..<queryCount * candidateCount).map { _ in Float.random(in: 0...1) }
-        let distanceBuffer = try computeEngine.createBuffer(
+        guard let distanceBuffer = kernelContext.createBuffer(
             from: flatValues,
             options: MTLResourceOptions.storageModeShared
-        )
-        
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create distance buffer")
+        }
+
         for k in kValues {
             var warpTime: TimeInterval? = nil
             var generalTime: TimeInterval? = nil
@@ -480,7 +488,7 @@ public final class WarpOptimizedSelectionKernel {
             // Benchmark warp kernel if applicable
             if k <= MAX_SMALL_K {
                 let start = CACurrentMediaTime()
-                let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+                let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
                 _ = try warpSelectSmallK(
                     distances: distanceBuffer,
                     queryCount: queryCount,
@@ -495,7 +503,7 @@ public final class WarpOptimizedSelectionKernel {
             
             // Benchmark general kernel
             let start = CACurrentMediaTime()
-            let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+            let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
             _ = try batchSelect(
                 distances: distanceBuffer,
                 batchSize: 1,

@@ -464,7 +464,7 @@ public final class JaccardDistanceKernel {
         return results
     }
     
-    public struct BenchmarkResult {
+    public struct BenchmarkResult: Sendable {
         public let vectorSize: Int
         public let executionTime: TimeInterval
         public let throughputMEPS: Double // Million elements per second

@@ -10,7 +10,7 @@ import QuartzCore
 
 /// GPU-accelerated matrix transpose using tiled algorithm
 /// Optimized to avoid bank conflicts with padding strategy
-public final class MatrixTransposeKernel {
+public final class MatrixTransposeKernel: Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let pipelineState: any MTLComputePipelineState
@@ -23,7 +23,7 @@ public final class MatrixTransposeKernel {
     // MARK: - Result Types
     
     /// Result from matrix transpose operation
-    public struct TransposeResult {
+    public struct TransposeResult: Sendable {
         public let matrix: Matrix
         public let executionTime: TimeInterval
         public let throughputGBps: Double
@@ -246,7 +246,7 @@ public final class MatrixTransposeKernel {
         _ matrix: Matrix,
         config: TransposeConfig = .default
     ) async throws -> TransposeResult {
-        return try await Task.detached(priority: .userInitiated) {
+        return try await Task.detached(priority: .userInitiated) { [self] in
             return try self.transpose(matrix, config: config)
         }.value
     }
@@ -303,7 +303,7 @@ public final class MatrixTransposeKernel {
         return results
     }
     
-    public struct BenchmarkResult {
+    public struct BenchmarkResult: Sendable {
         public let dimensions: String
         public let executionTime: TimeInterval
         public let throughputGBps: Double

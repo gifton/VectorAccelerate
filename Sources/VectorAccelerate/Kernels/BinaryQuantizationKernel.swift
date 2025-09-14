@@ -28,7 +28,7 @@ public final class BinaryQuantizationKernel {
         /// Initialize from raw data
         public init(data: [UInt32], dimension: Int) {
             self.data = data
-            self.count = dimension
+            self.dimension = dimension
             self.numWords = (dimension + 31) / 32
         }
         
@@ -63,7 +63,7 @@ public final class BinaryQuantizationKernel {
         
         /// Hamming distance to another binary vector
         public func hammingDistance(to other: BinaryVector) -> Int {
-            guard dimension == other.count else { return -1 }
+            guard dimension == other.dimension else { return -1 }
             
             var distance = 0
             for i in 0..<numWords {
@@ -90,16 +90,16 @@ public final class BinaryQuantizationKernel {
             
             // Validate all vectors have same dimension
             for vector in vectors {
-                guard vector.count == first.count else {
+                guard vector.dimension == first.dimension else {
                     throw AccelerationError.countMismatch(
-                        expected: first.count,
-                        actual: vector.count
+                        expected: first.dimension,
+                        actual: vector.dimension
                     )
                 }
             }
             
             self.vectors = vectors
-            self.count = first.count
+            self.dimension = first.dimension
             self.numWords = first.numWords
         }
         
@@ -380,10 +380,10 @@ public final class BinaryQuantizationKernel {
         query: BinaryVector,
         candidates: BinaryVectorBatch
     ) throws -> HammingDistanceResult {
-        guard query.count == candidates.count else {
+        guard query.dimension == candidates.dimension else {
             throw AccelerationError.countMismatch(
-                expected: query.count,
-                actual: candidates.count
+                expected: query.dimension,
+                actual: candidates.dimension
             )
         }
         
@@ -495,10 +495,10 @@ public final class BinaryQuantizationKernel {
         vectorsA: BinaryVectorBatch,
         vectorsB: BinaryVectorBatch
     ) throws -> PairwiseDistanceResult {
-        guard vectorsA.count == vectorsB.count else {
+        guard vectorsA.dimension == vectorsB.dimension else {
             throw AccelerationError.countMismatch(
-                expected: vectorsA.count,
-                actual: vectorsB.count
+                expected: vectorsA.dimension,
+                actual: vectorsB.dimension
             )
         }
         
@@ -542,7 +542,7 @@ public final class BinaryQuantizationKernel {
     
     /// Validate that two binary vectors can be compared
     public static func canCompare(_ vector1: BinaryVector, _ vector2: BinaryVector) -> Bool {
-        return vector1.count == vector2.count
+        return vector1.dimension == vector2.dimension
     }
     
     // MARK: - Async Operations
@@ -634,7 +634,7 @@ public final class BinaryQuantizationKernel {
         return results
     }
     
-    public struct BenchmarkResult {
+    public struct BenchmarkResult: Sendable {
         public let dimension: Int
         public let vectorCount: Int
         public let executionTime: TimeInterval

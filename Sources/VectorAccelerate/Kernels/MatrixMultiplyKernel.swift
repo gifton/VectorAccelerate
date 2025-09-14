@@ -10,7 +10,7 @@ import QuartzCore
 
 /// GPU-accelerated matrix multiplication using tiled algorithm
 /// Optimized for Apple Silicon with 32x32x8 tiling strategy
-public final class MatrixMultiplyKernel {
+public final class MatrixMultiplyKernel: Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let pipelineState: any MTLComputePipelineState
@@ -24,7 +24,7 @@ public final class MatrixMultiplyKernel {
     // MARK: - Result Types
     
     /// Result from matrix multiplication
-    public struct MultiplyResult {
+    public struct MultiplyResult: Sendable {
         public let matrix: Matrix
         public let executionTime: TimeInterval
         public let gflops: Double
@@ -254,7 +254,7 @@ public final class MatrixMultiplyKernel {
         _ matrixB: Matrix,
         config: MultiplyConfig = .default
     ) async throws -> MultiplyResult {
-        return try await Task.detached(priority: .userInitiated) {
+        return try await Task.detached(priority: .userInitiated) { [self] in
             return try self.multiply(matrixA, matrixB, config: config)
         }.value
     }
@@ -337,7 +337,7 @@ public final class MatrixMultiplyKernel {
         return results
     }
     
-    public struct BenchmarkResult {
+    public struct BenchmarkResult: Sendable {
         public let dimensions: String
         public let executionTime: TimeInterval
         public let gflops: Double

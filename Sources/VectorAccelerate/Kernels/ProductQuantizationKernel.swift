@@ -14,7 +14,7 @@ import QuartzCore
 /// Splits vectors into M subspaces and quantizes each using K-means clustering
 public final class ProductQuantizationKernel {
     private let device: any MTLDevice
-    private let computeEngine: ComputeEngine
+    private let kernelContext: KernelContext
     
     // Pipeline states for different phases
     private let assignmentKernel: any MTLComputePipelineState
@@ -24,7 +24,7 @@ public final class ProductQuantizationKernel {
     private let computeDistancesKernel: any MTLComputePipelineState
     
     /// Configuration for Product Quantization
-    public struct PQConfig {
+    public struct PQConfig: Sendable {
         public let M: Int           // Number of subspaces
         public let K: Int           // Centroids per subspace (typically 256 for uint8)
         public let dimension: Int   // Full vector dimension
@@ -45,7 +45,7 @@ public final class ProductQuantizationKernel {
             precondition(dimension % M == 0, "Dimension must be divisible by M")
             precondition(K <= 256, "K must be <= 256 for uint8 encoding")
             
-            self.count = dimension
+            self.dimension = dimension
             self.M = M
             self.K = K
             self.trainIterations = trainIterations
@@ -77,7 +77,7 @@ public final class ProductQuantizationKernel {
                 "codebooks": codebookData,
                 "M": config.M,
                 "K": config.K,
-                "dimension": config.count
+                "dimension": config.dimension
             ]
             
             let data = try JSONSerialization.data(withJSONObject: modelData)
@@ -109,7 +109,7 @@ public final class ProductQuantizationKernel {
         
         /// Get compression ratio
         public var compressionRatio: Float {
-            let originalBits = Float(config.count * 32)  // float32
+            let originalBits = Float(config.dimension * 32)  // float32
             let compressedBits = Float(config.M * 8)        // uint8
             return originalBits / compressedBits
         }
@@ -128,7 +128,7 @@ public final class ProductQuantizationKernel {
             let codesPtr = codes.contents().bindMemory(to: UInt8.self, capacity: count * config.M)
             let codebooksPtr = model.codebooks.contents().bindMemory(to: Float.self, capacity: config.M * config.K * config.D_sub)
             
-            var decoded = Array<Float>(repeating: 0, count: config.count)
+            var decoded = Array<Float>(repeating: 0, count: config.dimension)
             
             for m in 0..<config.M {
                 let code = codesPtr[index * config.M + m]
@@ -154,7 +154,7 @@ public final class ProductQuantizationKernel {
     
     public init(device: any MTLDevice) throws {
         self.device = device
-        self.computeEngine = try ComputeEngine(context: MetalContext(device: device))
+        self.kernelContext = try KernelContext.shared(for: device)
         
         guard let library = device.makeDefaultLibrary() else {
             throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
@@ -220,7 +220,7 @@ public final class ProductQuantizationKernel {
         // Training loop
         for iteration in 0..<config.trainIterations {
             // E-step: Assignment
-            let assignCommand = computeEngine.commandQueue.makeCommandBuffer()!
+            let assignCommand = kernelContext.commandQueue.makeCommandBuffer()!
             try encodeAssignment(
                 vectors: data,
                 codebooks: codebooks,
@@ -237,7 +237,7 @@ public final class ProductQuantizationKernel {
             clearBuffer(centroidCounts)
             
             // M-step: Update
-            let updateCommand = computeEngine.commandQueue.makeCommandBuffer()!
+            let updateCommand = kernelContext.commandQueue.makeCommandBuffer()!
             
             // Accumulate
             try encodeUpdateAccumulate(
@@ -283,7 +283,7 @@ public final class ProductQuantizationKernel {
         vectors: any MTLBuffer,
         count: Int,
         model: PQModel,
-        commandBuffer: any MTLCommandBuffer? = nil
+        commandBuffer: (any MTLCommandBuffer)? = nil
     ) throws -> EncodedVectors {
         guard let codes = device.makeBuffer(
             length: count * model.config.M * MemoryLayout<UInt8>.stride,
@@ -292,7 +292,7 @@ public final class ProductQuantizationKernel {
             throw AccelerationError.bufferCreationFailed("Failed to create codes buffer")
         }
         
-        let command = commandBuffer ?? computeEngine.commandQueue.makeCommandBuffer()!
+        let command = commandBuffer ?? kernelContext.commandQueue.makeCommandBuffer()!
         
         try encodeAssignment(
             vectors: vectors,
@@ -318,7 +318,7 @@ public final class ProductQuantizationKernel {
         query: any MTLBuffer,
         encodedVectors: EncodedVectors,
         model: PQModel,
-        commandBuffer: any MTLCommandBuffer? = nil
+        commandBuffer: (any MTLCommandBuffer)? = nil
     ) throws -> any MTLBuffer {
         // Precompute distance table
         let tableSize = model.config.M * model.config.K
@@ -336,7 +336,7 @@ public final class ProductQuantizationKernel {
             throw AccelerationError.bufferCreationFailed("Failed to create distances buffer")
         }
         
-        let command = commandBuffer ?? computeEngine.commandQueue.makeCommandBuffer()!
+        let command = commandBuffer ?? kernelContext.commandQueue.makeCommandBuffer()!
         
         // Step 1: Precompute distance table
         try encodePrecomputeDistanceTable(
@@ -373,14 +373,16 @@ public final class ProductQuantizationKernel {
         config: PQConfig
     ) async throws -> (model: PQModel, encoded: EncodedVectors) {
         let flatData = data.flatMap { $0 }
-        let dataBuffer = try computeEngine.createBuffer(from: flatData, options: MTLResourceOptions.storageModeShared)
-        
+        guard let dataBuffer = kernelContext.createBuffer(from: flatData, options: MTLResourceOptions.storageModeShared) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create data buffer")
+        }
+
         let model = try await train(
             data: dataBuffer,
             count: data.count,
             config: config
         )
-        
+
         let encoded = try encode(
             vectors: dataBuffer,
             count: data.count,
@@ -397,8 +399,10 @@ public final class ProductQuantizationKernel {
         model: PQModel,
         k: Int
     ) async throws -> [(index: Int, distance: Float)] {
-        let queryBuffer = try computeEngine.createBuffer(from: query, options: MTLResourceOptions.storageModeShared)
-        
+        guard let queryBuffer = kernelContext.createBuffer(from: query, options: MTLResourceOptions.storageModeShared) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create query buffer")
+        }
+
         let distances = try computeDistances(
             query: queryBuffer,
             encodedVectors: encodedDatabase,
@@ -423,13 +427,13 @@ public final class ProductQuantizationKernel {
     private func initializeCodebooks(codebooks: any MTLBuffer, data: any MTLBuffer, count: Int, config: PQConfig) throws {
         // Simple random initialization
         let codebooksPtr = codebooks.contents().bindMemory(to: Float.self, capacity: config.M * config.K * config.D_sub)
-        let dataPtr = data.contents().bindMemory(to: Float.self, capacity: count * config.count)
+        let dataPtr = data.contents().bindMemory(to: Float.self, capacity: count * config.dimension)
         
         for m in 0..<config.M {
             for k in 0..<config.K {
                 // Randomly select a vector and copy its subspace
                 let randomIdx = Int.random(in: 0..<count)
-                let srcStart = randomIdx * config.count + m * config.D_sub
+                let srcStart = randomIdx * config.dimension + m * config.D_sub
                 let dstStart = (m * config.K + k) * config.D_sub
                 
                 for d in 0..<config.D_sub {
@@ -477,7 +481,7 @@ public final class ProductQuantizationKernel {
         
         var pqConfig = (
             N: UInt32(count),
-            D: UInt32(config.count),
+            D: UInt32(config.dimension),
             M: UInt32(config.M),
             K: UInt32(config.K),
             D_sub: UInt32(config.D_sub)
@@ -515,7 +519,7 @@ public final class ProductQuantizationKernel {
         
         var pqConfig = (
             N: UInt32(count),
-            D: UInt32(config.count),
+            D: UInt32(config.dimension),
             M: UInt32(config.M),
             K: UInt32(config.K),
             D_sub: UInt32(config.D_sub)
@@ -551,7 +555,7 @@ public final class ProductQuantizationKernel {
         
         var pqConfig = (
             N: UInt32(0),  // Not used in finalize
-            D: UInt32(config.count),
+            D: UInt32(config.dimension),
             M: UInt32(config.M),
             K: UInt32(config.K),
             D_sub: UInt32(config.D_sub)
@@ -585,7 +589,7 @@ public final class ProductQuantizationKernel {
         
         var pqConfig = (
             N: UInt32(0),  // Not used
-            D: UInt32(config.count),
+            D: UInt32(config.dimension),
             M: UInt32(config.M),
             K: UInt32(config.K),
             D_sub: UInt32(config.D_sub)
@@ -620,7 +624,7 @@ public final class ProductQuantizationKernel {
         
         var pqConfig = (
             N: UInt32(count),
-            D: UInt32(config.count),
+            D: UInt32(config.dimension),
             M: UInt32(config.M),
             K: UInt32(config.K),
             D_sub: UInt32(config.D_sub)
@@ -641,7 +645,7 @@ public final class ProductQuantizationKernel {
     
     // MARK: - Performance Analysis
     
-    public struct PerformanceMetrics {
+    public struct PerformanceMetrics: Sendable {
         public let trainingTime: TimeInterval
         public let encodingThroughput: Double  // vectors/second
         public let searchThroughput: Double    // queries/second

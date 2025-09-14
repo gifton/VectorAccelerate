@@ -12,7 +12,7 @@ import VectorCore
 /// Performs aggregation operations (sum, min, max, etc.) across large datasets
 public final class ParallelReductionKernel {
     private let device: any MTLDevice
-    private let computeEngine: ComputeEngine
+    private let kernelContext: KernelContext
     private let pipelineStateGeneric: any MTLComputePipelineState
     private let THREADGROUP_SIZE: Int
 
@@ -91,7 +91,7 @@ public final class ParallelReductionKernel {
     /// Initialize the ParallelReductionKernel with Metal device
     public init(device: any MTLDevice) throws {
         self.device = device
-        self.computeEngine = try ComputeEngine(context: MetalContext(device: device))
+        self.kernelContext = try KernelContext.shared(for: device)
         
         guard let library = device.makeDefaultLibrary() else {
             throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
@@ -208,9 +208,11 @@ public final class ParallelReductionKernel {
             throw AccelerationError.invalidInput("Empty input array")
         }
         
-        let inputBuffer = try computeEngine.createBuffer(from: array, options: MTLResourceOptions.storageModeShared)
+        guard let inputBuffer = kernelContext.createBuffer(from: array, options: MTLResourceOptions.storageModeShared) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create input buffer")
+        }
         
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         let result = try reduce(inputBuffer, operation: operation, count: array.count, commandBuffer: commandBuffer)
         
         commandBuffer.commit()
@@ -227,8 +229,10 @@ public final class ParallelReductionKernel {
             throw AccelerationError.invalidInput("Empty input array")
         }
         
-        let inputBuffer = try computeEngine.createBuffer(from: array, options: MTLResourceOptions.storageModeShared)
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        guard let inputBuffer = kernelContext.createBuffer(from: array, options: MTLResourceOptions.storageModeShared) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create input buffer")
+        }
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
         // Run multiple reductions in same command buffer
         let sumResult = try reduce(inputBuffer, operation: .sum, count: array.count, commandBuffer: commandBuffer)
@@ -282,7 +286,7 @@ public final class ParallelReductionKernel {
     // MARK: - Performance Extensions
 
     /// Performance statistics for reduction
-    public struct PerformanceStats {
+    public struct PerformanceStats: Sendable {
         public let elementsPerSecond: Double
         public let reductionPasses: Int
         public let executionTime: TimeInterval
@@ -375,7 +379,7 @@ public final class ParallelReductionKernel {
             throw AccelerationError.bufferCreationFailed("Failed to create shared value buffer")
         }
         
-        var sharedIndexBuffer: any MTLBuffer? = nil
+        var sharedIndexBuffer: (any MTLBuffer)? = nil
         if indexBuffer != nil {
             sharedIndexBuffer = device.makeBuffer(
                 length: MemoryLayout<UInt32>.stride,

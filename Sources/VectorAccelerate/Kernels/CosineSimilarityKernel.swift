@@ -11,7 +11,7 @@ import QuartzCore
 /// Cosine Similarity computation kernel for GPU acceleration
 public final class CosineSimilarityKernel {
     private let device: any MTLDevice
-    private let computeEngine: ComputeEngine
+    private let kernelContext: KernelContext
     
     // General purpose pipelines
     private let pipelineStateNormalized: any MTLComputePipelineState
@@ -47,7 +47,7 @@ public final class CosineSimilarityKernel {
         ) {
             self.numQueries = UInt32(numQueries)
             self.numDatabase = UInt32(numDatabase)
-            self.count = UInt32(dimension)
+            self.dimension = UInt32(dimension)
             // Allow custom strides, defaulting to dense packing if nil
             self.strideQuery = UInt32(strideQuery ?? dimension)
             self.strideDatabase = UInt32(strideDatabase ?? dimension)
@@ -60,7 +60,7 @@ public final class CosineSimilarityKernel {
     /// Initialize the CosineSimilarityKernel with Metal device
     public init(device: any MTLDevice) throws {
         self.device = device
-        self.computeEngine = try ComputeEngine(context: MetalContext(device: device))
+        self.kernelContext = try KernelContext.shared(for: device)
 
         // Load the shader library
         guard let library = device.makeDefaultLibrary() else {
@@ -114,7 +114,7 @@ public final class CosineSimilarityKernel {
         parameters: Parameters
     ) throws {
         // 1. Validate dimensions
-        if parameters.count == 0 {
+        if parameters.dimension == 0 {
             if parameters.numQueries > 0 || parameters.numDatabase > 0 {
                 throw AccelerationError.invalidInput("Dimension cannot be zero when counts are greater than zero")
             }
@@ -122,7 +122,7 @@ public final class CosineSimilarityKernel {
         }
 
         // 2. Validate strides
-        if parameters.strideQuery < parameters.count || parameters.strideDatabase < parameters.count {
+        if parameters.strideQuery < parameters.dimension || parameters.strideDatabase < parameters.dimension {
             throw AccelerationError.invalidInput("Strides cannot be smaller than the dimension")
         }
 
@@ -131,14 +131,14 @@ public final class CosineSimilarityKernel {
         // 3. Validate buffer sizes
         // The required size is precisely calculated as ((N-1) * stride + dimension) * element_size
         if parameters.numQueries > 0 {
-            let requiredQuerySize = (Int(parameters.numQueries - 1) * Int(parameters.strideQuery) + Int(parameters.count)) * floatSize
+            let requiredQuerySize = (Int(parameters.numQueries - 1) * Int(parameters.strideQuery) + Int(parameters.dimension)) * floatSize
             if queryVectors.length < requiredQuerySize {
                 throw AccelerationError.invalidInput("Query buffer too small. Required: \(requiredQuerySize), got: \(queryVectors.length)")
             }
         }
 
         if parameters.numDatabase > 0 {
-            let requiredDatabaseSize = (Int(parameters.numDatabase - 1) * Int(parameters.strideDatabase) + Int(parameters.count)) * floatSize
+            let requiredDatabaseSize = (Int(parameters.numDatabase - 1) * Int(parameters.strideDatabase) + Int(parameters.dimension)) * floatSize
             if databaseVectors.length < requiredDatabaseSize {
                 throw AccelerationError.invalidInput("Database buffer too small. Required: \(requiredDatabaseSize), got: \(databaseVectors.length)")
             }
@@ -181,7 +181,7 @@ public final class CosineSimilarityKernel {
         )
 
         // Handle trivial case
-        if parameters.numQueries == 0 || parameters.numDatabase == 0 || parameters.count == 0 {
+        if parameters.numQueries == 0 || parameters.numDatabase == 0 || parameters.dimension == 0 {
             return
         }
 
@@ -194,10 +194,10 @@ public final class CosineSimilarityKernel {
         // 2. Select optimal kernel
         // Optimized kernels require dense packing (stride == dimension) because their address calculation is hardcoded
         let selectedPipeline: any MTLComputePipelineState
-        let isDenselyPacked = (parameters.strideQuery == parameters.count && 
-                               parameters.strideDatabase == parameters.count)
+        let isDenselyPacked = (parameters.strideQuery == parameters.dimension && 
+                               parameters.strideDatabase == parameters.dimension)
 
-        switch parameters.count {
+        switch parameters.dimension {
         case 512 where isDenselyPacked:
             selectedPipeline = pipelineState512
         case 768 where isDenselyPacked:
@@ -273,15 +273,21 @@ public final class CosineSimilarityKernel {
         let numDatabase = database.count
         
         // Allocate buffers
-        let queryBuffer = try computeEngine.createBuffer(
+        guard let queryBuffer = kernelContext.createBuffer(
             from: queries.flatMap { $0 },
             options: MTLResourceOptions.storageModeShared
-        )
         
-        let databaseBuffer = try computeEngine.createBuffer(
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+        }
+        
+        guard let databaseBuffer = kernelContext.createBuffer(
             from: database.flatMap { $0 },
             options: MTLResourceOptions.storageModeShared
-        )
+        
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+        }
         
         let similarityBuffer = device.makeBuffer(
             length: numQueries * numDatabase * MemoryLayout<Float>.size,
@@ -298,7 +304,7 @@ public final class CosineSimilarityKernel {
         )
         
         // Execute computation
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         try compute(
             queryVectors: queryBuffer,
             databaseVectors: databaseBuffer,
@@ -369,7 +375,7 @@ public final class CosineSimilarityKernel {
 
 extension CosineSimilarityKernel {
     /// Performance statistics for kernel execution
-    public struct PerformanceStats {
+    public struct PerformanceStats: Sendable {
         public let computeTime: TimeInterval
         public let throughput: Double  // GFLOPS
         public let bandwidth: Double   // GB/s
@@ -382,7 +388,7 @@ extension CosineSimilarityKernel {
         similarities: any MTLBuffer,
         parameters: Parameters
     ) async throws -> PerformanceStats {
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
         // Add GPU timing
         let startTime = CACurrentMediaTime()
@@ -405,10 +411,10 @@ extension CosineSimilarityKernel {
         // For normalized: just dot products (2N ops per element)
         // For general: dot products + 2 norms (6N ops per element)
         let opsPerElement = parameters.inputsNormalized != 0 ? 2 : 6
-        let numOps = Int(parameters.numQueries) * Int(parameters.numDatabase) * Int(parameters.count) * opsPerElement
+        let numOps = Int(parameters.numQueries) * Int(parameters.numDatabase) * Int(parameters.dimension) * opsPerElement
         let throughput = Double(numOps) / (computeTime * 1e9)  // GFLOPS
         
-        let bytesRead = (Int(parameters.numQueries) + Int(parameters.numDatabase)) * Int(parameters.count) * 4
+        let bytesRead = (Int(parameters.numQueries) + Int(parameters.numDatabase)) * Int(parameters.dimension) * 4
         let bytesWritten = Int(parameters.numQueries) * Int(parameters.numDatabase) * 4
         let bandwidth = Double(bytesRead + bytesWritten) / (computeTime * 1e9)  // GB/s
         

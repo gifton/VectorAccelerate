@@ -11,7 +11,7 @@ import VectorCore
 /// Reduces memory footprint by converting float32 to int8/int4 with scale and offset
 public final class ScalarQuantizationKernel {
     private let device: any MTLDevice
-    private let computeEngine: ComputeEngine
+    private let kernelContext: KernelContext
 
     private let quantizeInt8Pipeline: any MTLComputePipelineState
     private let dequantizeInt8Pipeline: any MTLComputePipelineState
@@ -21,7 +21,7 @@ public final class ScalarQuantizationKernel {
     // MARK: - Enums and Structs
 
     /// Quantization scheme type
-    public enum QuantizationType: UInt8 {
+    public enum QuantizationType: UInt8, Sendable {
         case symmetric = 0      // Zero-point = 0
         case asymmetric = 1     // With zero-point
         case perChannel = 2     // Different scale/zero-point per channel
@@ -29,7 +29,7 @@ public final class ScalarQuantizationKernel {
     }
 
     /// Quantization bit width
-    public enum BitWidth: UInt8 {
+    public enum BitWidth: UInt8, Sendable {
         case int8 = 8
         case int4 = 4
         
@@ -43,9 +43,9 @@ public final class ScalarQuantizationKernel {
 
     /// Quantization context containing configuration and buffers
     public struct QuantizationContext {
-        public let quantizedData: any MTLBuffer?  // Nil during quantization, required for dequantization
-        public let scales: any MTLBuffer?         // Per-channel scales
-        public let zeroPoints: any MTLBuffer?     // Per-channel zero points
+        public let quantizedData: (any MTLBuffer)?  // Nil during quantization, required for dequantization
+        public let scales: (any MTLBuffer)?         // Per-channel scales
+        public let zeroPoints: (any MTLBuffer)?     // Per-channel zero points
         public let bitWidth: BitWidth
         public let type: QuantizationType
         public let numElements: Int
@@ -60,9 +60,9 @@ public final class ScalarQuantizationKernel {
         }
         
         public init(
-            quantizedData: any MTLBuffer? = nil,
-            scales: any MTLBuffer? = nil,
-            zeroPoints: any MTLBuffer? = nil,
+            quantizedData: (any MTLBuffer)? = nil,
+            scales: (any MTLBuffer)? = nil,
+            zeroPoints: (any MTLBuffer)? = nil,
             bitWidth: BitWidth,
             type: QuantizationType,
             numElements: Int,
@@ -83,7 +83,7 @@ public final class ScalarQuantizationKernel {
     }
     
     /// Quantization result with metadata
-    public struct QuantizationResult {
+    public struct QuantizationResult: Sendable {
         public let quantizedData: Data
         public let scale: Float
         public let zeroPoint: Int8?
@@ -92,7 +92,7 @@ public final class ScalarQuantizationKernel {
     }
     
     /// Quantization quality metrics
-    public struct QuantizationMetrics {
+    public struct QuantizationMetrics: Sendable {
         public let mse: Float              // Mean Squared Error
         public let maxError: Float         // Maximum absolute error
         public let compressionRatio: Float // Compression achieved
@@ -115,7 +115,7 @@ public final class ScalarQuantizationKernel {
     /// Initialize the ScalarQuantizationKernel with Metal device
     public init(device: any MTLDevice) throws {
         self.device = device
-        self.computeEngine = try ComputeEngine(context: MetalContext(device: device))
+        self.kernelContext = try KernelContext.shared(for: device)
         
         guard let library = device.makeDefaultLibrary() else {
             throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
@@ -268,7 +268,12 @@ public final class ScalarQuantizationKernel {
             throw AccelerationError.invalidInput("Empty input data")
         }
         
-        let inputBuffer = try computeEngine.createBuffer(from: data, options: MTLResourceOptions.storageModeShared)
+        guard let inputBuffer = kernelContext.createBuffer(
+            from: data,
+            options: MTLResourceOptions.storageModeShared
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+        }
         
         let outputSize = bitWidth == .int8 ? data.count : (data.count + 1) / 2
         guard let outputBuffer = device.makeBuffer(
@@ -289,7 +294,7 @@ public final class ScalarQuantizationKernel {
             globalZeroPoint: zeroPoint ?? 0
         )
         
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         try quantize(
             input: inputBuffer,
             output: outputBuffer,
@@ -338,7 +343,7 @@ public final class ScalarQuantizationKernel {
             globalZeroPoint: result.zeroPoint ?? 0
         )
         
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         try dequantize(
             context: context,
             output: outputBuffer,

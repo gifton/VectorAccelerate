@@ -14,7 +14,7 @@ import QuartzCore
 /// Finds the K largest or smallest elements from a dataset along with their indices
 public final class TopKSelectionKernel {
     private let device: any MTLDevice
-    private let computeEngine: ComputeEngine
+    private let kernelContext: KernelContext
     private let pipelineStateBatch: any MTLComputePipelineState
 
     /// Maximum K supported by the kernel (must match MAX_K in Metal code)
@@ -64,7 +64,7 @@ public final class TopKSelectionKernel {
     /// Initialize the TopKSelectionKernel with Metal device
     public init(device: any MTLDevice) throws {
         self.device = device
-        self.computeEngine = try ComputeEngine(context: MetalContext(device: device))
+        self.kernelContext = try KernelContext.shared(for: device)
         
         guard let library = device.makeDefaultLibrary() else {
             throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
@@ -189,13 +189,16 @@ public final class TopKSelectionKernel {
         
         // Create buffer from flattened matrix
         let flatDistances = distances.flatMap { $0 }
-        let distanceBuffer = try computeEngine.createBuffer(
+        let distanceBuffer = kernelContext.createBuffer(
             from: flatDistances,
             options: MTLResourceOptions.storageModeShared
         )
+        guard let distanceBuffer = distanceBuffer else {
+            throw AccelerationError.bufferCreationFailed("Failed to create distance buffer")
+        }
         
         // Execute
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         let (valBuffer, idxBuffer) = try selectBatch(
             from: distanceBuffer,
             k: k,
@@ -269,7 +272,7 @@ public final class TopKSelectionKernel {
     // MARK: - Performance Extensions
 
     /// Performance statistics for top-k selection
-    public struct PerformanceStats {
+    public struct PerformanceStats: Sendable {
         public let selectionsPerSecond: Double
         public let executionTime: TimeInterval
         public let throughput: Double // Elements/second

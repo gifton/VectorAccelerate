@@ -14,7 +14,7 @@ import QuartzCore
 /// Performs mathematical operations on vectors element-by-element
 public final class ElementwiseKernel {
     private let device: any MTLDevice
-    private let computeEngine: ComputeEngine
+    private let kernelContext: KernelContext
     private let pipelineState: any MTLComputePipelineState
     private let pipelineStateInplace: any MTLComputePipelineState
 
@@ -85,7 +85,7 @@ public final class ElementwiseKernel {
     /// Initialize the ElementwiseKernel with Metal device
     public init(device: any MTLDevice) throws {
         self.device = device
-        self.computeEngine = try ComputeEngine(context: MetalContext(device: device))
+        self.kernelContext = try KernelContext.shared(for: device)
         
         guard let library = device.makeDefaultLibrary() else {
             throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
@@ -120,7 +120,7 @@ public final class ElementwiseKernel {
     ///   - commandBuffer: Command buffer for GPU execution
     public func compute(
         inputA: any MTLBuffer,
-        inputB: any MTLBuffer? = nil,
+        inputB: (any MTLBuffer)? = nil,
         output: any MTLBuffer,
         operation: Operation,
         count: Int,
@@ -207,8 +207,18 @@ public final class ElementwiseKernel {
         }
         
         // Create buffers
-        let inputBufferA = try computeEngine.createBuffer(from: a, options: MTLResourceOptions.storageModeShared)
-        let inputBufferB = try b.map { try computeEngine.createBuffer(from: $0, options: MTLResourceOptions.storageModeShared) }
+        guard let inputBufferA = kernelContext.createBuffer(
+            from: a,
+            options: MTLResourceOptions.storageModeShared
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+        }
+        let inputBufferB: (any MTLBuffer)? = try b.map { data in
+            guard let buffer = kernelContext.createBuffer(from: data, options: MTLResourceOptions.storageModeShared) else {
+                throw AccelerationError.bufferCreationFailed("Failed to create buffer B")
+            }
+            return buffer
+        }
         
         guard let outputBuffer = device.makeBuffer(
             length: a.count * MemoryLayout<Float>.size,
@@ -218,7 +228,7 @@ public final class ElementwiseKernel {
         }
         
         // Execute
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         try compute(
             inputA: inputBufferA,
             inputB: inputBufferB,
@@ -248,16 +258,13 @@ public final class ElementwiseKernel {
         let arrayB = b.map { Array($0.toArray()) }
         let result = try await compute(arrayA, arrayB, operation: operation, useFastMath: useFastMath)
         
-        guard let vector = V(scalars: result) else {
-            throw AccelerationError.invalidInput("Failed to create vector from result")
-        }
-        return vector
+        return try V(result)
     }
     
     // MARK: - Performance Extensions
     
     /// Performance statistics for element-wise operations
-    public struct PerformanceStats {
+    public struct PerformanceStats: Sendable {
         public let elementsPerSecond: Double
         public let bandwidth: Double // GB/s
         public let executionTime: TimeInterval

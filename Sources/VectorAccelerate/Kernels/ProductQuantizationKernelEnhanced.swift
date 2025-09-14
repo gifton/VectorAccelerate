@@ -25,7 +25,7 @@ public enum PQError: Error, LocalizedError {
 
 // MARK: - Training Metrics
 
-public struct TrainingMetrics {
+public struct TrainingMetrics: Sendable {
     public let iterations: Int
     public let finalConvergence: Float
     public let trainingTime: TimeInterval
@@ -38,7 +38,7 @@ public struct TrainingMetrics {
 
 // MARK: - Enhanced Product Quantization Kernel
 
-public final class ProductQuantizationKernel {
+public final class ProductQuantizationKernelEnhanced {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     
@@ -374,7 +374,7 @@ public final class ProductQuantizationKernel {
     
     // MARK: - Performance Metrics
     
-    public struct PerformanceMetrics {
+    public struct PerformanceMetrics: Sendable {
         public let encodingThroughput: Double // vectors per second
         public let queryThroughput: Double    // queries per second
         public let compressionRatio: Float

@@ -436,8 +436,32 @@ public actor ComputeEngine {
         return outputBuffer.copyData(as: Float.self, count: rows)
     }
     
+    // MARK: - Metal API Access
+
+    /// Create a buffer from data with specific Metal resource options
+    /// - Parameters:
+    ///   - data: Array of data to create buffer from
+    ///   - options: Metal resource options (currently ignored, uses default)
+    /// - Returns: MTLBuffer for the created buffer
+    public func createBuffer<T>(from data: [T], options: MTLResourceOptions) async throws -> any MTLBuffer where T: Sendable {
+        // Note: Currently ignoring options parameter as MetalContext handles buffer creation
+        // This could be enhanced in the future to respect specific MTLResourceOptions
+        let token = try await context.getBuffer(for: data)
+        return token.buffer
+    }
+
+    /// Direct access to the Metal command queue for manual command buffer creation
+    /// Required by kernel implementations that need low-level Metal control
+    public var commandQueue: any MTLCommandQueue {
+        get async {
+            // Access the command queue from MetalContext
+            // Note: This assumes MetalContext exposes its commandQueue property
+            return await context.commandQueue
+        }
+    }
+
     // MARK: - Performance & Statistics
-    
+
     /// Get performance statistics
     public func getStatistics() async -> EngineStatistics {
         let contextStats = await context.getPerformanceStats()

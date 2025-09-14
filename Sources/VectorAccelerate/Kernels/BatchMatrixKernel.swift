@@ -10,7 +10,7 @@ import QuartzCore
 
 /// GPU-accelerated batch matrix operations
 /// Supports both fused operations with bias and strided tensor operations
-public final class BatchMatrixKernel {
+public final class BatchMatrixKernel: Sendable {
     private let device: any MTLDevice
     private let commandQueue: any MTLCommandQueue
     private let fusedKernel: any MTLComputePipelineState
@@ -468,7 +468,7 @@ public final class BatchMatrixKernel {
         bias: [Float]? = nil,
         config: FusedConfig = .default
     ) async throws -> BatchResult {
-        return try await Task.detached(priority: .userInitiated) {
+        return try await Task.detached(priority: .userInitiated) { [self] in
             return try self.multiplyFused(
                 batchA: batchA,
                 batchB: batchB,
@@ -525,7 +525,7 @@ public final class BatchMatrixKernel {
         return results
     }
     
-    public struct BenchmarkResult {
+    public struct BenchmarkResult: Sendable {
         public let batchSize: Int
         public let dimensions: String
         public let executionTime: TimeInterval

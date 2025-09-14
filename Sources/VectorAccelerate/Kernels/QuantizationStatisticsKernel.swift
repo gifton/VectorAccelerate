@@ -590,7 +590,7 @@ public final class QuantizationStatisticsKernel {
         return results
     }
     
-    public struct BenchmarkResult {
+    public struct BenchmarkResult: Sendable {
         public let dimension: Int
         public let vectorCount: Int
         public let executionTime: TimeInterval

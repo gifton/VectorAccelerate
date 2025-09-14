@@ -14,7 +14,7 @@ import QuartzCore
 /// Supports bit-packed binary vectors and float vectors with binarization
 public final class HammingDistanceKernel {
     private let device: any MTLDevice
-    private let computeEngine: ComputeEngine
+    private let kernelContext: KernelContext
     private let batchKernel: any MTLComputePipelineState
     private let floatKernel: any MTLComputePipelineState
     private let singleKernel: any MTLComputePipelineState
@@ -83,7 +83,7 @@ public final class HammingDistanceKernel {
     
     public init(device: any MTLDevice) throws {
         self.device = device
-        self.computeEngine = try ComputeEngine(context: MetalContext(device: device))
+        self.kernelContext = try KernelContext.shared(for: device)
         
         guard let library = device.makeDefaultLibrary() else {
             throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
@@ -284,14 +284,24 @@ public final class HammingDistanceKernel {
         _ b: [Bool]
     ) async throws -> Int {
         guard a.count == b.count else {
-            throw AccelerationError.countMismatch
+            throw AccelerationError.countMismatch()
         }
         
         let packedA = packBinary(a)
         let packedB = packBinary(b)
         
-        let bufferA = try computeEngine.createBuffer(from: packedA, options: MTLResourceOptions.storageModeShared)
-        let bufferB = try computeEngine.createBuffer(from: packedB, options: MTLResourceOptions.storageModeShared)
+        guard let bufferA = kernelContext.createBuffer(
+            from: packedA,
+            options: MTLResourceOptions.storageModeShared
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+        }
+        guard let bufferB = kernelContext.createBuffer(
+            from: packedB,
+            options: MTLResourceOptions.storageModeShared
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+        }
         
         // Use single vector kernel
         guard let outputBuffer = device.makeBuffer(
@@ -304,7 +314,7 @@ public final class HammingDistanceKernel {
         // Initialize to 0
         outputBuffer.contents().bindMemory(to: UInt32.self, capacity: 1).pointee = 0
         
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
             throw AccelerationError.encoderCreationFailed
@@ -343,24 +353,30 @@ public final class HammingDistanceKernel {
         
         let dimension = queries[0].count
         guard dataset.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.countMismatch
+            throw AccelerationError.countMismatch()
         }
         
         // Pack all vectors
         let packedQueries = queries.flatMap { packBinary($0) }
         let packedDataset = dataset.flatMap { packBinary($0) }
         
-        let queryBuffer = try computeEngine.createBuffer(
+        guard let queryBuffer = kernelContext.createBuffer(
             from: packedQueries,
             options: MTLResourceOptions.storageModeShared
-        )
         
-        let datasetBuffer = try computeEngine.createBuffer(
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+        }
+        
+        guard let datasetBuffer = kernelContext.createBuffer(
             from: packedDataset,
             options: MTLResourceOptions.storageModeShared
-        )
         
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+        }
+        
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
         let result = try computeBitPacked(
             queries: queryBuffer,
@@ -398,7 +414,7 @@ public final class HammingDistanceKernel {
     
     // MARK: - Performance Analysis
     
-    public struct PerformanceMetrics {
+    public struct PerformanceMetrics: Sendable {
         public let totalTime: TimeInterval
         public let throughput: Double // comparisons per second
         public let bitsPerSecond: Double

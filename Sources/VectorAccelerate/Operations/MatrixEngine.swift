@@ -78,10 +78,10 @@ public actor MatrixEngine {
     private let logger: Logger
     
     // Kernel instances for direct GPU operations
-    private let multiplyKernel: MatrixMultiplyKernel?
-    private let transposeKernel: MatrixTransposeKernel?
-    private let vectorKernel: MatrixVectorKernel?
-    private let batchKernel: BatchMatrixKernel?
+    private var multiplyKernel: MatrixMultiplyKernel?
+    private var transposeKernel: MatrixTransposeKernel?
+    private var vectorKernel: MatrixVectorKernel?
+    private var batchKernel: BatchMatrixKernel?
     
     // Legacy shader cache for fallback operations
     private var matrixMultiplyShader: (any MTLComputePipelineState)?

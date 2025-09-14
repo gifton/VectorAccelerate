@@ -11,7 +11,7 @@ import QuartzCore
 /// L2 Distance computation kernel for GPU acceleration
 public final class L2DistanceKernel {
     private let device: any MTLDevice
-    private let computeEngine: ComputeEngine
+    private let kernelContext: KernelContext
     private let pipelineState: any MTLComputePipelineState
     private let pipelineState512: any MTLComputePipelineState
     private let pipelineState768: any MTLComputePipelineState
@@ -36,7 +36,7 @@ public final class L2DistanceKernel {
         ) {
             self.numQueries = UInt32(numQueries)
             self.numDatabase = UInt32(numDatabase)
-            self.count = UInt32(dimension)
+            self.dimension = UInt32(dimension)
             self.strideQuery = UInt32(dimension)
             self.strideDatabase = UInt32(dimension)
             self.strideOutput = UInt32(numDatabase)
@@ -55,7 +55,7 @@ public final class L2DistanceKernel {
         ) {
             self.numQueries = UInt32(numQueries)
             self.numDatabase = UInt32(numDatabase)
-            self.count = UInt32(dimension)
+            self.dimension = UInt32(dimension)
             self.strideQuery = UInt32(strideQuery)
             self.strideDatabase = UInt32(strideDatabase)
             self.strideOutput = UInt32(strideOutput)
@@ -66,7 +66,7 @@ public final class L2DistanceKernel {
     /// Initialize L2 distance kernel with Metal device
     public init(device: any MTLDevice) throws {
         self.device = device
-        self.computeEngine = try ComputeEngine(context: MetalContext(device: device))
+        self.kernelContext = try KernelContext.shared(for: device)
         
         // Load the shader library
         guard let library = device.makeDefaultLibrary() else {
@@ -108,7 +108,7 @@ public final class L2DistanceKernel {
         
         // Select optimized kernel based on dimension
         let selectedPipeline: any MTLComputePipelineState
-        switch parameters.count {
+        switch parameters.dimension {
         case 512:
             selectedPipeline = pipelineState512
         case 768:
@@ -178,15 +178,19 @@ public final class L2DistanceKernel {
         let numDatabase = database.count
         
         // Allocate buffers
-        let queryBuffer = try computeEngine.createBuffer(
+        guard let queryBuffer = kernelContext.createBuffer(
             from: queries.flatMap { $0 },
             options: MTLResourceOptions.storageModeShared
-        )
-        
-        let databaseBuffer = try computeEngine.createBuffer(
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create query buffer")
+        }
+
+        guard let databaseBuffer = kernelContext.createBuffer(
             from: database.flatMap { $0 },
             options: MTLResourceOptions.storageModeShared
-        )
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create database buffer")
+        }
         
         let distanceBuffer = device.makeBuffer(
             length: numQueries * numDatabase * MemoryLayout<Float>.size,
@@ -202,7 +206,7 @@ public final class L2DistanceKernel {
         )
         
         // Execute computation
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         try compute(
             queryVectors: queryBuffer,
             databaseVectors: databaseBuffer,
@@ -270,7 +274,7 @@ public final class L2DistanceKernel {
 
 extension L2DistanceKernel {
     /// Performance statistics for kernel execution
-    public struct PerformanceStats {
+    public struct PerformanceStats: Sendable {
         public let computeTime: TimeInterval
         public let throughput: Double  // GFLOPS
         public let bandwidth: Double   // GB/s
@@ -283,7 +287,7 @@ extension L2DistanceKernel {
         distances: any MTLBuffer,
         parameters: Parameters
     ) async throws -> PerformanceStats {
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
         // Add GPU timing
         let startTime = CACurrentMediaTime()
@@ -303,10 +307,10 @@ extension L2DistanceKernel {
         let computeTime = endTime - startTime
         
         // Calculate performance metrics
-        let numOps = Int(parameters.numQueries) * Int(parameters.numDatabase) * Int(parameters.count) * 2
+        let numOps = Int(parameters.numQueries) * Int(parameters.numDatabase) * Int(parameters.dimension) * 2
         let throughput = Double(numOps) / (computeTime * 1e9)  // GFLOPS
         
-        let bytesRead = (Int(parameters.numQueries) + Int(parameters.numDatabase)) * Int(parameters.count) * 4
+        let bytesRead = (Int(parameters.numQueries) + Int(parameters.numDatabase)) * Int(parameters.dimension) * 4
         let bytesWritten = Int(parameters.numQueries) * Int(parameters.numDatabase) * 4
         let bandwidth = Double(bytesRead + bytesWritten) / (computeTime * 1e9)  // GB/s
         

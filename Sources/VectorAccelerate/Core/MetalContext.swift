@@ -39,7 +39,11 @@ public actor MetalContext {
     // Core components
     public let device: MetalDevice
     public let bufferPool: BufferPool
-    private let commandQueue: any MTLCommandQueue
+    internal let commandQueue: any MTLCommandQueue  // Changed to internal for ComputeEngine access
+
+    // Shared instances for synchronous access
+    private static var sharedInstances: [ObjectIdentifier: MetalContext] = [:]
+    private static let sharedInstancesLock = NSLock()
     private var defaultLibrary: (any MTLLibrary)?
     private var pipelineCache: [String: any MTLComputePipelineState] = [:]
     
@@ -101,13 +105,14 @@ public actor MetalContext {
         }
     }
     
+
     // MARK: - Static Methods
-    
+
     /// Check if Metal acceleration is available
     public static var isAvailable: Bool {
         MetalDevice.isAvailable
     }
-    
+
     /// Create default context if Metal is available
     public static func createDefault() async -> MetalContext? {
         do {

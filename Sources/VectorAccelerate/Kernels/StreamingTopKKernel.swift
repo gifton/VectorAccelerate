@@ -14,7 +14,7 @@ import QuartzCore
 /// Processes data in chunks and maintains running top-k using max-heap
 public final class StreamingTopKKernel {
     private let device: any MTLDevice
-    private let computeEngine: ComputeEngine
+    private let kernelContext: KernelContext
     private let initKernel: any MTLComputePipelineState
     private let processKernel: any MTLComputePipelineState
     private let finalizeKernel: any MTLComputePipelineState
@@ -106,7 +106,7 @@ public final class StreamingTopKKernel {
     
     public init(device: any MTLDevice) throws {
         self.device = device
-        self.computeEngine = try ComputeEngine(context: MetalContext(device: device))
+        self.kernelContext = try KernelContext.shared(for: device)
         
         guard let library = device.makeDefaultLibrary() else {
             throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
@@ -150,7 +150,7 @@ public final class StreamingTopKKernel {
         }
         
         // Initialize buffers with infinity/sentinel values
-        let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
             throw AccelerationError.encoderCreationFailed
@@ -317,7 +317,7 @@ public final class StreamingTopKKernel {
     ///   - progressHandler: Optional progress callback
     /// - Returns: Final top-k results
     public func streamingTopK(
-        distanceChunks: @escaping (Int) throws -> any MTLBuffer?,
+        distanceChunks: @escaping (Int) throws -> (any MTLBuffer)?,
         config: StreamConfig,
         progressHandler: ((Float) -> Void)? = nil
     ) async throws -> StreamingResult {
@@ -329,7 +329,7 @@ public final class StreamingTopKKernel {
         var globalIndex: Int64 = 0
         
         while let chunkBuffer = try distanceChunks(chunkIndex) {
-            let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+            let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
             
             try processChunk(
                 chunkDistances: chunkBuffer,
@@ -352,7 +352,7 @@ public final class StreamingTopKKernel {
         }
         
         // Finalize
-        let finalCommand = computeEngine.commandQueue.makeCommandBuffer()!
+        let finalCommand = kernelContext.commandQueue.makeCommandBuffer()!
         let result = try finalizeStreaming(state: state, commandBuffer: finalCommand)
         
         finalCommand.commit()
@@ -383,23 +383,24 @@ public final class StreamingTopKKernel {
         )
         
         return try await streamingTopK(
-            distanceChunks: { chunkIdx in
+            distanceChunks: { chunkIdx -> (any MTLBuffer)? in
                 let startIdx = Int64(chunkIdx) * Int64(chunkSize)
                 if startIdx >= vectorCount {
                     return nil
                 }
-                
+
                 let endIdx = min(startIdx + Int64(chunkSize), vectorCount)
                 let actualChunkSize = Int(endIdx - startIdx)
-                
+
                 // Compute distances for this chunk
                 // This is simplified - in practice you'd compute L2/cosine distances
                 let chunkData = data.subdata(
                     in: Int(startIdx * Int64(dimension) * 4)..<Int(endIdx * Int64(dimension) * 4)
                 )
-                
-                return try self.computeEngine.createBuffer(
-                    from: chunkData,
+
+                let chunkArray = [UInt8](chunkData)
+                return try self.kernelContext.createBuffer(
+                    from: chunkArray,
                     options: MTLResourceOptions.storageModeShared
                 )
             },
@@ -409,7 +410,7 @@ public final class StreamingTopKKernel {
     
     // MARK: - Performance Monitoring
     
-    public struct StreamingMetrics {
+    public struct StreamingMetrics: Sendable {
         public let totalTime: TimeInterval
         public let averageChunkTime: TimeInterval
         public let peakMemoryUsage: Int64 // bytes
@@ -445,12 +446,15 @@ public final class StreamingTopKKernel {
                 Float.random(in: 0...100)
             }
             
-            let chunkBuffer = try computeEngine.createBuffer(
-                from: distances,
-                options: MTLResourceOptions.storageModeShared
-            )
+            guard let chunkBuffer = kernelContext.createBuffer(
+            from: distances,
+            options: MTLResourceOptions.storageModeShared
             
-            let commandBuffer = computeEngine.commandQueue.makeCommandBuffer()!
+        ) else {
+            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+        }
+            
+            let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
             try processChunk(
                 chunkDistances: chunkBuffer,
                 state: state,
@@ -465,7 +469,7 @@ public final class StreamingTopKKernel {
         }
         
         // Finalize
-        let finalCommand = computeEngine.commandQueue.makeCommandBuffer()!
+        let finalCommand = kernelContext.commandQueue.makeCommandBuffer()!
         _ = try finalizeStreaming(state: state, commandBuffer: finalCommand)
         finalCommand.commit()
         finalCommand.waitUntilCompleted()

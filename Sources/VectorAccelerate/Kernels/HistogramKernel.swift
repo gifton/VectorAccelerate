@@ -517,7 +517,7 @@ public final class HistogramKernel {
         return results
     }
     
-    public struct BenchmarkResult {
+    public struct BenchmarkResult: Sendable {
         public let dataSize: Int
         public let binCount: Int
         public let executionTime: TimeInterval
@@ -729,9 +729,10 @@ public final class HistogramKernel {
         // Standard deviation using Accelerate
         var variance: Float = 0
         var temp = originalData
+        var result = [Float](repeating: 0, count: originalData.count)
         let meanVec = [Float](repeating: mean, count: originalData.count)
-        vDSP_vsub(meanVec, 1, &temp, 1, &temp, 1, vDSP_Length(originalData.count))
-        vDSP_vsq(temp, 1, &temp, 1, vDSP_Length(originalData.count))
+        vDSP_vsub(meanVec, 1, &temp, 1, &result, 1, vDSP_Length(originalData.count))
+        vDSP_vsq(result, 1, &temp, 1, vDSP_Length(originalData.count))
         vDSP_meanv(temp, 1, &variance, vDSP_Length(originalData.count))
         let standardDeviation = sqrt(variance)
         
