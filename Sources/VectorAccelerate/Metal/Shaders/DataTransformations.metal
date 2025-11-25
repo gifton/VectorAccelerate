@@ -51,7 +51,7 @@ float perform_elementwise_operation(float a, float b, constant ElementwiseParams
         case OP_SQRT:
             return use_fast ? fast::sqrt(a) : sqrt(a);
         case OP_RECIPROCAL:
-            return use_fast ? fast::recip(a) : (1.0f / a);
+            return use_fast ? fast::divide(1.0f, a) : (1.0f / a);
         case OP_NEGATE: return -a;
         case OP_EXP:
             return use_fast ? fast::exp(a) : exp(a);

@@ -83,40 +83,57 @@ public enum MetalElementType: String, Sendable, CaseIterable {
 
 // MARK: - Distance Metrics
 
-/// Supported distance metric types for vector operations
-public enum DistanceMetricType: String, Sendable, CaseIterable {
-    case euclidean
-    case cosine
-    case dotProduct
-    case manhattan
+// MARK: - VectorAccelerate Distance Metric Extensions
+
+/// VectorAccelerate-specific distance metric for metrics not in VectorCore
+public enum VectorAccelerateDistanceMetric: String, Sendable, CaseIterable {
     case hamming
-    
+
     /// Metal shader function name for this metric
     public var metalFunctionName: String {
+        switch self {
+        case .hamming: return "hamming_distance"
+        }
+    }
+
+    /// Whether this metric returns a similarity (higher = more similar) or distance (lower = more similar)
+    public var isSimilarity: Bool {
+        return false
+    }
+
+    /// Range of possible values for this metric
+    public var valueRange: ClosedRange<Float> {
+        return 0.0...1.0
+    }
+}
+
+/// Extensions to VectorCore's SupportedDistanceMetric for VectorAccelerate features
+public extension SupportedDistanceMetric {
+    /// Metal shader function name for this metric
+    var metalFunctionName: String {
         switch self {
         case .euclidean: return "euclidean_distance"
         case .cosine: return "cosine_similarity"
         case .dotProduct: return "dot_product"
         case .manhattan: return "manhattan_distance"
-        case .hamming: return "hamming_distance"
+        case .chebyshev: return "chebyshev_distance"
         }
     }
-    
+
     /// Whether this metric returns a similarity (higher = more similar) or distance (lower = more similar)
-    public var isSimilarity: Bool {
+    var isSimilarity: Bool {
         switch self {
         case .cosine, .dotProduct: return true
-        case .euclidean, .manhattan, .hamming: return false
+        case .euclidean, .manhattan, .chebyshev: return false
         }
     }
-    
+
     /// Range of possible values for this metric
-    public var valueRange: ClosedRange<Float> {
+    var valueRange: ClosedRange<Float> {
         switch self {
         case .cosine: return -1.0...1.0
         case .dotProduct: return -Float.infinity...Float.infinity
-        case .euclidean, .manhattan: return 0.0...Float.infinity
-        case .hamming: return 0.0...1.0
+        case .euclidean, .manhattan, .chebyshev: return 0.0...Float.infinity
         }
     }
 }

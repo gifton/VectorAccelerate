@@ -67,11 +67,9 @@ public final class L2DistanceKernel {
     public init(device: any MTLDevice) throws {
         self.device = device
         self.kernelContext = try KernelContext.shared(for: device)
-        
-        // Load the shader library
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         // Load kernel functions
         guard let kernelFunction = library.makeFunction(name: "l2_distance_kernel"),
@@ -132,7 +130,7 @@ public final class L2DistanceKernel {
         encoder.setBytes(&params, length: MemoryLayout<Parameters>.size, index: 3)
         
         // Calculate thread groups for 2D dispatch based on device capabilities
-        let w = selectedPipeline.threadExecutionWidth
+        let _ = selectedPipeline.threadExecutionWidth
         let maxThreads = selectedPipeline.maxTotalThreadsPerThreadgroup
 
         // Optimize for 2D dispatch - aim for square-ish thread groups
@@ -240,7 +238,7 @@ public final class L2DistanceKernel {
         )
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         // Extract results
         let distancePointer = distanceBuffer.contents().bindMemory(
@@ -325,7 +323,7 @@ extension L2DistanceKernel {
         )
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         let endTime = CACurrentMediaTime()
         let computeTime = endTime - startTime

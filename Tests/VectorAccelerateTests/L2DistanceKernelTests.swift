@@ -8,8 +8,8 @@ import VectorCore
 
 final class L2DistanceKernelTests: XCTestCase {
     
-    var device: any MTLDevice!
-    var kernel: L2DistanceKernel!
+    var device: (any MTLDevice)?
+    var kernel: L2DistanceKernel?
     
     override func setUpWithError() throws {
         device = MTLCreateSystemDefaultDevice()
@@ -21,18 +21,18 @@ final class L2DistanceKernelTests: XCTestCase {
     
     func testBasicL2Distance() async throws {
         // Test with simple 3D vectors
-        let queries = [
+        let queries: [[Float]] = [
             [1.0, 2.0, 3.0],
             [4.0, 5.0, 6.0]
         ]
-        
-        let database = [
+
+        let database: [[Float]] = [
             [1.0, 2.0, 3.0],  // Same as query[0], distance = 0
             [4.0, 5.0, 6.0],  // Same as query[1], distance = 0
             [7.0, 8.0, 9.0]   // Different
         ]
         
-        let distances = try await kernel.compute(
+        let distances = try await kernel!.compute(
             queries: queries,
             database: database,
             dimension: 3,
@@ -48,16 +48,16 @@ final class L2DistanceKernelTests: XCTestCase {
         XCTAssertEqual(distances[1][1], 0.0, accuracy: 1e-6, "Same vectors should have distance 0")
         
         // Check query[0] to database[2]: sqrt((7-1)² + (8-2)² + (9-3)²) = sqrt(108) ≈ 10.392
-        let expected = sqrt(36.0 + 36.0 + 36.0)
+        let expected: Float = sqrt(36.0 + 36.0 + 36.0)
         XCTAssertEqual(distances[0][2], expected, accuracy: 1e-4)
     }
     
     func testSquaredDistance() async throws {
-        let queries = [[3.0, 4.0]]  // Simple 2D vector
-        let database = [[0.0, 0.0]]  // Origin
+        let queries: [[Float]] = [[3.0, 4.0]]  // Simple 2D vector
+        let database: [[Float]] = [[0.0, 0.0]]  // Origin
         
         // Without sqrt: (3-0)² + (4-0)² = 9 + 16 = 25
-        let squaredDistances = try await kernel.compute(
+        let squaredDistances = try await kernel!.compute(
             queries: queries,
             database: database,
             dimension: 2,
@@ -67,7 +67,7 @@ final class L2DistanceKernelTests: XCTestCase {
         XCTAssertEqual(squaredDistances[0][0], 25.0, accuracy: 1e-6)
         
         // With sqrt: sqrt(25) = 5
-        let distances = try await kernel.compute(
+        let distances = try await kernel!.compute(
             queries: queries,
             database: database,
             dimension: 2,
@@ -78,10 +78,10 @@ final class L2DistanceKernelTests: XCTestCase {
     }
     
     func testZeroVectors() async throws {
-        let queries = [[0.0, 0.0, 0.0]]
-        let database = [[0.0, 0.0, 0.0]]
+        let queries: [[Float]] = [[0.0, 0.0, 0.0]]
+        let database: [[Float]] = [[0.0, 0.0, 0.0]]
         
-        let distances = try await kernel.compute(
+        let distances = try await kernel!.compute(
             queries: queries,
             database: database,
             dimension: 3,
@@ -92,11 +92,11 @@ final class L2DistanceKernelTests: XCTestCase {
     }
     
     func testOrthogonalVectors() async throws {
-        let queries = [[1.0, 0.0, 0.0]]  // Unit vector along x
-        let database = [[0.0, 1.0, 0.0]]  // Unit vector along y
+        let queries: [[Float]] = [[1.0, 0.0, 0.0]]  // Unit vector along x
+        let database: [[Float]] = [[0.0, 1.0, 0.0]]  // Unit vector along y
         
         // Distance = sqrt(1² + 1²) = sqrt(2) ≈ 1.414
-        let distances = try await kernel.compute(
+        let distances = try await kernel!.compute(
             queries: queries,
             database: database,
             dimension: 3,
@@ -110,11 +110,11 @@ final class L2DistanceKernelTests: XCTestCase {
     
     func testDimension512() async throws {
         // Create random vectors of dimension 512
-        let queries = [Array(repeating: 1.0, count: 512)]
-        let database = [Array(repeating: 0.0, count: 512)]
+        let queries: [[Float]] = [Array(repeating: 1.0, count: 512)]
+        let database: [[Float]] = [Array(repeating: 0.0, count: 512)]
         
         // Distance = sqrt(512 * 1²) = sqrt(512) ≈ 22.627
-        let distances = try await kernel.compute(
+        let distances = try await kernel!.compute(
             queries: queries,
             database: database,
             dimension: 512,
@@ -126,12 +126,12 @@ final class L2DistanceKernelTests: XCTestCase {
     
     func testDimension768() async throws {
         // Create normalized vectors
-        let value = 1.0 / sqrt(768.0)
-        let queries = [Array(repeating: value, count: 768)]
-        let database = [Array(repeating: -value, count: 768)]
+        let value: Float = 1.0 / sqrt(768.0)
+        let queries: [[Float]] = [Array(repeating: value, count: 768)]
+        let database: [[Float]] = [Array(repeating: -value, count: 768)]
         
         // Distance = sqrt(768 * (2*value)²) = 2
-        let distances = try await kernel.compute(
+        let distances = try await kernel!.compute(
             queries: queries,
             database: database,
             dimension: 768,
@@ -143,8 +143,8 @@ final class L2DistanceKernelTests: XCTestCase {
     
     func testDimension1536() async throws {
         // Test with sparse vectors
-        var query = Array(repeating: 0.0, count: 1536)
-        var db = Array(repeating: 0.0, count: 1536)
+        var query = Array(repeating: Float(0.0), count: 1536)
+        var db = Array(repeating: Float(0.0), count: 1536)
         
         // Set a few non-zero elements
         query[0] = 1.0
@@ -154,7 +154,7 @@ final class L2DistanceKernelTests: XCTestCase {
         db[0] = 1.0  // One matching element
         
         // Distance = sqrt((0)² + (1)² + (1)²) = sqrt(2)
-        let distances = try await kernel.compute(
+        let distances = try await kernel!.compute(
             queries: [query],
             database: [db],
             dimension: 1536,
@@ -183,7 +183,7 @@ final class L2DistanceKernelTests: XCTestCase {
             database.append((0..<dimension).map { _ in Float.random(in: -1...1) })
         }
         
-        let distances = try await kernel.compute(
+        let distances = try await kernel!.compute(
             queries: queries,
             database: database,
             dimension: dimension,
@@ -219,10 +219,10 @@ final class L2DistanceKernelTests: XCTestCase {
         let dimensions = [1, 3, 5, 7, 13, 17, 31, 63, 127, 255, 513]
         
         for dim in dimensions {
-            let queries = [Array(repeating: 1.0, count: dim)]
-            let database = [Array(repeating: 0.0, count: dim)]
+            let queries: [[Float]] = [Array(repeating: 1.0, count: dim)]
+            let database: [[Float]] = [Array(repeating: 0.0, count: dim)]
             
-            let distances = try await kernel.compute(
+            let distances = try await kernel!.compute(
                 queries: queries,
                 database: database,
                 dimension: dim,
@@ -237,11 +237,11 @@ final class L2DistanceKernelTests: XCTestCase {
     
     func testLargeValues() async throws {
         let largeValue: Float = 1e10
-        let queries = [[largeValue, largeValue]]
-        let database = [[-largeValue, -largeValue]]
+        let queries: [[Float]] = [[largeValue, largeValue]]
+        let database: [[Float]] = [[-largeValue, -largeValue]]
         
         // Distance = sqrt((2*1e10)² + (2*1e10)²) = 2*1e10*sqrt(2)
-        let distances = try await kernel.compute(
+        let distances = try await kernel!.compute(
             queries: queries,
             database: database,
             dimension: 2,
@@ -254,10 +254,10 @@ final class L2DistanceKernelTests: XCTestCase {
     
     func testSmallValues() async throws {
         let smallValue: Float = 1e-10
-        let queries = [[smallValue, smallValue]]
-        let database = [[0.0, 0.0]]
+        let queries: [[Float]] = [[smallValue, smallValue]]
+        let database: [[Float]] = [[0.0, 0.0]]
         
-        let distances = try await kernel.compute(
+        let distances = try await kernel!.compute(
             queries: queries,
             database: database,
             dimension: 2,
@@ -279,19 +279,19 @@ final class L2DistanceKernelTests: XCTestCase {
         let queryData = (0..<numQueries * dimension).map { _ in Float.random(in: -1...1) }
         let databaseData = (0..<numDatabase * dimension).map { _ in Float.random(in: -1...1) }
         
-        let queryBuffer = device.makeBuffer(
+        let queryBuffer = device!.makeBuffer(
             bytes: queryData,
             length: queryData.count * MemoryLayout<Float>.size,
             options: .storageModeShared
         )!
-        
-        let databaseBuffer = device.makeBuffer(
+
+        let databaseBuffer = device!.makeBuffer(
             bytes: databaseData,
             length: databaseData.count * MemoryLayout<Float>.size,
             options: .storageModeShared
         )!
-        
-        let distanceBuffer = device.makeBuffer(
+
+        let distanceBuffer = device!.makeBuffer(
             length: numQueries * numDatabase * MemoryLayout<Float>.size,
             options: .storageModeShared
         )!
@@ -304,9 +304,9 @@ final class L2DistanceKernelTests: XCTestCase {
         )
         
         measure {
-            let commandBuffer = device.makeCommandQueue()!.makeCommandBuffer()!
+            let commandBuffer = device!.makeCommandQueue()!.makeCommandBuffer()!
             
-            try! kernel.compute(
+            try! kernel!.compute(
                 queryVectors: queryBuffer,
                 databaseVectors: databaseBuffer,
                 distances: distanceBuffer,
@@ -335,16 +335,16 @@ final class L2DistanceKernelTests: XCTestCase {
     func testVectorCoreIntegration() async throws {
         // Test with VectorCore types
         let queries = [
-            Vector512(scalars: Array(repeating: 1.0, count: 512)),
-            Vector512(scalars: Array(repeating: 0.0, count: 512))
+            try Vector512(Array(repeating: Float(1.0), count: 512)),
+            try Vector512(Array(repeating: Float(0.0), count: 512))
         ]
-        
+
         let database = [
-            Vector512(scalars: Array(repeating: 0.0, count: 512)),
-            Vector512(scalars: Array(repeating: 1.0, count: 512))
+            try Vector512(Array(repeating: Float(0.0), count: 512)),
+            try Vector512(Array(repeating: Float(1.0), count: 512))
         ]
         
-        let distances = try await kernel.compute(
+        let distances = try await kernel!.compute(
             queries: queries,
             database: database,
             computeSqrt: true

@@ -142,15 +142,15 @@ public actor ShaderLibrary {
         for (key, value) in constants {
             var val = value
             switch value {
-            case let intVal as Int:
+            case _ as Int:
                 withUnsafeBytes(of: &val) { bytes in
                     constantValues.setConstantValue(bytes.baseAddress!, type: .int, withName: key)
                 }
-            case let floatVal as Float:
+            case _ as Float:
                 withUnsafeBytes(of: &val) { bytes in
                     constantValues.setConstantValue(bytes.baseAddress!, type: .float, withName: key)
                 }
-            case let boolVal as Bool:
+            case _ as Bool:
                 withUnsafeBytes(of: &val) { bytes in
                     constantValues.setConstantValue(bytes.baseAddress!, type: .bool, withName: key)
                 }

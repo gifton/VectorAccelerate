@@ -197,7 +197,7 @@ final class EmbeddingEngineEnhancedTests: XCTestCase {
     }
     
     func testInitializationWithAllDistanceMetrics() async throws {
-        let metrics: [VectorAccelerate.DistanceMetric] = [.euclidean, .cosine, .manhattan]
+        let metrics: [SupportedDistanceMetric] = [.euclidean, .cosine, .manhattan]
         
         for metric in metrics {
             let config = EmbeddingConfiguration(
@@ -589,7 +589,7 @@ final class EmbeddingEngineEnhancedTests: XCTestCase {
     }
     
     func testKMeansConvergenceAnalysis() async throws {
-        let (clusteredData, trueLabels) = createClusteredEmbeddings(
+        let (clusteredData, _) = createClusteredEmbeddings(
             numClusters: 3, 
             pointsPerCluster: 30, 
             dimension: 256,

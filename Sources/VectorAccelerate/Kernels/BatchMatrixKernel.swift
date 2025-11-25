@@ -119,9 +119,8 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         }
         self.commandQueue = queue
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         // Load fused batch kernel
         guard let fusedFunc = library.makeFunction(name: "batchMatrixMultiplyFused") else {
@@ -152,7 +151,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         batchB: [Matrix],
         bias: [Float]? = nil,
         config: FusedConfig = .default
-    ) throws -> BatchResult {
+    ) async throws -> BatchResult {
         // Validate batch sizes
         guard batchA.count == batchB.count else {
             throw AccelerationError.invalidInput("Batch sizes must match")
@@ -260,7 +259,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         encoder.endEncoding()
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         let executionTime = CACurrentMediaTime() - startTime
         
@@ -305,7 +304,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         batchCount: Int,
         dimensions: (M: Int, N: Int, K: Int),
         config: StridedConfig
-    ) throws -> BatchResult {
+    ) async throws -> BatchResult {
         // Validate tensor sizes
         let expectedSizeA = batchCount * dimensions.M * dimensions.K
         let expectedSizeB = batchCount * dimensions.K * dimensions.N
@@ -397,7 +396,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         encoder.endEncoding()
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         let executionTime = CACurrentMediaTime() - startTime
         
@@ -445,9 +444,9 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         batchA: [Matrix],
         batchB: [Matrix],
         config: FusedConfig = .default
-    ) throws -> BatchResult {
+    ) async throws -> BatchResult {
         // First multiply
-        let multiplyResult = try multiplyFused(batchA: batchA, batchB: batchB, config: config)
+        let multiplyResult = try await multiplyFused(batchA: batchA, batchB: batchB, config: config)
         
         // Then normalize if kernel available
         if normalizeKernel != nil {
@@ -468,14 +467,12 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         bias: [Float]? = nil,
         config: FusedConfig = .default
     ) async throws -> BatchResult {
-        return try await Task.detached(priority: .userInitiated) { [self] in
-            return try self.multiplyFused(
-                batchA: batchA,
-                batchB: batchB,
-                bias: bias,
-                config: config
-            )
-        }.value
+        return try await multiplyFused(
+            batchA: batchA,
+            batchB: batchB,
+            bias: bias,
+            config: config
+        )
     }
     
     // MARK: - Performance Analysis
@@ -484,7 +481,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
     public func benchmark(
         batchSizes: [Int],
         dimensions: (M: Int, K: Int, N: Int)
-    ) throws -> [BenchmarkResult] {
+    ) async throws -> [BenchmarkResult] {
         var results: [BenchmarkResult] = []
         
         for batchSize in batchSizes {
@@ -498,14 +495,14 @@ public final class BatchMatrixKernel: @unchecked Sendable {
             }
             
             // Warm-up run
-            _ = try multiplyFused(batchA: batchA, batchB: batchB)
-            
+            _ = try await multiplyFused(batchA: batchA, batchB: batchB)
+
             // Timed runs
             var times: [TimeInterval] = []
             var gflopsValues: [Double] = []
-            
+
             for _ in 0..<5 {
-                let result = try multiplyFused(batchA: batchA, batchB: batchB)
+                let result = try await multiplyFused(batchA: batchA, batchB: batchB)
                 times.append(result.executionTime)
                 gflopsValues.append(result.totalGflops)
             }

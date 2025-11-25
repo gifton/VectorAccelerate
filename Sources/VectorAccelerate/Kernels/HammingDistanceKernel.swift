@@ -85,9 +85,8 @@ public final class HammingDistanceKernel: @unchecked Sendable {
         self.device = device
         self.kernelContext = try KernelContext.shared(for: device)
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         // Load kernels
         guard let batchFunc = library.makeFunction(name: "hamming_distance_batch"),
@@ -336,7 +335,7 @@ public final class HammingDistanceKernel: @unchecked Sendable {
         encoder.endEncoding()
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         return Int(outputBuffer.contents().bindMemory(to: UInt32.self, capacity: 1).pointee)
     }
@@ -389,7 +388,7 @@ public final class HammingDistanceKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         return result.asMatrix()
     }

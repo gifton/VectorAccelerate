@@ -104,8 +104,8 @@ public actor MatrixEngine {
         
         // Initialize kernel wrappers
         do {
-            // Get the actual MTLDevice from MetalContext
-            let mtlDevice = await context.device.getDevice() // MetalContext.device.getDevice() gives MTLDevice
+            // Get the actual MTLDevice from MetalContext using explicit Sendable wrapper
+            let mtlDevice = (await context.device.getDeviceHandle()).value
             
             self.multiplyKernel = try MatrixMultiplyKernel(device: mtlDevice)
             self.transposeKernel = try MatrixTransposeKernel(device: mtlDevice)
@@ -186,20 +186,30 @@ public actor MatrixEngine {
         
         // Decide execution path based on size
         let totalElements = descriptorA.rows * descriptorB.columns
-        
+
+        let startTime = CFAbsoluteTimeGetCurrent()
+        let result: [Float]
+
         if totalElements < configuration.preferGPUThreshold {
             // Use CPU for small matrices
-            return try cpuMatrixMultiply(
+            result = try cpuMatrixMultiply(
                 matrixA, descriptorA: descriptorA,
                 matrixB, descriptorB: descriptorB
             )
         } else {
             // Use GPU for large matrices
-            return try await gpuMatrixMultiply(
+            result = try await gpuMatrixMultiply(
                 matrixA, descriptorA: descriptorA,
                 matrixB, descriptorB: descriptorB
             )
         }
+
+        // Track performance metrics
+        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        operationCount += 1
+        totalComputeTime += elapsed
+
+        return result
     }
     
     /// GPU-accelerated matrix multiplication
@@ -322,10 +332,19 @@ public actor MatrixEngine {
     ) async throws -> [Float] {
         let measureToken = await logger.startMeasure("matrixTranspose")
         defer { measureToken.end() }
-        
+
+        let startTime = CFAbsoluteTimeGetCurrent()
+
         // For small matrices, use CPU
         if descriptor.elementCount < configuration.preferGPUThreshold {
-            return cpuTranspose(matrix, descriptor: descriptor)
+            let result = cpuTranspose(matrix, descriptor: descriptor)
+
+            // Track performance metrics
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            operationCount += 1
+            totalComputeTime += elapsed
+
+            return result
         } else {
             // Use new kernel wrapper if available
             if let kernel = transposeKernel {
@@ -334,22 +353,29 @@ public actor MatrixEngine {
                     columns: descriptor.columns,
                     values: matrix
                 )
-                
+
                 let config = MatrixTransposeKernel.TransposeConfig(
                     conjugate: false,
                     inPlace: descriptor.rows == descriptor.columns
                 )
-                
-                let result = try kernel.transpose(mat, config: config)
-                
+
+                let result = try await kernel.transpose(mat, config: config)
+
                 operationCount += 1
                 totalComputeTime += result.executionTime
-                
+
                 await logger.debug("Matrix transpose completed: \(result.throughputGBps) GB/s")
-                
+
                 return result.matrix.values
             } else {
-                return try await gpuTranspose(matrix, descriptor: descriptor)
+                let result = try await gpuTranspose(matrix, descriptor: descriptor)
+
+                // Track performance metrics for legacy fallback
+                let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+                operationCount += 1
+                totalComputeTime += elapsed
+
+                return result
             }
         }
     }

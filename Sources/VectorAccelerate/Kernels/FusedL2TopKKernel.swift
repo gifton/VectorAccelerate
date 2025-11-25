@@ -1,12 +1,10 @@
 // Fused L2 Distance + Top-K Selection Kernel
 // Single-pass GPU kernel that computes L2 distances and selects top-k in one operation
 
+import Foundation
 import Metal
 import QuartzCore
-import Foundation
-import QuartzCore
 import VectorCore
-import QuartzCore
 
 // MARK: - Fused L2 Top-K Kernel
 
@@ -67,9 +65,8 @@ public final class FusedL2TopKKernel {
         self.device = device
         self.kernelContext = try KernelContext.shared(for: device)
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         // Load fused kernel
         guard let fusedFunction = library.makeFunction(name: "fused_l2_topk") else {
@@ -133,24 +130,26 @@ public final class FusedL2TopKKernel {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
             throw AccelerationError.encoderCreationFailed
         }
-        
+
         encoder.label = "FusedL2TopK"
         encoder.setComputePipelineState(fusedKernel)
-        
+
         // Set buffers
         encoder.setBuffer(queries, offset: 0, index: 0)
         encoder.setBuffer(dataset, offset: 0, index: 1)
         encoder.setBuffer(indices, offset: 0, index: 2)
         encoder.setBuffer(distancesBuffer, offset: 0, index: 3)
-        
-        // Set parameters
-        var params = (
-            Q: UInt32(queryCount),
-            N: UInt32(datasetCount),
-            D: UInt32(dimension),
-            K: UInt32(k)
-        )
-        encoder.setBytes(&params, length: MemoryLayout.size(ofValue: params), index: 4)
+
+        // Set parameters - each as individual buffer to match Metal shader signature
+        // Metal shader expects: constant uint& Q [[buffer(4)]], N [[buffer(5)]], D [[buffer(6)]], K [[buffer(7)]]
+        var paramQ = UInt32(queryCount)
+        var paramN = UInt32(datasetCount)
+        var paramD = UInt32(dimension)
+        var paramK = UInt32(k)
+        encoder.setBytes(&paramQ, length: MemoryLayout<UInt32>.size, index: 4)
+        encoder.setBytes(&paramN, length: MemoryLayout<UInt32>.size, index: 5)
+        encoder.setBytes(&paramD, length: MemoryLayout<UInt32>.size, index: 6)
+        encoder.setBytes(&paramK, length: MemoryLayout<UInt32>.size, index: 7)
         
         // Dispatch with 1 threadgroup per query
         let threadsPerThreadgroup = MTLSize(width: config.threadgroupSize, height: 1, depth: 1)
@@ -188,7 +187,7 @@ public final class FusedL2TopKKernel {
         let firstChunkSize = min(chunkSize, datasetCount)
         
         let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
-        var result = try fusedL2TopK(
+        let result = try fusedL2TopK(
             queries: queries,
             dataset: dataset,
             queryCount: queryCount,
@@ -200,7 +199,7 @@ public final class FusedL2TopKKernel {
         )
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         // Process remaining chunks
         var processedCount = firstChunkSize
@@ -234,7 +233,7 @@ public final class FusedL2TopKKernel {
             )
             
             updateCommand.commit()
-            updateCommand.waitUntilCompleted()
+            await updateCommand.completed()
             
             processedCount += currentChunkSize
         }
@@ -291,7 +290,7 @@ public final class FusedL2TopKKernel {
         )
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         // Extract results
         var allResults: [[(index: Int, distance: Float)]] = []
@@ -319,6 +318,15 @@ public final class FusedL2TopKKernel {
     
     // MARK: - Private Methods
     
+    /// Parameters struct matching Metal's StreamingL2Params layout
+    private struct StreamingL2Params {
+        var Q: UInt32
+        var chunkSize: UInt32
+        var D: UInt32
+        var K: UInt32
+        var offset: UInt32
+    }
+
     private func updateWithChunk(
         queries: any MTLBuffer,
         chunk: any MTLBuffer,
@@ -333,30 +341,30 @@ public final class FusedL2TopKKernel {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
             throw AccelerationError.encoderCreationFailed
         }
-        
+
         encoder.label = "StreamingL2TopKUpdate"
         encoder.setComputePipelineState(streamingUpdateKernel)
-        
+
         // Set buffers
         encoder.setBuffer(queries, offset: 0, index: 0)
         encoder.setBuffer(chunk, offset: 0, index: 1)
         encoder.setBuffer(currentTopK.indices, offset: 0, index: 2)
         encoder.setBuffer(currentTopK.distances, offset: 0, index: 3)
-        
-        // Set parameters
-        var params = (
+
+        // Set parameters - struct matches Metal's StreamingL2Params
+        var params = StreamingL2Params(
             Q: UInt32(queryCount),
-            ChunkSize: UInt32(chunkSize),
+            chunkSize: UInt32(chunkSize),
             D: UInt32(dimension),
             K: UInt32(k),
-            Offset: chunkOffset
+            offset: chunkOffset
         )
-        encoder.setBytes(&params, length: MemoryLayout.size(ofValue: params), index: 4)
-        
+        encoder.setBytes(&params, length: MemoryLayout<StreamingL2Params>.size, index: 4)
+
         // Dispatch
         let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
         let threadgroups = MTLSize(width: queryCount, height: 1, depth: 1)
-        
+
         encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
         encoder.endEncoding()
     }

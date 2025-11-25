@@ -94,10 +94,8 @@ public class MinkowskiCalculator {
     }
 
     private func setupPipeline() throws {
-        // Load the shader files. Assumes Minkowski.metal is compiled into the default library by Xcode.
-        guard let library = device.makeDefaultLibrary() else {
-            throw CalculatorError.initializationFailed("Could not load default Metal library.")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
 
         guard let kernelFunction = library.makeFunction(name: "minkowski_distance") else {
             throw CalculatorError.initializationFailed("Could not find kernel function 'minkowski_distance'")

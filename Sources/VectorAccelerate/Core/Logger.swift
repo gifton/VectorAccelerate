@@ -79,7 +79,7 @@ public actor Logger {
     public static let shared = Logger()
     
     // Global configuration
-    private static var globalConfig = LoggerConfiguration.default
+    private nonisolated(unsafe) static var globalConfig = LoggerConfiguration.default
     
     public init(configuration: LoggerConfiguration = LoggerConfiguration.default) {
         self.configuration = configuration

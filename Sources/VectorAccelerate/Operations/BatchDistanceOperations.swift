@@ -64,37 +64,27 @@ public actor BatchDistanceEngine {
         
         // Get pipeline
         let pipeline = try await shaderManager.getPipelineState(functionName: "batchEuclideanDistance")
-        
-        // Create command buffer
-        guard let commandBuffer = await metalContext.makeCommandBuffer() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command buffer")
+
+        try await metalContext.executeAndWait { commandBuffer, encoder in
+            encoder.setComputePipelineState(pipeline)
+            encoder.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
+            encoder.setBuffer(candidatesBuffer.buffer, offset: 0, index: 1)
+            encoder.setBuffer(resultBuffer.buffer, offset: 0, index: 2)
+
+            var dim = UInt32(dimension)
+            var count = UInt32(candidateCount)
+            encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
+            encoder.setBytes(&count, length: MemoryLayout<UInt32>.size, index: 4)
+
+            // Dispatch threads
+            let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
+            let threadgroups = MTLSize(
+                width: (candidateCount + 255) / 256,
+                height: 1,
+                depth: 1
+            )
+            encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
         }
-        guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
-        }
-        
-        encoder.setComputePipelineState(pipeline)
-        encoder.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
-        encoder.setBuffer(candidatesBuffer.buffer, offset: 0, index: 1)
-        encoder.setBuffer(resultBuffer.buffer, offset: 0, index: 2)
-        
-        var dim = UInt32(dimension)
-        var count = UInt32(candidateCount)
-        encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
-        encoder.setBytes(&count, length: MemoryLayout<UInt32>.size, index: 4)
-        
-        // Dispatch threads
-        let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
-        let threadgroups = MTLSize(
-            width: (candidateCount + 255) / 256,
-            height: 1,
-            depth: 1
-        )
-        encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
-        
-        encoder.endEncoding()
-        commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
         
         // Read results
         let results = resultBuffer.buffer.contents().bindMemory(
@@ -179,36 +169,26 @@ public actor BatchDistanceEngine {
         
         // Get pipeline
         let pipeline = try await shaderManager.getPipelineState(functionName: "batchCosineSimilarity")
-        
-        // Execute
-        guard let commandBuffer = try await metalContext.makeCommandBuffer() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command buffer")
+
+        try await metalContext.executeAndWait { commandBuffer, encoder in
+            encoder.setComputePipelineState(pipeline)
+            encoder.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
+            encoder.setBuffer(candidatesBuffer.buffer, offset: 0, index: 1)
+            encoder.setBuffer(resultBuffer.buffer, offset: 0, index: 2)
+
+            var dim = UInt32(dimension)
+            var count = UInt32(candidateCount)
+            encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
+            encoder.setBytes(&count, length: MemoryLayout<UInt32>.size, index: 4)
+
+            let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
+            let threadgroups = MTLSize(
+                width: (candidateCount + 255) / 256,
+                height: 1,
+                depth: 1
+            )
+            encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
         }
-        guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
-        }
-        
-        encoder.setComputePipelineState(pipeline)
-        encoder.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
-        encoder.setBuffer(candidatesBuffer.buffer, offset: 0, index: 1)
-        encoder.setBuffer(resultBuffer.buffer, offset: 0, index: 2)
-        
-        var dim = UInt32(dimension)
-        var count = UInt32(candidateCount)
-        encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
-        encoder.setBytes(&count, length: MemoryLayout<UInt32>.size, index: 4)
-        
-        let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
-        let threadgroups = MTLSize(
-            width: (candidateCount + 255) / 256,
-            height: 1,
-            depth: 1
-        )
-        encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
-        
-        encoder.endEncoding()
-        commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
         
         // Read results
         let results = resultBuffer.buffer.contents().bindMemory(
@@ -305,35 +285,25 @@ public actor BatchDistanceEngine {
         // Get pipeline
         let pipeline = try await shaderManager.getPipelineState(functionName: "batchDotProduct")
         
-        // Execute
-        guard let commandBuffer = try await metalContext.makeCommandBuffer() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command buffer")
+        try await metalContext.executeAndWait { commandBuffer, encoder in
+            encoder.setComputePipelineState(pipeline)
+            encoder.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
+            encoder.setBuffer(candidatesBuffer.buffer, offset: 0, index: 1)
+            encoder.setBuffer(resultBuffer.buffer, offset: 0, index: 2)
+
+            var dim = UInt32(dimension)
+            var count = UInt32(candidateCount)
+            encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
+            encoder.setBytes(&count, length: MemoryLayout<UInt32>.size, index: 4)
+
+            let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
+            let threadgroups = MTLSize(
+                width: (candidateCount + 255) / 256,
+                height: 1,
+                depth: 1
+            )
+            encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
         }
-        guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
-        }
-        
-        encoder.setComputePipelineState(pipeline)
-        encoder.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
-        encoder.setBuffer(candidatesBuffer.buffer, offset: 0, index: 1)
-        encoder.setBuffer(resultBuffer.buffer, offset: 0, index: 2)
-        
-        var dim = UInt32(dimension)
-        var count = UInt32(candidateCount)
-        encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
-        encoder.setBytes(&count, length: MemoryLayout<UInt32>.size, index: 4)
-        
-        let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
-        let threadgroups = MTLSize(
-            width: (candidateCount + 255) / 256,
-            height: 1,
-            depth: 1
-        )
-        encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
-        
-        encoder.endEncoding()
-        commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
         
         // Read results
         let results = resultBuffer.buffer.contents().bindMemory(
@@ -359,10 +329,10 @@ public actor BatchDistanceEngine {
         query: [Float],
         candidates: [[Float]],
         k: Int,
-        metric: DistanceMetricType = .euclidean
+        metric: SupportedDistanceMetric = .euclidean
     ) async throws -> [(index: Int, distance: Float)] {
         let distances: [Float]
-        
+
         switch metric {
         case .euclidean:
             distances = try await batchEuclideanDistance(query: query, candidates: candidates)
@@ -372,8 +342,8 @@ public actor BatchDistanceEngine {
         case .dotProduct:
             let products = try await batchDotProduct(query: query, candidates: candidates)
             distances = products.map { -$0 } // Negate for distance (higher dot product = closer)
-        default:
-            throw AccelerationError.unsupportedOperation("Metric \(metric) not supported for batch operations")
+        case .manhattan, .chebyshev:
+            throw AccelerationError.unsupportedOperation("Metric \(metric) not yet implemented for batch operations")
         }
         
         // Find k smallest distances

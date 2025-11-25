@@ -253,9 +253,8 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         }
         self.commandQueue = queue
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         guard let function = library.makeFunction(name: "computeQuantizationStats") else {
             throw AccelerationError.shaderNotFound(name: "computeQuantizationStats")
@@ -288,7 +287,7 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         original: [[Float]],
         quantized: [[Float]],
         config: StatisticsConfig = .default
-    ) throws -> BatchStatistics {
+    ) async throws -> BatchStatistics {
         guard original.count == quantized.count else {
             throw AccelerationError.countMismatch(expected: original.count, actual: quantized.count)
         }
@@ -385,7 +384,7 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         encoder.endEncoding()
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         let gpuExecutionTime = CACurrentMediaTime() - gpuStartTime
         
@@ -448,9 +447,9 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
     public func computeStatistics(
         original: [Float],
         quantized: [Float]
-    ) throws -> VectorMetrics {
+    ) async throws -> VectorMetrics {
         let config = StatisticsConfig.comprehensive
-        let batchStats = try computeStatistics(
+        let batchStats = try await computeStatistics(
             original: [original],
             quantized: [quantized],
             config: config
@@ -470,12 +469,12 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         original: [[Float]],
         quantizedVersions: [String: [[Float]]],
         config: StatisticsConfig = .default
-    ) throws -> ComparisonReport {
+    ) async throws -> ComparisonReport {
         var methodResults: [String: BatchStatistics] = [:]
         
         // Compute statistics for each method
         for (methodName, quantized) in quantizedVersions {
-            let stats = try computeStatistics(
+            let stats = try await computeStatistics(
                 original: original,
                 quantized: quantized,
                 config: config
@@ -523,14 +522,7 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         quantized: [[Float]],
         config: StatisticsConfig = .default
     ) async throws -> BatchStatistics {
-        return try await withCheckedThrowingContinuation { continuation in
-            do {
-                let result = try computeStatistics(original: original, quantized: quantized, config: config)
-                continuation.resume(returning: result)
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
+        return try await computeStatistics(original: original, quantized: quantized, config: config)
     }
     
     // MARK: - VectorCore Integration
@@ -540,10 +532,10 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         original: [V],
         quantized: [V],
         config: StatisticsConfig = .default
-    ) throws -> BatchStatistics where V.Scalar == Float {
+    ) async throws -> BatchStatistics where V.Scalar == Float {
         let originalArrays = original.map { $0.toArray() }
         let quantizedArrays = quantized.map { $0.toArray() }
-        return try computeStatistics(original: originalArrays, quantized: quantizedArrays, config: config)
+        return try await computeStatistics(original: originalArrays, quantized: quantizedArrays, config: config)
     }
     
     // MARK: - Performance Analysis
@@ -552,7 +544,7 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
     public func benchmark(
         dimensions: [Int],
         vectorCounts: [Int] = [100, 500, 1000]
-    ) throws -> [BenchmarkResult] {
+    ) async throws -> [BenchmarkResult] {
         var results: [BenchmarkResult] = []
         
         for dimension in dimensions {
@@ -566,12 +558,12 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
                 }
                 
                 // Warm-up
-                _ = try computeStatistics(original: Array(original.prefix(10)), quantized: Array(quantized.prefix(10)))
-                
+                _ = try await computeStatistics(original: Array(original.prefix(10)), quantized: Array(quantized.prefix(10)))
+
                 // Benchmark runs
                 var times: [TimeInterval] = []
                 for _ in 0..<3 {
-                    let result = try computeStatistics(original: original, quantized: quantized)
+                    let result = try await computeStatistics(original: original, quantized: quantized)
                     times.append(result.totalExecutionTime)
                 }
                 
@@ -607,20 +599,33 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         useParallel: Bool
     ) -> [Float] {
         let numVectors = original.count
-        let maxErrors = UnsafeMutablePointer<Float>.allocate(capacity: numVectors)
-        defer { maxErrors.deallocate() }
-        
+
         if useParallel && numVectors > 100 {
-            // Use parallel processing for large batches
+            // Use parallel processing with unsafe pointer for large batches
+            // This is safe because we write to disjoint indices
+            let maxErrors = UnsafeMutablePointer<Float>.allocate(capacity: numVectors)
+            defer { maxErrors.deallocate() }
+
+            // Initialize to zero
+            maxErrors.initialize(repeating: 0.0, count: numVectors)
+
+            // Wrap pointer in Sendable type for concurrent access
+            // This is safe: each iteration writes to a unique index
+            let sendablePointer = UnsafeSendable(maxErrors)
+
+            // Parallel computation - each thread writes to its own index
             DispatchQueue.concurrentPerform(iterations: numVectors) { i in
-                maxErrors[i] = Self.calculateMaxErrorForVector(
+                sendablePointer.value[i] = Self.calculateMaxErrorForVector(
                     original: original[i],
                     quantized: quantized[i],
                     dimension: dimension
                 )
             }
+
+            return Array(UnsafeBufferPointer(start: maxErrors, count: numVectors))
         } else {
             // Sequential processing for smaller batches
+            var maxErrors = Array(repeating: Float(0), count: numVectors)
             for i in 0..<numVectors {
                 maxErrors[i] = Self.calculateMaxErrorForVector(
                     original: original[i],
@@ -628,9 +633,8 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
                     dimension: dimension
                 )
             }
+            return maxErrors
         }
-        
-        return Array(UnsafeBufferPointer(start: maxErrors, count: numVectors))
     }
     
     /// Calculate maximum error for a single vector pair using Accelerate

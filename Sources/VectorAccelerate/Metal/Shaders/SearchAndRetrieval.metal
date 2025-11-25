@@ -224,12 +224,19 @@ kernel void parallel_reduce_kernel(
     device uint* output_indices [[buffer(3)]],      // Output indices
     constant ReductionParams& params [[buffer(4)]],
     threadgroup IndexedValue* shared_data [[threadgroup(0)]],
-    uint tid [[thread_position_in_grid]],
-    uint local_id [[thread_position_in_threadgroup]],
-    uint group_id [[threadgroup_position_in_grid]],
-    uint grid_size [[threads_in_grid]],
-    uint threadgroup_size [[threads_per_threadgroup]]
+    uint3 tid3 [[thread_position_in_grid]],
+    uint3 local_id3 [[thread_position_in_threadgroup]],
+    uint3 group_id3 [[threadgroup_position_in_grid]],
+    uint3 grid_size3 [[threads_per_grid]],
+    uint3 threadgroup_size3 [[threads_per_threadgroup]]
 ) {
+    // Extract scalar components for 1D dispatch usage
+    const uint tid = tid3.x;
+    const uint local_id = local_id3.x;
+    const uint group_id = group_id3.x;
+    const uint grid_size = grid_size3.x;
+    const uint threadgroup_size = threadgroup_size3.x;
+
     const uint N = params.num_elements;
     const ReductionOp OP = ReductionOp(params.operation);
 

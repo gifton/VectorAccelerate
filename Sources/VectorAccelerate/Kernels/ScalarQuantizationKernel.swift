@@ -117,9 +117,8 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
         self.device = device
         self.kernelContext = try KernelContext.shared(for: device)
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
 
         guard let qInt8 = library.makeFunction(name: "quantize_int8_kernel"),
               let dqInt8 = library.makeFunction(name: "dequantize_int8_kernel"),
@@ -303,7 +302,7 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         // Extract quantized data
         let quantizedData = Data(bytes: outputBuffer.contents(), count: outputSize)
@@ -351,7 +350,7 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         let pointer = outputBuffer.contents().bindMemory(to: Float.self, capacity: count)
         return Array(UnsafeBufferPointer(start: pointer, count: count))

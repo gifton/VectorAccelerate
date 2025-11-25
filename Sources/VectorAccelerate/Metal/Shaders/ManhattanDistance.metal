@@ -101,7 +101,7 @@ kernel void manhattan_distance_batch(
         threadgroup_barrier(mem_flags::mem_threadgroup);
         
         // Compute Manhattan distance for this tile
-        const uint tile_end = min(TILE_D, D - d_start);
+        const uint tile_end = min((uint)TILE_D, D - d_start);
         
         // Vectorized computation when possible
         const uint vec_end = tile_end / 4;
@@ -191,7 +191,7 @@ kernel void manhattan_distance_weighted(
         threadgroup_barrier(mem_flags::mem_threadgroup);
         
         // Compute weighted Manhattan distance
-        const uint tile_end = min(TILE_D, D - d_start);
+        const uint tile_end = min((uint)TILE_D, D - d_start);
         for (uint d = 0; d < tile_end; ++d) {
             float q_val = shared_Q[tid.y * TILE_D + d];
             float n_val = shared_N[tid.x * TILE_D + d];
@@ -319,7 +319,7 @@ kernel void manhattan_distance_normalized(
         
         threadgroup_barrier(mem_flags::mem_threadgroup);
         
-        const uint tile_end = min(TILE_D, D - d_start);
+        const uint tile_end = min((uint)TILE_D, D - d_start);
         const uint vec_end = tile_end / 4;
         
         for (uint k = 0; k < vec_end; ++k) {

@@ -122,23 +122,22 @@ public struct AccelerateFallback {
         guard matrix.count == rows * columns && vector.count == columns else { return [] }
         
         var result = [Float](repeating: 0, count: rows)
-        
-        // Use BLAS for matrix-vector multiplication
-        cblas_sgemv(
-            CblasRowMajor,
-            CblasNoTrans,
-            Int32(rows),
-            Int32(columns),
-            1.0,  // alpha
-            matrix,
-            Int32(columns),
-            vector,
-            1,
-            0.0,  // beta
-            &result,
-            1
+
+        // Use vDSP for matrix-vector multiplication (treating vector as Nx1 matrix)
+        // vDSP_mmul performs C = A * B where:
+        // A is matrix (rows x columns), B is vector (columns x 1), C is result (rows x 1)
+        vDSP_mmul(
+            matrix,           // Input matrix A
+            1,                // Stride for A
+            vector,           // Input vector B (as column matrix)
+            1,                // Stride for B
+            &result,          // Output C
+            1,                // Stride for C
+            vDSP_Length(rows),     // M: rows in A (and C)
+            vDSP_Length(1),        // N: columns in B (and C) = 1
+            vDSP_Length(columns)   // P: columns in A = rows in B
         )
-        
+
         return result
     }
     
@@ -154,25 +153,22 @@ public struct AccelerateFallback {
         guard a.count == rowsA * colsA && b.count == rowsB * colsB else { return [] }
         
         var result = [Float](repeating: 0, count: rowsA * colsB)
-        
-        // Use BLAS for matrix multiplication
-        cblas_sgemm(
-            CblasRowMajor,
-            CblasNoTrans,
-            CblasNoTrans,
-            Int32(rowsA),
-            Int32(colsB),
-            Int32(colsA),
-            1.0,  // alpha
-            a,
-            Int32(colsA),
-            b,
-            Int32(colsB),
-            0.0,  // beta
-            &result,
-            Int32(colsB)
+
+        // Use vDSP for matrix multiplication
+        // vDSP_mmul performs C = A * B where:
+        // A is (rowsA x colsA), B is (colsA x colsB), C is (rowsA x colsB)
+        vDSP_mmul(
+            a,                      // Input matrix A
+            1,                      // Stride for A
+            b,                      // Input matrix B
+            1,                      // Stride for B
+            &result,                // Output matrix C
+            1,                      // Stride for C
+            vDSP_Length(rowsA),     // M: rows in A (and C)
+            vDSP_Length(colsB),     // N: columns in B (and C)
+            vDSP_Length(colsA)      // P: columns in A = rows in B
         )
-        
+
         return result
     }
     

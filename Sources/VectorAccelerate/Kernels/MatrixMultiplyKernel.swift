@@ -75,9 +75,8 @@ public final class MatrixMultiplyKernel: @unchecked Sendable {
         }
         self.commandQueue = queue
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         // Load main kernel
         guard let function = library.makeFunction(name: "tiledMatrixMultiply") else {
@@ -259,10 +258,10 @@ public final class MatrixMultiplyKernel: @unchecked Sendable {
 
         // First compute A * B
         let abResult = try multiply(matrixA, matrixB, config: MultiplyConfig(
-            transposeA: config.transposeA,
-            transposeB: config.transposeB,
             alpha: 1.0,  // We'll apply alpha later
             beta: 0.0,
+            transposeA: config.transposeA,
+            transposeB: config.transposeB,
             useSpecializedKernel: config.useSpecializedKernel
         ))
 

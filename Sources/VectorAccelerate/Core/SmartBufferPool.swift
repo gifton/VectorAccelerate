@@ -8,12 +8,16 @@ import Foundation
 import VectorCore
 
 /// Smart buffer pool with automatic sizing and efficient memory management
-public actor SmartBufferPool {
+public actor SmartBufferPool: BufferProvider {
     private let device: MetalDevice
     private var buffers: [Int: [any MTLBuffer]] = [:]
     private var currentMemory: Int = 0
     private let maxMemory: Int
-    
+
+    // BufferProvider conformance - track handles for VectorCore integration
+    private var activeHandles: [UUID: MetalBuffer] = [:]
+    private var peakMemory: Int = 0
+
     // Performance metrics
     private var hits: Int = 0
     private var misses: Int = 0
@@ -59,22 +63,23 @@ public actor SmartBufferPool {
         
         // Check memory pressure
         if currentMemory + alignedSize > maxMemory {
-            await performCleanup()
-            
+            performCleanup()
+
             if currentMemory + alignedSize > maxMemory {
                 throw AccelerationError.memoryPressure
             }
         }
         
-        // Allocate new buffer
-        guard let buffer = await device.makeBuffer(length: alignedSize) else {
+        // Allocate new buffer via Sendable wrapper
+        guard let metal = await device.makeMetalBuffer(length: alignedSize) else {
             throw AccelerationError.bufferAllocationFailed(size: alignedSize)
         }
         
         allocations += 1
         currentMemory += alignedSize
-        
-        return MetalBuffer(buffer: buffer, count: byteSize / MemoryLayout<Float>.stride)
+        peakMemory = max(peakMemory, currentMemory)
+
+        return MetalBuffer(buffer: metal.buffer, count: byteSize / MemoryLayout<Float>.stride)
     }
     
     /// Release a buffer back to the pool
@@ -150,11 +155,11 @@ public actor SmartBufferPool {
         // Pre-allocate 2 buffers of each common size
         for size in Self.commonSizes.prefix(3) {
             for _ in 0..<2 {
-                if let buffer = await device.makeBuffer(length: size) {
+                if let metal = await device.makeMetalBuffer(length: size) {
                     if buffers[size] == nil {
                         buffers[size] = []
                     }
-                    buffers[size]?.append(buffer)
+                    buffers[size]?.append(metal.buffer)
                     currentMemory += size
                     allocations += 1
                 }
@@ -191,6 +196,63 @@ public actor SmartBufferPool {
         hits = 0
         misses = 0
         allocations = 0
+        peakMemory = 0
+        activeHandles.removeAll()
+    }
+
+    // MARK: - BufferProvider Protocol Conformance
+
+    /// Preferred alignment for Metal buffers (256 bytes per Metal specification)
+    public nonisolated var alignment: Int {
+        256  // Metal buffer alignment requirement
+    }
+
+    /// Acquire a buffer of at least the specified size (VectorCore interface)
+    public func acquire(size: Int) async throws -> BufferHandle {
+        // Get buffer from pool using existing infrastructure
+        let metalBuffer = try await acquire(byteSize: size)
+
+        // Create BufferHandle from the MetalBuffer
+        let handle = BufferHandle(
+            id: UUID(),
+            size: metalBuffer.byteLength,
+            pointer: metalBuffer.buffer.contents()
+        )
+
+        // Track the handle → MetalBuffer mapping for later release
+        activeHandles[handle.id] = metalBuffer
+
+        return handle
+    }
+
+    /// Release a buffer back to the pool (VectorCore interface)
+    public func release(_ handle: BufferHandle) async {
+        // Find the corresponding MetalBuffer
+        guard let metalBuffer = activeHandles.removeValue(forKey: handle.id) else {
+            // Handle not found - may have already been released
+            return
+        }
+
+        // Return the buffer to the pool
+        release(metalBuffer)
+    }
+
+    /// Get current buffer statistics (VectorCore interface)
+    public func statistics() async -> BufferStatistics {
+        let stats = getStatistics()
+
+        return BufferStatistics(
+            totalAllocations: stats.totalAllocations,
+            reusedBuffers: hits,
+            currentUsageBytes: currentMemory,
+            peakUsageBytes: peakMemory
+        )
+    }
+
+    /// Clear all cached buffers (VectorCore interface)
+    public func clear() async {
+        // Clear cached buffers but keep active handles
+        performCleanup()
     }
 }
 

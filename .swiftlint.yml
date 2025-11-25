@@ -1,0 +1,129 @@
+# SwiftLint Configuration for VectorAccelerate
+# GPU-accelerated vector operations library
+
+# Paths to include
+included:
+  - Sources
+  - Tests
+
+# Paths to exclude
+excluded:
+  - .build
+  - .swiftpm
+  - Package.swift
+  - Sources/VectorAccelerateBenchmarks  # Benchmarks can use print()
+
+# Disabled rules
+disabled_rules:
+  - trailing_whitespace        # Too noisy for iterative development
+  - todo                       # Allow TODOs during development
+  - opening_brace              # Style preference
+  - statement_position         # Style preference
+  - vertical_whitespace        # Style preference
+  - multiple_closures_with_trailing_closure  # Common in async code
+
+# Opt-in rules (all as warnings, not errors, to avoid blocking CI on pre-existing code)
+opt_in_rules:
+  - empty_string              # Prefer isEmpty over == ""
+  - fatal_error_message       # Require message in fatalError
+  - first_where               # Prefer first(where:) over filter().first
+  - force_unwrapping          # Warn on force unwrapping (not error)
+  - implicitly_unwrapped_optional  # Warn on IUOs
+  - overridden_super_call     # Ensure super is called
+  - private_outlet            # IBOutlets should be private
+  - redundant_nil_coalescing  # Avoid redundant ?? nil
+  - sorted_first_last         # Use min/max instead of sorted().first/last
+
+# Rule configurations
+line_length:
+  warning: 150
+  error: 200
+  ignores_comments: true
+  ignores_urls: true
+  ignores_function_declarations: true
+
+file_length:
+  warning: 600
+  error: 1000
+  ignore_comment_only_lines: true
+
+type_body_length:
+  warning: 500
+  error: 1000  # Large GPU kernels can have substantial implementations
+
+function_body_length:
+  warning: 100
+  error: 800  # Shader generation functions can be very long
+
+function_parameter_count:
+  warning: 8
+  error: 12
+
+cyclomatic_complexity:
+  warning: 15
+  error: 25
+
+nesting:
+  type_level:
+    warning: 3
+    error: 5
+  function_level:
+    warning: 5
+    error: 8
+
+identifier_name:
+  min_length:
+    warning: 2
+    error: 1
+  max_length:
+    warning: 50
+    error: 60
+  validates_start_with_lowercase: false  # Allow SCREAMING_SNAKE_CASE for constants
+  allowed_symbols: ["_"]  # Allow snake_case for Metal struct interop
+  excluded:
+    - id
+    - i
+    - j
+    - k
+    - n
+    - m
+    - x
+    - y
+    - z
+    - a
+    - b
+    - v
+    - q  # Common in GPU/math code
+    # Metal interop struct fields (snake_case to match Metal shader structs)
+    - batch_size
+    - num_elements
+    - input_stride
+    - output_stride
+    - MAX_K_SUPPORTED
+
+type_name:
+  min_length:
+    warning: 3
+    error: 2
+  max_length:
+    warning: 50
+    error: 60
+
+large_tuple:
+  warning: 4
+  error: 6
+
+# Force cast/try are warnings, not errors (sometimes needed for Metal)
+force_cast: warning
+force_try: warning
+
+# Custom rules for this project
+custom_rules:
+  no_print_in_production:
+    name: "No print() in production code"
+    regex: '^\s*print\('
+    message: "Avoid print() in production code. Use Logger instead."
+    severity: warning
+    match_kinds:
+      - identifier
+    excluded: ".*Tests.*"

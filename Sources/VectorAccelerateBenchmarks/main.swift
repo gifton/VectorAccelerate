@@ -14,8 +14,8 @@ struct BenchmarkRunner {
         print("🚀 VectorAccelerate Benchmark Suite")
         print("===================================\n")
         
-        // Check Metal availability
-        guard MetalDevice.isAvailable else {
+        // Check Metal availability using VectorCore's ComputeDevice
+        guard ComputeDevice.gpu().isAvailable else {
             print("❌ Metal is not available on this system")
             return
         }

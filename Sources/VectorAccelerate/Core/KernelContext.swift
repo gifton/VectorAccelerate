@@ -9,10 +9,12 @@ import Foundation
 public final class KernelContext: @unchecked Sendable {
     public let device: any MTLDevice
     public let commandQueue: any MTLCommandQueue
+    public private(set) var library: (any MTLLibrary)?
 
     // Cache for shared instances
     // Using nonisolated(unsafe) as this is protected by explicit lock synchronization
     nonisolated(unsafe) private static var sharedInstances: [ObjectIdentifier: KernelContext] = [:]
+    nonisolated(unsafe) private static var sharedLibrary: (any MTLLibrary)?
     private static let lock = NSLock()
 
     /// Create a kernel context with the given device
@@ -38,8 +40,129 @@ public final class KernelContext: @unchecked Sendable {
         }
 
         let context = try KernelContext(device: device)
+
+        // Load or reuse shared library
+        if let library = sharedLibrary {
+            context.library = library
+        } else {
+            context.library = Self.loadMetalLibrary(device: device)
+            sharedLibrary = context.library
+        }
+
         sharedInstances[deviceId] = context
         return context
+    }
+
+    /// Load Metal library with fallback support for different environments
+    /// Tries multiple approaches: default library, package bundle, runtime compilation
+    public static func loadMetalLibrary(device: any MTLDevice) -> (any MTLLibrary)? {
+        // 1. Try default library (works in app bundles)
+        if let library = device.makeDefaultLibrary() {
+            return library
+        }
+
+        // 2. Try loading from package bundle (SPM resources)
+        #if SWIFT_PACKAGE
+        if let libraryURL = Bundle.module.url(forResource: "default", withExtension: "metallib"),
+           let library = try? device.makeLibrary(URL: libraryURL) {
+            return library
+        }
+
+        // 3. Try loading Metal source files from bundle and compile at runtime
+        if let library = compileMetalSourcesFromBundle(device: device) {
+            return library
+        }
+        #endif
+
+        return nil
+    }
+
+    /// Compile Metal shader sources from bundle resources
+    private static func compileMetalSourcesFromBundle(device: any MTLDevice) -> (any MTLLibrary)? {
+        #if SWIFT_PACKAGE
+        // Load specific shader files that are commonly needed
+        // These are selected to avoid duplicate symbol conflicts
+        let shaderFiles = [
+            "L2Distance",
+            "DotProduct",
+            "CosineSimilarity",
+            "BasicOperations",
+            "L2Normalization",
+            "AdvancedTopK"
+        ]
+
+        var combinedSource = """
+        #include <metal_stdlib>
+        #include <metal_simdgroup>
+        using namespace metal;
+
+        // Common constants
+        #ifndef EPSILON
+        #define EPSILON 1e-7f
+        #endif
+
+        """
+
+        for fileName in shaderFiles {
+            if let url = Bundle.module.url(forResource: fileName, withExtension: "metal"),
+               let source = try? String(contentsOf: url, encoding: .utf8) {
+                // Strip duplicate includes and namespace declarations
+                var cleanedSource = source
+                    .replacingOccurrences(of: "#include <metal_stdlib>", with: "")
+                    .replacingOccurrences(of: "#include <metal_simdgroup>", with: "")
+                    .replacingOccurrences(of: "using namespace metal;", with: "")
+
+                // Remove conflicting constant definitions
+                cleanedSource = cleanedSource.replacingOccurrences(
+                    of: "constant float EPSILON = 1e-7f;",
+                    with: "// EPSILON defined globally"
+                )
+                cleanedSource = cleanedSource.replacingOccurrences(
+                    of: "constant float EPSILON = 1e-8f;",
+                    with: "// EPSILON defined globally"
+                )
+                cleanedSource = cleanedSource.replacingOccurrences(
+                    of: "constexpr constant float EPSILON = 1e-7f;",
+                    with: "// EPSILON defined globally"
+                )
+
+                combinedSource += "\n// === \(fileName).metal ===\n"
+                combinedSource += cleanedSource
+                combinedSource += "\n"
+            }
+        }
+
+        // Compile the combined source
+        do {
+            let options = MTLCompileOptions()
+            options.fastMathEnabled = true
+            let library = try device.makeLibrary(source: combinedSource, options: options)
+            return library
+        } catch {
+            // Compilation failed - log error details
+            print("Warning: Failed to compile Metal shaders from bundle: \(error)")
+            return nil
+        }
+        #else
+        return nil
+        #endif
+    }
+
+    /// Get the shared Metal library (loads if needed)
+    public static func getSharedLibrary(for device: any MTLDevice) throws -> any MTLLibrary {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let library = sharedLibrary {
+            return library
+        }
+
+        guard let library = loadMetalLibrary(device: device) else {
+            throw AccelerationError.libraryCreationFailed
+        }
+
+        sharedLibrary = library
+        return library
     }
 
     /// Create a buffer from data

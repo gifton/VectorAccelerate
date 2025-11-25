@@ -9,13 +9,6 @@ import Foundation
 import Metal
 import VectorCore
 
-/// Distance metric for similarity computations
-public enum DistanceMetric: Sendable {
-    case euclidean
-    case cosine
-    case manhattan
-}
-
 /// Batch processing strategy
 public enum BatchStrategy: Sendable {
     case sequential
@@ -315,7 +308,7 @@ public actor BatchProcessor {
     public func batchSimilarity(
         vectors: [[Float]],
         references: [[Float]],
-        metric: DistanceMetric = .cosine
+        metric: SupportedDistanceMetric = .cosine
     ) async throws -> [[Float]] {
         let operation = SimilarityOperation(
             references: references,
@@ -369,7 +362,7 @@ public actor BatchProcessor {
 /// Similarity computation operation
 struct SimilarityOperation: BatchOperation {
     let references: [[Float]]
-    let metric: DistanceMetric
+    let metric: SupportedDistanceMetric
     let context: MetalContext?
     let simdFallback: SIMDFallback
     
@@ -396,6 +389,11 @@ struct SimilarityOperation: BatchOperation {
                     distance = 1.0 - (dot / sqrt(normA * normB))
                 case .manhattan:
                     distance = computeManhattanDistance(vector, reference)
+                case .dotProduct:
+                    let dot = try await simdFallback.dotProduct(vector, reference)
+                    distance = -dot  // Negate for distance (higher dot product = closer)
+                case .chebyshev:
+                    distance = computeChebyshevDistance(vector, reference)
                 }
                 
                 distances.append(distance)
@@ -413,6 +411,14 @@ struct SimilarityOperation: BatchOperation {
             sum += abs(a[i] - b[i])
         }
         return sum
+    }
+
+    private func computeChebyshevDistance(_ a: [Float], _ b: [Float]) -> Float {
+        var maxDiff: Float = 0
+        for i in 0..<a.count {
+            maxDiff = max(maxDiff, abs(a[i] - b[i]))
+        }
+        return maxDiff
     }
 }
 

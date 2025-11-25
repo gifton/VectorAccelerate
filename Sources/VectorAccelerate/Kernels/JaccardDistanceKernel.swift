@@ -105,9 +105,8 @@ public final class JaccardDistanceKernel: @unchecked Sendable {
         }
         self.commandQueue = queue
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         guard let function = library.makeFunction(name: "jaccardDistance") else {
             throw AccelerationError.shaderNotFound(name: "jaccardDistance")

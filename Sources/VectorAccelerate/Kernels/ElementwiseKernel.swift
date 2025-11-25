@@ -87,9 +87,8 @@ public final class ElementwiseKernel: @unchecked Sendable {
         self.device = device
         self.kernelContext = try KernelContext.shared(for: device)
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         guard let kernel = library.makeFunction(name: "elementwise_operation_kernel"),
               let kernelInplace = library.makeFunction(name: "elementwise_inplace_kernel") else {
@@ -240,7 +239,7 @@ public final class ElementwiseKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         // Extract results
         let pointer = outputBuffer.contents().bindMemory(to: Float.self, capacity: a.count)

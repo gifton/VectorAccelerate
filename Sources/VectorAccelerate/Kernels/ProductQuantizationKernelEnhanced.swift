@@ -6,7 +6,7 @@ import QuartzCore
 public enum PQError: Error, LocalizedError {
     case libraryCreationFailed, kernelNotFound, encoderCreationFailed, commandQueueCreationFailed
     case invalidInput(String), bufferCreationFailed, configurationError(String)
-    case executionError(Error), ioError(String)
+    case executionError(any Error), ioError(String)
 
     public var errorDescription: String? {
         switch self {
@@ -155,7 +155,8 @@ public final class ProductQuantizationKernelEnhanced {
         guard let queue = device.makeCommandQueue() else { throw PQError.commandQueueCreationFailed }
         self.commandQueue = queue
         
-        guard let library = device.makeDefaultLibrary() else { throw PQError.libraryCreationFailed }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         // Load kernels
         guard let kAssignEncode = library.makeFunction(name: "pq_assignment_or_encoding"),

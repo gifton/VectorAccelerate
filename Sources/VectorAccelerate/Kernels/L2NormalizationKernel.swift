@@ -59,9 +59,8 @@ public final class L2NormalizationKernel {
         self.device = device
         self.kernelContext = try KernelContext.shared(for: device)
 
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
 
         // Load kernel functions
         guard let kernelGeneral = library.makeFunction(name: "l2_normalize_general_kernel"),
@@ -262,7 +261,7 @@ public final class L2NormalizationKernel {
         )
 
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         // Extract results
         let outputPointer = outputBuffer.contents().bindMemory(

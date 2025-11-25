@@ -62,9 +62,8 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
         }
         self.commandQueue = queue
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         // Load main transpose kernel
         guard let function = library.makeFunction(name: "tiledTranspose") else {
@@ -99,7 +98,7 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
     public func transpose(
         _ matrix: Matrix,
         config: TransposeConfig = .default
-    ) throws -> TransposeResult {
+    ) async throws -> TransposeResult {
         let rows = matrix.rows
         let cols = matrix.columns
         
@@ -162,8 +161,8 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
         encoder.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
         encoder.endEncoding()
         
-        commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+            commandBuffer.commit()
+            await commandBuffer.completed()
         
         let executionTime = CACurrentMediaTime() - startTime
         
@@ -195,9 +194,9 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
         rows: Int,
         columns: Int,
         config: TransposeConfig = .default
-    ) throws -> TransposeResult {
+    ) async throws -> TransposeResult {
         let matrix = Matrix(rows: rows, columns: columns, values: data)
-        return try transpose(matrix, config: config)
+        return try await transpose(matrix, config: config)
     }
     
     // MARK: - Specialized Operations
@@ -207,9 +206,9 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
     public func transposeAndMultiply(
         _ matrixA: Matrix,
         _ matrixB: Matrix
-    ) throws -> Matrix {
+    ) async throws -> Matrix {
         // First transpose A
-        let transposedA = try transpose(matrixA)
+        let transposedA = try await transpose(matrixA)
         
         // Then multiply (would use MatrixMultiplyKernel in practice)
         // For now, return placeholder
@@ -217,9 +216,9 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
     }
     
     /// Double transpose (should return original for validation)
-    public func doubleTranspose(_ matrix: Matrix) throws -> Matrix {
-        let first = try transpose(matrix)
-        let second = try transpose(first.matrix)
+    public func doubleTranspose(_ matrix: Matrix) async throws -> Matrix {
+        let first = try await transpose(matrix)
+        let second = try await transpose(first.matrix)
         return second.matrix
     }
     
@@ -229,13 +228,13 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
     public func transposeBatch(
         _ matrices: [Matrix],
         config: TransposeConfig = .default
-    ) throws -> [TransposeResult] {
+    ) async throws -> [TransposeResult] {
         var results: [TransposeResult] = []
-        
+
         for matrix in matrices {
-            results.append(try transpose(matrix, config: config))
+            results.append(try await transpose(matrix, config: config))
         }
-        
+
         return results
     }
     
@@ -246,9 +245,7 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
         _ matrix: Matrix,
         config: TransposeConfig = .default
     ) async throws -> TransposeResult {
-        return try await Task.detached(priority: .userInitiated) { [self] in
-            return try self.transpose(matrix, config: config)
-        }.value
+        return try await transpose(matrix, config: config)
     }
     
     // MARK: - VectorCore Integration
@@ -257,19 +254,19 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
     public func transpose<V: VectorProtocol>(
         vectors: [[V]],
         config: TransposeConfig = .default
-    ) throws -> TransposeResult where V.Scalar == Float {
+    ) async throws -> TransposeResult where V.Scalar == Float {
         let rows = vectors.count
         let cols = vectors.first?.count ?? 0
         let data = vectors.flatMap { row in row.flatMap { $0.toArray() } }
-        
+
         let matrix = Matrix(rows: rows, columns: cols, values: data)
-        return try transpose(matrix, config: config)
+        return try await transpose(matrix, config: config)
     }
     
     // MARK: - Performance Analysis
     
     /// Benchmark transpose for different matrix sizes
-    public func benchmark(sizes: [(rows: Int, cols: Int)]) throws -> [BenchmarkResult] {
+    public func benchmark(sizes: [(rows: Int, cols: Int)]) async throws -> [BenchmarkResult] {
         var results: [BenchmarkResult] = []
         
         for size in sizes {
@@ -277,14 +274,14 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
             let matrix = Matrix.random(rows: size.rows, columns: size.cols)
             
             // Warm-up run
-            _ = try transpose(matrix)
-            
+            _ = try await transpose(matrix)
+
             // Timed runs
             var times: [TimeInterval] = []
             var throughputs: [Double] = []
-            
+
             for _ in 0..<5 {
-                let result = try transpose(matrix)
+                let result = try await transpose(matrix)
                 times.append(result.executionTime)
                 throughputs.append(result.throughputGBps)
             }
@@ -313,10 +310,10 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
     // MARK: - Validation
     
     /// Validate transpose correctness
-    public func validate(_ matrix: Matrix) throws -> Bool {
+    public func validate(_ matrix: Matrix) async throws -> Bool {
         // Transpose twice should give original
-        let transposed = try transpose(matrix)
-        let doubleTransposed = try transpose(transposed.matrix)
+        let transposed = try await transpose(matrix)
+        let doubleTransposed = try await transpose(transposed.matrix)
         
         // Compare with original
         for i in 0..<matrix.values.count {

@@ -101,9 +101,8 @@ public final class WarpOptimizedSelectionKernel {
         self.device = device
         self.kernelContext = try KernelContext.shared(for: device)
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         // Load warp-optimized kernels for small k
         guard let warpAsc = library.makeFunction(name: "warp_select_small_k_ascending"),
@@ -177,15 +176,15 @@ public final class WarpOptimizedSelectionKernel {
         encoder.setBuffer(distances, offset: 0, index: 0)
         encoder.setBuffer(indices, offset: 0, index: 1)
         encoder.setBuffer(valuesBuffer, offset: 0, index: 2)
-        
-        // Set parameters
-        var params = (
-            queryCount: UInt32(queryCount),
-            candidateCount: UInt32(candidateCount),
-            k: UInt32(k)
-        )
-        encoder.setBytes(&params, length: MemoryLayout.size(ofValue: params), index: 3)
-        
+
+        // Set parameters - individual buffers to match Metal shader signature
+        var paramQueryCount = UInt32(queryCount)
+        var paramCandidateCount = UInt32(candidateCount)
+        var paramK = UInt32(k)
+        encoder.setBytes(&paramQueryCount, length: MemoryLayout<UInt32>.size, index: 3)
+        encoder.setBytes(&paramCandidateCount, length: MemoryLayout<UInt32>.size, index: 4)
+        encoder.setBytes(&paramK, length: MemoryLayout<UInt32>.size, index: 5)
+
         // Dispatch with warp size (32 threads per query)
         let threadsPerThreadgroup = MTLSize(width: WARP_SIZE, height: 1, depth: 1)
         let threadgroups = MTLSize(width: 1, height: queryCount, depth: 1)
@@ -259,21 +258,22 @@ public final class WarpOptimizedSelectionKernel {
         
         encoder.label = "BatchSelect_\(mode.kernelSuffix)"
         encoder.setComputePipelineState(pipelineState)
-        
+
         // Set buffers
         encoder.setBuffer(distances, offset: 0, index: 0)
         encoder.setBuffer(indices, offset: 0, index: 1)
         encoder.setBuffer(valuesBuffer, offset: 0, index: 2)
-        
-        // Set parameters
-        var params = (
-            batchSize: UInt32(batchSize),
-            queryCount: UInt32(queryCount),
-            candidateCount: UInt32(candidateCount),
-            k: UInt32(k)
-        )
-        encoder.setBytes(&params, length: MemoryLayout.size(ofValue: params), index: 3)
-        
+
+        // Set parameters - individual buffers to match Metal shader signature
+        var paramBatchSize = UInt32(batchSize)
+        var paramQueryCount = UInt32(queryCount)
+        var paramCandidateCount = UInt32(candidateCount)
+        var paramK = UInt32(k)
+        encoder.setBytes(&paramBatchSize, length: MemoryLayout<UInt32>.size, index: 3)
+        encoder.setBytes(&paramQueryCount, length: MemoryLayout<UInt32>.size, index: 4)
+        encoder.setBytes(&paramCandidateCount, length: MemoryLayout<UInt32>.size, index: 5)
+        encoder.setBytes(&paramK, length: MemoryLayout<UInt32>.size, index: 6)
+
         // 3D dispatch
         let threadsPerThreadgroup = MTLSize(width: tgs, height: 1, depth: 1)
         let threadgroups = MTLSize(width: 1, height: queryCount, depth: batchSize)
@@ -328,10 +328,10 @@ public final class WarpOptimizedSelectionKernel {
                 mode: mode,
                 commandBuffer: commandBuffer
             )
-            
+
             commandBuffer.commit()
-            commandBuffer.waitUntilCompleted()
-            
+            await commandBuffer.completed()
+
             return (0..<queryCount).map { result.results(for: $0) }
         } else {
             // Use batch selection with single batch
@@ -344,10 +344,10 @@ public final class WarpOptimizedSelectionKernel {
                 mode: mode,
                 commandBuffer: commandBuffer
             )
-            
+
             commandBuffer.commit()
-            commandBuffer.waitUntilCompleted()
-            
+            await commandBuffer.completed()
+
             return (0..<queryCount).map { result.results(batch: 0, query: $0) }
         }
     }
@@ -387,10 +387,10 @@ public final class WarpOptimizedSelectionKernel {
             mode: mode,
             commandBuffer: commandBuffer
         )
-        
+
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
-        
+        await commandBuffer.completed()
+
         // Extract results
         var allResults: [[[(index: Int, value: Float)]]] = []
         for b in 0..<batchSize {
@@ -497,10 +497,10 @@ public final class WarpOptimizedSelectionKernel {
                     commandBuffer: commandBuffer
                 )
                 commandBuffer.commit()
-                commandBuffer.waitUntilCompleted()
+                await commandBuffer.completed()
                 warpTime = CACurrentMediaTime() - start
             }
-            
+
             // Benchmark general kernel
             let start = CACurrentMediaTime()
             let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
@@ -513,7 +513,7 @@ public final class WarpOptimizedSelectionKernel {
                 commandBuffer: commandBuffer
             )
             commandBuffer.commit()
-            commandBuffer.waitUntilCompleted()
+            await commandBuffer.completed()
             generalTime = CACurrentMediaTime() - start
             
             results.append((k: k, warpTime: warpTime, generalTime: generalTime))

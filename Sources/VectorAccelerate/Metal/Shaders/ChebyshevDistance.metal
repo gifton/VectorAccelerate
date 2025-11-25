@@ -101,7 +101,7 @@ kernel void chebyshev_distance_batch(
         threadgroup_barrier(mem_flags::mem_threadgroup);
         
         // Compute maximum absolute difference for this tile
-        const uint tile_end = min(TILE_D, D - d_start);
+        const uint tile_end = min(uint(TILE_D), D - d_start);
         
         // Vectorized computation when possible
         const uint vec_end = tile_end / 4;
@@ -187,7 +187,7 @@ kernel void chebyshev_distance_threshold(
         threadgroup_barrier(mem_flags::mem_threadgroup);
         
         // Compute maximum with early termination
-        const uint tile_end = min(TILE_D, D - d_start);
+        const uint tile_end = min(uint(TILE_D), D - d_start);
         for (uint d = 0; d < tile_end && !exceeded_threshold; ++d) {
             float q_val = shared_Q[tid.y * TILE_D + d];
             float n_val = shared_N[tid.x * TILE_D + d];
@@ -317,7 +317,7 @@ kernel void chebyshev_distance_weighted(
         threadgroup_barrier(mem_flags::mem_threadgroup);
         
         // Compute weighted maximum
-        const uint tile_end = min(TILE_D, D - d_start);
+        const uint tile_end = min(uint(TILE_D), D - d_start);
         for (uint d = 0; d < tile_end; ++d) {
             float q_val = shared_Q[tid.y * TILE_D + d];
             float n_val = shared_N[tid.x * TILE_D + d];
@@ -397,7 +397,7 @@ kernel void chebyshev_distance_normalized(
         threadgroup_barrier(mem_flags::mem_threadgroup);
         
         // Compute normalized maximum
-        const uint tile_end = min(TILE_D, D - d_start);
+        const uint tile_end = min(uint(TILE_D), D - d_start);
         for (uint d = 0; d < tile_end; ++d) {
             float q_val = shared_Q[tid.y * TILE_D + d];
             float n_val = shared_N[tid.x * TILE_D + d];

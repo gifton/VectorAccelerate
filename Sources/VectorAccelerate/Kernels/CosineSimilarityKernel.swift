@@ -62,10 +62,8 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
         self.device = device
         self.kernelContext = try KernelContext.shared(for: device)
 
-        // Load the shader library
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
 
         // Load and create pipeline states
         self.pipelineStateNormalized = try Self.makePipelineState(
@@ -314,7 +312,7 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         // Extract results
         let similarityPointer = similarityBuffer.contents().bindMemory(
@@ -402,7 +400,7 @@ extension CosineSimilarityKernel {
         )
         
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
         
         let endTime = CACurrentMediaTime()
         let computeTime = endTime - startTime

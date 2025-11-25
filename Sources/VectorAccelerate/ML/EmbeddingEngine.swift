@@ -22,14 +22,14 @@ extension Array {
 /// Configuration for embedding operations
 public struct EmbeddingConfiguration: Sendable {
     public let dimension: Int
-    public let distanceMetric: DistanceMetric
+    public let distanceMetric: SupportedDistanceMetric
     public let useGPU: Bool
     public let batchSize: Int
     public let normalizeEmbeddings: Bool
-    
+
     public init(
         dimension: Int,
-        distanceMetric: DistanceMetric = .cosine,
+        distanceMetric: SupportedDistanceMetric = .cosine,
         useGPU: Bool = true,
         batchSize: Int = 1000,
         normalizeEmbeddings: Bool = true
@@ -545,6 +545,15 @@ public actor EmbeddingEngine {
                     sum += abs(query[i] - embedding[i])
                 }
                 distance = sum
+            case .dotProduct:
+                let dot = try await simdFallback.dotProduct(query, embedding)
+                distance = -dot  // Negate for distance (higher dot product = closer)
+            case .chebyshev:
+                var maxDiff: Float = 0
+                for i in 0..<query.count {
+                    maxDiff = max(maxDiff, abs(query[i] - embedding[i]))
+                }
+                distance = maxDiff
             }
             distances[idx] = distance
         }

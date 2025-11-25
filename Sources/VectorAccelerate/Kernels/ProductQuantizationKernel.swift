@@ -156,9 +156,8 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         self.device = device
         self.kernelContext = try KernelContext.shared(for: device)
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         // Load all kernels
         guard let assignmentFunc = library.makeFunction(name: "pq_assignment_or_encoding"),
@@ -230,7 +229,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
                 commandBuffer: assignCommand
             )
             assignCommand.commit()
-            assignCommand.waitUntilCompleted()
+            await assignCommand.completed()
             
             // Clear accumulators
             clearBuffer(centroidsAccum)
@@ -261,7 +260,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
             )
             
             updateCommand.commit()
-            updateCommand.waitUntilCompleted()
+            await updateCommand.completed()
             
             // Check convergence
             let movement = calculateTotalMovement(convergenceBuffer: convergenceBuffer, config: config)
@@ -284,7 +283,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         count: Int,
         model: PQModel,
         commandBuffer: (any MTLCommandBuffer)? = nil
-    ) throws -> EncodedVectors {
+    ) async throws -> EncodedVectors {
         guard let codes = device.makeBuffer(
             length: count * model.config.M * MemoryLayout<UInt8>.stride,
             options: MTLResourceOptions.storageModeShared
@@ -305,7 +304,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         
         if commandBuffer == nil {
             command.commit()
-            command.waitUntilCompleted()
+            await command.completed()
         }
         
         return EncodedVectors(codes: codes, count: count, config: model.config)
@@ -319,7 +318,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         encodedVectors: EncodedVectors,
         model: PQModel,
         commandBuffer: (any MTLCommandBuffer)? = nil
-    ) throws -> any MTLBuffer {
+    ) async throws -> any MTLBuffer {
         // Precompute distance table
         let tableSize = model.config.M * model.config.K
         guard let distanceTable = device.makeBuffer(
@@ -359,7 +358,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         
         if commandBuffer == nil {
             command.commit()
-            command.waitUntilCompleted()
+            await command.completed()
         }
         
         return distances
@@ -383,7 +382,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
             config: config
         )
 
-        let encoded = try encode(
+        let encoded = try await encode(
             vectors: dataBuffer,
             count: data.count,
             model: model
@@ -403,7 +402,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
             throw AccelerationError.bufferCreationFailed("Failed to create query buffer")
         }
 
-        let distances = try computeDistances(
+        let distances = try await computeDistances(
             query: queryBuffer,
             encodedVectors: encodedDatabase,
             model: model

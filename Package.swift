@@ -23,7 +23,7 @@ let package = Package(
     ],
     dependencies: [
         // VectorCore for base protocols and types
-        .package(path: "../VectorCore")
+        .package(url: "https://github.com/gifton/VectorCore", exact: "0.1.4")
     ], 
     targets: [
         .target(
@@ -51,6 +51,10 @@ let package = Package(
             dependencies: [
                 "VectorAccelerate",
                 .product(name: "VectorCore", package: "VectorCore")
+            ],
+            exclude: [
+                "ShaderManagerTests.swift.disabled",
+                "VectorCoreIntegrationEnhancedTests.swift.disabled"
             ]
         )
     ]

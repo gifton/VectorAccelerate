@@ -106,23 +106,65 @@ public actor QuantizationEngine {
         let measureToken = await logger.startMeasure("scalarQuantize")
         measureToken.addMetadata("bits", value: "\(bits)")
         defer { measureToken.end() }
-        
+
         guard [4, 8, 16].contains(bits) else {
             throw AccelerationError.unsupportedOperation("Scalar quantization supports 4, 8, or 16 bits")
         }
-        
+
+        // Handle empty vector
+        guard !vector.isEmpty else {
+            return QuantizedVector(
+                data: Data(),
+                dimensions: 0,
+                scheme: .scalar(bits: bits),
+                metadata: ["scale": "1.0", "offset": "0.0", "bits": String(bits)]
+            )
+        }
+
+        // Sanitize input: replace NaN/Inf with finite bounds
+        // This allows quantization to proceed with best-effort for edge case data
+        // Also clamp extremely large values to prevent overflow during dequantization
+        // Using a safe maximum that leaves headroom for scale multiplication
+        let safeMaxMagnitude: Float = Float.greatestFiniteMagnitude / 256.0  // Safe headroom for 8-bit scale ops
+        var sanitizedVector = vector
+        var hasNonFinite = false
+        for i in 0..<sanitizedVector.count {
+            if !sanitizedVector[i].isFinite {
+                hasNonFinite = true
+                if sanitizedVector[i].isNaN {
+                    sanitizedVector[i] = 0.0  // Replace NaN with zero
+                } else if sanitizedVector[i] == .infinity {
+                    sanitizedVector[i] = safeMaxMagnitude
+                } else {  // -infinity
+                    sanitizedVector[i] = -safeMaxMagnitude
+                }
+            } else if sanitizedVector[i] > safeMaxMagnitude {
+                // Clamp extremely large positive values to prevent overflow during dequantization
+                hasNonFinite = true
+                sanitizedVector[i] = safeMaxMagnitude
+            } else if sanitizedVector[i] < -safeMaxMagnitude {
+                // Clamp extremely large negative values to prevent overflow during dequantization
+                hasNonFinite = true
+                sanitizedVector[i] = -safeMaxMagnitude
+            }
+        }
+
+        if hasNonFinite {
+            await logger.warning("Vector contains non-finite or extreme values; sanitized for quantization", category: "QuantizationEngine")
+        }
+
         // Find min and max for quantization range
         var minVal: Float = Float.infinity
         var maxVal: Float = -Float.infinity
-        
-        vDSP_minv(vector, 1, &minVal, vDSP_Length(vector.count))
-        vDSP_maxv(vector, 1, &maxVal, vDSP_Length(vector.count))
-        
+
+        vDSP_minv(sanitizedVector, 1, &minVal, vDSP_Length(sanitizedVector.count))
+        vDSP_maxv(sanitizedVector, 1, &maxVal, vDSP_Length(sanitizedVector.count))
+
         // Calculate scale and offset
         let range = maxVal - minVal
-        let scale: Float
-        let offset: Float
-        
+        var scale: Float
+        var offset: Float
+
         if configuration.useSymmetric {
             // Symmetric quantization around zero
             let absMax = max(abs(minVal), abs(maxVal))
@@ -133,15 +175,20 @@ public actor QuantizationEngine {
             scale = range / Float((1 << bits) - 1)
             offset = minVal
         }
+
+        // Handle edge case: all values identical (range = 0) or scale becomes 0/NaN
+        if !scale.isFinite || scale == 0 {
+            scale = 1.0  // Use unit scale when range is zero
+        }
         
-        // Quantize values
+        // Quantize values using sanitized vector
         var quantizedData = Data()
-        
+
         switch bits {
         case 4:
             // Pack two 4-bit values per byte
             var buffer: UInt8 = 0
-            for (idx, value) in vector.enumerated() {
+            for (idx, value) in sanitizedVector.enumerated() {
                 let quantized = quantizeValue(value, scale: scale, offset: offset, bits: bits)
                 if idx % 2 == 0 {
                     buffer = UInt8(quantized & 0xF)
@@ -150,25 +197,25 @@ public actor QuantizationEngine {
                     quantizedData.append(buffer)
                 }
             }
-            if vector.count % 2 != 0 {
+            if sanitizedVector.count % 2 != 0 {
                 quantizedData.append(buffer)
             }
-            
+
         case 8:
             // One byte per value
-            for value in vector {
+            for value in sanitizedVector {
                 let quantized = quantizeValue(value, scale: scale, offset: offset, bits: bits)
                 quantizedData.append(UInt8(quantized & 0xFF))
             }
-            
+
         case 16:
             // Two bytes per value
-            for value in vector {
+            for value in sanitizedVector {
                 let quantized = quantizeValue(value, scale: scale, offset: offset, bits: bits)
                 var value16 = UInt16(quantized & 0xFFFF)
                 quantizedData.append(Data(bytes: &value16, count: 2))
             }
-            
+
         default:
             throw AccelerationError.unsupportedOperation("Unsupported bit width: \(bits)")
         }
@@ -473,20 +520,30 @@ public actor QuantizationEngine {
     // MARK: - Utility Functions
     
     /// Quantize a single value
+    /// - Note: Returns 0 for non-finite values (NaN/Inf) as a safety fallback
     private func quantizeValue(_ value: Float, scale: Float, offset: Float, bits: Int) -> Int {
+        // Safety check: ensure value is finite before processing
+        guard value.isFinite else {
+            return 0  // Safe fallback for any non-finite values that slip through
+        }
+
         if configuration.useSymmetric && offset == 0 {
             // Symmetric quantization uses signed integers
-            let normalized = value / scale
+            let normalized = scale != 0 ? value / scale : 0
             let maxVal = Float((1 << (bits - 1)) - 1)
             let minVal = -maxVal
             let quantized = round(min(max(normalized, minVal), maxVal))
+            // Safety: ensure result is finite before Int conversion
+            guard quantized.isFinite else { return Int(maxVal) }
             // Convert to unsigned for storage
             return Int(quantized + maxVal)
         } else {
             // Asymmetric quantization
-            let normalized = (value - offset) / scale
+            let normalized = scale != 0 ? (value - offset) / scale : 0
             let maxVal = Float((1 << bits) - 1)
             let quantized = round(min(max(normalized, 0), maxVal))
+            // Safety: ensure result is finite before Int conversion
+            guard quantized.isFinite else { return 0 }
             return Int(quantized)
         }
     }

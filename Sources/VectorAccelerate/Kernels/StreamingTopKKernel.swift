@@ -108,9 +108,8 @@ public final class StreamingTopKKernel: @unchecked Sendable {
         self.device = device
         self.kernelContext = try KernelContext.shared(for: device)
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create Metal library")
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         // Load kernels
         guard let initFunc = library.makeFunction(name: "streaming_topk_init"),
@@ -342,7 +341,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
             )
             
             commandBuffer.commit()
-            commandBuffer.waitUntilCompleted()
+            await commandBuffer.completed()
             
             chunkIndex += 1
             globalIndex += Int64(config.chunkSize)
@@ -359,7 +358,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
         let result = try finalizeStreaming(state: state, commandBuffer: finalCommand)
         
         finalCommand.commit()
-        finalCommand.waitUntilCompleted()
+        await finalCommand.completed()
         
         return result
     }
@@ -393,7 +392,6 @@ public final class StreamingTopKKernel: @unchecked Sendable {
                 }
 
                 let endIdx = min(startIdx + Int64(chunkSize), vectorCount)
-                let actualChunkSize = Int(endIdx - startIdx)
 
                 // Compute distances for this chunk
                 // This is simplified - in practice you'd compute L2/cosine distances
@@ -402,7 +400,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
                 )
 
                 let chunkArray = [UInt8](chunkData)
-                return try self.kernelContext.createBuffer(
+                return self.kernelContext.createBuffer(
                     from: chunkArray,
                     options: MTLResourceOptions.storageModeShared
                 )
@@ -466,7 +464,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
             )
             
             commandBuffer.commit()
-            commandBuffer.waitUntilCompleted()
+            await commandBuffer.completed()
             
             chunkTimes.append(CACurrentMediaTime() - chunkStart)
         }
@@ -475,7 +473,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
         let finalCommand = kernelContext.commandQueue.makeCommandBuffer()!
         _ = try finalizeStreaming(state: state, commandBuffer: finalCommand)
         finalCommand.commit()
-        finalCommand.waitUntilCompleted()
+        await finalCommand.completed()
         
         let totalTime = CACurrentMediaTime() - startTime
         let avgChunkTime = chunkTimes.reduce(0, +) / Double(chunkTimes.count)

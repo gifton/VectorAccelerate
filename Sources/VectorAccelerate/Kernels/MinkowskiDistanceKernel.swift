@@ -121,9 +121,8 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
         }
         self.commandQueue = queue
         
-        guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.libraryCreationFailed
-        }
+        // Load the shader library using shared loader with fallback support
+        let library = try KernelContext.getSharedLibrary(for: device)
         
         guard let function = library.makeFunction(name: "minkowski_distance") else {
             throw AccelerationError.shaderNotFound(name: "minkowski_distance")
@@ -439,7 +438,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
                     commandBuffer: commandBuffer
                 )
                 commandBuffer.commit()
-                commandBuffer.waitUntilCompleted()
+                await commandBuffer.completed()
                 
                 times.append(CACurrentMediaTime() - start)
             }

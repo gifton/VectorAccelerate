@@ -440,16 +440,18 @@ final class QuantizationEngineTests: XCTestCase {
     // MARK: - Error Measurement Tests
     
     func testErrorMeasurement() async throws {
-        let original = testVectors[0]
+        // Use a vector with variation (testVectors[10] is random_normal, not uniform)
+        // Uniform vectors have zero quantization error at any bit depth
+        let original = testVectors[10]
         let quantized8 = try await engine!.scalarQuantize(vector: original, bits: 8)
         let quantized4 = try await engine!.scalarQuantize(vector: original, bits: 4)
-        
+
         let error8 = try await engine!.measureError(original: original, quantized: quantized8)
         let error4 = try await engine!.measureError(original: original, quantized: quantized4)
-        
-        // 4-bit should have higher error than 8-bit
+
+        // 4-bit should have higher error than 8-bit for varied data
         XCTAssertGreaterThan(error4, error8)
-        
+
         // Both should be finite and non-negative
         XCTAssertTrue(error8.isFinite && error8 >= 0)
         XCTAssertTrue(error4.isFinite && error4 >= 0)

@@ -19,28 +19,28 @@ using namespace metal;
 // =============================================================================
 
 // Fast power function for positive values
-inline float fast_pow_positive(float base, float exp) {
+inline float fast_pow_positive(float base, float p) {
     // For positive bases, we can use exp(log(x) * p) = x^p
-    return exp(log(base) * exp);
+    return exp(log(base) * p);
 }
 
 // Safe power function that handles edge cases
-inline float safe_pow(float base, float exp) {
+inline float safe_pow(float base, float p) {
     if (base == 0.0f) return 0.0f;
-    if (exp == 1.0f) return base;
-    if (exp == 2.0f) return base * base;
-    return fast_pow_positive(base, exp);
+    if (p == 1.0f) return base;
+    if (p == 2.0f) return base * base;
+    return fast_pow_positive(base, p);
 }
 
 // Vectorized power for float4
-inline float4 pow4(float4 base, float exp) {
-    if (exp == 1.0f) return base;
-    if (exp == 2.0f) return base * base;
+inline float4 pow4(float4 base, float p) {
+    if (p == 1.0f) return base;
+    if (p == 2.0f) return base * base;
     return float4(
-        safe_pow(base.x, exp),
-        safe_pow(base.y, exp),
-        safe_pow(base.z, exp),
-        safe_pow(base.w, exp)
+        safe_pow(base.x, p),
+        safe_pow(base.y, p),
+        safe_pow(base.z, p),
+        safe_pow(base.w, p)
     );
 }
 
@@ -139,9 +139,9 @@ kernel void minkowski_distance_batch(
         
         // Synchronize after loading
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        
+
         // Compute Minkowski distance for this tile
-        const uint tile_end = min(TILE_D, D - d_start);
+        const uint tile_end = min(uint(TILE_D), D - d_start);
         
         if (is_manhattan) {
             // Special case: p = 1 (Manhattan distance)
@@ -280,10 +280,11 @@ kernel void minkowski_distance_stable(
     for (uint d_start = 0; d_start < D; d_start += TILE_D) {
         // Load tiles (cooperative loading code same as above)
         // ... (omitted for brevity)
-        
+
+
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        
-        const uint tile_end = min(TILE_D, D - d_start);
+
+        const uint tile_end = min(uint(TILE_D), D - d_start);
         for (uint d = 0; d < tile_end; ++d) {
             float q_val = shared_Q[tid.y * TILE_D + d];
             float n_val = shared_N[tid.x * TILE_D + d];
@@ -305,10 +306,11 @@ kernel void minkowski_distance_stable(
     for (uint d_start = 0; d_start < D; d_start += TILE_D) {
         // Load tiles again
         // ... (omitted for brevity)
-        
+
+
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        
-        const uint tile_end = min(TILE_D, D - d_start);
+
+        const uint tile_end = min(uint(TILE_D), D - d_start);
         for (uint d = 0; d < tile_end; ++d) {
             float q_val = shared_Q[tid.y * TILE_D + d];
             float n_val = shared_N[tid.x * TILE_D + d];
@@ -422,10 +424,11 @@ kernel void minkowski_distance_fractional(
     for (uint d_start = 0; d_start < D; d_start += TILE_D) {
         // Load and process tiles (simplified for brevity)
         // ...
-        
+
+
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        
-        const uint tile_end = min(TILE_D, D - d_start);
+
+        const uint tile_end = min(uint(TILE_D), D - d_start);
         for (uint d = 0; d < tile_end; ++d) {
             float q_val = shared_Q[tid.y * TILE_D + d];
             float n_val = shared_N[tid.x * TILE_D + d];

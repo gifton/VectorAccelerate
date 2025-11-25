@@ -139,12 +139,15 @@ private struct BufferBucket {
 }
 
 /// High-performance buffer pool with automatic memory management
-public actor BufferPool {
+public actor BufferPool: BufferProvider {
     private let device: MetalDevice
     private var buckets: [Int: BufferBucket] = [:]
     private let maxBuffersPerBucket: Int
     private let maxTotalMemory: Int
     private var currentMemoryUsage: Int = 0
+
+    // BufferProvider conformance - track handles for VectorCore integration
+    private var activeHandles: [UUID: BufferToken] = [:]
     
     // Predefined bucket sizes for common operations
     private let bucketSizes: [Int] = [
@@ -233,11 +236,12 @@ public actor BufferPool {
             }
         }
         
-        // Allocate new buffer
-        guard let buffer = await device.makeBuffer(length: bucketSize) else {
+        // Allocate new buffer via Sendable wrapper
+        guard let metal = await device.makeMetalBuffer(length: bucketSize) else {
             throw AccelerationError.bufferAllocationFailed(size: bucketSize)
         }
         
+        let buffer = metal.buffer
         buffer.label = "VectorAccelerate.BufferPool.\(bucketSize)"
         
         // Track allocation
@@ -358,15 +362,15 @@ public actor BufferPool {
     public func getStatistics() -> PoolStatistics {
         let totalRequests = hitCount + missCount
         let hitRate = totalRequests > 0 ? Double(hitCount) / Double(totalRequests) : 0.0
-        
+
         var totalBuffers = 0
         var availableBuffers = 0
-        
+
         for bucket in buckets.values {
             totalBuffers += bucket.available.count + bucket.inUse.count
             availableBuffers += bucket.available.count
         }
-        
+
         return PoolStatistics(
             hitRate: hitRate,
             hitCount: hitCount,
@@ -377,6 +381,64 @@ public actor BufferPool {
             totalBuffers: totalBuffers,
             availableBuffers: availableBuffers
         )
+    }
+
+    // MARK: - BufferProvider Protocol Conformance
+
+    /// Preferred alignment for Metal buffers (256 bytes per Metal specification)
+    public nonisolated var alignment: Int {
+        256  // Metal buffer alignment requirement
+    }
+
+    /// Acquire a buffer of at least the specified size (VectorCore interface)
+    public func acquire(size: Int) async throws -> BufferHandle {
+        // Get buffer from pool using existing infrastructure
+        let token = try await getBuffer(size: size)
+
+        // Create BufferHandle from the token
+        let handle = BufferHandle(
+            id: UUID(),
+            size: token.size,
+            pointer: token.buffer.contents()
+        )
+
+        // Track the handle → token mapping for later release
+        activeHandles[handle.id] = token
+
+        return handle
+    }
+
+    /// Release a buffer back to the pool (VectorCore interface)
+    public func release(_ handle: BufferHandle) async {
+        // Find the corresponding token
+        guard let token = activeHandles.removeValue(forKey: handle.id) else {
+            // Handle not found - may have already been released
+            return
+        }
+
+        // Return the buffer to the pool (token's deinit will handle this,
+        // but we can trigger it explicitly for immediate reuse)
+        token.returnToPool()
+    }
+
+    /// Get current buffer statistics (VectorCore interface)
+    public func statistics() async -> BufferStatistics {
+        let stats = getStatistics()
+
+        return BufferStatistics(
+            totalAllocations: stats.allocationCount,
+            reusedBuffers: stats.hitCount,
+            currentUsageBytes: stats.currentMemoryUsage,
+            peakUsageBytes: stats.maxMemoryLimit  // Use limit as approximation of peak
+        )
+    }
+
+    /// Clear all cached buffers (VectorCore interface)
+    public func clear() async {
+        clearCache()
+
+        // Note: We don't clear activeHandles as those are still in use
+        // They will be cleaned up when released
     }
 }
 

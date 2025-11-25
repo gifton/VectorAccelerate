@@ -374,7 +374,7 @@ public actor MemoryMapManager {
     public func computeDistances(
         dataset: MappedVectorDataset,
         query: [Float],
-        metric: DistanceMetric = .euclidean,
+        metric: SupportedDistanceMetric = .euclidean,
         topK: Int? = nil
     ) async throws -> [(index: Int, distance: Float)] {
         let measureToken = await logger.startMeasure("memoryMappedDistance")
@@ -411,7 +411,7 @@ public actor MemoryMapManager {
         return results
     }
     
-    private func computeDistance(_ a: [Float], _ b: [Float], metric: DistanceMetric) -> Float {
+    private func computeDistance(_ a: [Float], _ b: [Float], metric: SupportedDistanceMetric) -> Float {
         switch metric {
         case .euclidean:
             var sum: Float = 0
@@ -420,7 +420,7 @@ public actor MemoryMapManager {
                 sum += diff * diff
             }
             return sqrt(sum)
-            
+
         case .cosine:
             var dot: Float = 0
             var normA: Float = 0
@@ -431,13 +431,27 @@ public actor MemoryMapManager {
                 normB += b[i] * b[i]
             }
             return 1.0 - (dot / (sqrt(normA) * sqrt(normB)))
-            
+
         case .manhattan:
             var sum: Float = 0
             for i in 0..<a.count {
                 sum += abs(a[i] - b[i])
             }
             return sum
+
+        case .dotProduct:
+            var dot: Float = 0
+            for i in 0..<a.count {
+                dot += a[i] * b[i]
+            }
+            return -dot  // Negate for distance (higher dot product = closer)
+
+        case .chebyshev:
+            var maxDiff: Float = 0
+            for i in 0..<a.count {
+                maxDiff = max(maxDiff, abs(a[i] - b[i]))
+            }
+            return maxDiff
         }
     }
     

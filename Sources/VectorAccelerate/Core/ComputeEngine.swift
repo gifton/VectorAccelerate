@@ -10,7 +10,7 @@ import Foundation
 import VectorCore
 
 /// High-level engine for executing vector computations on Metal
-public actor ComputeEngine {
+public actor ComputeEngine: ComputeProvider {
     internal let context: MetalContext
     internal let shaderManager: ShaderManager
     private let accelerationConfig: AccelerationConfiguration
@@ -19,6 +19,11 @@ public actor ComputeEngine {
     private let logger: Logger
     private var operationCount: Int = 0
     private var totalComputeTime: TimeInterval = 0
+
+    // ComputeProvider cached properties (nonisolated for protocol conformance)
+    public nonisolated let device: ComputeDevice
+    public nonisolated let maxConcurrency: Int
+    public nonisolated let deviceInfo: ComputeDeviceInfo
     
     // Execution configuration
     public struct Configuration: Sendable {
@@ -55,9 +60,20 @@ public actor ComputeEngine {
         self.thresholdManager = AdaptiveThresholdManager(configuration: accelerationConfig)
         self.performanceMonitor = PerformanceMonitor()
         self.logger = Logger(configuration: configuration.enableProfiling ? .debug : .default)
-        
+
+        // Initialize ComputeProvider properties by caching device info
+        self.device = .gpu(index: 0)
+        let capabilities = context.device.capabilities
+        self.maxConcurrency = capabilities.maxThreadsPerThreadgroup
+        self.deviceInfo = ComputeDeviceInfo(
+            name: await context.device.name,
+            availableMemory: capabilities.maxBufferLength,
+            maxThreads: capabilities.maxThreadsPerThreadgroup,
+            preferredChunkSize: 1024
+        )
+
         await logger.info("ComputeEngine initialized", category: "Initialization")
-        
+
         // Precompile common shaders
         if configuration.preferAsync {
             Task {
@@ -66,7 +82,156 @@ public actor ComputeEngine {
             }
         }
     }
-    
+
+    // MARK: - ComputeProvider Protocol Conformance
+
+    /// Execute work on the GPU compute device
+    public func execute<T: Sendable>(
+        _ work: @Sendable @escaping () async throws -> T
+    ) async throws -> T {
+        // Simple delegation - let the work closure handle GPU operations
+        return try await work()
+    }
+
+    /// Execute work in parallel across items using GPU when beneficial
+    ///
+    /// This implementation uses Swift structured concurrency as the default.
+    /// For GPU-specific batched operations, use the specialized batch methods
+    /// like `batchEuclideanDistance()` which better leverage Metal parallelism.
+    public func parallelExecute<T: Sendable>(
+        items: Range<Int>,
+        _ work: @Sendable @escaping (Int) async throws -> T
+    ) async throws -> [T] {
+        // For now, rely on the protocol's default implementation which uses TaskGroup
+        // This provides good CPU-side parallelism for GPU operations
+        // Future optimization: Detect GPU-batchable operations and execute via Metal
+        try await withThrowingTaskGroup(of: (Int, T).self) { group in
+            for i in items {
+                group.addTask {
+                    (i, try await work(i))
+                }
+            }
+
+            var results = [(Int, T)]()
+            results.reserveCapacity(items.count)
+            for try await result in group {
+                results.append(result)
+            }
+
+            // Sort by index to maintain order
+            results.sort { $0.0 < $1.0 }
+            return results.map { $0.1 }
+        }
+    }
+
+    /// Execute side-effecting work in parallel across items
+    public func parallelForEach(
+        items: Range<Int>,
+        _ body: @Sendable @escaping (Int) async throws -> Void
+    ) async throws {
+        // Use default implementation via TaskGroup
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for i in items {
+                group.addTask {
+                    try await body(i)
+                }
+            }
+            for try await _ in group { }
+        }
+    }
+
+    /// Execute side-effecting work in parallel with minimum chunk size hint
+    public func parallelForEach(
+        items: Range<Int>,
+        minChunk: Int,
+        _ body: @Sendable @escaping (Int) async throws -> Void
+    ) async throws {
+        // Implement chunking to better utilize GPU batch operations
+        let chunkSize = max(minChunk, items.count / maxConcurrency)
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var start = items.lowerBound
+            while start < items.upperBound {
+                let end = min(start + chunkSize, items.upperBound)
+                let chunk = start..<end
+                group.addTask {
+                    for i in chunk {
+                        try await body(i)
+                    }
+                }
+                start = end
+            }
+            for try await _ in group { }
+        }
+    }
+
+    /// Execute a parallel reduction using GPU-aware chunking
+    public func parallelReduce<R: Sendable>(
+        items: Range<Int>,
+        initial: R,
+        _ rangeWork: @Sendable @escaping (Range<Int>) async throws -> R,
+        _ combine: @Sendable @escaping (R, R) -> R
+    ) async throws -> R {
+        let total = items.count
+        guard total > 0 else { return initial }
+
+        // Use GPU-aware chunk sizing
+        let concurrency = maxConcurrency
+        let targetTasks = max(1, min(total, concurrency * 2))
+        let chunkSize = max(1, (total + targetTasks - 1) / targetTasks)
+
+        return try await withThrowingTaskGroup(of: R.self) { group in
+            var start = items.lowerBound
+            while start < items.upperBound {
+                let end = min(start + chunkSize, items.upperBound)
+                let range = start..<end
+                group.addTask {
+                    try await rangeWork(range)
+                }
+                start = end
+            }
+
+            var accumulator = initial
+            for try await partial in group {
+                accumulator = combine(accumulator, partial)
+            }
+            return accumulator
+        }
+    }
+
+    /// Execute a parallel reduction with minimum chunk size hint
+    public func parallelReduce<R: Sendable>(
+        items: Range<Int>,
+        initial: R,
+        minChunk: Int,
+        _ rangeWork: @Sendable @escaping (Range<Int>) async throws -> R,
+        _ combine: @Sendable @escaping (R, R) -> R
+    ) async throws -> R {
+        // Honor the minChunk hint for GPU batch sizing
+        let total = items.count
+        guard total > 0 else { return initial }
+
+        let chunkSize = max(minChunk, 1)
+
+        return try await withThrowingTaskGroup(of: R.self) { group in
+            var start = items.lowerBound
+            while start < items.upperBound {
+                let end = min(start + chunkSize, items.upperBound)
+                let range = start..<end
+                group.addTask {
+                    try await rangeWork(range)
+                }
+                start = end
+            }
+
+            var accumulator = initial
+            for try await partial in group {
+                accumulator = combine(accumulator, partial)
+            }
+            return accumulator
+        }
+    }
+
     // MARK: - Distance Operations
     
     /// Compute Euclidean distance between two vectors
@@ -438,26 +603,34 @@ public actor ComputeEngine {
     
     // MARK: - Metal API Access
 
-    /// Create a buffer from data with specific Metal resource options
+    /// Create a Sendable buffer token from data (preferred API for concurrency safety)
     /// - Parameters:
     ///   - data: Array of data to create buffer from
-    ///   - options: Metal resource options (currently ignored, uses default)
-    /// - Returns: MTLBuffer for the created buffer
+    ///   - options: Metal resource options (currently ignored, uses defaults inside context)
+    /// - Returns: BufferToken which returns the buffer to the pool on deinit
+    public func createBufferToken<T>(from data: [T], options: MTLResourceOptions) async throws -> BufferToken where T: Sendable {
+        // MetalContext handles allocation and initialization
+        return try await context.getBuffer(for: data)
+    }
+
+    /// Legacy: Create a raw Metal buffer from data.
+    /// Prefer `createBufferToken(from:options:)` for concurrency-safe usage.
+    @preconcurrency
     public func createBuffer<T>(from data: [T], options: MTLResourceOptions) async throws -> any MTLBuffer where T: Sendable {
-        // Note: Currently ignoring options parameter as MetalContext handles buffer creation
-        // This could be enhanced in the future to respect specific MTLResourceOptions
         let token = try await context.getBuffer(for: data)
         return token.buffer
     }
 
-    /// Direct access to the Metal command queue for manual command buffer creation
-    /// Required by kernel implementations that need low-level Metal control
+    /// Direct access to the Metal command queue for manual command buffer creation (legacy).
+    /// Prefer `commandQueueHandle` to avoid returning non-Sendable types across actors.
+    @preconcurrency
     public var commandQueue: any MTLCommandQueue {
-        get async {
-            // Access the command queue from MetalContext
-            // Note: This assumes MetalContext exposes its commandQueue property
-            return await context.commandQueue
-        }
+        get async { context.commandQueue }
+    }
+
+    /// Sendable wrapper handle for the command queue to cross actor boundaries safely.
+    public var commandQueueHandle: UnsafeSendable<any MTLCommandQueue> {
+        get async { context.commandQueue.uncheckedSendable }
     }
 
     // MARK: - Performance & Statistics
