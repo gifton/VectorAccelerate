@@ -39,6 +39,17 @@ public extension MTLCommandQueue {
 
 public extension MTLCommandBuffer {
     var uncheckedSendable: UnsafeSendable<any MTLCommandBuffer> { .init(self) }
+
+    /// Commits the command buffer and waits for GPU completion.
+    /// The completion handler is registered BEFORE commit to avoid race conditions.
+    func commitAndWait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            self.addCompletedHandler { _ in
+                continuation.resume()
+            }
+            self.commit()
+        }
+    }
 }
 
 public extension MTLBuffer {

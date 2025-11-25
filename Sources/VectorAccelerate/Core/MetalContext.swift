@@ -257,19 +257,18 @@ public actor MetalContext: AccelerationProvider {
         
         let startTime = CFAbsoluteTimeGetCurrent()
 
-        defer {
-            encoder.endEncoding()
-            commandBuffer.commit()
-        }
-
         let result = try await operation(commandBuffer, encoder)
+
+        encoder.endEncoding()
 
         if configuration.enableProfiling {
             // Wait for completion to measure execution time
-            await commandBuffer.completed()
+            await commandBuffer.commitAndWait()
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
             totalComputeTime += elapsed
             computeOperationCount += 1
+        } else {
+            commandBuffer.commit()
         }
 
         return result
@@ -290,17 +289,16 @@ public actor MetalContext: AccelerationProvider {
         let startTime = CFAbsoluteTimeGetCurrent()
         
         try await operation(commandBuffer, encoder)
-        
+
         encoder.endEncoding()
-        commandBuffer.commit()
-        await commandBuffer.completed()
-        
+        await commandBuffer.commitAndWait()
+
         if configuration.enableProfiling {
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
             totalComputeTime += elapsed
             computeOperationCount += 1
         }
-        
+
         if let error = commandBuffer.error {
             throw AccelerationError.computeFailed(reason: error.localizedDescription)
         }
