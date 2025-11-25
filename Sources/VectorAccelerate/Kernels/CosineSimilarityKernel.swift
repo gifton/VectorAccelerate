@@ -312,7 +312,7 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         // Extract results
         let similarityPointer = similarityBuffer.contents().bindMemory(
@@ -400,7 +400,7 @@ extension CosineSimilarityKernel {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         let endTime = CACurrentMediaTime()
         let computeTime = endTime - startTime

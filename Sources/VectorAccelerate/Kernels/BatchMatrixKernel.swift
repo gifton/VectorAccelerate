@@ -259,7 +259,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         encoder.endEncoding()
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         let executionTime = CACurrentMediaTime() - startTime
         
@@ -396,7 +396,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         encoder.endEncoding()
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         let executionTime = CACurrentMediaTime() - startTime
         

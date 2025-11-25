@@ -438,7 +438,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
                     commandBuffer: commandBuffer
                 )
                 commandBuffer.commit()
-                await commandBuffer.completed()
+                _ = await commandBuffer.completed
                 
                 times.append(CACurrentMediaTime() - start)
             }

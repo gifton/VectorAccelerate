@@ -335,7 +335,7 @@ public final class HammingDistanceKernel: @unchecked Sendable {
         encoder.endEncoding()
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         return Int(outputBuffer.contents().bindMemory(to: UInt32.self, capacity: 1).pointee)
     }
@@ -388,7 +388,7 @@ public final class HammingDistanceKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         return result.asMatrix()
     }

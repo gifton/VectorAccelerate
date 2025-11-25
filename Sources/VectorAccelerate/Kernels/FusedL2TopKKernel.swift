@@ -199,7 +199,7 @@ public final class FusedL2TopKKernel {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         // Process remaining chunks
         var processedCount = firstChunkSize
@@ -233,7 +233,7 @@ public final class FusedL2TopKKernel {
             )
             
             updateCommand.commit()
-            await updateCommand.completed()
+            _ = await updateCommand.completed
             
             processedCount += currentChunkSize
         }
@@ -290,7 +290,7 @@ public final class FusedL2TopKKernel {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         // Extract results
         var allResults: [[(index: Int, distance: Float)]] = []

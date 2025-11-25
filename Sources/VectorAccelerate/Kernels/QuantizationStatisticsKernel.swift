@@ -384,7 +384,7 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         encoder.endEncoding()
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         let gpuExecutionTime = CACurrentMediaTime() - gpuStartTime
         

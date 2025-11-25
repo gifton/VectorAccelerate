@@ -6,12 +6,13 @@ import PackageDescription
 let package = Package(
     name: "VectorAccelerate",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17),
-        .tvOS(.v17),
-        .watchOS(.v10),
-        .visionOS(.v1)
+        .macOS(.v15),
+        .iOS(.v18),
+        .tvOS(.v18),
+        .watchOS(.v11),
+        .visionOS(.v2)
         // Note: No Linux support due to Metal dependency
+        // Requires macOS 15+ for MTLCommandBuffer.completed async API
     ],
     products: [
         .library(

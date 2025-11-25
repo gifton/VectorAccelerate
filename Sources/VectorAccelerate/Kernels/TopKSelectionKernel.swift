@@ -209,7 +209,7 @@ public final class TopKSelectionKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         // Extract results
         let valPtr = valBuffer.contents().bindMemory(to: Float.self, capacity: batchSize * k)
@@ -298,7 +298,7 @@ public final class TopKSelectionKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         let endTime = CACurrentMediaTime()
         let executionTime = endTime - startTime

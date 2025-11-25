@@ -261,7 +261,7 @@ public final class L2NormalizationKernel {
         )
 
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         // Extract results
         let outputPointer = outputBuffer.contents().bindMemory(

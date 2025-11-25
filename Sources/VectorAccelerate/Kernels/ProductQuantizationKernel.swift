@@ -229,7 +229,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
                 commandBuffer: assignCommand
             )
             assignCommand.commit()
-            await assignCommand.completed()
+            _ = await assignCommand.completed
             
             // Clear accumulators
             clearBuffer(centroidsAccum)
@@ -260,7 +260,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
             )
             
             updateCommand.commit()
-            await updateCommand.completed()
+            _ = await updateCommand.completed
             
             // Check convergence
             let movement = calculateTotalMovement(convergenceBuffer: convergenceBuffer, config: config)
@@ -304,7 +304,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         
         if commandBuffer == nil {
             command.commit()
-            await command.completed()
+            _ = await command.completed
         }
         
         return EncodedVectors(codes: codes, count: count, config: model.config)
@@ -358,7 +358,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         
         if commandBuffer == nil {
             command.commit()
-            await command.completed()
+            _ = await command.completed
         }
         
         return distances

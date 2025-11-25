@@ -341,7 +341,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
             )
             
             commandBuffer.commit()
-            await commandBuffer.completed()
+            _ = await commandBuffer.completed
             
             chunkIndex += 1
             globalIndex += Int64(config.chunkSize)
@@ -358,7 +358,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
         let result = try finalizeStreaming(state: state, commandBuffer: finalCommand)
         
         finalCommand.commit()
-        await finalCommand.completed()
+        _ = await finalCommand.completed
         
         return result
     }
@@ -464,7 +464,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
             )
             
             commandBuffer.commit()
-            await commandBuffer.completed()
+            _ = await commandBuffer.completed
             
             chunkTimes.append(CACurrentMediaTime() - chunkStart)
         }
@@ -473,7 +473,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
         let finalCommand = kernelContext.commandQueue.makeCommandBuffer()!
         _ = try finalizeStreaming(state: state, commandBuffer: finalCommand)
         finalCommand.commit()
-        await finalCommand.completed()
+        _ = await finalCommand.completed
         
         let totalTime = CACurrentMediaTime() - startTime
         let avgChunkTime = chunkTimes.reduce(0, +) / Double(chunkTimes.count)

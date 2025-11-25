@@ -302,7 +302,7 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         // Extract quantized data
         let quantizedData = Data(bytes: outputBuffer.contents(), count: outputSize)
@@ -350,7 +350,7 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         let pointer = outputBuffer.contents().bindMemory(to: Float.self, capacity: count)
         return Array(UnsafeBufferPointer(start: pointer, count: count))

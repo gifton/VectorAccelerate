@@ -330,7 +330,7 @@ public final class WarpOptimizedSelectionKernel {
             )
 
             commandBuffer.commit()
-            await commandBuffer.completed()
+            _ = await commandBuffer.completed
 
             return (0..<queryCount).map { result.results(for: $0) }
         } else {
@@ -346,7 +346,7 @@ public final class WarpOptimizedSelectionKernel {
             )
 
             commandBuffer.commit()
-            await commandBuffer.completed()
+            _ = await commandBuffer.completed
 
             return (0..<queryCount).map { result.results(batch: 0, query: $0) }
         }
@@ -389,7 +389,7 @@ public final class WarpOptimizedSelectionKernel {
         )
 
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
 
         // Extract results
         var allResults: [[[(index: Int, value: Float)]]] = []
@@ -497,7 +497,7 @@ public final class WarpOptimizedSelectionKernel {
                     commandBuffer: commandBuffer
                 )
                 commandBuffer.commit()
-                await commandBuffer.completed()
+                _ = await commandBuffer.completed
                 warpTime = CACurrentMediaTime() - start
             }
 
@@ -513,7 +513,7 @@ public final class WarpOptimizedSelectionKernel {
                 commandBuffer: commandBuffer
             )
             commandBuffer.commit()
-            await commandBuffer.completed()
+            _ = await commandBuffer.completed
             generalTime = CACurrentMediaTime() - start
             
             results.append((k: k, warpTime: warpTime, generalTime: generalTime))

@@ -215,7 +215,7 @@ public final class ParallelReductionKernel: @unchecked Sendable {
         let result = try reduce(inputBuffer, operation: operation, count: array.count, commandBuffer: commandBuffer)
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         return (result.value, result.index)
     }
@@ -239,7 +239,7 @@ public final class ParallelReductionKernel: @unchecked Sendable {
         let maxResult = try reduce(inputBuffer, operation: .argMax, count: array.count, commandBuffer: commandBuffer)
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         return Statistics(
             sum: sumResult.value,

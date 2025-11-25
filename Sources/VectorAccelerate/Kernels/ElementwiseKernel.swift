@@ -239,7 +239,7 @@ public final class ElementwiseKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         // Extract results
         let pointer = outputBuffer.contents().bindMemory(to: Float.self, capacity: a.count)

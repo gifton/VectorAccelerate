@@ -238,7 +238,7 @@ public final class L2DistanceKernel {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         // Extract results
         let distancePointer = distanceBuffer.contents().bindMemory(
@@ -323,7 +323,7 @@ extension L2DistanceKernel {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         let endTime = CACurrentMediaTime()
         let computeTime = endTime - startTime

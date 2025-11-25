@@ -331,7 +331,7 @@ public final class DotProductKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         // Extract results
         let resultPointer = resultBuffer.contents().bindMemory(
@@ -415,7 +415,7 @@ public final class DotProductKernel: @unchecked Sendable {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         // Extract results
         let dotProductPointer = dotProductBuffer.contents().bindMemory(
@@ -520,7 +520,7 @@ extension DotProductKernel {
         )
         
         commandBuffer.commit()
-        await commandBuffer.completed()
+        _ = await commandBuffer.completed
         
         let endTime = CACurrentMediaTime()
         let computeTime = endTime - startTime
