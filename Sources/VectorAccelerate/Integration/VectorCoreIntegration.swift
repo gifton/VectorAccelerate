@@ -31,7 +31,7 @@ public actor AcceleratedDistanceProvider: DistanceProvider {
     
     public init() async throws {
         guard ComputeDevice.gpu().isAvailable else {
-            throw AccelerationError.metalNotAvailable
+            throw VectorError.metalNotAvailable()
         }
         
         self.context = try await VectorAccelerate.MetalContext()
@@ -90,7 +90,7 @@ public actor AcceleratedVectorOperations: VectorOperationsProvider {
     
     public init() async throws {
         guard ComputeDevice.gpu().isAvailable else {
-            throw AccelerationError.metalNotAvailable
+            throw VectorError.metalNotAvailable()
         }
         
         self.context = try await VectorAccelerate.MetalContext()
@@ -277,6 +277,57 @@ public extension VectorProtocol where Scalar == Float {
             return try normalized().get()
         }
     }
+
+    /// Fast normalization without runtime validation (VectorCore 0.1.5)
+    ///
+    /// Uses `normalizedUnchecked()` for 15-20% faster normalization in hot paths
+    /// where vectors are known to be valid (non-zero, finite values).
+    ///
+    /// - Warning: Only use after validating vector data. Debug builds assert validity.
+    /// - Returns: Normalized vector
+    func acceleratedNormalizeUnchecked() async throws -> Self {
+        if AcceleratedVectorFactory.isAccelerationAvailable {
+            let provider = try await AcceleratedVectorOperations()
+            return try await provider.normalize(self)
+        } else {
+            // Use VectorCore 0.1.5's fast unchecked normalization
+            return normalizedUnchecked()
+        }
+    }
+}
+
+// MARK: - IndexableVector Extensions (VectorCore 0.1.5)
+
+/// GPU-accelerated extensions for IndexableVector types (e.g., Vector384Optimized)
+///
+/// These extensions leverage the `isNormalized` and `cachedMagnitude` properties
+/// from VectorCore 0.1.5's IndexableVector protocol to skip unnecessary computations.
+public extension IndexableVector where Scalar == Float {
+
+    /// Compute distance with GPU acceleration, skipping normalization if already normalized
+    ///
+    /// For cosine similarity with pre-normalized vectors, this provides significant
+    /// speedup by avoiding redundant normalization.
+    func acceleratedDistanceOptimized(
+        to other: Self,
+        metric: SupportedDistanceMetric = .euclidean
+    ) async throws -> Float {
+        // For cosine with normalized vectors, use dot product directly
+        if metric == .cosine && self.isNormalized && other.isNormalized {
+            // Both vectors normalized - cosine similarity = dot product
+            if AcceleratedVectorFactory.isAccelerationAvailable {
+                let provider = try await AcceleratedVectorOperations()
+                let dot = try await provider.dotProduct(self, other)
+                return 1.0 - dot  // Convert similarity to distance
+            } else {
+                // Use cached computation path
+                return 1.0 - DotProductDistance().distance(self, other)
+            }
+        }
+
+        // Fall back to standard accelerated distance
+        return try await acceleratedDistance(to: other, metric: metric)
+    }
 }
 
 // MARK: - Hybrid Execution Strategy
@@ -410,7 +461,7 @@ public extension BatchOperations {
         metric: SupportedDistanceMetric = .euclidean
     ) async throws -> [(index: Int, distance: Float)] where V.Scalar == Float {
         guard ComputeDevice.gpu().isAvailable else {
-            throw AccelerationError.metalNotAvailable
+            throw VectorError.metalNotAvailable()
         }
 
         guard k > 0 && !vectors.isEmpty else {
@@ -478,7 +529,7 @@ public extension BatchOperations {
         metric: SupportedDistanceMetric = .euclidean
     ) async throws -> [Float] where V.Scalar == Float {
         guard ComputeDevice.gpu().isAvailable else {
-            throw AccelerationError.metalNotAvailable
+            throw VectorError.metalNotAvailable()
         }
 
         guard !candidates.isEmpty else {
@@ -537,7 +588,7 @@ public extension BatchOperations {
         _ vectors: [V]
     ) async throws -> [V] where V.Scalar == Float {
         guard ComputeDevice.gpu().isAvailable else {
-            throw AccelerationError.metalNotAvailable
+            throw VectorError.metalNotAvailable()
         }
 
         guard !vectors.isEmpty else {
@@ -564,6 +615,38 @@ public extension BatchOperations {
         return results
     }
 
+    /// Fast batch normalization using normalizedUnchecked() (VectorCore 0.1.5)
+    ///
+    /// Uses VectorCore 0.1.5's `normalizedUnchecked()` for 15-20% faster CPU fallback
+    /// when GPU is unavailable. Best for validated embedding pipelines.
+    ///
+    /// - Parameter vectors: Vectors to normalize (must have valid, non-zero values)
+    /// - Returns: Array of normalized vectors
+    /// - Warning: Only use with validated input data. Debug builds assert validity.
+    static func normalizeGPUUnchecked<V: VectorProtocol & Sendable>(
+        _ vectors: [V]
+    ) async throws -> [V] where V.Scalar == Float {
+        guard !vectors.isEmpty else {
+            return []
+        }
+
+        // Try GPU path first
+        if ComputeDevice.gpu().isAvailable {
+            return try await normalizeGPU(vectors)
+        }
+
+        // CPU fallback using VectorCore 0.1.5's fast unchecked normalization
+        var results: [V] = []
+        results.reserveCapacity(vectors.count)
+
+        for vector in vectors {
+            // Use unchecked variant - 15-20% faster than safe normalized()
+            results.append(vector.normalizedUnchecked())
+        }
+
+        return results
+    }
+
     /// Scale vectors by a constant using GPU
     ///
     /// Multiplies all vector components by a scalar value using Metal.
@@ -578,7 +661,7 @@ public extension BatchOperations {
         by scalar: Float
     ) async throws -> [V] where V.Scalar == Float {
         guard ComputeDevice.gpu().isAvailable else {
-            throw AccelerationError.metalNotAvailable
+            throw VectorError.metalNotAvailable()
         }
 
         guard !vectors.isEmpty else {
@@ -619,7 +702,7 @@ public extension BatchOperations {
         metric: SupportedDistanceMetric = .euclidean
     ) async throws -> [[Float]] where V.Scalar == Float {
         guard ComputeDevice.gpu().isAvailable else {
-            throw AccelerationError.metalNotAvailable
+            throw VectorError.metalNotAvailable()
         }
 
         let n = vectors.count

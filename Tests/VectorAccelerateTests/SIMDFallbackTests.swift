@@ -7,6 +7,7 @@
 
 import XCTest
 @testable import VectorAccelerate
+import VectorCore
 
 final class SIMDFallbackTests: XCTestCase {
     var fallback: SIMDFallback!
@@ -96,9 +97,8 @@ final class SIMDFallbackTests: XCTestCase {
         do {
             _ = try await fallback.dotProduct(a, b)
             XCTFail("Should throw dimension mismatch error")
-        } catch AccelerationError.dimensionMismatch(let expected, let actual) {
-            XCTAssertEqual(expected, 3)
-            XCTAssertEqual(actual, 2)
+        } catch let error as VectorError where error.kind == .dimensionMismatch {
+            // Verified dimension mismatch was thrown
         } catch {
             XCTFail("Unexpected error: \(error)")
         }

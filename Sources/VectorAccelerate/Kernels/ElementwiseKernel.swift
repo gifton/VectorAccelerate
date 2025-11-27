@@ -92,14 +92,14 @@ public final class ElementwiseKernel: @unchecked Sendable {
         
         guard let kernel = library.makeFunction(name: "elementwise_operation_kernel"),
               let kernelInplace = library.makeFunction(name: "elementwise_inplace_kernel") else {
-            throw AccelerationError.shaderNotFound(name: "Could not find element-wise kernel functions")
+            throw VectorError.shaderNotFound(name: "Could not find element-wise kernel functions")
         }
         
         do {
             self.pipelineState = try device.makeComputePipelineState(function: kernel)
             self.pipelineStateInplace = try device.makeComputePipelineState(function: kernelInplace)
         } catch {
-            throw AccelerationError.pipelineCreationFailed("Failed to create pipeline state: \(error)")
+            throw VectorError.pipelineCreationFailed("Failed to create pipeline state: \(error)")
         }
     }
 
@@ -133,7 +133,7 @@ public final class ElementwiseKernel: @unchecked Sendable {
         
         // Validation
         if operation.isBinary && inputB == nil {
-            throw AccelerationError.invalidInput("Binary operation requires second input buffer")
+            throw VectorError.invalidInput("Binary operation requires second input buffer")
         }
 
         let isInPlace = (inputA === output)
@@ -150,7 +150,7 @@ public final class ElementwiseKernel: @unchecked Sendable {
 
         // Encoding
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "ElementwiseKernel"
@@ -159,7 +159,7 @@ public final class ElementwiseKernel: @unchecked Sendable {
         
         if isInPlace {
             if strideA != strideOutput {
-                throw AccelerationError.invalidInput("strideA must equal strideOutput for in-place operations")
+                throw VectorError.invalidInput("strideA must equal strideOutput for in-place operations")
             }
             pipeline = pipelineStateInplace
             encoder.setComputePipelineState(pipeline)
@@ -201,7 +201,7 @@ public final class ElementwiseKernel: @unchecked Sendable {
         
         if operation.isBinary {
             guard let b = b, b.count == a.count else {
-                throw AccelerationError.invalidInput("Binary operation requires matching array sizes")
+                throw VectorError.invalidInput("Binary operation requires matching array sizes")
             }
         }
         
@@ -210,11 +210,11 @@ public final class ElementwiseKernel: @unchecked Sendable {
             from: a,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         let inputBufferB: (any MTLBuffer)? = try b.map { data in
             guard let buffer = kernelContext.createBuffer(from: data, options: MTLResourceOptions.storageModeShared) else {
-                throw AccelerationError.bufferCreationFailed("Failed to create buffer B")
+                throw VectorError.bufferCreationFailed("Failed to create buffer B")
             }
             return buffer
         }
@@ -223,7 +223,7 @@ public final class ElementwiseKernel: @unchecked Sendable {
             length: a.count * MemoryLayout<Float>.size,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create output buffer")
+            throw VectorError.bufferCreationFailed("Failed to create output buffer")
         }
         
         // Execute
@@ -247,16 +247,70 @@ public final class ElementwiseKernel: @unchecked Sendable {
     }
     
     /// Perform element-wise operation using VectorCore types
+    ///
+    /// Uses zero-copy buffer creation via `withUnsafeBufferPointer`.
     public func compute<V: VectorProtocol>(
         _ a: V,
         _ b: V? = nil,
         operation: Operation,
         useFastMath: Bool = false
     ) async throws -> V where V.Scalar == Float {
-        let arrayA = Array(a.toArray())
-        let arrayB = b.map { Array($0.toArray()) }
-        let result = try await compute(arrayA, arrayB, operation: operation, useFastMath: useFastMath)
-        
+        guard a.count > 0 else {
+            return try V([])
+        }
+
+        if operation.isBinary {
+            guard let b = b, b.count == a.count else {
+                throw VectorError.invalidInput("Binary operation requires matching vector sizes")
+            }
+        }
+
+        // Zero-copy buffer creation using withUnsafeBufferPointer
+        guard let inputBufferA = kernelContext.createAlignedBufferFromVector(
+            a,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create buffer A")
+        }
+
+        let inputBufferB: (any MTLBuffer)? = try b.map { vector in
+            guard let buffer = kernelContext.createAlignedBufferFromVector(
+                vector,
+                options: .storageModeShared,
+                alignment: 16
+            ) else {
+                throw VectorError.bufferCreationFailed("Failed to create buffer B")
+            }
+            return buffer
+        }
+
+        guard let outputBuffer = device.makeBuffer(
+            length: a.count * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create output buffer")
+        }
+
+        // Execute
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
+        try compute(
+            inputA: inputBufferA,
+            inputB: inputBufferB,
+            output: outputBuffer,
+            operation: operation,
+            count: a.count,
+            useFastMath: useFastMath,
+            commandBuffer: commandBuffer
+        )
+
+        commandBuffer.commit()
+        await commandBuffer.completed()
+
+        // Extract results and construct VectorProtocol
+        let pointer = outputBuffer.contents().bindMemory(to: Float.self, capacity: a.count)
+        let result = Array(UnsafeBufferPointer(start: pointer, count: a.count))
+
         return try V(result)
     }
     

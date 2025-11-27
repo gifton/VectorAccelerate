@@ -368,6 +368,24 @@ final class CosineSimilarityKernelTests: XCTestCase {
 
     // MARK: - Optimized Dimension Tests
 
+    /// Test 384-dimension optimized kernel (MiniLM/Sentence-BERT - VectorCore 0.1.5)
+    func testDimension384() async throws {
+        let dimension = 384
+        let query = randomUnitVector(dimension: dimension)
+        let database = randomUnitVector(dimension: dimension)
+
+        let gpuResult = try await kernel!.compute(
+            queries: [query],
+            database: [database],
+            dimension: dimension
+        )
+
+        let cpuResult = cpuCosineSimilarity(a: query, b: database)
+
+        XCTAssertEqual(gpuResult[0][0], cpuResult, accuracy: 0.02,
+                      "384D optimized kernel should match CPU reference")
+    }
+
     func testDimension512() async throws {
         let dimension = 512
         let query = randomUnitVector(dimension: dimension)

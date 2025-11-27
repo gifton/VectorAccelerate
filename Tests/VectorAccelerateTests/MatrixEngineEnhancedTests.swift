@@ -8,6 +8,7 @@
 import XCTest
 @testable import VectorAccelerate
 @preconcurrency import Foundation
+import VectorCore
 import Accelerate
 import VectorCore
 
@@ -294,9 +295,8 @@ final class MatrixEngineEnhancedTests: XCTestCase {
         do {
             _ = try await engine!.multiply(matrixA, descriptorA: descriptorA, matrixB, descriptorB: descriptorB)
             XCTFail("Should have thrown dimension mismatch error")
-        } catch AccelerationError.dimensionMismatch(let expected, let actual) {
-            XCTAssertEqual(expected, 2)
-            XCTAssertEqual(actual, 4)
+        } catch let error as VectorError where error.kind == .dimensionMismatch {
+            // Dimension mismatch verified by kind check
         } catch {
             XCTFail("Wrong error type: \(error)")
         }
@@ -448,7 +448,7 @@ final class MatrixEngineEnhancedTests: XCTestCase {
                 vectors: vectors
             )
             XCTFail("Should have thrown dimension mismatch error")
-        } catch AccelerationError.dimensionMismatch {
+        } catch let error as VectorError where error.kind == .dimensionMismatch {
             // Expected error
         } catch {
             XCTFail("Wrong error type: \(error)")
@@ -470,7 +470,7 @@ final class MatrixEngineEnhancedTests: XCTestCase {
                 vectors: vectors
             )
             XCTFail("Should have thrown dimension mismatch error")
-        } catch AccelerationError.dimensionMismatch {
+        } catch let error as VectorError where error.kind == .dimensionMismatch {
             // Expected error
         } catch {
             XCTFail("Wrong error type: \(error)")

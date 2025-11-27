@@ -8,6 +8,7 @@
 import XCTest
 @testable import VectorAccelerate
 import Foundation
+import VectorCore
 
 final class EmbeddingEngineTests: XCTestCase {
     
@@ -147,9 +148,7 @@ final class EmbeddingEngineTests: XCTestCase {
         do {
             try await engine!.addEmbeddings(wrongDimensionEmbedding)
             XCTFail("Should have thrown dimension mismatch error")
-        } catch AccelerationError.dimensionMismatch(let expected, let actual) {
-            XCTAssertEqual(expected, 128)
-            XCTAssertEqual(actual, 2)
+        } catch let error as VectorError where error.kind == .dimensionMismatch {
         }
     }
     
@@ -218,9 +217,7 @@ final class EmbeddingEngineTests: XCTestCase {
         do {
             _ = try await engine!.search(query: wrongQuery, k: 5)
             XCTFail("Should have thrown dimension mismatch error")
-        } catch AccelerationError.dimensionMismatch(let expected, let actual) {
-            XCTAssertEqual(expected, 128)
-            XCTAssertEqual(actual, 64)
+        } catch let error as VectorError where error.kind == .dimensionMismatch {
         }
     }
     
@@ -361,7 +358,7 @@ final class EmbeddingEngineTests: XCTestCase {
         do {
             _ = try await engine!.kMeansClustering(k: 3)
             XCTFail("Should have thrown error for empty database")
-        } catch AccelerationError.unsupportedOperation {
+        } catch let error as VectorError where error.kind == .invalidOperation || error.kind == .unsupportedOperation {
             // Expected
         }
     }

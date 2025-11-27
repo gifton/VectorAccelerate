@@ -101,7 +101,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
                 length: codebookData.count,
                 options: MTLResourceOptions.storageModeShared
             ) else {
-                throw AccelerationError.bufferCreationFailed("Failed to create codebook buffer")
+                throw VectorError.bufferCreationFailed("Failed to create codebook buffer")
             }
             
             return PQModel(codebooks: codebooks, config: config, device: device)
@@ -165,7 +165,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
               let updateFinFunc = library.makeFunction(name: "pq_train_update_finalize"),
               let precompFunc = library.makeFunction(name: "pq_precompute_distance_table"),
               let distFunc = library.makeFunction(name: "pq_compute_distances_adc") else {
-            throw AccelerationError.shaderNotFound(name: "Product Quantization kernels not found")
+            throw VectorError.shaderNotFound(name: "Product Quantization kernels not found")
         }
         
         self.assignmentKernel = try device.makeComputePipelineState(function: assignmentFunc)
@@ -190,7 +190,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
             length: codebookSize * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create codebooks buffer")
+            throw VectorError.bufferCreationFailed("Failed to create codebooks buffer")
         }
         
         // Initialize codebooks with random vectors from training data
@@ -200,7 +200,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
             length: count * config.M * MemoryLayout<UInt8>.stride,
             options: MTLResourceOptions.storageModePrivate
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create assignments buffer")
+            throw VectorError.bufferCreationFailed("Failed to create assignments buffer")
         }
         
         // Allocate accumulation buffers
@@ -213,7 +213,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
                 length: config.M * config.K * MemoryLayout<Float>.stride,
                 options: MTLResourceOptions.storageModeShared
               ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create training buffers")
+            throw VectorError.bufferCreationFailed("Failed to create training buffers")
         }
         
         // Training loop
@@ -288,7 +288,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
             length: count * model.config.M * MemoryLayout<UInt8>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create codes buffer")
+            throw VectorError.bufferCreationFailed("Failed to create codes buffer")
         }
         
         let command = commandBuffer ?? kernelContext.commandQueue.makeCommandBuffer()!
@@ -325,14 +325,14 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
             length: tableSize * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModePrivate
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create distance table")
+            throw VectorError.bufferCreationFailed("Failed to create distance table")
         }
         
         guard let distances = device.makeBuffer(
             length: encodedVectors.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create distances buffer")
+            throw VectorError.bufferCreationFailed("Failed to create distances buffer")
         }
         
         let command = commandBuffer ?? kernelContext.commandQueue.makeCommandBuffer()!
@@ -373,7 +373,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
     ) async throws -> (model: PQModel, encoded: EncodedVectors) {
         let flatData = data.flatMap { $0 }
         guard let dataBuffer = kernelContext.createBuffer(from: flatData, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create data buffer")
+            throw VectorError.bufferCreationFailed("Failed to create data buffer")
         }
 
         let model = try await train(
@@ -399,7 +399,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         k: Int
     ) async throws -> [(index: Int, distance: Float)] {
         guard let queryBuffer = kernelContext.createBuffer(from: query, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create query buffer")
+            throw VectorError.bufferCreationFailed("Failed to create query buffer")
         }
 
         let distances = try await computeDistances(
@@ -468,7 +468,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         commandBuffer: any MTLCommandBuffer
     ) throws {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "PQ_Assignment"
@@ -505,7 +505,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         commandBuffer: any MTLCommandBuffer
     ) throws {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "PQ_UpdateAccumulate"
@@ -541,7 +541,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         commandBuffer: any MTLCommandBuffer
     ) throws {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "PQ_UpdateFinalize"
@@ -576,7 +576,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         commandBuffer: any MTLCommandBuffer
     ) throws {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "PQ_PrecomputeDistanceTable"
@@ -611,7 +611,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable {
         commandBuffer: any MTLCommandBuffer
     ) throws {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "PQ_ComputeDistances"

@@ -81,7 +81,7 @@ public final class MatrixVectorKernel: @unchecked Sendable {
         self.device = device
         
         guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command queue")
+            throw VectorError.deviceInitializationFailed("Failed to create command queue")
         }
         self.commandQueue = queue
         
@@ -90,13 +90,13 @@ public final class MatrixVectorKernel: @unchecked Sendable {
         
         // Load SIMD-optimized kernel
         guard let simdFunc = library.makeFunction(name: "simdgroupMatrixVector") else {
-            throw AccelerationError.shaderNotFound(name: "simdgroupMatrixVector")
+            throw VectorError.shaderNotFound(name: "simdgroupMatrixVector")
         }
         self.simdgroupKernel = try device.makeComputePipelineState(function: simdFunc)
         
         // Load basic kernel as fallback
         guard let basicFunc = library.makeFunction(name: "matrixVectorMultiply") else {
-            throw AccelerationError.shaderNotFound(name: "matrixVectorMultiply")
+            throw VectorError.shaderNotFound(name: "matrixVectorMultiply")
         }
         self.basicKernel = try device.makeComputePipelineState(function: basicFunc)
         
@@ -110,7 +110,7 @@ public final class MatrixVectorKernel: @unchecked Sendable {
         // Validate SIMD support
         let maxThreadsPerThreadgroup = simdgroupKernel.maxTotalThreadsPerThreadgroup
         if maxThreadsPerThreadgroup < SIMD_WIDTH {
-            throw AccelerationError.unsupportedOperation(
+            throw VectorError.unsupportedGPUOperation(
                 "Device does not support required SIMD width: \(SIMD_WIDTH)"
             )
         }
@@ -132,7 +132,7 @@ public final class MatrixVectorKernel: @unchecked Sendable {
         // Validate dimensions
         let expectedVectorLength = config.transpose ? matrix.rows : matrix.columns
         guard vector.count == expectedVectorLength else {
-            throw AccelerationError.countMismatch(
+            throw VectorError.countMismatch(
                 expected: expectedVectorLength,
                 actual: vector.count
             )
@@ -146,7 +146,7 @@ public final class MatrixVectorKernel: @unchecked Sendable {
             length: matrix.values.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: matrix.values.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: matrix.values.count * MemoryLayout<Float>.stride)
         }
         
         guard let vectorBuffer = device.makeBuffer(
@@ -154,12 +154,12 @@ public final class MatrixVectorKernel: @unchecked Sendable {
             length: vector.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: vector.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: vector.count * MemoryLayout<Float>.stride)
         }
         
         let outputSize = outputLength * MemoryLayout<Float>.stride
         guard let resultBuffer = device.makeBuffer(length: outputSize, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferAllocationFailed(size: outputSize)
+            throw VectorError.bufferAllocationFailed(size: outputSize)
         }
         
         // Initialize result buffer if beta != 0
@@ -170,7 +170,7 @@ public final class MatrixVectorKernel: @unchecked Sendable {
         // Create command buffer
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }
         
         // Select kernel based on configuration
@@ -221,7 +221,7 @@ public final class MatrixVectorKernel: @unchecked Sendable {
         
         // Check for errors
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: "Matrix-vector multiplication failed: \(error)")
+            throw VectorError.computeFailed(reason: "Matrix-vector multiplication failed: \(error)")
         }
         
         // Extract results
@@ -294,7 +294,7 @@ public final class MatrixVectorKernel: @unchecked Sendable {
         config: MatrixVectorConfig = .default
     ) throws -> BatchResult {
         guard matrices.count == vectors.count else {
-            throw AccelerationError.invalidInput("Number of matrices must match number of vectors")
+            throw VectorError.invalidInput("Number of matrices must match number of vectors")
         }
         
         let startTime = CACurrentMediaTime()
@@ -365,7 +365,7 @@ public final class MatrixVectorKernel: @unchecked Sendable {
         tolerance: Float = 1e-6
     ) throws -> (eigenvalue: Float, eigenvector: [Float]) {
         guard matrix.rows == matrix.columns else {
-            throw AccelerationError.invalidInput("Matrix must be square for eigenvalue computation")
+            throw VectorError.invalidInput("Matrix must be square for eigenvalue computation")
         }
         
         let n = matrix.rows

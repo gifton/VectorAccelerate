@@ -327,7 +327,7 @@ public actor BatchProcessor {
         vectors: [[Float]]
     ) async throws -> [[Float]] {
         guard matrices.count == vectors.count else {
-            throw AccelerationError.dimensionMismatch(
+            throw VectorError.dimensionMismatch(
                 expected: matrices.count,
                 actual: vectors.count
             )

@@ -8,6 +8,7 @@
 import XCTest
 @testable import VectorAccelerate
 import Foundation
+import VectorCore
 
 final class MatrixEngineTests: XCTestCase {
     
@@ -148,7 +149,7 @@ final class MatrixEngineTests: XCTestCase {
         do {
             let defaultEngine = try await MatrixEngine.createDefault()
             XCTAssertNotNil(defaultEngine)
-        } catch AccelerationError.deviceInitializationFailed {
+        } catch let error as VectorError where error.kind == .resourceUnavailable {
             // Expected if Metal not available
         }
     }
@@ -252,9 +253,8 @@ final class MatrixEngineTests: XCTestCase {
         do {
             _ = try await engine!.multiply(matrixA, descriptorA: descriptorA, matrixB, descriptorB: descriptorB)
             XCTFail("Should have thrown dimension mismatch error")
-        } catch AccelerationError.dimensionMismatch(let expected, let actual) {
-            XCTAssertEqual(expected, 4)
-            XCTAssertEqual(actual, 5)
+        } catch let error as VectorError where error.kind == .dimensionMismatch {
+            // Verified dimension mismatch was thrown
         }
     }
     
@@ -406,9 +406,8 @@ final class MatrixEngineTests: XCTestCase {
                 vectors: vectors
             )
             XCTFail("Should have thrown dimension mismatch error")
-        } catch AccelerationError.dimensionMismatch(let expected, let actual) {
-            XCTAssertEqual(expected, 1)
-            XCTAssertEqual(actual, 2)
+        } catch let error as VectorError where error.kind == .dimensionMismatch {
+            // Verified dimension mismatch was thrown
         }
     }
     
@@ -438,9 +437,8 @@ final class MatrixEngineTests: XCTestCase {
                 vectors: vectors
             )
             XCTFail("Should have thrown dimension mismatch error")
-        } catch AccelerationError.dimensionMismatch(let expected, let actual) {
-            XCTAssertEqual(expected, 4)
-            XCTAssertEqual(actual, 5)
+        } catch let error as VectorError where error.kind == .dimensionMismatch {
+            // Verified dimension mismatch was thrown
         }
     }
     

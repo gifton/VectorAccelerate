@@ -69,7 +69,7 @@ public final class L2NormalizationKernel {
               let kernel1536 = library.makeFunction(name: "l2_normalize_1536_kernel"),
               let kernelInplace = library.makeFunction(name: "l2_normalize_inplace_kernel")
         else {
-            throw AccelerationError.shaderNotFound(name: "Could not find L2 normalization kernel functions")
+            throw VectorError.shaderNotFound(name: "Could not find L2 normalization kernel functions")
         }
 
         // Create pipeline states
@@ -80,7 +80,7 @@ public final class L2NormalizationKernel {
             self.pipelineState1536 = try device.makeComputePipelineState(function: kernel1536)
             self.pipelineStateInplace = try device.makeComputePipelineState(function: kernelInplace)
         } catch {
-            throw AccelerationError.pipelineCreationFailed("Failed to create compute pipeline state: \(error)")
+            throw VectorError.pipelineCreationFailed("Failed to create compute pipeline state: \(error)")
         }
     }
 
@@ -103,7 +103,7 @@ public final class L2NormalizationKernel {
         try validateBuffers(input: input, output: output, norms: norms, parameters: parameters)
 
         if parameters.computeStats != 0 {
-            throw AccelerationError.invalidInput("Compute stats (batch kernel) is not implemented")
+            throw VectorError.invalidInput("Compute stats (batch kernel) is not implemented")
         }
         
         // Select optimal pipeline
@@ -111,7 +111,7 @@ public final class L2NormalizationKernel {
 
         // Encode computation
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
 
         encoder.label = "L2NormalizationKernel"
@@ -161,13 +161,13 @@ public final class L2NormalizationKernel {
     ) throws {
         // Validation: In-place requires input and output strides to be the same
         guard parameters.inputStride == parameters.outputStride else {
-            throw AccelerationError.invalidInput("Input and output strides must match for in-place normalization")
+            throw VectorError.invalidInput("Input and output strides must match for in-place normalization")
         }
         
         try validateBuffers(input: vectors, output: vectors, norms: norms, parameters: parameters)
 
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
 
         let pipeline = pipelineStateInplace
@@ -211,11 +211,11 @@ public final class L2NormalizationKernel {
         let dimension = vectors[0].count
         
         guard dimension > 0 else {
-            throw AccelerationError.invalidInput("Vector dimension must be greater than zero")
+            throw VectorError.invalidInput("Vector dimension must be greater than zero")
         }
         
         guard vectors.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.invalidInput("Dimension mismatch in input vectors")
+            throw VectorError.invalidInput("Dimension mismatch in input vectors")
         }
 
         // Create buffers
@@ -224,7 +224,7 @@ public final class L2NormalizationKernel {
             from: flattenedVectors,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create input buffer")
+            throw VectorError.bufferCreationFailed("Failed to create input buffer")
         }
 
         let totalElements = numVectors * dimension
@@ -232,14 +232,14 @@ public final class L2NormalizationKernel {
             length: totalElements * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create output buffer")
+            throw VectorError.bufferCreationFailed("Failed to create output buffer")
         }
         
         guard let normsBuffer = device.makeBuffer(
             length: numVectors * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create norms buffer")
+            throw VectorError.bufferCreationFailed("Failed to create norms buffer")
         }
 
         // Configure parameters
@@ -292,6 +292,9 @@ public final class L2NormalizationKernel {
     }
 
     /// Normalize vectors using VectorCore types
+    ///
+    /// Uses zero-copy buffer creation via `withUnsafeBufferPointer`.
+    ///
     /// - Parameter vectors: Array of vectors conforming to VectorProtocol
     /// - Returns: Tuple of normalized vectors and their original norms
     public func normalize<V: VectorProtocol>(
@@ -300,21 +303,89 @@ public final class L2NormalizationKernel {
         guard !vectors.isEmpty else {
             return ([], [])
         }
-        
+
+        let numVectors = vectors.count
         let dimension = vectors[0].count
+
+        guard dimension > 0 else {
+            throw VectorError.invalidInput("Vector dimension must be greater than zero")
+        }
+
         guard vectors.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.invalidInput("Dimension mismatch in input vectors")
+            throw VectorError.invalidInput("Dimension mismatch in input vectors")
         }
-        
-        // Convert to arrays and normalize
-        let arrays = vectors.map { Array($0.toArray()) }
-        let (normalizedArrays, norms) = try await normalize(arrays)
-        
-        // Convert back to VectorProtocol type
-        let normalizedVectors = try normalizedArrays.map { array in
-            return try V(array)
+
+        // Zero-copy buffer creation using withUnsafeBufferPointer
+        guard let inputBuffer = kernelContext.createAlignedBufferFromVectors(
+            vectors,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create input buffer")
         }
-        
+
+        let totalElements = numVectors * dimension
+        guard let outputBuffer = device.makeBuffer(
+            length: totalElements * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create output buffer")
+        }
+
+        guard let normsBuffer = device.makeBuffer(
+            length: numVectors * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create norms buffer")
+        }
+
+        // Configure parameters
+        let parameters = Parameters(
+            numVectors: numVectors,
+            dimension: dimension,
+            storeNorms: true
+        )
+
+        // Execute
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
+
+        try normalize(
+            input: inputBuffer,
+            output: outputBuffer,
+            norms: normsBuffer,
+            parameters: parameters,
+            commandBuffer: commandBuffer
+        )
+
+        commandBuffer.commit()
+        await commandBuffer.completed()
+
+        // Extract results
+        let outputPointer = outputBuffer.contents().bindMemory(
+            to: Float.self,
+            capacity: totalElements
+        )
+        let normsPointer = normsBuffer.contents().bindMemory(
+            to: Float.self,
+            capacity: numVectors
+        )
+
+        // Reshape the output buffer into VectorProtocol types
+        var normalizedVectors: [V] = []
+        normalizedVectors.reserveCapacity(numVectors)
+
+        for i in 0..<numVectors {
+            let start = i * dimension
+            let vector = Array(UnsafeBufferPointer(
+                start: outputPointer + start,
+                count: dimension
+            ))
+            let v = try V(vector)
+            normalizedVectors.append(v)
+        }
+
+        let norms = Array(UnsafeBufferPointer(start: normsPointer, count: numVectors))
+
         return (normalizedVectors, norms)
     }
 
@@ -388,12 +459,12 @@ public final class L2NormalizationKernel {
         }
 
         guard dimension > 0 else {
-            throw AccelerationError.invalidInput("Dimension must be greater than zero")
+            throw VectorError.invalidInput("Dimension must be greater than zero")
         }
 
         // Check strides
         if Int(parameters.inputStride) < dimension || Int(parameters.outputStride) < dimension {
-            throw AccelerationError.invalidInput("Strides cannot be smaller than the dimension")
+            throw VectorError.invalidInput("Strides cannot be smaller than the dimension")
         }
 
         // Calculate required buffer sizes (accounting for strides)
@@ -401,23 +472,23 @@ public final class L2NormalizationKernel {
         let requiredInputElements = (numVectors - 1) * Int(parameters.inputStride) + dimension
         
         if input.length < requiredInputElements * floatSize {
-            throw AccelerationError.invalidInput("Input buffer too small for the specified vectors, dimension, and stride")
+            throw VectorError.invalidInput("Input buffer too small for the specified vectors, dimension, and stride")
         }
 
         // Check output buffer size only if not in-place
         if input !== output {
             let requiredOutputElements = (numVectors - 1) * Int(parameters.outputStride) + dimension
             if output.length < requiredOutputElements * floatSize {
-                throw AccelerationError.invalidInput("Output buffer too small")
+                throw VectorError.invalidInput("Output buffer too small")
             }
         }
 
         if parameters.storeNorms == 1 {
             guard let normsBuffer = norms else {
-                throw AccelerationError.invalidInput("storeNorms is requested but norms buffer is nil")
+                throw VectorError.invalidInput("storeNorms is requested but norms buffer is nil")
             }
             if normsBuffer.length < numVectors * floatSize {
-                throw AccelerationError.invalidInput("Norms buffer too small")
+                throw VectorError.invalidInput("Norms buffer too small")
             }
         }
     }

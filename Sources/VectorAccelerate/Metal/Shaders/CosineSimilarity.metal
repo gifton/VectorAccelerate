@@ -173,6 +173,94 @@ kernel void cosine_similarity_general_kernel(
 // MARK: - Optimized Kernels (Spec Section 3.3)
 // These kernels assume dense packing (stride == dimension) and use ILP optimization.
 
+// Optimized for D=384 (96 float4 ops).
+// Critical for MiniLM and Sentence-BERT embeddings (VectorCore 0.1.5 Vector384Optimized)
+kernel void cosine_similarity_384_kernel(
+    device const float* queryVectors [[buffer(0)]],
+    device const float* databaseVectors [[buffer(1)]],
+    device float* similarities [[buffer(2)]],
+    constant CosineSimilarityParams& params [[buffer(3)]],
+    uint3 tid [[thread_position_in_grid]]
+) {
+    const uint queryIdx = tid.x;
+    const uint dbIdx = tid.y;
+
+    if (queryIdx >= params.numQueries || dbIdx >= params.numDatabase) {
+        return;
+    }
+
+    // Hardcoded strides for optimized address calculation
+    device const float4* query4 = (device const float4*)(queryVectors + queryIdx * 384);
+    device const float4* database4 = (device const float4*)(databaseVectors + dbIdx * 384);
+
+    // Unroll by 8. Use 2 interleaved accumulators for ILP.
+    float4 dot_acc0 = float4(0.0f);
+    float4 dot_acc1 = float4(0.0f);
+
+    if (params.inputsNormalized) {
+        // Fast Path (Normalized)
+        for (uint i = 0; i < 96; i += 8) {
+            // Interleaved FMA accumulation
+            dot_acc0 = fma(query4[i+0], database4[i+0], dot_acc0);
+            dot_acc1 = fma(query4[i+1], database4[i+1], dot_acc1);
+            dot_acc0 = fma(query4[i+2], database4[i+2], dot_acc0);
+            dot_acc1 = fma(query4[i+3], database4[i+3], dot_acc1);
+            dot_acc0 = fma(query4[i+4], database4[i+4], dot_acc0);
+            dot_acc1 = fma(query4[i+5], database4[i+5], dot_acc1);
+            dot_acc0 = fma(query4[i+6], database4[i+6], dot_acc0);
+            dot_acc1 = fma(query4[i+7], database4[i+7], dot_acc1);
+        }
+
+        // Final reduction
+        float4 total_dot = dot_acc0 + dot_acc1;
+        float dotProduct = total_dot.x + total_dot.y + total_dot.z + total_dot.w;
+
+        float result = calculate_similarity_normalized(dotProduct, params.outputDistance);
+        similarities[queryIdx * params.strideOutput + dbIdx] = result;
+
+    } else {
+        // General Path (Non-Normalized)
+        float4 qnorm_acc0 = float4(0.0f);
+        float4 qnorm_acc1 = float4(0.0f);
+        float4 dnorm_acc0 = float4(0.0f);
+        float4 dnorm_acc1 = float4(0.0f);
+
+        for (uint i = 0; i < 96; i += 8) {
+            // Load data
+            float4 q0=query4[i+0]; float4 d0=database4[i+0];
+            float4 q1=query4[i+1]; float4 d1=database4[i+1];
+            float4 q2=query4[i+2]; float4 d2=database4[i+2];
+            float4 q3=query4[i+3]; float4 d3=database4[i+3];
+            float4 q4=query4[i+4]; float4 d4=database4[i+4];
+            float4 q5=query4[i+5]; float4 d5=database4[i+5];
+            float4 q6=query4[i+6]; float4 d6=database4[i+6];
+            float4 q7=query4[i+7]; float4 d7=database4[i+7];
+
+            // Interleaved FMA accumulation
+            dot_acc0 = fma(q0, d0, dot_acc0); qnorm_acc0 = fma(q0, q0, qnorm_acc0); dnorm_acc0 = fma(d0, d0, dnorm_acc0);
+            dot_acc1 = fma(q1, d1, dot_acc1); qnorm_acc1 = fma(q1, q1, qnorm_acc1); dnorm_acc1 = fma(d1, d1, dnorm_acc1);
+            dot_acc0 = fma(q2, d2, dot_acc0); qnorm_acc0 = fma(q2, q2, qnorm_acc0); dnorm_acc0 = fma(d2, d2, dnorm_acc0);
+            dot_acc1 = fma(q3, d3, dot_acc1); qnorm_acc1 = fma(q3, q3, qnorm_acc1); dnorm_acc1 = fma(d3, d3, dnorm_acc1);
+            dot_acc0 = fma(q4, d4, dot_acc0); qnorm_acc0 = fma(q4, q4, qnorm_acc0); dnorm_acc0 = fma(d4, d4, dnorm_acc0);
+            dot_acc1 = fma(q5, d5, dot_acc1); qnorm_acc1 = fma(q5, q5, qnorm_acc1); dnorm_acc1 = fma(d5, d5, dnorm_acc1);
+            dot_acc0 = fma(q6, d6, dot_acc0); qnorm_acc0 = fma(q6, q6, qnorm_acc0); dnorm_acc0 = fma(d6, d6, dnorm_acc0);
+            dot_acc1 = fma(q7, d7, dot_acc1); qnorm_acc1 = fma(q7, q7, qnorm_acc1); dnorm_acc1 = fma(d7, d7, dnorm_acc1);
+        }
+
+        // Final reduction
+        float4 total_dot = dot_acc0 + dot_acc1;
+        float4 total_qnorm = qnorm_acc0 + qnorm_acc1;
+        float4 total_dnorm = dnorm_acc0 + dnorm_acc1;
+
+        float dotProduct = total_dot.x + total_dot.y + total_dot.z + total_dot.w;
+        float queryNormSq = total_qnorm.x + total_qnorm.y + total_qnorm.z + total_qnorm.w;
+        float databaseNormSq = total_dnorm.x + total_dnorm.y + total_dnorm.z + total_dnorm.w;
+
+        float result = calculate_similarity(dotProduct, queryNormSq, databaseNormSq, params.outputDistance);
+        similarities[queryIdx * params.strideOutput + dbIdx] = result;
+    }
+}
+
 // Optimized for D=512 (128 float4 ops).
 kernel void cosine_similarity_512_kernel(
     device const float* queryVectors [[buffer(0)]],

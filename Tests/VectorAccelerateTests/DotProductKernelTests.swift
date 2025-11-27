@@ -353,6 +353,23 @@ final class DotProductKernelTests: XCTestCase {
 
     // MARK: - Optimized Dimension Tests
 
+    /// Test 384-dimension optimized kernel (MiniLM/Sentence-BERT - VectorCore 0.1.5)
+    func testDimension384() async throws {
+        let dimension = 384
+        let v1 = randomVector(dimension: dimension)
+        let v2 = randomVector(dimension: dimension)
+
+        let gpuResult = try await kernel!.computeBatch(
+            queries: [v1],
+            database: [v2]
+        )
+
+        let cpuResult = cpuDotProduct(a: v1, b: v2)
+
+        XCTAssertEqual(gpuResult[0][0], cpuResult, accuracy: 1.0,
+                      "384D optimized kernel should match CPU reference")
+    }
+
     func testDimension512() async throws {
         let dimension = 512
         let v1 = randomVector(dimension: dimension)

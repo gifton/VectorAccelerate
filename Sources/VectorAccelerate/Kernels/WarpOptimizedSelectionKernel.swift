@@ -107,13 +107,13 @@ public final class WarpOptimizedSelectionKernel {
         // Load warp-optimized kernels for small k
         guard let warpAsc = library.makeFunction(name: "warp_select_small_k_ascending"),
               let warpDesc = library.makeFunction(name: "warp_select_small_k_descending") else {
-            throw AccelerationError.shaderNotFound(name: "Warp selection kernels not found")
+            throw VectorError.shaderNotFound(name: "Warp selection kernels not found")
         }
         
         // Load batch selection kernels for general k
         guard let batchAsc = library.makeFunction(name: "batch_select_k_nearest_ascending"),
               let batchDesc = library.makeFunction(name: "batch_select_k_nearest_descending") else {
-            throw AccelerationError.shaderNotFound(name: "Batch selection kernels not found")
+            throw VectorError.shaderNotFound(name: "Batch selection kernels not found")
         }
         
         self.warpSmallKAscending = try device.makeComputePipelineState(function: warpAsc)
@@ -144,7 +144,7 @@ public final class WarpOptimizedSelectionKernel {
         commandBuffer: any MTLCommandBuffer
     ) throws -> WarpResult {
         guard k <= MAX_SMALL_K else {
-            throw AccelerationError.invalidInput("K must be ≤ \(MAX_SMALL_K) for warp optimization")
+            throw VectorError.invalidInput("K must be ≤ \(MAX_SMALL_K) for warp optimization")
         }
         
         // Allocate output buffers
@@ -159,14 +159,14 @@ public final class WarpOptimizedSelectionKernel {
         ) : nil
         
         guard let indices = indicesBuffer else {
-            throw AccelerationError.bufferCreationFailed("Failed to create indices buffer")
+            throw VectorError.bufferCreationFailed("Failed to create indices buffer")
         }
         
         // Select appropriate kernel
         let pipelineState = mode == .ascending ? warpSmallKAscending : warpSmallKDescending
         
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "WarpSelectSmallK_\(mode.kernelSuffix)"
@@ -227,7 +227,7 @@ public final class WarpOptimizedSelectionKernel {
         commandBuffer: any MTLCommandBuffer
     ) throws -> BatchResult {
         guard k <= MAX_BATCH_K else {
-            throw AccelerationError.invalidInput("K must be ≤ \(MAX_BATCH_K)")
+            throw VectorError.invalidInput("K must be ≤ \(MAX_BATCH_K)")
         }
         
         // Allocate output buffers
@@ -243,7 +243,7 @@ public final class WarpOptimizedSelectionKernel {
         ) : nil
         
         guard let indices = indicesBuffer else {
-            throw AccelerationError.bufferCreationFailed("Failed to create indices buffer")
+            throw VectorError.bufferCreationFailed("Failed to create indices buffer")
         }
         
         // Select kernel
@@ -253,7 +253,7 @@ public final class WarpOptimizedSelectionKernel {
         let tgs = threadgroupSize ?? min(32, pipelineState.maxTotalThreadsPerThreadgroup)
         
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "BatchSelect_\(mode.kernelSuffix)"
@@ -300,7 +300,7 @@ public final class WarpOptimizedSelectionKernel {
         mode: SelectionMode = .ascending
     ) async throws -> [[(index: Int, value: Float)]] {
         guard !values.isEmpty else {
-            throw AccelerationError.invalidInput("Empty input")
+            throw VectorError.invalidInput("Empty input")
         }
         
         let queryCount = values.count
@@ -312,7 +312,7 @@ public final class WarpOptimizedSelectionKernel {
             from: flatValues,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create distance buffer")
+            throw VectorError.bufferCreationFailed("Failed to create distance buffer")
         }
 
         let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
@@ -373,7 +373,7 @@ public final class WarpOptimizedSelectionKernel {
             from: flatValues,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create distance buffer")
+            throw VectorError.bufferCreationFailed("Failed to create distance buffer")
         }
 
         let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
@@ -478,7 +478,7 @@ public final class WarpOptimizedSelectionKernel {
             from: flatValues,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create distance buffer")
+            throw VectorError.bufferCreationFailed("Failed to create distance buffer")
         }
 
         for k in kValues {

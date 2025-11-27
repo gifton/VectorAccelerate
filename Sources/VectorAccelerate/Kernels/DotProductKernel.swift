@@ -16,6 +16,7 @@ public final class DotProductKernel: @unchecked Sendable {
     
     // GEMM (General Matrix-Matrix style) pipelines
     private let pipelineState: any MTLComputePipelineState
+    private let pipelineState384: any MTLComputePipelineState
     private let pipelineState512: any MTLComputePipelineState
     private let pipelineState768: any MTLComputePipelineState
     private let pipelineState1536: any MTLComputePipelineState
@@ -70,6 +71,11 @@ public final class DotProductKernel: @unchecked Sendable {
             library: library,
             name: "dot_product_kernel"
         )
+        self.pipelineState384 = try Self.makePipelineState(
+            device: device,
+            library: library,
+            name: "dot_product_384_kernel"
+        )
         self.pipelineState512 = try Self.makePipelineState(
             device: device,
             library: library,
@@ -98,7 +104,7 @@ public final class DotProductKernel: @unchecked Sendable {
         name: String
     ) throws -> any MTLComputePipelineState {
         guard let function = library.makeFunction(name: name) else {
-            throw AccelerationError.shaderNotFound(name: "Could not find kernel function '\(name)'")
+            throw VectorError.shaderNotFound(name: "Could not find kernel function '\(name)'")
         }
         return try device.makeComputePipelineState(function: function)
     }
@@ -113,14 +119,14 @@ public final class DotProductKernel: @unchecked Sendable {
         // 1. Validate dimensions
         if parameters.dimension == 0 {
             if parameters.numQueries > 0 || parameters.numDatabase > 0 {
-                throw AccelerationError.invalidInput("Dimension cannot be zero when counts are greater than zero")
+                throw VectorError.invalidInput("Dimension cannot be zero when counts are greater than zero")
             }
             return // Trivial case
         }
 
         // 2. Validate strides
         if parameters.strideQuery < parameters.dimension || parameters.strideDatabase < parameters.dimension {
-            throw AccelerationError.invalidInput("Strides cannot be smaller than the dimension")
+            throw VectorError.invalidInput("Strides cannot be smaller than the dimension")
         }
 
         let floatSize = MemoryLayout<Float>.stride
@@ -130,14 +136,14 @@ public final class DotProductKernel: @unchecked Sendable {
             // Required size: ((N-1) * stride + dimension) * element_size
             let requiredQuerySize = (Int(parameters.numQueries - 1) * Int(parameters.strideQuery) + Int(parameters.dimension)) * floatSize
             if queryVectors.length < requiredQuerySize {
-                throw AccelerationError.invalidInput("Query buffer too small. Required: \(requiredQuerySize), got: \(queryVectors.length)")
+                throw VectorError.invalidInput("Query buffer too small. Required: \(requiredQuerySize), got: \(queryVectors.length)")
             }
         }
 
         if parameters.numDatabase > 0 {
             let requiredDatabaseSize = (Int(parameters.numDatabase - 1) * Int(parameters.strideDatabase) + Int(parameters.dimension)) * floatSize
             if databaseVectors.length < requiredDatabaseSize {
-                throw AccelerationError.invalidInput("Database buffer too small. Required: \(requiredDatabaseSize), got: \(databaseVectors.length)")
+                throw VectorError.invalidInput("Database buffer too small. Required: \(requiredDatabaseSize), got: \(databaseVectors.length)")
             }
         }
 
@@ -147,17 +153,17 @@ public final class DotProductKernel: @unchecked Sendable {
                 // GEMV Case: Output size is simply numDatabase * element_size (assuming dense output)
                 let requiredOutputSize = Int(parameters.numDatabase) * floatSize
                 if dotProducts.length < requiredOutputSize {
-                    throw AccelerationError.invalidInput("DotProducts buffer too small (GEMV). Required: \(requiredOutputSize), got: \(dotProducts.length)")
+                    throw VectorError.invalidInput("DotProducts buffer too small (GEMV). Required: \(requiredOutputSize), got: \(dotProducts.length)")
                 }
             } else {
                 // GEMM Case
                 if parameters.strideOutput < parameters.numDatabase {
-                    throw AccelerationError.invalidInput("Output stride cannot be smaller than numDatabase for batch processing")
+                    throw VectorError.invalidInput("Output stride cannot be smaller than numDatabase for batch processing")
                 }
                 // Output size calculation: ((N_queries-1) * strideOutput + N_database) * element_size
                 let requiredOutputSize = (Int(parameters.numQueries - 1) * Int(parameters.strideOutput) + Int(parameters.numDatabase)) * floatSize
                 if dotProducts.length < requiredOutputSize {
-                    throw AccelerationError.invalidInput("DotProducts buffer too small (GEMM). Required: \(requiredOutputSize), got: \(dotProducts.length)")
+                    throw VectorError.invalidInput("DotProducts buffer too small (GEMM). Required: \(requiredOutputSize), got: \(dotProducts.length)")
                 }
             }
         }
@@ -193,7 +199,7 @@ public final class DotProductKernel: @unchecked Sendable {
         }
 
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
 
         // 2. Select optimal kernel (GEMV vs GEMM)
@@ -218,10 +224,12 @@ public final class DotProductKernel: @unchecked Sendable {
             )
             
             // Select optimized GEMM kernel if densely packed
-            let isDenselyPacked = (parameters.strideQuery == parameters.dimension && 
+            let isDenselyPacked = (parameters.strideQuery == parameters.dimension &&
                                   parameters.strideDatabase == parameters.dimension)
 
             switch parameters.dimension {
+            case 384 where isDenselyPacked:
+                selectedPipeline = pipelineState384
             case 512 where isDenselyPacked:
                 selectedPipeline = pipelineState512
             case 768 where isDenselyPacked:
@@ -282,12 +290,12 @@ public final class DotProductKernel: @unchecked Sendable {
         absoluteValue: Bool = false
     ) async throws -> [Float] {
         guard !database.isEmpty else {
-            throw AccelerationError.invalidInput("Empty database vectors")
+            throw VectorError.invalidInput("Empty database vectors")
         }
         
         let dimension = query.count
         guard database.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.invalidInput("Dimension mismatch in database vectors")
+            throw VectorError.invalidInput("Dimension mismatch in database vectors")
         }
         
         let numDatabase = database.count
@@ -297,14 +305,14 @@ public final class DotProductKernel: @unchecked Sendable {
             from: query,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create query buffer")
+            throw VectorError.bufferCreationFailed("Failed to create query buffer")
         }
 
         guard let databaseBuffer = kernelContext.createBuffer(
             from: database.flatMap { $0 },
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create database buffer")
+            throw VectorError.bufferCreationFailed("Failed to create database buffer")
         }
         
         let resultBuffer = device.makeBuffer(
@@ -354,13 +362,13 @@ public final class DotProductKernel: @unchecked Sendable {
         absoluteValue: Bool = false
     ) async throws -> [[Float]] {
         guard !queries.isEmpty && !database.isEmpty else {
-            throw AccelerationError.invalidInput("Empty input vectors")
+            throw VectorError.invalidInput("Empty input vectors")
         }
         
         let dimension = queries[0].count
         guard queries.allSatisfy({ $0.count == dimension }) &&
               database.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.invalidInput("Dimension mismatch in input vectors")
+            throw VectorError.invalidInput("Dimension mismatch in input vectors")
         }
         
         // Special case: single query - use GEMV kernel
@@ -381,14 +389,14 @@ public final class DotProductKernel: @unchecked Sendable {
             from: queries.flatMap { $0 },
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create query buffer")
+            throw VectorError.bufferCreationFailed("Failed to create query buffer")
         }
 
         guard let databaseBuffer = kernelContext.createBuffer(
             from: database.flatMap { $0 },
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create database buffer")
+            throw VectorError.bufferCreationFailed("Failed to create database buffer")
         }
         
         let dotProductBuffer = device.makeBuffer(
@@ -436,36 +444,230 @@ public final class DotProductKernel: @unchecked Sendable {
     }
 
     /// Compute dot products using VectorCore types
+    ///
+    /// This method uses zero-copy buffer creation via `withUnsafeBufferPointer`
+    /// to avoid intermediate array allocations from `.toArray()`.
+    ///
     /// - Parameters:
-    ///   - queries: Query vectors
-    ///   - database: Database vectors
+    ///   - queries: Query vectors (VectorProtocol conforming)
+    ///   - database: Database vectors (VectorProtocol conforming)
     ///   - absoluteValue: If true, return absolute value of dot products
-    /// - Returns: Dot product matrix
+    /// - Returns: Dot product matrix [numQueries x numDatabase]
     public func compute<V: VectorProtocol>(
         queries: [V],
         database: [V],
         absoluteValue: Bool = false
     ) async throws -> [[Float]] where V.Scalar == Float {
         guard !queries.isEmpty && !database.isEmpty else {
-            throw AccelerationError.invalidInput("Empty input vectors")
+            throw VectorError.invalidInput("Empty input vectors")
         }
-        
+
         let dimension = queries.first!.count
         guard queries.allSatisfy({ $0.count == dimension }) &&
               database.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.invalidInput("Dimension mismatch in input vectors")
+            throw VectorError.invalidInput("Dimension mismatch in input vectors")
         }
-        
-        // Convert to arrays and compute
-        let queryArrays = queries.map { Array($0.toArray()) }
-        let databaseArrays = database.map { Array($0.toArray()) }
-        
-        return try await computeBatch(
-            queries: queryArrays,
-            database: databaseArrays,
+
+        // Special case: single query - extract and use GEMV kernel
+        if queries.count == 1 {
+            let query: [Float] = queries[0].withUnsafeBufferPointer { Array($0) }
+            let databaseArrays: [[Float]] = database.map { vec in
+                vec.withUnsafeBufferPointer { Array($0) }
+            }
+            let results = try await computeSingle(
+                query: query,
+                database: databaseArrays,
+                absoluteValue: absoluteValue
+            )
+            return [results]
+        }
+
+        let numQueries = queries.count
+        let numDatabase = database.count
+
+        // Zero-copy buffer creation: uses withUnsafeBufferPointer internally
+        guard let queryBuffer = kernelContext.createAlignedBufferFromVectors(
+            queries,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create query buffer")
+        }
+
+        guard let databaseBuffer = kernelContext.createAlignedBufferFromVectors(
+            database,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create database buffer")
+        }
+
+        let dotProductBuffer = device.makeBuffer(
+            length: numQueries * numDatabase * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        )!
+
+        // Create parameters
+        let parameters = Parameters(
+            numQueries: numQueries,
+            numDatabase: numDatabase,
+            dimension: dimension,
             absoluteValue: absoluteValue
         )
+
+        // Execute computation
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
+        try compute(
+            queryVectors: queryBuffer,
+            databaseVectors: databaseBuffer,
+            dotProducts: dotProductBuffer,
+            parameters: parameters,
+            commandBuffer: commandBuffer
+        )
+
+        commandBuffer.commit()
+        await commandBuffer.completed()
+
+        // Extract results
+        let dotProductPointer = dotProductBuffer.contents().bindMemory(
+            to: Float.self,
+            capacity: numQueries * numDatabase
+        )
+
+        var results: [[Float]] = []
+        results.reserveCapacity(numQueries)
+        for i in 0..<numQueries {
+            var row: [Float] = []
+            row.reserveCapacity(numDatabase)
+            for j in 0..<numDatabase {
+                row.append(dotProductPointer[i * numDatabase + j])
+            }
+            results.append(row)
+        }
+
+        return results
     }
+
+    // MARK: - StaticDimension Optimized Methods
+
+    /// Compute dot products using compile-time dimensioned vectors.
+    ///
+    /// This method provides type-safe dot product computation for vectors with known
+    /// compile-time dimensions. The dimension is known at compile time via `D.value`,
+    /// enabling:
+    /// - Type safety: Cannot mix vectors of different dimensions
+    /// - Compile-time optimization hints
+    /// - Automatic kernel selection for optimized dimensions (384, 512, 768, 1536)
+    ///
+    /// - Parameters:
+    ///   - queries: Query vectors with compile-time dimension D
+    ///   - database: Database vectors with same dimension D
+    ///   - absoluteValue: If true, return absolute value of dot products
+    /// - Returns: Dot product matrix [numQueries x numDatabase]
+    ///
+    /// ## Example Usage
+    /// ```swift
+    /// let queries: [Vector<Dim384>] = [...]  // MiniLM embeddings
+    /// let database: [Vector<Dim384>] = [...]
+    /// let dotProducts = try await kernel.compute(queries: queries, database: database)
+    /// ```
+    public func compute<D: StaticDimension>(
+        queries: [Vector<D>],
+        database: [Vector<D>],
+        absoluteValue: Bool = false
+    ) async throws -> [[Float]] {
+        guard !queries.isEmpty && !database.isEmpty else {
+            throw VectorError.invalidInput("Empty input vectors")
+        }
+
+        // Dimension is known at compile time
+        let dimension = D.value
+
+        // Special case: single query - extract and use GEMV kernel
+        if queries.count == 1 {
+            let query: [Float] = queries[0].withUnsafeBufferPointer { Array($0) }
+            let databaseArrays: [[Float]] = database.map { vec in
+                vec.withUnsafeBufferPointer { Array($0) }
+            }
+            let results = try await computeSingle(
+                query: query,
+                database: databaseArrays,
+                absoluteValue: absoluteValue
+            )
+            return [results]
+        }
+
+        let numQueries = queries.count
+        let numDatabase = database.count
+
+        // Zero-copy buffer creation using compile-time known dimension
+        guard let queryBuffer = kernelContext.createAlignedBufferFromVectors(
+            queries,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create query buffer")
+        }
+
+        guard let databaseBuffer = kernelContext.createAlignedBufferFromVectors(
+            database,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create database buffer")
+        }
+
+        let dotProductBuffer = device.makeBuffer(
+            length: numQueries * numDatabase * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        )!
+
+        // Create parameters with compile-time known dimension
+        let parameters = Parameters(
+            numQueries: numQueries,
+            numDatabase: numDatabase,
+            dimension: dimension,
+            absoluteValue: absoluteValue
+        )
+
+        // Execute computation
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
+        try compute(
+            queryVectors: queryBuffer,
+            databaseVectors: databaseBuffer,
+            dotProducts: dotProductBuffer,
+            parameters: parameters,
+            commandBuffer: commandBuffer
+        )
+
+        commandBuffer.commit()
+        await commandBuffer.completed()
+
+        // Extract results
+        let dotProductPointer = dotProductBuffer.contents().bindMemory(
+            to: Float.self,
+            capacity: numQueries * numDatabase
+        )
+
+        var results: [[Float]] = []
+        results.reserveCapacity(numQueries)
+        for i in 0..<numQueries {
+            var row: [Float] = []
+            row.reserveCapacity(numDatabase)
+            for j in 0..<numDatabase {
+                row.append(dotProductPointer[i * numDatabase + j])
+            }
+            results.append(row)
+        }
+
+        return results
+    }
+
+    /// Convenience type aliases for common embedding dimensions
+    public typealias Vector384 = Vector<Dim384>
+    public typealias Vector512 = Vector<Dim512>
+    public typealias Vector768 = Vector<Dim768>
+    public typealias Vector1536 = Vector<Dim1536>
 }
 
 // MARK: - Performance Extensions
@@ -497,6 +699,8 @@ extension DotProductKernel {
             let isDenselyPacked = (parameters.strideQuery == parameters.dimension && 
                                   parameters.strideDatabase == parameters.dimension)
             switch parameters.dimension {
+            case 384 where isDenselyPacked:
+                kernelType = "GEMM-384"
             case 512 where isDenselyPacked:
                 kernelType = "GEMM-512"
             case 768 where isDenselyPacked:

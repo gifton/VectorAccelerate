@@ -19,7 +19,7 @@ public extension ComputeEngine {
         _ vectorB: [Float]
     ) async throws -> Float {
         guard vectorA.count == vectorB.count else {
-            throw AccelerationError.dimensionMismatch(expected: vectorA.count, actual: vectorB.count)
+            throw VectorError.dimensionMismatch(expected: vectorA.count, actual: vectorB.count)
         }
         
         let dimension = vectorA.count
@@ -61,7 +61,7 @@ public extension ComputeEngine {
         _ vectorB: [Float]
     ) async throws -> Float {
         guard vectorA.count == vectorB.count else {
-            throw AccelerationError.dimensionMismatch(expected: vectorA.count, actual: vectorB.count)
+            throw VectorError.dimensionMismatch(expected: vectorA.count, actual: vectorB.count)
         }
         
         let dimension = vectorA.count
@@ -104,10 +104,10 @@ public extension ComputeEngine {
         p: Float = 2.0
     ) async throws -> Float {
         guard vectorA.count == vectorB.count else {
-            throw AccelerationError.dimensionMismatch(expected: vectorA.count, actual: vectorB.count)
+            throw VectorError.dimensionMismatch(expected: vectorA.count, actual: vectorB.count)
         }
         guard p > 0 else {
-            throw AccelerationError.invalidInput("Minkowski p parameter must be positive")
+            throw VectorError.invalidInput("Minkowski p parameter must be positive")
         }
         
         // For very large p values, approximate with Chebyshev distance (L∞)
@@ -157,7 +157,7 @@ public extension ComputeEngine {
         _ vectorB: [Float]
     ) async throws -> Float {
         guard vectorA.count == vectorB.count else {
-            throw AccelerationError.dimensionMismatch(expected: vectorA.count, actual: vectorB.count)
+            throw VectorError.dimensionMismatch(expected: vectorA.count, actual: vectorB.count)
         }
         
         let dimension = vectorA.count
@@ -200,7 +200,7 @@ public extension ComputeEngine {
         _ vectorB: [Float]
     ) async throws -> Float {
         guard vectorA.count == vectorB.count else {
-            throw AccelerationError.dimensionMismatch(expected: vectorA.count, actual: vectorB.count)
+            throw VectorError.dimensionMismatch(expected: vectorA.count, actual: vectorB.count)
         }
         
         let dimension = vectorA.count

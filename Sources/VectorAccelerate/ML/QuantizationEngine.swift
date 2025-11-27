@@ -108,7 +108,7 @@ public actor QuantizationEngine {
         defer { measureToken.end() }
 
         guard [4, 8, 16].contains(bits) else {
-            throw AccelerationError.unsupportedOperation("Scalar quantization supports 4, 8, or 16 bits")
+            throw VectorError.unsupportedGPUOperation("Scalar quantization supports 4, 8, or 16 bits")
         }
 
         // Handle empty vector
@@ -217,7 +217,7 @@ public actor QuantizationEngine {
             }
 
         default:
-            throw AccelerationError.unsupportedOperation("Unsupported bit width: \(bits)")
+            throw VectorError.unsupportedGPUOperation("Unsupported bit width: \(bits)")
         }
         
         // Update metrics
@@ -242,14 +242,14 @@ public actor QuantizationEngine {
     /// Dequantize scalar quantized vector
     public func scalarDequantize(quantized: QuantizedVector) async throws -> [Float] {
         guard case .scalar(let bits) = quantized.scheme else {
-            throw AccelerationError.unsupportedOperation("Expected scalar quantized vector")
+            throw VectorError.unsupportedGPUOperation("Expected scalar quantized vector")
         }
         
         guard let scaleStr = quantized.metadata?["scale"],
               let offsetStr = quantized.metadata?["offset"],
               let scale = Float(scaleStr),
               let offset = Float(offsetStr) else {
-            throw AccelerationError.unsupportedOperation("Missing quantization metadata")
+            throw VectorError.unsupportedGPUOperation("Missing quantization metadata")
         }
         
         var result = [Float](repeating: 0, count: quantized.dimensions)
@@ -306,12 +306,12 @@ public actor QuantizationEngine {
         centroids: Int = 256
     ) async throws {
         guard !trainingData.isEmpty else {
-            throw AccelerationError.invalidOperation("Training data is empty")
+            throw VectorError.invalidOperation("Training data is empty")
         }
         
         let dimension = trainingData[0].count
         guard dimension % numCodebooks == 0 else {
-            throw AccelerationError.invalidOperation("Dimension must be divisible by number of codebooks")
+            throw VectorError.invalidOperation("Dimension must be divisible by number of codebooks")
         }
         
         let measureToken = await logger.startMeasure("trainProductQuantization")
@@ -351,7 +351,7 @@ public actor QuantizationEngine {
     /// Quantize using product quantization
     public func productQuantize(vector: [Float]) async throws -> QuantizedVector {
         guard isProductQuantizationTrained else {
-            throw AccelerationError.invalidOperation("Product quantization not trained")
+            throw VectorError.invalidOperation("Product quantization not trained")
         }
         
         let measureToken = await logger.startMeasure("productQuantize")
@@ -408,11 +408,11 @@ public actor QuantizationEngine {
     /// Dequantize product quantized vector
     public func productDequantize(quantized: QuantizedVector) async throws -> [Float] {
         guard case .product(_, let bitsPerCode) = quantized.scheme else {
-            throw AccelerationError.unsupportedOperation("Expected product quantized vector")
+            throw VectorError.unsupportedGPUOperation("Expected product quantized vector")
         }
         
         guard isProductQuantizationTrained else {
-            throw AccelerationError.invalidOperation("Product quantization not trained")
+            throw VectorError.invalidOperation("Product quantization not trained")
         }
         
         var result = [Float](repeating: 0, count: quantized.dimensions)
@@ -491,12 +491,12 @@ public actor QuantizationEngine {
     /// Dequantize binary quantized vector
     public func binaryDequantize(quantized: QuantizedVector) async throws -> [Float] {
         guard case .binary = quantized.scheme else {
-            throw AccelerationError.unsupportedOperation("Expected binary quantized vector")
+            throw VectorError.unsupportedGPUOperation("Expected binary quantized vector")
         }
         
         guard let thresholdStr = quantized.metadata?["threshold"],
               let threshold = Float(thresholdStr) else {
-            throw AccelerationError.unsupportedOperation("Missing threshold metadata")
+            throw VectorError.unsupportedGPUOperation("Missing threshold metadata")
         }
         
         var result = [Float](repeating: 0, count: quantized.dimensions)
@@ -658,7 +658,7 @@ public actor QuantizationEngine {
         case .binary:
             return try await binaryDequantize(quantized: quantized)
         case .custom:
-            throw AccelerationError.unsupportedOperation("Custom dequantization not implemented")
+            throw VectorError.unsupportedGPUOperation("Custom dequantization not implemented")
         }
     }
     

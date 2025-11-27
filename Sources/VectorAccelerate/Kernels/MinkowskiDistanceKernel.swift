@@ -117,7 +117,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
         self.device = device
         
         guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.commandQueueCreationFailed
+            throw VectorError.commandQueueCreationFailed()
         }
         self.commandQueue = queue
         
@@ -125,7 +125,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
         let library = try KernelContext.getSharedLibrary(for: device)
         
         guard let function = library.makeFunction(name: "minkowski_distance") else {
-            throw AccelerationError.shaderNotFound(name: "minkowski_distance")
+            throw VectorError.shaderNotFound(name: "minkowski_distance")
         }
         
         self.pipeline = try device.makeComputePipelineState(function: function)
@@ -154,17 +154,17 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
     ) throws -> DistanceResult {
         // Validate inputs
         guard M > 0 && N > 0 && D > 0 else {
-            throw AccelerationError.invalidInput("Dimensions must be positive")
+            throw VectorError.invalidInput("Dimensions must be positive")
         }
         
         guard config.p > 0 else {
-            throw AccelerationError.invalidInput("Minkowski parameter p must be positive")
+            throw VectorError.invalidInput("Minkowski parameter p must be positive")
         }
         
         // Allocate output buffer
         let outputSize = M * N * MemoryLayout<Float>.stride
         guard let distances = device.makeBuffer(length: outputSize, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         // Create or use provided command buffer
@@ -172,7 +172,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
         
         // Encode kernel
         guard let encoder = cmdBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "MinkowskiDistance_\(config.metricName)"
@@ -225,7 +225,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
         p: Float
     ) async throws -> Float {
         guard a.count == b.count else {
-            throw AccelerationError.countMismatch(expected: a.count, actual: b.count)
+            throw VectorError.countMismatch(expected: a.count, actual: b.count)
         }
         
         let dimension = a.count
@@ -236,7 +236,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
             length: a.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         guard let bufferB = device.makeBuffer(
@@ -244,7 +244,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
             length: b.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         let config = Configuration(p: p, mode: .pairwise)
@@ -267,13 +267,13 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
         p: Float
     ) async throws -> [[Float]] {
         guard !queries.isEmpty && !dataset.isEmpty else {
-            throw AccelerationError.invalidInput("Empty input arrays")
+            throw VectorError.invalidInput("Empty input arrays")
         }
         
         let dimension = queries[0].count
         guard queries.allSatisfy({ $0.count == dimension }) &&
               dataset.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.countMismatch(expected: dimension, actual: nil)
+            throw VectorError.countMismatch(expected: dimension, actual: nil)
         }
         
         // Flatten vectors
@@ -286,7 +286,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
             length: flatQueries.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         guard let datasetBuffer = device.makeBuffer(
@@ -294,7 +294,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
             length: flatDataset.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         let config = Configuration(p: p)
@@ -338,31 +338,124 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
     }
     
     // MARK: - VectorCore Integration
-    
+
     /// Compute Minkowski distance using VectorCore types
+    ///
+    /// Uses zero-copy buffer creation via `withUnsafeBufferPointer`.
     public func distance<V: VectorProtocol>(
         _ a: V,
         _ b: V,
         p: Float
     ) async throws -> Float where V.Scalar == Float {
-        let arrayA = Array(a.toArray())
-        let arrayB = Array(b.toArray())
-        return try await distance(arrayA, arrayB, p: p)
+        guard a.count == b.count else {
+            throw VectorError.countMismatch(expected: a.count, actual: b.count)
+        }
+
+        let dimension = a.count
+
+        // Zero-copy buffer creation using withUnsafeBufferPointer
+        guard let bufferA = a.withUnsafeBufferPointer({ ptr -> (any MTLBuffer)? in
+            guard let base = ptr.baseAddress else { return nil }
+            return device.makeBuffer(
+                bytes: base,
+                length: ptr.count * MemoryLayout<Float>.stride,
+                options: .storageModeShared
+            )
+        }) else {
+            throw VectorError.bufferCreationFailed("Failed to create buffer A")
+        }
+
+        guard let bufferB = b.withUnsafeBufferPointer({ ptr -> (any MTLBuffer)? in
+            guard let base = ptr.baseAddress else { return nil }
+            return device.makeBuffer(
+                bytes: base,
+                length: ptr.count * MemoryLayout<Float>.stride,
+                options: .storageModeShared
+            )
+        }) else {
+            throw VectorError.bufferCreationFailed("Failed to create buffer B")
+        }
+
+        let config = Configuration(p: p, mode: .single)
+        let result = try computeDistances(
+            vectorsA: bufferA,
+            vectorsB: bufferB,
+            M: 1,
+            N: 1,
+            D: dimension,
+            config: config
+        )
+
+        return result.distance(row: 0, col: 0)
     }
-    
+
     /// Compute distance matrix using VectorCore types
+    ///
+    /// Uses zero-copy buffer creation via `withUnsafeBufferPointer`.
     public func distanceMatrix<V: VectorProtocol>(
         queries: [V],
         dataset: [V],
         p: Float
     ) async throws -> [[Float]] where V.Scalar == Float {
-        let queryArrays = queries.map { Array($0.toArray()) }
-        let datasetArrays = dataset.map { Array($0.toArray()) }
-        return try await distanceMatrix(
-            queries: queryArrays,
-            dataset: datasetArrays,
-            p: p
+        guard !queries.isEmpty && !dataset.isEmpty else {
+            throw VectorError.invalidInput("Empty input arrays")
+        }
+
+        let dimension = queries[0].count
+        guard queries.allSatisfy({ $0.count == dimension }) &&
+              dataset.allSatisfy({ $0.count == dimension }) else {
+            throw VectorError.countMismatch(expected: dimension, actual: nil)
+        }
+
+        // Zero-copy buffer creation: flatten vectors directly into Metal buffer
+        guard let queriesBuffer = createBufferFromVectors(queries, dimension: dimension) else {
+            throw VectorError.bufferCreationFailed("Failed to create queries buffer")
+        }
+
+        guard let datasetBuffer = createBufferFromVectors(dataset, dimension: dimension) else {
+            throw VectorError.bufferCreationFailed("Failed to create dataset buffer")
+        }
+
+        let config = Configuration(p: p)
+        let result = try computeDistances(
+            vectorsA: queriesBuffer,
+            vectorsB: datasetBuffer,
+            M: queries.count,
+            N: dataset.count,
+            D: dimension,
+            config: config
         )
+
+        return result.asMatrix()
+    }
+
+    /// Create a Metal buffer directly from VectorProtocol array without intermediate allocations
+    private func createBufferFromVectors<V: VectorProtocol>(
+        _ vectors: [V],
+        dimension: Int
+    ) -> (any MTLBuffer)? where V.Scalar == Float {
+        guard !vectors.isEmpty else { return nil }
+
+        let totalCount = vectors.count * dimension
+        let byteSize = totalCount * MemoryLayout<Float>.stride
+
+        // Create buffer
+        guard let buffer = device.makeBuffer(length: byteSize, options: .storageModeShared) else {
+            return nil
+        }
+
+        // Copy each vector directly using withUnsafeBufferPointer
+        let destination = buffer.contents().bindMemory(to: Float.self, capacity: totalCount)
+        for (i, vector) in vectors.enumerated() {
+            let offset = i * dimension
+            vector.withUnsafeBufferPointer { srcPtr in
+                guard let srcBase = srcPtr.baseAddress else { return }
+                let dst = destination.advanced(by: offset)
+                dst.update(from: srcBase, count: min(srcPtr.count, dimension))
+            }
+        }
+
+        return buffer
     }
     
     // MARK: - Performance Analysis
@@ -396,7 +489,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
             length: vectorsA.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         guard let bufferB = device.makeBuffer(
@@ -404,7 +497,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable {
             length: vectorsB.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         var results: [Float: PerformanceMetrics] = [:]

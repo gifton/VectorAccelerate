@@ -58,7 +58,7 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
         self.device = device
         
         guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command queue")
+            throw VectorError.deviceInitializationFailed("Failed to create command queue")
         }
         self.commandQueue = queue
         
@@ -67,7 +67,7 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
         
         // Load main transpose kernel
         guard let function = library.makeFunction(name: "tiledTranspose") else {
-            throw AccelerationError.shaderNotFound(name: "tiledTranspose")
+            throw VectorError.shaderNotFound(name: "tiledTranspose")
         }
         
         self.pipelineState = try device.makeComputePipelineState(function: function)
@@ -82,7 +82,7 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
         // Validate hardware support
         let maxThreadsPerThreadgroup = pipelineState.maxTotalThreadsPerThreadgroup
         if maxThreadsPerThreadgroup < TILE_SIZE * TILE_SIZE {
-            throw AccelerationError.unsupportedOperation(
+            throw VectorError.unsupportedGPUOperation(
                 "Device does not support required threadgroup size: \(TILE_SIZE * TILE_SIZE)"
             )
         }
@@ -111,7 +111,7 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
             length: matrix.values.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: matrix.values.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: matrix.values.count * MemoryLayout<Float>.stride)
         }
         
         // Create output buffer (may be same as input for square in-place)
@@ -121,7 +121,7 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
         } else {
             let outputSize = rows * cols * MemoryLayout<Float>.stride
             guard let buffer = device.makeBuffer(length: outputSize, options: MTLResourceOptions.storageModeShared) else {
-                throw AccelerationError.bufferAllocationFailed(size: outputSize)
+                throw VectorError.bufferAllocationFailed(size: outputSize)
             }
             outputBuffer = buffer
         }
@@ -129,7 +129,7 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
         // Create command buffer
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }
         
         // Select appropriate pipeline
@@ -168,7 +168,7 @@ public final class MatrixTransposeKernel: @unchecked Sendable {
         
         // Check for errors
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: "Matrix transpose failed: \(error)")
+            throw VectorError.computeFailed(reason: "Matrix transpose failed: \(error)")
         }
         
         // Extract results

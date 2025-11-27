@@ -115,7 +115,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         self.device = device
         
         guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command queue")
+            throw VectorError.deviceInitializationFailed("Failed to create command queue")
         }
         self.commandQueue = queue
         
@@ -124,13 +124,13 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         
         // Load fused batch kernel
         guard let fusedFunc = library.makeFunction(name: "batchMatrixMultiplyFused") else {
-            throw AccelerationError.shaderNotFound(name: "batchMatrixMultiplyFused")
+            throw VectorError.shaderNotFound(name: "batchMatrixMultiplyFused")
         }
         self.fusedKernel = try device.makeComputePipelineState(function: fusedFunc)
         
         // Load strided batch kernel
         guard let stridedFunc = library.makeFunction(name: "stridedBatchGEMM") else {
-            throw AccelerationError.shaderNotFound(name: "stridedBatchGEMM")
+            throw VectorError.shaderNotFound(name: "stridedBatchGEMM")
         }
         self.stridedKernel = try device.makeComputePipelineState(function: stridedFunc)
         
@@ -154,11 +154,11 @@ public final class BatchMatrixKernel: @unchecked Sendable {
     ) async throws -> BatchResult {
         // Validate batch sizes
         guard batchA.count == batchB.count else {
-            throw AccelerationError.invalidInput("Batch sizes must match")
+            throw VectorError.invalidInput("Batch sizes must match")
         }
         
         guard !batchA.isEmpty else {
-            throw AccelerationError.invalidInput("Batch cannot be empty")
+            throw VectorError.invalidInput("Batch cannot be empty")
         }
         
         let batchSize = batchA.count
@@ -169,17 +169,17 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         // Validate dimensions for all matrices
         for i in 0..<batchSize {
             guard batchA[i].rows == M && batchA[i].columns == K else {
-                throw AccelerationError.countMismatch(expected: M * K, actual: batchA[i].values.count)
+                throw VectorError.countMismatch(expected: M * K, actual: batchA[i].values.count)
             }
             guard batchB[i].rows == K && batchB[i].columns == N else {
-                throw AccelerationError.countMismatch(expected: K * N, actual: batchB[i].values.count)
+                throw VectorError.countMismatch(expected: K * N, actual: batchB[i].values.count)
             }
         }
         
         // Validate bias if provided
         if let bias = bias {
             guard bias.count == batchSize * N || bias.count == N else {
-                throw AccelerationError.invalidInput("Bias dimensions don't match output")
+                throw VectorError.invalidInput("Bias dimensions don't match output")
             }
         }
         
@@ -192,7 +192,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
             length: flatA.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: flatA.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: flatA.count * MemoryLayout<Float>.stride)
         }
         
         guard let bufferB = device.makeBuffer(
@@ -200,12 +200,12 @@ public final class BatchMatrixKernel: @unchecked Sendable {
             length: flatB.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: flatB.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: flatB.count * MemoryLayout<Float>.stride)
         }
         
         let outputSize = batchSize * M * N * MemoryLayout<Float>.stride
         guard let bufferC = device.makeBuffer(length: outputSize, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferAllocationFailed(size: outputSize)
+            throw VectorError.bufferAllocationFailed(size: outputSize)
         }
         
         // Create bias buffer if needed
@@ -221,7 +221,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         // Create command buffer
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }
         
         // Set pipeline and buffers
@@ -265,7 +265,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         
         // Check for errors
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: "Batch multiplication failed: \(error)")
+            throw VectorError.computeFailed(reason: "Batch multiplication failed: \(error)")
         }
         
         // Extract results
@@ -310,10 +310,10 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         let expectedSizeB = batchCount * dimensions.K * dimensions.N
         
         guard tensorA.count >= expectedSizeA else {
-            throw AccelerationError.invalidInput("Tensor A size insufficient")
+            throw VectorError.invalidInput("Tensor A size insufficient")
         }
         guard tensorB.count >= expectedSizeB else {
-            throw AccelerationError.invalidInput("Tensor B size insufficient")
+            throw VectorError.invalidInput("Tensor B size insufficient")
         }
         
         // Create buffers
@@ -322,7 +322,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
             length: tensorA.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: tensorA.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: tensorA.count * MemoryLayout<Float>.stride)
         }
         
         guard let bufferB = device.makeBuffer(
@@ -330,18 +330,18 @@ public final class BatchMatrixKernel: @unchecked Sendable {
             length: tensorB.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: tensorB.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: tensorB.count * MemoryLayout<Float>.stride)
         }
         
         let outputSize = batchCount * dimensions.M * dimensions.N * MemoryLayout<Float>.stride
         guard let bufferC = device.makeBuffer(length: outputSize, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferAllocationFailed(size: outputSize)
+            throw VectorError.bufferAllocationFailed(size: outputSize)
         }
         
         // Create command buffer
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }
         
         // Set pipeline and buffers
@@ -402,7 +402,7 @@ public final class BatchMatrixKernel: @unchecked Sendable {
         
         // Check for errors
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: "Strided batch multiplication failed: \(error)")
+            throw VectorError.computeFailed(reason: "Strided batch multiplication failed: \(error)")
         }
         
         // Extract results

@@ -9,6 +9,7 @@ import XCTest
 @testable import VectorAccelerate
 @preconcurrency import Foundation
 import VectorCore
+import VectorCore
 
 @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
 final class EmbeddingEngineEnhancedTests: XCTestCase {
@@ -432,7 +433,7 @@ final class EmbeddingEngineEnhancedTests: XCTestCase {
         let k = 10
         
         // Perform multiple searches
-        var allResults: [[SearchResult]] = []
+        var allResults: [[EmbeddingSearchResult]] = []
         for _ in 0..<5 {
             let results = try await engine!.search(query: query, k: k)
             allResults.append(results)
@@ -484,7 +485,7 @@ final class EmbeddingEngineEnhancedTests: XCTestCase {
         
         // Time sequential searches
         let sequentialStart = CFAbsoluteTimeGetCurrent()
-        var sequentialResults: [[SearchResult]] = []
+        var sequentialResults: [[EmbeddingSearchResult]] = []
         for query in queries {
             let results = try await engine!.search(query: query, k: k)
             sequentialResults.append(results)
@@ -878,7 +879,7 @@ final class EmbeddingEngineEnhancedTests: XCTestCase {
             let wrongDimQuery = Array(repeating: Float(1), count: 128) // Wrong dimension
             _ = try await engine!.search(query: wrongDimQuery, k: 5)
             XCTFail("Should have thrown dimension mismatch error")
-        } catch AccelerationError.dimensionMismatch {
+        } catch let error as VectorError where error.kind == .dimensionMismatch {
             // Expected error
         }
         

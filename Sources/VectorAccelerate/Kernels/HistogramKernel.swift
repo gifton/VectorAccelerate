@@ -255,7 +255,7 @@ public final class HistogramKernel: @unchecked Sendable {
         self.device = device
         
         guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command queue")
+            throw VectorError.deviceInitializationFailed("Failed to create command queue")
         }
         self.commandQueue = queue
         
@@ -264,15 +264,15 @@ public final class HistogramKernel: @unchecked Sendable {
         
         // Load histogram kernels
         guard let uniformFunc = library.makeFunction(name: "uniformHistogram") else {
-            throw AccelerationError.shaderNotFound(name: "uniformHistogram")
+            throw VectorError.shaderNotFound(name: "uniformHistogram")
         }
         
         guard let adaptiveFunc = library.makeFunction(name: "adaptiveHistogram") else {
-            throw AccelerationError.shaderNotFound(name: "adaptiveHistogram")
+            throw VectorError.shaderNotFound(name: "adaptiveHistogram")
         }
         
         guard let logFunc = library.makeFunction(name: "logarithmicHistogram") else {
-            throw AccelerationError.shaderNotFound(name: "logarithmicHistogram")
+            throw VectorError.shaderNotFound(name: "logarithmicHistogram")
         }
         
         do {
@@ -280,13 +280,13 @@ public final class HistogramKernel: @unchecked Sendable {
             self.adaptiveBinningKernel = try device.makeComputePipelineState(function: adaptiveFunc)
             self.logarithmicBinningKernel = try device.makeComputePipelineState(function: logFunc)
         } catch {
-            throw AccelerationError.computeFailed(reason: "Failed to create histogram pipeline states: \(error)")
+            throw VectorError.computeFailed(reason: "Failed to create histogram pipeline states: \(error)")
         }
         
         // Validate hardware support
         let maxThreadsPerThreadgroup = uniformBinningKernel.maxTotalThreadsPerThreadgroup
         if maxThreadsPerThreadgroup < 256 {
-            throw AccelerationError.unsupportedOperation(
+            throw VectorError.unsupportedGPUOperation(
                 "Device does not support required threadgroup size for histogram computation"
             )
         }
@@ -304,7 +304,7 @@ public final class HistogramKernel: @unchecked Sendable {
         config: HistogramConfig = .default
     ) throws -> HistogramResult {
         guard !data.isEmpty else {
-            throw AccelerationError.invalidInput("Input data cannot be empty")
+            throw VectorError.invalidInput("Input data cannot be empty")
         }
         
         let startTime = CACurrentMediaTime()
@@ -376,7 +376,7 @@ public final class HistogramKernel: @unchecked Sendable {
         config: HistogramConfig = .default
     ) throws -> BatchHistogramResult {
         guard !datasets.isEmpty else {
-            throw AccelerationError.invalidInput("Datasets cannot be empty")
+            throw VectorError.invalidInput("Datasets cannot be empty")
         }
         
         let startTime = CACurrentMediaTime()
@@ -410,7 +410,7 @@ public final class HistogramKernel: @unchecked Sendable {
         yBins: Int = 50
     ) throws -> Array2D<Float> {
         guard xData.count == yData.count else {
-            throw AccelerationError.countMismatch(expected: xData.count, actual: yData.count)
+            throw VectorError.countMismatch(expected: xData.count, actual: yData.count)
         }
         
         // For now, implement using CPU fallback (GPU implementation would be more complex)
@@ -590,7 +590,7 @@ public final class HistogramKernel: @unchecked Sendable {
         base: Float
     ) throws -> [Float] {
         guard range.min > 0 else {
-            throw AccelerationError.invalidInput("Logarithmic binning requires positive values")
+            throw VectorError.invalidInput("Logarithmic binning requires positive values")
         }
         
         let logMin = log(range.min) / log(base)
@@ -618,7 +618,7 @@ public final class HistogramKernel: @unchecked Sendable {
             length: dataSize,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: dataSize)
+            throw VectorError.bufferAllocationFailed(size: dataSize)
         }
         
         let edgesSize = binEdges.count * MemoryLayout<Float>.stride
@@ -627,7 +627,7 @@ public final class HistogramKernel: @unchecked Sendable {
             length: edgesSize,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: edgesSize)
+            throw VectorError.bufferAllocationFailed(size: edgesSize)
         }
         
         let histogramSize = binCount * MemoryLayout<UInt32>.stride
@@ -635,7 +635,7 @@ public final class HistogramKernel: @unchecked Sendable {
             length: histogramSize,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: histogramSize)
+            throw VectorError.bufferAllocationFailed(size: histogramSize)
         }
         
         // Clear histogram buffer
@@ -657,7 +657,7 @@ public final class HistogramKernel: @unchecked Sendable {
         // Create command buffer
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }
         
         // Configure compute pass
@@ -696,7 +696,7 @@ public final class HistogramKernel: @unchecked Sendable {
         
         // Check for errors
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: "Histogram computation failed: \(error)")
+            throw VectorError.computeFailed(reason: "Histogram computation failed: \(error)")
         }
         
         // Extract results

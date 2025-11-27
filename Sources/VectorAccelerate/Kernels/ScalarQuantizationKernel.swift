@@ -124,7 +124,7 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
               let dqInt8 = library.makeFunction(name: "dequantize_int8_kernel"),
               let qInt4 = library.makeFunction(name: "quantize_int4_kernel"),
               let dqInt4 = library.makeFunction(name: "dequantize_int4_kernel") else {
-            throw AccelerationError.shaderNotFound(name: "Could not find quantization kernel functions")
+            throw VectorError.shaderNotFound(name: "Could not find quantization kernel functions")
         }
 
         do {
@@ -133,7 +133,7 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
             self.quantizeInt4Pipeline = try device.makeComputePipelineState(function: qInt4)
             self.dequantizeInt4Pipeline = try device.makeComputePipelineState(function: dqInt4)
         } catch {
-            throw AccelerationError.pipelineCreationFailed("Failed to create pipeline state: \(error)")
+            throw VectorError.pipelineCreationFailed("Failed to create pipeline state: \(error)")
         }
     }
 
@@ -155,7 +155,7 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
         
         // Validation
         if input.length < context.numElements * MemoryLayout<Float>.stride {
-            throw AccelerationError.invalidInput("Input buffer too small")
+            throw VectorError.invalidInput("Input buffer too small")
         }
 
         // Prepare Parameters
@@ -163,7 +163,7 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
 
         // Encoding
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         encoder.label = "Quantize-\(context.bitWidth.rawValue)bit"
 
@@ -207,11 +207,11 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
         if context.numElements == 0 { return }
 
         guard let inputData = context.quantizedData else {
-            throw AccelerationError.invalidInput("Quantized data buffer is missing")
+            throw VectorError.invalidInput("Quantized data buffer is missing")
         }
         
         if output.length < context.numElements * MemoryLayout<Float>.stride {
-            throw AccelerationError.invalidInput("Output buffer too small")
+            throw VectorError.invalidInput("Output buffer too small")
         }
 
         // Prepare Parameters
@@ -219,7 +219,7 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
 
         // Encoding
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         encoder.label = "Dequantize-\(context.bitWidth.rawValue)bit"
 
@@ -264,14 +264,14 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
         type: QuantizationType = .symmetric
     ) async throws -> QuantizationResult {
         guard !data.isEmpty else {
-            throw AccelerationError.invalidInput("Empty input data")
+            throw VectorError.invalidInput("Empty input data")
         }
         
         guard let inputBuffer = kernelContext.createBuffer(
             from: data,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         let outputSize = bitWidth == .int8 ? data.count : (data.count + 1) / 2
@@ -279,7 +279,7 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
             length: outputSize,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create output buffer")
+            throw VectorError.bufferCreationFailed("Failed to create output buffer")
         }
         
         // Compute scale and zero point
@@ -388,13 +388,73 @@ public final class ScalarQuantizationKernel: @unchecked Sendable {
     }
     
     /// Quantize vectors using VectorCore types
+    ///
+    /// Uses `withUnsafeBufferPointer` to avoid intermediate allocations.
     public func quantize<V: VectorProtocol>(
         _ vector: V,
         bitWidth: BitWidth = .int8,
         type: QuantizationType = .symmetric
     ) async throws -> QuantizationResult where V.Scalar == Float {
-        let array = Array(vector.toArray())
-        return try await quantize(array, bitWidth: bitWidth, type: type)
+        guard vector.count > 0 else {
+            throw VectorError.invalidInput("Empty input data")
+        }
+
+        // Zero-copy buffer creation using withUnsafeBufferPointer
+        guard let inputBuffer = kernelContext.createAlignedBufferFromVector(
+            vector,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create input buffer")
+        }
+
+        let count = vector.count
+        let outputSize = bitWidth == .int8 ? count : (count + 1) / 2
+        guard let outputBuffer = device.makeBuffer(
+            length: outputSize,
+            options: .storageModeShared
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create output buffer")
+        }
+
+        // Compute scale and zero point (need to read the data for this)
+        let data: [Float] = vector.withUnsafeBufferPointer { Array($0) }
+        let (scale, zeroPoint) = computeQuantizationParams(data, type: type)
+
+        let context = QuantizationContext(
+            bitWidth: bitWidth,
+            type: type,
+            numElements: count,
+            globalScale: scale,
+            globalZeroPoint: zeroPoint ?? 0
+        )
+
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
+        try quantize(
+            input: inputBuffer,
+            output: outputBuffer,
+            context: context,
+            commandBuffer: commandBuffer
+        )
+
+        commandBuffer.commit()
+        await commandBuffer.completed()
+
+        // Read output
+        let outputData = Data(
+            bytes: outputBuffer.contents(),
+            count: outputSize
+        )
+
+        let compressionRatio = Float(count * 4) / Float(outputSize)
+
+        return QuantizationResult(
+            quantizedData: outputData,
+            scale: scale,
+            zeroPoint: type == .asymmetric ? zeroPoint : nil,
+            bitWidth: bitWidth,
+            compressionRatio: compressionRatio
+        )
     }
     
     // MARK: - Helper Methods

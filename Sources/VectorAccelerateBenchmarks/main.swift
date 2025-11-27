@@ -34,32 +34,48 @@ struct BenchmarkRunner {
             let suite = BenchmarkSuite(engine: engine, context: context)
             
             // Define benchmark configurations
+            // Includes 384, 512, 768, 1536 to test optimized kernels (VectorCore 0.1.5)
             let configurations = [
                 BenchmarkConfiguration(
                     iterations: 50,
                     warmupIterations: 5,
-                    dimension: 64,
+                    dimension: 128,
                     batchSize: 100,
-                    additionalInfo: ["description": "Small vectors"]
+                    additionalInfo: ["description": "Base dimension (generic kernel)"]
                 ),
                 BenchmarkConfiguration(
                     iterations: 50,
                     warmupIterations: 5,
-                    dimension: 256,
+                    dimension: 384,
                     batchSize: 100,
-                    additionalInfo: ["description": "Medium vectors"]
+                    additionalInfo: ["description": "MiniLM/Sentence-BERT (optimized kernel)"]
+                ),
+                BenchmarkConfiguration(
+                    iterations: 50,
+                    warmupIterations: 5,
+                    dimension: 512,
+                    batchSize: 100,
+                    additionalInfo: ["description": "OpenAI Ada (optimized kernel)"]
+                ),
+                BenchmarkConfiguration(
+                    iterations: 50,
+                    warmupIterations: 5,
+                    dimension: 768,
+                    batchSize: 100,
+                    additionalInfo: ["description": "BERT-base (optimized kernel)"]
                 ),
                 BenchmarkConfiguration(
                     iterations: 25,
                     warmupIterations: 3,
-                    dimension: 1024,
+                    dimension: 1536,
                     batchSize: 100,
-                    additionalInfo: ["description": "Large vectors"]
+                    additionalInfo: ["description": "OpenAI text-embedding-3-large (optimized kernel)"]
                 )
             ]
-            
+
             // Run benchmarks
-            print("Running benchmarks for dimensions: 64, 256, 1024")
+            print("Running benchmarks for dimensions: 128, 384, 512, 768, 1536")
+            print("(384, 512, 768, 1536 use optimized kernels)\n")
             let results = try await suite.runAllBenchmarks(configurations: configurations)
             
             // Generate and print report
@@ -84,38 +100,38 @@ struct BenchmarkRunner {
     private static func printSummary(results: [VectorAccelerate.BenchmarkResult]) {
         print("\n🏆 Performance Summary")
         print("=====================")
-        
+
         // Group by operation type
         let groupedResults = Dictionary(grouping: results) { result in
             result.name.components(separatedBy: " ").first ?? "Unknown"
         }
-        
+
         for (operation, operationResults) in groupedResults.sorted(by: { $0.key < $1.key }) {
             print("\n\(operation):")
-            
+
             for result in operationResults.sorted(by: { $0.configuration.dimension < $1.configuration.dimension }) {
                 let timeMs = result.medianTime * 1000
                 let opsPerSec = result.operationsPerSecond
-                
+
                 print("  dim \(result.configuration.dimension): \(String(format: "%.2f", timeMs))ms (\(String(format: "%.0f", opsPerSec)) ops/sec)")
-                
+
                 if let vectorsPerSec = result.vectorsPerSecond {
                     print("    ↳ \(String(format: "%.0f", vectorsPerSec)) vectors/sec")
                 }
             }
         }
-        
+
         // Find fastest operations
         let fastestResult = results.min(by: { $0.medianTime < $1.medianTime })
         if let fastest = fastestResult {
             print("\n⚡ Fastest Operation: \(fastest.name)")
             print("   Time: \(String(format: "%.3f", fastest.medianTime * 1000))ms")
         }
-        
+
         // Calculate average performance across dimensions
         let dimensionGroups = Dictionary(grouping: results) { $0.configuration.dimension }
         print("\n📈 Performance by Dimension:")
-        
+
         for dimension in dimensionGroups.keys.sorted() {
             let dimensionResults = dimensionGroups[dimension]!
             let avgTime = dimensionResults.map(\.medianTime).reduce(0, +) / Double(dimensionResults.count)
@@ -123,3 +139,17 @@ struct BenchmarkRunner {
         }
     }
 }
+
+// MARK: - Entry Point
+
+// Top-level async entry point
+let semaphore = DispatchSemaphore(value: 0)
+Task {
+    do {
+        try await BenchmarkRunner.main()
+    } catch {
+        print("❌ Fatal error: \(error)")
+    }
+    semaphore.signal()
+}
+semaphore.wait()

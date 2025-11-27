@@ -70,13 +70,13 @@ public final class TopKSelectionKernel: @unchecked Sendable {
         let library = try KernelContext.getSharedLibrary(for: device)
 
         guard let kernelBatch = library.makeFunction(name: "topk_select_batch_kernel") else {
-            throw AccelerationError.shaderNotFound(name: "Could not find top-k selection kernel")
+            throw VectorError.shaderNotFound(name: "Could not find top-k selection kernel")
         }
 
         do {
             self.pipelineStateBatch = try device.makeComputePipelineState(function: kernelBatch)
         } catch {
-            throw AccelerationError.pipelineCreationFailed("Failed to create pipeline state: \(error)")
+            throw VectorError.pipelineCreationFailed("Failed to create pipeline state: \(error)")
         }
     }
 
@@ -111,7 +111,7 @@ public final class TopKSelectionKernel: @unchecked Sendable {
         }
 
         if k > TopKSelectionKernel.MAX_K_SUPPORTED {
-            throw AccelerationError.invalidInput("K > \(TopKSelectionKernel.MAX_K_SUPPORTED) is not supported")
+            throw VectorError.invalidInput("K > \(TopKSelectionKernel.MAX_K_SUPPORTED) is not supported")
         }
         
         // Prepare output buffers
@@ -120,7 +120,7 @@ public final class TopKSelectionKernel: @unchecked Sendable {
         
         guard let outValBuffer = device.makeBuffer(length: outputLength, options: MTLResourceOptions.storageModeShared),
               let outIdxBuffer = device.makeBuffer(length: indicesLength, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create output buffers")
+            throw VectorError.bufferCreationFailed("Failed to create output buffers")
         }
         
         // Prepare parameters (assuming dense packing)
@@ -136,7 +136,7 @@ public final class TopKSelectionKernel: @unchecked Sendable {
 
         // Encoding
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         encoder.label = "TopKSelectionBatch (K=\(k))"
         
@@ -183,7 +183,7 @@ public final class TopKSelectionKernel: @unchecked Sendable {
         
         // Validate all rows have same length
         guard distances.allSatisfy({ $0.count == numElements }) else {
-            throw AccelerationError.invalidInput("Inconsistent row sizes in distance matrix")
+            throw VectorError.invalidInput("Inconsistent row sizes in distance matrix")
         }
         
         // Create buffer from flattened matrix
@@ -193,7 +193,7 @@ public final class TopKSelectionKernel: @unchecked Sendable {
             options: MTLResourceOptions.storageModeShared
         )
         guard let distanceBuffer = distanceBuffer else {
-            throw AccelerationError.bufferCreationFailed("Failed to create distance buffer")
+            throw VectorError.bufferCreationFailed("Failed to create distance buffer")
         }
         
         // Execute

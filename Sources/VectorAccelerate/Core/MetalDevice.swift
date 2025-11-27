@@ -98,7 +98,13 @@ public struct MetalDeviceCapabilities: Sendable {
 
 /// Enhanced Metal device wrapper with comprehensive capability detection
 public actor MetalDevice {
-    private let device: any MTLDevice
+    /// The underlying MTLDevice - exposed for factory creation
+    /// Thread-safe for buffer creation and most operations
+    public nonisolated let rawDevice: any MTLDevice
+
+    // Alias for internal use
+    private var device: any MTLDevice { rawDevice }
+
     public let capabilities: MetalDeviceCapabilities
     private var commandQueues: [any MTLCommandQueue] = []
     private let queueLock = NSLock()
@@ -108,18 +114,18 @@ public actor MetalDevice {
     private var lastSampleTime: Date = Date()
     
     // MARK: - Initialization
-    
+
     public init(device: (any MTLDevice)? = nil) throws {
-        guard let device = device ?? MTLCreateSystemDefaultDevice() else {
-            throw AccelerationError.metalNotAvailable
+        guard let mtlDevice = device ?? MTLCreateSystemDefaultDevice() else {
+            throw VectorError.metalNotAvailable()
         }
-        
-        self.device = device
-        self.capabilities = MetalDeviceCapabilities(device: device)
-        
+
+        self.rawDevice = mtlDevice
+        self.capabilities = MetalDeviceCapabilities(device: mtlDevice)
+
         // Create initial command queue
-        guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command queue")
+        guard let queue = mtlDevice.makeCommandQueue() else {
+            throw VectorError.deviceInitializationFailed("Failed to create command queue")
         }
         self.commandQueues = [queue]
     }
@@ -202,7 +208,7 @@ public actor MetalDevice {
     @preconcurrency
     public func makeCommandQueue(label: String? = nil) throws -> any MTLCommandQueue {
         guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command queue")
+            throw VectorError.deviceInitializationFailed("Failed to create command queue")
         }
         
         if let label = label {
@@ -296,13 +302,13 @@ public actor MetalDevice {
                     if let library = library {
                         continuation.resume(returning: library)
                     } else {
-                        let error = error ?? AccelerationError.shaderCompilationFailed("Unknown error")
+                        let error = error ?? VectorError.shaderCompilationFailed("Unknown error")
                         continuation.resume(throwing: error)
                     }
                 }
             }
         } catch {
-            throw AccelerationError.shaderCompilationFailed(error.localizedDescription)
+            throw VectorError.shaderCompilationFailed(error.localizedDescription)
         }
     }
     
@@ -310,7 +316,7 @@ public actor MetalDevice {
     @preconcurrency
     public func getDefaultLibrary() throws -> any MTLLibrary {
         guard let library = device.makeDefaultLibrary() else {
-            throw AccelerationError.shaderCompilationFailed("Failed to load default library")
+            throw VectorError.shaderCompilationFailed("Failed to load default library")
         }
         return library
     }
@@ -326,13 +332,13 @@ public actor MetalDevice {
                     if let state = state {
                         continuation.resume(returning: state)
                     } else {
-                        let error = error ?? AccelerationError.pipelineCreationFailed("Unknown error")
+                        let error = error ?? VectorError.pipelineCreationFailed("Unknown error")
                         continuation.resume(throwing: error)
                     }
                 }
             }
         } catch {
-            throw AccelerationError.pipelineCreationFailed(error.localizedDescription)
+            throw VectorError.pipelineCreationFailed(error.localizedDescription)
         }
     }
     
@@ -356,7 +362,7 @@ public actor MetalDevice {
         let devices = availableDevices()
         
         guard !devices.isEmpty else {
-            throw AccelerationError.metalNotAvailable
+            throw VectorError.metalNotAvailable()
         }
         
         // Prefer high-performance discrete GPUs on macOS
@@ -372,8 +378,9 @@ public actor MetalDevice {
     }
     
     // MARK: - Internal Access
-    
+
     /// Get the underlying MTLDevice (for internal use)
+    @available(*, deprecated, renamed: "rawDevice", message: "Use rawDevice property instead")
     public func getDevice() -> any MTLDevice {
         device
     }
@@ -381,6 +388,24 @@ public actor MetalDevice {
     /// Get the underlying device wrapped for explicit cross-actor usage
     public func getDeviceHandle() -> UnsafeSendable<any MTLDevice> {
         device.uncheckedSendable
+    }
+
+    // MARK: - Factory Creation
+
+    /// Create a MetalBufferFactory for synchronous buffer operations
+    ///
+    /// The factory provides non-actor buffer creation, enabling synchronous operations
+    /// without async overhead. Use this when you need direct buffer control.
+    ///
+    /// - Returns: A MetalBufferFactory using this device
+    ///
+    /// Example:
+    /// ```swift
+    /// let factory = metalDevice.makeBufferFactory()
+    /// let buffer = factory.createBuffer(length: 4096) // Synchronous!
+    /// ```
+    public nonisolated func makeBufferFactory() -> MetalBufferFactory {
+        MetalBufferFactory(device: rawDevice)
     }
 
     // MARK: - VectorCore Integration
