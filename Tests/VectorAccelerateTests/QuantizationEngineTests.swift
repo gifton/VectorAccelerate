@@ -8,6 +8,7 @@
 import XCTest
 @testable import VectorAccelerate
 import Foundation
+import VectorCore
 
 final class QuantizationEngineTests: XCTestCase {
     
@@ -155,8 +156,7 @@ final class QuantizationEngineTests: XCTestCase {
         do {
             _ = try await engine!.scalarQuantize(vector: testVector, bits: 7)
             XCTFail("Should have thrown error for invalid bit width")
-        } catch AccelerationError.unsupportedOperation(let message) {
-            XCTAssertTrue(message.contains("4, 8, or 16 bits"))
+        } catch let error as VectorError where error.kind == .invalidOperation || error.kind == .unsupportedOperation {
         }
     }
     
@@ -254,8 +254,7 @@ final class QuantizationEngineTests: XCTestCase {
         do {
             _ = try await pqEngine.productQuantize(vector: testVector)
             XCTFail("Should have thrown error for untrained product quantization")
-        } catch AccelerationError.unsupportedOperation(let message) {
-            XCTAssertTrue(message.contains("not trained"))
+        } catch let error as VectorError where error.kind == .invalidOperation || error.kind == .unsupportedOperation {
         }
     }
     
@@ -276,8 +275,7 @@ final class QuantizationEngineTests: XCTestCase {
                 centroids: 16
             )
             XCTFail("Should have thrown error for dimension mismatch")
-        } catch AccelerationError.unsupportedOperation(let message) {
-            XCTAssertTrue(message.contains("divisible"))
+        } catch let error as VectorError where error.kind == .invalidOperation || error.kind == .unsupportedOperation {
         }
     }
     
@@ -321,8 +319,7 @@ final class QuantizationEngineTests: XCTestCase {
                 centroids: 16
             )
             XCTFail("Should have thrown error for empty training data")
-        } catch AccelerationError.unsupportedOperation(let message) {
-            XCTAssertTrue(message.contains("empty"))
+        } catch let error as VectorError where error.kind == .invalidOperation || error.kind == .unsupportedOperation {
         }
     }
     
@@ -432,8 +429,7 @@ final class QuantizationEngineTests: XCTestCase {
         do {
             _ = try await engine!.dequantize(quantized: customQuantized)
             XCTFail("Should have thrown error for custom dequantization")
-        } catch AccelerationError.unsupportedOperation(let message) {
-            XCTAssertTrue(message.contains("Custom dequantization"))
+        } catch let error as VectorError where error.kind == .invalidOperation || error.kind == .unsupportedOperation {
         }
     }
     

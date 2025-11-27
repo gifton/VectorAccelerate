@@ -70,12 +70,12 @@ public final class FusedL2TopKKernel {
         
         // Load fused kernel
         guard let fusedFunction = library.makeFunction(name: "fused_l2_topk") else {
-            throw AccelerationError.shaderNotFound(name: "fused_l2_topk")
+            throw VectorError.shaderNotFound(name: "fused_l2_topk")
         }
         
         // Load streaming update kernel
         guard let streamingFunction = library.makeFunction(name: "streaming_l2_topk_update") else {
-            throw AccelerationError.shaderNotFound(name: "streaming_l2_topk_update")
+            throw VectorError.shaderNotFound(name: "streaming_l2_topk_update")
         }
         
         self.fusedKernel = try device.makeComputePipelineState(function: fusedFunction)
@@ -104,11 +104,11 @@ public final class FusedL2TopKKernel {
     ) throws -> FusedResult {
         // Validation
         guard dimension <= MAX_D else {
-            throw AccelerationError.invalidInput("Dimension \(dimension) exceeds maximum \(MAX_D)")
+            throw VectorError.invalidInput("Dimension \(dimension) exceeds maximum \(MAX_D)")
         }
         
         guard k > 0 && k <= datasetCount else {
-            throw AccelerationError.invalidInput("K must be between 1 and \(datasetCount)")
+            throw VectorError.invalidInput("K must be between 1 and \(datasetCount)")
         }
         
         // Allocate output buffers
@@ -123,12 +123,12 @@ public final class FusedL2TopKKernel {
         ) : nil
         
         guard let indices = indicesBuffer else {
-            throw AccelerationError.bufferCreationFailed("Failed to create indices buffer")
+            throw VectorError.bufferCreationFailed("Failed to create indices buffer")
         }
         
         // Encode kernel
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
 
         encoder.label = "FusedL2TopK"
@@ -216,7 +216,7 @@ public final class FusedL2TopKKernel {
                 length: length,
                 options: MTLResourceOptions.storageModeShared
             ) else {
-                throw AccelerationError.bufferCreationFailed("Failed to create chunk buffer")
+                throw VectorError.bufferCreationFailed("Failed to create chunk buffer")
             }
             
             let updateCommand = kernelContext.commandQueue.makeCommandBuffer()!
@@ -251,12 +251,12 @@ public final class FusedL2TopKKernel {
         includeDistances: Bool = true
     ) async throws -> [[(index: Int, distance: Float)]] {
         guard !queries.isEmpty && !dataset.isEmpty else {
-            throw AccelerationError.invalidInput("Empty input arrays")
+            throw VectorError.invalidInput("Empty input arrays")
         }
         
         let dimension = queries[0].count
         guard dataset.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.countMismatch()
+            throw VectorError.countMismatch()
         }
         
         // Create buffers
@@ -265,7 +265,7 @@ public final class FusedL2TopKKernel {
             options: MTLResourceOptions.storageModeShared
         
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         guard let datasetBuffer = kernelContext.createBuffer(
@@ -273,7 +273,7 @@ public final class FusedL2TopKKernel {
             options: MTLResourceOptions.storageModeShared
         
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
@@ -302,18 +302,64 @@ public final class FusedL2TopKKernel {
     }
     
     /// Search with VectorCore types
+    ///
+    /// Uses zero-copy buffer creation via `withUnsafeBufferPointer`.
     public func search<Q: VectorProtocol, D: VectorProtocol>(
         queries: [Q],
         dataset: [D],
         k: Int
     ) async throws -> [[(index: Int, distance: Float)]] where Q.Scalar == Float, D.Scalar == Float {
-        let queryArrays = queries.map { Array($0.toArray()) }
-        let datasetArrays = dataset.map { Array($0.toArray()) }
-        return try await findNearestNeighbors(
-            queries: queryArrays,
-            dataset: datasetArrays,
-            k: k
+        guard !queries.isEmpty && !dataset.isEmpty else {
+            throw VectorError.invalidInput("Empty input vectors")
+        }
+
+        let dimension = queries[0].count
+        guard queries.allSatisfy({ $0.count == dimension }) &&
+              dataset.allSatisfy({ $0.count == dimension }) else {
+            throw VectorError.invalidInput("Dimension mismatch in input vectors")
+        }
+
+        // Zero-copy buffer creation using withUnsafeBufferPointer
+        guard let queryBuffer = kernelContext.createAlignedBufferFromVectors(
+            queries,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create query buffer")
+        }
+
+        guard let datasetBuffer = kernelContext.createAlignedBufferFromVectors(
+            dataset,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create dataset buffer")
+        }
+
+        // Use the fused kernel with the buffers
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
+
+        let result = try fusedL2TopK(
+            queries: queryBuffer,
+            dataset: datasetBuffer,
+            queryCount: queries.count,
+            datasetCount: dataset.count,
+            dimension: dimension,
+            k: k,
+            config: FusedConfig(includeDistances: true),
+            commandBuffer: commandBuffer
         )
+
+        commandBuffer.commit()
+        await commandBuffer.completed()
+
+        // Extract results
+        var allResults: [[(index: Int, distance: Float)]] = []
+        for q in 0..<queries.count {
+            allResults.append(result.results(for: q))
+        }
+
+        return allResults
     }
     
     // MARK: - Private Methods
@@ -339,7 +385,7 @@ public final class FusedL2TopKKernel {
         commandBuffer: any MTLCommandBuffer
     ) throws {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
 
         encoder.label = "StreamingL2TopKUpdate"
@@ -443,7 +489,7 @@ extension FusedL2TopKKernel {
             length: length,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create sub-buffer")
+            throw VectorError.bufferCreationFailed("Failed to create sub-buffer")
         }
         return subBuffer
     }

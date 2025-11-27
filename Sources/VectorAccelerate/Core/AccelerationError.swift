@@ -2,9 +2,47 @@
 //
 // Error handling for GPU acceleration operations
 //
+// DEPRECATED: Use VectorError from VectorCore instead.
+// See VectorError+GPU.swift for GPU-specific factory methods.
+//
+// Migration guide:
+//   VectorError.metalNotAvailable()           -> VectorError.metalNotAvailable()
+//   VectorError.deviceInitializationFailed  -> VectorError.deviceInitializationFailed(_:)
+//   VectorError.bufferAllocationFailed      -> VectorError.bufferAllocationFailed(size:)
+//   VectorError.shaderNotFound              -> VectorError.shaderNotFound(name:)
+//   VectorError.shaderCompilationFailed     -> VectorError.shaderCompilationFailed(_:)
+//   VectorError.pipelineCreationFailed      -> VectorError.pipelineCreationFailed(_:)
+//   VectorError.computeFailed               -> VectorError.computeFailed(reason:)
+//   VectorError.bufferPoolExhausted()         -> VectorError.bufferPoolExhausted()
+//   VectorError.invalidBufferSize           -> VectorError.invalidBufferSize(requested:maximum:)
+//   VectorError.memoryPressure()              -> VectorError.memoryPressure()
+//   VectorError.unsupportedGPUOperation        -> VectorError.unsupportedGPUOperation(_:)
+//   VectorError.dimensionMismatch           -> VectorError.dimensionMismatch(expected:actual:)
+//   VectorError.invalidInput                -> VectorError.invalidInput(_:)
+//   VectorError.bufferCreationFailed        -> VectorError.bufferCreationFailed(_:)
+//   VectorError.encoderCreationFailed()       -> VectorError.encoderCreationFailed()
+//   VectorError.countMismatch               -> VectorError.countMismatch(expected:actual:)
+//   VectorError.commandQueueCreationFailed()  -> VectorError.commandQueueCreationFailed()
+//   VectorError.libraryCreationFailed()       -> VectorError.libraryCreationFailed()
+//
 
 import Foundation
+import VectorCore
 
+/// Legacy error type for GPU acceleration operations.
+///
+/// - Important: This type is deprecated. Use `VectorError` from VectorCore with GPU-specific
+///   factory methods from `VectorError+GPU.swift` instead.
+///
+/// ## Migration Example
+/// ```swift
+/// // Before:
+/// throw VectorError.bufferCreationFailed("Failed to create buffer")
+///
+/// // After:
+/// throw VectorError.bufferCreationFailed("Failed to create buffer")
+/// ```
+@available(*, deprecated, message: "Use VectorError from VectorCore instead. See VectorError+GPU.swift for GPU-specific factory methods.")
 public enum AccelerationError: LocalizedError {
     case metalNotAvailable
     case deviceInitializationFailed(String)

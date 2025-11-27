@@ -97,6 +97,53 @@ kernel void dot_product_kernel(
 // MARK: - Optimized Kernels (Spec Section 3.2)
 // These kernels assume dense packing (stride == dimension) and maximize ILP.
 
+// Optimized for D=384 (96 float4 ops).
+// Critical for MiniLM and Sentence-BERT embeddings (VectorCore 0.1.5 Vector384Optimized)
+kernel void dot_product_384_kernel(
+    device const float* queryVectors [[buffer(0)]],
+    device const float* databaseVectors [[buffer(1)]],
+    device float* dotProducts [[buffer(2)]],
+    constant DotProductParams& params [[buffer(3)]],
+    uint3 tid [[thread_position_in_grid]]
+) {
+    const uint queryIdx = tid.x;
+    const uint dbIdx = tid.y;
+
+    if (queryIdx >= params.numQueries || dbIdx >= params.numDatabase) {
+        return;
+    }
+
+    // Hardcoding the stride allows the compiler to optimize address calculation
+    device const float4* query4 = (device const float4*)(queryVectors + queryIdx * 384);
+    device const float4* database4 = (device const float4*)(databaseVectors + dbIdx * 384);
+
+    // Unroll by 8. Use 2 accumulators and interleave instructions to maximize ILP.
+    float4 acc0 = float4(0.0f);
+    float4 acc1 = float4(0.0f);
+
+    // 96 iterations total (12 loops of 8)
+    for (uint i = 0; i < 96; i += 8) {
+        // Interleaved FMA accumulation
+        acc0 = fma(query4[i+0], database4[i+0], acc0);
+        acc1 = fma(query4[i+1], database4[i+1], acc1);
+        acc0 = fma(query4[i+2], database4[i+2], acc0);
+        acc1 = fma(query4[i+3], database4[i+3], acc1);
+        acc0 = fma(query4[i+4], database4[i+4], acc0);
+        acc1 = fma(query4[i+5], database4[i+5], acc1);
+        acc0 = fma(query4[i+6], database4[i+6], acc0);
+        acc1 = fma(query4[i+7], database4[i+7], acc1);
+    }
+
+    // Final reduction
+    float4 total_acc = acc0 + acc1;
+    float dotProduct = total_acc.x + total_acc.y + total_acc.z + total_acc.w;
+
+    if (params.absoluteValue) {
+        dotProduct = abs(dotProduct);
+    }
+    dotProducts[queryIdx * params.strideOutput + dbIdx] = dotProduct;
+}
+
 // Optimized for D=512 (128 float4 ops).
 kernel void dot_product_512_kernel(
     device const float* queryVectors [[buffer(0)]],

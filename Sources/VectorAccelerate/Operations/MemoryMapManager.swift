@@ -113,7 +113,7 @@ public actor MemoryMapManager {
     public func mapDataset(at url: URL) async throws -> MappedVectorDataset {
         // Verify file exists
         guard FileManager.default.fileExists(atPath: url.path) else {
-            throw AccelerationError.fileNotFound(url.path)
+            throw VectorError.fileNotFound(url.path)
         }
         
         // Read metadata from file header
@@ -123,7 +123,7 @@ public actor MemoryMapManager {
         // Read header (assuming simple format: vectorCount, dimension, dataType)
         let headerData = try handle.read(upToCount: 16) ?? Data()
         guard headerData.count == 16 else {
-            throw AccelerationError.invalidDataFormat("Invalid header size")
+            throw VectorError.invalidDataFormat("Invalid header size")
         }
         
         let vectorCount = headerData.withUnsafeBytes { $0.load(as: Int32.self) }
@@ -137,7 +137,7 @@ public actor MemoryMapManager {
         case 2: dataType = .int8
         case 3: dataType = .uint8
         default:
-            throw AccelerationError.invalidDataFormat("Unknown data type: \(dataTypeRaw)")
+            throw VectorError.invalidDataFormat("Unknown data type: \(dataTypeRaw)")
         }
         
         await logger.info("Mapped dataset: \(vectorCount) vectors of dimension \(dimension)", category: "MemoryMap")
@@ -228,7 +228,7 @@ public actor MemoryMapManager {
     /// Load a page from disk
     private func loadPage(_ pageIndex: Int, from dataset: MappedVectorDataset) async throws -> Data {
         guard let handle = fileHandles[dataset.fileURL] else {
-            throw AccelerationError.fileNotFound(dataset.fileURL.path)
+            throw VectorError.fileNotFound(dataset.fileURL.path)
         }
         
         let pageOffset = UInt64(pageIndex * configuration.pageSize)
@@ -236,7 +236,7 @@ public actor MemoryMapManager {
         
         try handle.seek(toOffset: pageOffset)
         guard let data = try handle.read(upToCount: pageSize) else {
-            throw AccelerationError.invalidDataFormat("Failed to read page \(pageIndex)")
+            throw VectorError.invalidDataFormat("Failed to read page \(pageIndex)")
         }
         
         // Update cache
@@ -531,12 +531,12 @@ public extension MemoryMapManager {
         dataType: MappedVectorDataset.DataType = .float32
     ) throws {
         guard !vectors.isEmpty else {
-            throw AccelerationError.invalidDataFormat("Empty vector set")
+            throw VectorError.invalidDataFormat("Empty vector set")
         }
         
         let dimension = vectors[0].count
         guard vectors.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.dimensionMismatch(expected: dimension, actual: -1)
+            throw VectorError.dimensionMismatch(expected: dimension, actual: -1)
         }
         
         // Create file handle
@@ -620,17 +620,5 @@ public extension MemoryMapManager {
                 return signBits | expBits | mantissaBits
             }
         }
-    }
-}
-
-// MARK: - Error Extensions
-
-extension AccelerationError {
-    static func fileNotFound(_ path: String) -> AccelerationError {
-        .unsupportedOperation("File not found: \(path)")
-    }
-    
-    static func invalidDataFormat(_ reason: String) -> AccelerationError {
-        .unsupportedOperation("Invalid data format: \(reason)")
     }
 }

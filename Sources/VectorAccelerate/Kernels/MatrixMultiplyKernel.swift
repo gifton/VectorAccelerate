@@ -71,7 +71,7 @@ public final class MatrixMultiplyKernel: @unchecked Sendable {
         self.device = device
         
         guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command queue")
+            throw VectorError.deviceInitializationFailed("Failed to create command queue")
         }
         self.commandQueue = queue
         
@@ -80,7 +80,7 @@ public final class MatrixMultiplyKernel: @unchecked Sendable {
         
         // Load main kernel
         guard let function = library.makeFunction(name: "tiledMatrixMultiply") else {
-            throw AccelerationError.shaderNotFound(name: "tiledMatrixMultiply")
+            throw VectorError.shaderNotFound(name: "tiledMatrixMultiply")
         }
         
         self.pipelineState = try device.makeComputePipelineState(function: function)
@@ -97,7 +97,7 @@ public final class MatrixMultiplyKernel: @unchecked Sendable {
         // Validate hardware support
         let maxThreadsPerThreadgroup = pipelineState.maxTotalThreadsPerThreadgroup
         if maxThreadsPerThreadgroup < TILE_M * TILE_N {
-            throw AccelerationError.unsupportedOperation(
+            throw VectorError.unsupportedGPUOperation(
                 "Device does not support required threadgroup size: \(TILE_M * TILE_N)"
             )
         }
@@ -121,7 +121,7 @@ public final class MatrixMultiplyKernel: @unchecked Sendable {
         let effectiveRowsB = config.transposeB ? matrixB.columns : matrixB.rows
         
         guard effectiveColsA == effectiveRowsB else {
-            throw AccelerationError.countMismatch(
+            throw VectorError.countMismatch(
                 expected: effectiveColsA,
                 actual: effectiveRowsB
             )
@@ -137,7 +137,7 @@ public final class MatrixMultiplyKernel: @unchecked Sendable {
             length: matrixA.values.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: matrixA.values.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: matrixA.values.count * MemoryLayout<Float>.stride)
         }
         
         guard let bufferB = device.makeBuffer(
@@ -145,12 +145,12 @@ public final class MatrixMultiplyKernel: @unchecked Sendable {
             length: matrixB.values.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: matrixB.values.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: matrixB.values.count * MemoryLayout<Float>.stride)
         }
         
         let outputSize = M * N * MemoryLayout<Float>.stride
         guard let bufferC = device.makeBuffer(length: outputSize, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferAllocationFailed(size: outputSize)
+            throw VectorError.bufferAllocationFailed(size: outputSize)
         }
         
         // Initialize output buffer if beta != 0
@@ -169,7 +169,7 @@ public final class MatrixMultiplyKernel: @unchecked Sendable {
         // Create command buffer
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }
         
         // Set pipeline and buffers
@@ -207,7 +207,7 @@ public final class MatrixMultiplyKernel: @unchecked Sendable {
         
         // Check for errors
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: "Matrix multiplication failed: \(error)")
+            throw VectorError.computeFailed(reason: "Matrix multiplication failed: \(error)")
         }
         
         // Extract results
@@ -253,7 +253,7 @@ public final class MatrixMultiplyKernel: @unchecked Sendable {
         let N = config.transposeB ? matrixB.rows : matrixB.columns
 
         guard matrixC.rows == M && matrixC.columns == N else {
-            throw AccelerationError.invalidInput("Matrix C dimensions must be \(M)x\(N)")
+            throw VectorError.invalidInput("Matrix C dimensions must be \(M)x\(N)")
         }
 
         // First compute A * B
@@ -316,7 +316,7 @@ public final class MatrixMultiplyKernel: @unchecked Sendable {
         config: MultiplyConfig = .default
     ) throws -> [MultiplyResult] {
         guard matricesA.count == matricesB.count else {
-            throw AccelerationError.invalidInput("Matrix batch sizes must match")
+            throw VectorError.invalidInput("Matrix batch sizes must match")
         }
         
         var results: [MultiplyResult] = []

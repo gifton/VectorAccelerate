@@ -107,7 +107,24 @@ final class L2DistanceKernelTests: XCTestCase {
     }
     
     // MARK: - Dimension-Specific Tests
-    
+
+    /// Test 384-dimension optimized kernel (MiniLM/Sentence-BERT - VectorCore 0.1.5)
+    func testDimension384() async throws {
+        // Create vectors of dimension 384 to test optimized kernel path
+        let queries: [[Float]] = [Array(repeating: 1.0, count: 384)]
+        let database: [[Float]] = [Array(repeating: 0.0, count: 384)]
+
+        // Distance = sqrt(384 * 1²) = sqrt(384) ≈ 19.596
+        let distances = try await kernel!.compute(
+            queries: queries,
+            database: database,
+            dimension: 384,
+            computeSqrt: true
+        )
+
+        XCTAssertEqual(distances[0][0], sqrt(384.0), accuracy: 1e-3)
+    }
+
     func testDimension512() async throws {
         // Create random vectors of dimension 512
         let queries: [[Float]] = [Array(repeating: 1.0, count: 512)]

@@ -7,6 +7,7 @@
 
 import XCTest
 @testable import VectorAccelerate
+import VectorCore
 import Metal
 
 final class MetalContextTests: XCTestCase {
@@ -253,7 +254,7 @@ final class MetalContextTests: XCTestCase {
                 let token = try await context.getBuffer(size: largeSize)
                 tokens.append(token)
                 print("Allocated buffer \(i+1)")
-            } catch AccelerationError.memoryPressure {
+            } catch let error as VectorError where error.kind == .resourceExhausted {
                 print("Memory pressure at buffer \(i+1)")
                 break
             }

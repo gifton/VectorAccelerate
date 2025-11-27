@@ -4,6 +4,11 @@
 //
 //  Token-based buffer pool for efficient Metal memory management
 //
+//  Architecture Note:
+//  BufferPool uses MetalBufferFactory for synchronous buffer creation while
+//  maintaining actor isolation for pool management (tracking, reuse). This
+//  design eliminates unnecessary async boundaries for buffer allocation.
+//
 
 import Foundation
 @preconcurrency import Metal
@@ -15,7 +20,7 @@ public struct BufferPoolConfiguration: Sendable {
     public let maxTotalSize: Int
     public let reuseThreshold: Int
     public let adaptiveSizing: Bool
-    
+
     public init(
         maxBufferCount: Int = 100,
         maxTotalSize: Int = 1024 * 1024 * 1024, // 1GB
@@ -27,7 +32,7 @@ public struct BufferPoolConfiguration: Sendable {
         self.reuseThreshold = reuseThreshold
         self.adaptiveSizing = adaptiveSizing
     }
-    
+
     public static let `default` = BufferPoolConfiguration()
 }
 
@@ -139,8 +144,17 @@ private struct BufferBucket {
 }
 
 /// High-performance buffer pool with automatic memory management
+///
+/// ## Architecture
+/// BufferPool separates buffer allocation from pool management:
+/// - **MetalBufferFactory**: Synchronous buffer creation (no actor overhead)
+/// - **BufferPool (actor)**: Pool management, tracking, reuse statistics
+///
+/// This design enables synchronous buffer creation within the actor while
+/// maintaining thread-safe pool management.
 public actor BufferPool: BufferProvider {
     private let device: MetalDevice
+    private let factory: MetalBufferFactory
     private var buckets: [Int: BufferBucket] = [:]
     private let maxBuffersPerBucket: Int
     private let maxTotalMemory: Int
@@ -148,44 +162,64 @@ public actor BufferPool: BufferProvider {
 
     // BufferProvider conformance - track handles for VectorCore integration
     private var activeHandles: [UUID: BufferToken] = [:]
-    
-    // Predefined bucket sizes for common operations
-    private let bucketSizes: [Int] = [
-        1024,           // 1 KB - Small metadata
-        4096,           // 4 KB - Small vectors
-        16384,          // 16 KB - Medium vectors
-        65536,          // 64 KB - Large vectors
-        262144,         // 256 KB - Batch operations
-        1048576,        // 1 MB - Large batches
-        4194304,        // 4 MB - Very large batches
-        16777216,       // 16 MB - Massive operations
-        67108864        // 64 MB - Maximum single buffer
-    ]
-    
+
+    // Use standard bucket sizes from factory
+    private let bucketSizes: [Int] = MetalBufferFactory.standardBucketSizes
+
     // Performance metrics
     private var hitCount: Int = 0
     private var missCount: Int = 0
     private var allocationCount: Int = 0
-    
+
     // MARK: - Initialization
-    
+
     public init(device: MetalDevice, maxBuffersPerBucket: Int = 10, maxTotalMemory: Int? = nil) {
         self.device = device
         self.maxBuffersPerBucket = maxBuffersPerBucket
-        
+
+        // Create factory using nonisolated access to raw device
+        // This is safe because MTLDevice buffer operations are thread-safe
+        self.factory = device.makeBufferFactory()
+
         // Set max memory based on device capabilities or default to 1GB
+        let capabilities = device.capabilities
         if let maxMemory = maxTotalMemory {
             self.maxTotalMemory = maxMemory
         } else {
-            let capabilities = device.capabilities
             let recommendedSize = capabilities.recommendedMaxWorkingSetSize
             self.maxTotalMemory = min(recommendedSize / 2, 1024 * 1024 * 1024) // Max 1GB or half of recommended
         }
-        
+
         // Initialize buckets
         for size in bucketSizes {
             buckets[size] = BufferBucket(size: size)
         }
+    }
+
+    /// Initialize with a pre-created factory (preferred for explicit device control)
+    public init(device: MetalDevice, factory: MetalBufferFactory, maxBuffersPerBucket: Int = 10, maxTotalMemory: Int? = nil) {
+        self.device = device
+        self.factory = factory
+        self.maxBuffersPerBucket = maxBuffersPerBucket
+
+        let capabilities = device.capabilities
+
+        if let maxMemory = maxTotalMemory {
+            self.maxTotalMemory = maxMemory
+        } else {
+            let recommendedSize = capabilities.recommendedMaxWorkingSetSize
+            self.maxTotalMemory = min(recommendedSize / 2, 1024 * 1024 * 1024)
+        }
+
+        for size in bucketSizes {
+            buckets[size] = BufferBucket(size: size)
+        }
+    }
+
+    /// Get the buffer factory for direct synchronous buffer creation
+    /// Use this when you need buffers without pool management overhead
+    public nonisolated var bufferFactory: MetalBufferFactory {
+        factory
     }
     
     // MARK: - Buffer Management
@@ -197,7 +231,7 @@ public actor BufferPool: BufferProvider {
         
         // Check if size exceeds maximum
         if bucketSize > bucketSizes.last! {
-            throw AccelerationError.invalidBufferSize(requested: size, maximum: bucketSizes.last!)
+            throw VectorError.invalidBufferSize(requested: size, maximum: bucketSizes.last!)
         }
         
         // Get or create bucket
@@ -223,7 +257,7 @@ public actor BufferPool: BufferProvider {
             
             // Check again after cleanup
             if currentMemoryUsage + bucketSize > maxTotalMemory {
-                throw AccelerationError.memoryPressure
+                throw VectorError.memoryPressure()
             }
         }
         
@@ -235,13 +269,12 @@ public actor BufferPool: BufferProvider {
                 buckets[bucketSize] = bucket
             }
         }
-        
-        // Allocate new buffer via Sendable wrapper
-        guard let metal = await device.makeMetalBuffer(length: bucketSize) else {
-            throw AccelerationError.bufferAllocationFailed(size: bucketSize)
+
+        // Allocate new buffer synchronously via factory (no async overhead)
+        guard let buffer = factory.createBuffer(length: bucketSize) else {
+            throw VectorError.bufferAllocationFailed(size: bucketSize)
         }
-        
-        let buffer = metal.buffer
+
         buffer.label = "VectorAccelerate.BufferPool.\(bucketSize)"
         
         // Track allocation
@@ -282,7 +315,7 @@ public actor BufferPool: BufferProvider {
         token.write(data: data)
         return token
     }
-    
+
     /// Check if a buffer is currently in use
     public func isBufferInUse(_ buffer: any MTLBuffer) -> Bool {
         for bucket in buckets.values {
@@ -345,15 +378,10 @@ public actor BufferPool: BufferProvider {
     }
     
     // MARK: - Utilities
-    
+
     /// Select appropriate bucket size for requested size
     private func selectBucketSize(for requestedSize: Int) -> Int {
-        for size in bucketSizes {
-            if size >= requestedSize {
-                return size
-            }
-        }
-        return bucketSizes.last!
+        MetalBufferFactory.selectBucketSize(for: requestedSize)
     }
     
     // MARK: - Performance Metrics

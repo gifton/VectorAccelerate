@@ -3,6 +3,7 @@
 
 import Metal
 import Foundation
+import VectorCore
 
 /// Synchronous context for kernel initialization
 /// This is a lightweight wrapper that provides the minimal Metal resources needed by kernels
@@ -23,7 +24,7 @@ public final class KernelContext: @unchecked Sendable {
 
         // Create command queue synchronously
         guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.commandQueueCreationFailed
+            throw VectorError.commandQueueCreationFailed()
         }
         self.commandQueue = queue
     }
@@ -158,7 +159,7 @@ public final class KernelContext: @unchecked Sendable {
         }
 
         guard let library = loadMetalLibrary(device: device) else {
-            throw AccelerationError.libraryCreationFailed
+            throw VectorError.libraryCreationFailed()
         }
 
         sharedLibrary = library
@@ -221,5 +222,106 @@ public final class KernelContext: @unchecked Sendable {
         let elementCount = buffer.length / elementSize
         // Check if we have at least one full SIMD vector
         return elementCount >= simdWidth && isBufferAligned(buffer, alignment: elementSize * simdWidth)
+    }
+
+    // MARK: - Zero-Copy VectorProtocol Buffer Creation
+
+    /// Create an aligned buffer directly from VectorProtocol types without intermediate allocations.
+    ///
+    /// This method avoids the `.toArray()` anti-pattern by using `withUnsafeBufferPointer`
+    /// to copy vector data directly into the Metal buffer. This eliminates:
+    /// - Intermediate array allocations from `.toArray()`
+    /// - Additional copies from `.flatMap { $0 }`
+    ///
+    /// - Parameters:
+    ///   - vectors: Array of VectorProtocol-conforming vectors to flatten into buffer
+    ///   - options: Metal resource options (default: .storageModeShared for unified memory)
+    ///   - alignment: Required alignment in bytes (default 16 for float4 SIMD)
+    /// - Returns: Aligned buffer containing flattened vector data, or nil if creation fails
+    ///
+    /// - Complexity: O(n * d) where n is number of vectors and d is dimension
+    /// - Note: All vectors must have the same dimension. First vector's count is used as dimension.
+    @inlinable
+    public func createAlignedBufferFromVectors<V: VectorProtocol>(
+        _ vectors: [V],
+        options: MTLResourceOptions = .storageModeShared,
+        alignment: Int = 16
+    ) -> (any MTLBuffer)? where V.Scalar == Float {
+        guard !vectors.isEmpty else { return nil }
+
+        let dimension = vectors[0].count
+        let totalCount = vectors.count * dimension
+        let byteSize = totalCount * MemoryLayout<Float>.stride
+        let alignedSize = (byteSize + alignment - 1) & ~(alignment - 1)
+
+        // Create buffer with aligned size
+        guard let buffer = device.makeBuffer(length: alignedSize, options: options) else {
+            return nil
+        }
+
+        // Get pointer to buffer contents
+        let destination = buffer.contents().bindMemory(to: Float.self, capacity: totalCount)
+
+        // Copy each vector directly using withUnsafeBufferPointer (zero intermediate allocation)
+        for (i, vector) in vectors.enumerated() {
+            let offset = i * dimension
+            vector.withUnsafeBufferPointer { srcPtr in
+                guard let srcBase = srcPtr.baseAddress else { return }
+                let dst = destination.advanced(by: offset)
+                // Direct memory copy from vector storage to Metal buffer
+                dst.update(from: srcBase, count: min(srcPtr.count, dimension))
+            }
+        }
+
+        return buffer
+    }
+
+    /// Create an aligned buffer from a single VectorProtocol without intermediate allocation.
+    ///
+    /// - Parameters:
+    ///   - vector: Single VectorProtocol-conforming vector
+    ///   - options: Metal resource options
+    ///   - alignment: Required alignment in bytes
+    /// - Returns: Aligned buffer containing vector data, or nil if creation fails
+    @inlinable
+    public func createAlignedBufferFromVector<V: VectorProtocol>(
+        _ vector: V,
+        options: MTLResourceOptions = .storageModeShared,
+        alignment: Int = 16
+    ) -> (any MTLBuffer)? where V.Scalar == Float {
+        let count = vector.count
+        let byteSize = count * MemoryLayout<Float>.stride
+        let alignedSize = (byteSize + alignment - 1) & ~(alignment - 1)
+
+        // Use withUnsafeBufferPointer to create buffer directly from vector storage
+        return vector.withUnsafeBufferPointer { srcPtr in
+            guard let srcBase = srcPtr.baseAddress else { return nil }
+            return device.makeBuffer(bytes: srcBase, length: alignedSize, options: options)
+        }
+    }
+
+    /// Create aligned buffers from two vector arrays efficiently.
+    ///
+    /// This is optimized for the common case of query/database vector pairs.
+    /// Both buffers are created with a single iteration through the vectors.
+    ///
+    /// - Parameters:
+    ///   - vectorsA: First array of vectors (e.g., queries)
+    ///   - vectorsB: Second array of vectors (e.g., database)
+    ///   - options: Metal resource options
+    ///   - alignment: Required alignment in bytes
+    /// - Returns: Tuple of buffers (A, B), or nil if creation fails
+    @inlinable
+    public func createAlignedBufferPair<V: VectorProtocol>(
+        _ vectorsA: [V],
+        _ vectorsB: [V],
+        options: MTLResourceOptions = .storageModeShared,
+        alignment: Int = 16
+    ) -> (bufferA: any MTLBuffer, bufferB: any MTLBuffer)? where V.Scalar == Float {
+        guard let bufferA = createAlignedBufferFromVectors(vectorsA, options: options, alignment: alignment),
+              let bufferB = createAlignedBufferFromVectors(vectorsB, options: options, alignment: alignment) else {
+            return nil
+        }
+        return (bufferA, bufferB)
     }
 }

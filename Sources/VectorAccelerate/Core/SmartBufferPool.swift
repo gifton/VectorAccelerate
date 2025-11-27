@@ -10,6 +10,7 @@ import VectorCore
 /// Smart buffer pool with automatic sizing and efficient memory management
 public actor SmartBufferPool: BufferProvider {
     private let device: MetalDevice
+    private let factory: MetalBufferFactory
     private var buffers: [Int: [any MTLBuffer]] = [:]
     private var currentMemory: Int = 0
     private let maxMemory: Int
@@ -22,25 +23,31 @@ public actor SmartBufferPool: BufferProvider {
     private var hits: Int = 0
     private var misses: Int = 0
     private var allocations: Int = 0
-    
+
     // Common sizes for pre-allocation
     private static let commonSizes: [Int] = [
         4096,       // 4KB - small vectors
-        16384,      // 16KB - medium vectors  
+        16384,      // 16KB - medium vectors
         65536,      // 64KB - large vectors
         262144,     // 256KB - embeddings
         1048576,    // 1MB - matrices
         4194304,    // 4MB - large batches
     ]
-    
+
     public init(device: MetalDevice, maxMemoryMB: Int = 512) {
         self.device = device
+        self.factory = device.makeBufferFactory()
         self.maxMemory = maxMemoryMB * 1024 * 1024
-        
+
         // Pre-allocate common sizes
         Task {
             await preallocateCommonSizes()
         }
+    }
+
+    /// Get the buffer factory for direct synchronous buffer creation
+    public nonisolated var bufferFactory: MetalBufferFactory {
+        factory
     }
     
     // MARK: - Core Operations
@@ -66,20 +73,20 @@ public actor SmartBufferPool: BufferProvider {
             performCleanup()
 
             if currentMemory + alignedSize > maxMemory {
-                throw AccelerationError.memoryPressure
+                throw VectorError.memoryPressure()
             }
         }
         
-        // Allocate new buffer via Sendable wrapper
-        guard let metal = await device.makeMetalBuffer(length: alignedSize) else {
-            throw AccelerationError.bufferAllocationFailed(size: alignedSize)
+        // Allocate new buffer synchronously via factory (no async overhead)
+        guard let buffer = factory.createBuffer(length: alignedSize) else {
+            throw VectorError.bufferAllocationFailed(size: alignedSize)
         }
-        
+
         allocations += 1
         currentMemory += alignedSize
         peakMemory = max(peakMemory, currentMemory)
 
-        return MetalBuffer(buffer: metal.buffer, count: byteSize / MemoryLayout<Float>.stride)
+        return MetalBuffer(buffer: buffer, count: byteSize / MemoryLayout<Float>.stride)
     }
     
     /// Release a buffer back to the pool
@@ -152,14 +159,14 @@ public actor SmartBufferPool: BufferProvider {
     }
     
     private func preallocateCommonSizes() async {
-        // Pre-allocate 2 buffers of each common size
+        // Pre-allocate 2 buffers of each common size using synchronous factory
         for size in Self.commonSizes.prefix(3) {
             for _ in 0..<2 {
-                if let metal = await device.makeMetalBuffer(length: size) {
+                if let buffer = factory.createBuffer(length: size) {
                     if buffers[size] == nil {
                         buffers[size] = []
                     }
-                    buffers[size]?.append(metal.buffer)
+                    buffers[size]?.append(buffer)
                     currentMemory += size
                     allocations += 1
                 }

@@ -85,13 +85,13 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
         /// Initialize from vectors
         public init(vectors: [BinaryVector]) throws {
             guard let first = vectors.first else {
-                throw AccelerationError.invalidInput("Cannot create empty batch")
+                throw VectorError.invalidInput("Cannot create empty batch")
             }
             
             // Validate all vectors have same dimension
             for vector in vectors {
                 guard vector.dimension == first.dimension else {
-                    throw AccelerationError.countMismatch(
+                    throw VectorError.countMismatch(
                         expected: first.dimension,
                         actual: vector.dimension
                     )
@@ -109,7 +109,7 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
         /// Get specific vector
         public func vector(at index: Int) throws -> BinaryVector {
             guard index >= 0 && index < vectors.count else {
-                throw AccelerationError.invalidInput("Index \(index) out of bounds for \(vectors.count) vectors")
+                throw VectorError.invalidInput("Index \(index) out of bounds for \(vectors.count) vectors")
             }
             return vectors[index]
         }
@@ -212,7 +212,7 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
         self.device = device
         
         guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command queue")
+            throw VectorError.deviceInitializationFailed("Failed to create command queue")
         }
         self.commandQueue = queue
         
@@ -221,25 +221,25 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
         
         // Load quantization kernel
         guard let quantizeFunc = library.makeFunction(name: "binaryQuantize") else {
-            throw AccelerationError.shaderNotFound(name: "binaryQuantize")
+            throw VectorError.shaderNotFound(name: "binaryQuantize")
         }
         
         // Load Hamming distance kernel
         guard let hammingFunc = library.makeFunction(name: "binaryHammingDistance") else {
-            throw AccelerationError.shaderNotFound(name: "binaryHammingDistance")
+            throw VectorError.shaderNotFound(name: "binaryHammingDistance")
         }
         
         do {
             self.quantizeKernel = try device.makeComputePipelineState(function: quantizeFunc)
             self.hammingKernel = try device.makeComputePipelineState(function: hammingFunc)
         } catch {
-            throw AccelerationError.computeFailed(reason: "Failed to create pipeline states: \(error)")
+            throw VectorError.computeFailed(reason: "Failed to create pipeline states: \(error)")
         }
         
         // Validate hardware support
         let maxThreadsPerThreadgroup = quantizeKernel.maxTotalThreadsPerThreadgroup
         if maxThreadsPerThreadgroup < 32 {
-            throw AccelerationError.unsupportedOperation(
+            throw VectorError.unsupportedGPUOperation(
                 "Device does not support required threadgroup size for binary operations"
             )
         }
@@ -257,13 +257,13 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
         config: QuantizationConfig = .default
     ) throws -> QuantizationResult {
         guard !vectors.isEmpty, let dimension = vectors.first?.count, dimension > 0 else {
-            throw AccelerationError.invalidInput("Input vectors cannot be empty")
+            throw VectorError.invalidInput("Input vectors cannot be empty")
         }
         
         // Validate all vectors have same dimension
         for (_, vector) in vectors.enumerated() {
             guard vector.count == dimension else {
-                throw AccelerationError.countMismatch(expected: dimension, actual: vector.count)
+                throw VectorError.countMismatch(expected: dimension, actual: vector.count)
             }
         }
         
@@ -281,20 +281,20 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
             length: originalBytes,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: originalBytes)
+            throw VectorError.bufferAllocationFailed(size: originalBytes)
         }
         
         guard let outputBuffer = device.makeBuffer(
             length: compressedBytes,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: compressedBytes)
+            throw VectorError.bufferAllocationFailed(size: compressedBytes)
         }
         
         // Create command buffer
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }
         
         // Configure compute pass
@@ -334,7 +334,7 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
         
         // Check for errors
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: "Binary quantization failed: \(error)")
+            throw VectorError.computeFailed(reason: "Binary quantization failed: \(error)")
         }
         
         // Extract results
@@ -380,7 +380,7 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
         candidates: BinaryVectorBatch
     ) throws -> HammingDistanceResult {
         guard query.dimension == candidates.dimension else {
-            throw AccelerationError.countMismatch(
+            throw VectorError.countMismatch(
                 expected: query.dimension,
                 actual: candidates.dimension
             )
@@ -406,7 +406,7 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
             length: query.numWords * MemoryLayout<UInt32>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: query.numWords * MemoryLayout<UInt32>.stride)
+            throw VectorError.bufferAllocationFailed(size: query.numWords * MemoryLayout<UInt32>.stride)
         }
         
         let candidatesSize = flatCandidates.count * MemoryLayout<UInt32>.stride
@@ -415,18 +415,18 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
             length: candidatesSize,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: candidatesSize)
+            throw VectorError.bufferAllocationFailed(size: candidatesSize)
         }
         
         let resultSize = numCandidates * MemoryLayout<Float>.stride
         guard let resultBuffer = device.makeBuffer(length: resultSize, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferAllocationFailed(size: resultSize)
+            throw VectorError.bufferAllocationFailed(size: resultSize)
         }
         
         // Create command buffer
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }
         
         // Configure compute pass
@@ -459,7 +459,7 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
         
         // Check for errors
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: "Hamming distance computation failed: \(error)")
+            throw VectorError.computeFailed(reason: "Hamming distance computation failed: \(error)")
         }
         
         // Extract results and calculate statistics using Accelerate
@@ -495,7 +495,7 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
         vectorsB: BinaryVectorBatch
     ) throws -> PairwiseDistanceResult {
         guard vectorsA.dimension == vectorsB.dimension else {
-            throw AccelerationError.countMismatch(
+            throw VectorError.countMismatch(
                 expected: vectorsA.dimension,
                 actual: vectorsB.dimension
             )
@@ -577,22 +577,153 @@ public final class BinaryQuantizationKernel: @unchecked Sendable {
     }
     
     // MARK: - VectorCore Integration
-    
+
     /// Quantize using VectorCore protocol types
+    ///
+    /// Uses `withUnsafeBufferPointer` to create buffer directly without intermediate allocations.
     public func quantize<V: VectorProtocol>(
         vectors: [V],
         config: QuantizationConfig = .default
     ) throws -> QuantizationResult where V.Scalar == Float {
-        let floatArrays = vectors.map { $0.toArray() }
-        return try quantize(vectors: floatArrays, config: config)
+        guard !vectors.isEmpty else {
+            throw VectorError.invalidInput("Input vectors cannot be empty")
+        }
+
+        let dimension = vectors[0].count
+        guard dimension > 0 else {
+            throw VectorError.invalidInput("Vector dimension must be > 0")
+        }
+
+        // Validate all vectors have same dimension
+        guard vectors.allSatisfy({ $0.count == dimension }) else {
+            throw VectorError.countMismatch(expected: dimension, actual: nil)
+        }
+
+        let numVectors = vectors.count
+        let numWords = (dimension + 31) / 32
+        let originalBytes = numVectors * dimension * MemoryLayout<Float>.stride
+        let compressedBytes = numVectors * numWords * MemoryLayout<UInt32>.stride
+
+        // Create input buffer directly from VectorProtocol storage
+        guard let inputBuffer = createBufferFromVectors(vectors, dimension: dimension) else {
+            throw VectorError.bufferAllocationFailed(size: originalBytes)
+        }
+
+        guard let outputBuffer = device.makeBuffer(
+            length: compressedBytes,
+            options: .storageModeShared
+        ) else {
+            throw VectorError.bufferAllocationFailed(size: compressedBytes)
+        }
+
+        // Create command buffer
+        guard let commandBuffer = commandQueue.makeCommandBuffer(),
+              let encoder = commandBuffer.makeComputeCommandEncoder() else {
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
+        }
+
+        // Configure compute pass
+        encoder.setComputePipelineState(quantizeKernel)
+        encoder.setBuffer(inputBuffer, offset: 0, index: 0)
+        encoder.setBuffer(outputBuffer, offset: 0, index: 1)
+
+        // Set parameters (matching the [[Float]] version)
+        var params = SIMD4<UInt32>(
+            UInt32(dimension),
+            UInt32(numVectors),
+            config.useSignBit ? 1 : 0,
+            0
+        )
+        encoder.setBytes(&params, length: MemoryLayout<SIMD4<UInt32>>.size, index: 2)
+
+        var threshold = config.threshold
+        encoder.setBytes(&threshold, length: MemoryLayout<Float>.size, index: 3)
+
+        // Configure thread groups
+        let threadgroupSize = MTLSize(width: min(numVectors, quantizeKernel.maxTotalThreadsPerThreadgroup), height: 1, depth: 1)
+        let threadgroupCount = MTLSize(
+            width: (numVectors + threadgroupSize.width - 1) / threadgroupSize.width,
+            height: 1,
+            depth: 1
+        )
+
+        // Execute
+        let startTime = CACurrentMediaTime()
+        encoder.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
+        encoder.endEncoding()
+
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+
+        let executionTime = CACurrentMediaTime() - startTime
+
+        // Check for errors
+        if let error = commandBuffer.error {
+            throw VectorError.computeFailed(reason: "Binary quantization failed: \(error)")
+        }
+
+        // Extract results
+        let resultPointer = outputBuffer.contents().bindMemory(to: UInt32.self, capacity: numVectors * numWords)
+        var binaryVectors: [BinaryVector] = []
+        binaryVectors.reserveCapacity(numVectors)
+
+        for i in 0..<numVectors {
+            let start = i * numWords
+            let vectorData = Array(UnsafeBufferPointer(start: resultPointer + start, count: numWords))
+            binaryVectors.append(BinaryVector(data: vectorData, dimension: dimension))
+        }
+
+        let batch = try BinaryVectorBatch(vectors: binaryVectors)
+        let compressionRatio = Float(originalBytes) / Float(compressedBytes)
+
+        return QuantizationResult(
+            binaryVectors: batch,
+            compressionRatio: compressionRatio,
+            originalBytes: originalBytes,
+            compressedBytes: compressedBytes,
+            executionTime: executionTime
+        )
     }
-    
+
     /// Single vector quantization using VectorCore
+    ///
+    /// Uses `withUnsafeBufferPointer` for zero-copy buffer creation.
     public func quantize<V: VectorProtocol>(
         vector: V,
         config: QuantizationConfig = .default
     ) throws -> BinaryVector where V.Scalar == Float {
-        return try quantize(vector: vector.toArray(), config: config)
+        // Zero-copy single vector quantization
+        let array: [Float] = vector.withUnsafeBufferPointer { Array($0) }
+        return try quantize(vector: array, config: config)
+    }
+
+    /// Create a Metal buffer directly from VectorProtocol array without intermediate allocations
+    private func createBufferFromVectors<V: VectorProtocol>(
+        _ vectors: [V],
+        dimension: Int
+    ) -> (any MTLBuffer)? where V.Scalar == Float {
+        guard !vectors.isEmpty else { return nil }
+
+        let totalCount = vectors.count * dimension
+        let byteSize = totalCount * MemoryLayout<Float>.stride
+
+        // Create buffer
+        guard let buffer = device.makeBuffer(length: byteSize, options: .storageModeShared) else {
+            return nil
+        }
+
+        // Copy each vector directly using withUnsafeBufferPointer
+        let destination = buffer.contents().bindMemory(to: Float.self, capacity: totalCount)
+        for (i, vector) in vectors.enumerated() {
+            let offset = i * dimension
+            vector.withUnsafeBufferPointer { srcPtr in
+                guard let srcBase = srcPtr.baseAddress else { return }
+                let dst = destination.advanced(by: offset)
+                dst.update(from: srcBase, count: min(srcPtr.count, dimension))
+            }
+        }
+
+        return buffer
     }
     
     // MARK: - Performance Analysis

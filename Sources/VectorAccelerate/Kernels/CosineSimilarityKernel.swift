@@ -16,8 +16,9 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
     // General purpose pipelines
     private let pipelineStateNormalized: any MTLComputePipelineState
     private let pipelineStateGeneral: any MTLComputePipelineState
-    
+
     // Optimized pipelines
+    private let pipelineState384: any MTLComputePipelineState
     private let pipelineState512: any MTLComputePipelineState
     private let pipelineState768: any MTLComputePipelineState
     private let pipelineState1536: any MTLComputePipelineState
@@ -76,6 +77,11 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
             library: library,
             name: "cosine_similarity_general_kernel"
         )
+        self.pipelineState384 = try Self.makePipelineState(
+            device: device,
+            library: library,
+            name: "cosine_similarity_384_kernel"
+        )
         self.pipelineState512 = try Self.makePipelineState(
             device: device,
             library: library,
@@ -99,7 +105,7 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
         name: String
     ) throws -> any MTLComputePipelineState {
         guard let function = library.makeFunction(name: name) else {
-            throw AccelerationError.shaderNotFound(name: "Could not find kernel function '\(name)'")
+            throw VectorError.shaderNotFound(name: "Could not find kernel function '\(name)'")
         }
         return try device.makeComputePipelineState(function: function)
     }
@@ -114,14 +120,14 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
         // 1. Validate dimensions
         if parameters.dimension == 0 {
             if parameters.numQueries > 0 || parameters.numDatabase > 0 {
-                throw AccelerationError.invalidInput("Dimension cannot be zero when counts are greater than zero")
+                throw VectorError.invalidInput("Dimension cannot be zero when counts are greater than zero")
             }
             return // Trivial case
         }
 
         // 2. Validate strides
         if parameters.strideQuery < parameters.dimension || parameters.strideDatabase < parameters.dimension {
-            throw AccelerationError.invalidInput("Strides cannot be smaller than the dimension")
+            throw VectorError.invalidInput("Strides cannot be smaller than the dimension")
         }
 
         let floatSize = MemoryLayout<Float>.stride
@@ -131,26 +137,26 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
         if parameters.numQueries > 0 {
             let requiredQuerySize = (Int(parameters.numQueries - 1) * Int(parameters.strideQuery) + Int(parameters.dimension)) * floatSize
             if queryVectors.length < requiredQuerySize {
-                throw AccelerationError.invalidInput("Query buffer too small. Required: \(requiredQuerySize), got: \(queryVectors.length)")
+                throw VectorError.invalidInput("Query buffer too small. Required: \(requiredQuerySize), got: \(queryVectors.length)")
             }
         }
 
         if parameters.numDatabase > 0 {
             let requiredDatabaseSize = (Int(parameters.numDatabase - 1) * Int(parameters.strideDatabase) + Int(parameters.dimension)) * floatSize
             if databaseVectors.length < requiredDatabaseSize {
-                throw AccelerationError.invalidInput("Database buffer too small. Required: \(requiredDatabaseSize), got: \(databaseVectors.length)")
+                throw VectorError.invalidInput("Database buffer too small. Required: \(requiredDatabaseSize), got: \(databaseVectors.length)")
             }
         }
 
         // Output buffer validation
         if parameters.numQueries > 0 && parameters.strideOutput < parameters.numDatabase {
-            throw AccelerationError.invalidInput("Output stride cannot be smaller than numDatabase")
+            throw VectorError.invalidInput("Output stride cannot be smaller than numDatabase")
         }
 
         if parameters.numQueries > 0 && parameters.numDatabase > 0 {
             let requiredOutputSize = (Int(parameters.numQueries - 1) * Int(parameters.strideOutput) + Int(parameters.numDatabase)) * floatSize
             if similarities.length < requiredOutputSize {
-                throw AccelerationError.invalidInput("Similarities buffer too small. Required: \(requiredOutputSize), got: \(similarities.length)")
+                throw VectorError.invalidInput("Similarities buffer too small. Required: \(requiredOutputSize), got: \(similarities.length)")
             }
         }
     }
@@ -184,7 +190,7 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
         }
 
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
 
         encoder.label = "CosineSimilarityKernel"
@@ -192,10 +198,12 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
         // 2. Select optimal kernel
         // Optimized kernels require dense packing (stride == dimension) because their address calculation is hardcoded
         let selectedPipeline: any MTLComputePipelineState
-        let isDenselyPacked = (parameters.strideQuery == parameters.dimension && 
+        let isDenselyPacked = (parameters.strideQuery == parameters.dimension &&
                                parameters.strideDatabase == parameters.dimension)
 
         switch parameters.dimension {
+        case 384 where isDenselyPacked:
+            selectedPipeline = pipelineState384
         case 512 where isDenselyPacked:
             selectedPipeline = pipelineState512
         case 768 where isDenselyPacked:
@@ -259,12 +267,12 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
         inputsNormalized: Bool = false
     ) async throws -> [[Float]] {
         guard !queries.isEmpty && !database.isEmpty else {
-            throw AccelerationError.invalidInput("Empty input vectors")
+            throw VectorError.invalidInput("Empty input vectors")
         }
         
         guard queries.allSatisfy({ $0.count == dimension }) &&
               database.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.invalidInput("Dimension mismatch in input vectors")
+            throw VectorError.invalidInput("Dimension mismatch in input vectors")
         }
         
         let numQueries = queries.count
@@ -276,7 +284,7 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
             options: MTLResourceOptions.storageModeShared
         
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         guard let databaseBuffer = kernelContext.createBuffer(
@@ -284,7 +292,7 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
             options: MTLResourceOptions.storageModeShared
         
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         let similarityBuffer = device.makeBuffer(
@@ -333,12 +341,16 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
     }
 
     /// Compute cosine similarities using VectorCore types
+    ///
+    /// This method uses zero-copy buffer creation via `withUnsafeBufferPointer`
+    /// to avoid intermediate array allocations from `.toArray()`.
+    ///
     /// - Parameters:
-    ///   - queries: Query vectors
-    ///   - database: Database vectors
+    ///   - queries: Query vectors (VectorProtocol conforming)
+    ///   - database: Database vectors (VectorProtocol conforming)
     ///   - outputDistance: If true, output distance (1 - similarity)
-    ///   - inputsNormalized: If true, vectors are pre-normalized
-    /// - Returns: Similarity/distance matrix
+    ///   - inputsNormalized: If true, vectors are pre-normalized (enables fast path)
+    /// - Returns: Similarity/distance matrix [numQueries x numDatabase]
     public func compute<V: VectorProtocol>(
         queries: [V],
         database: [V],
@@ -346,27 +358,191 @@ public final class CosineSimilarityKernel: @unchecked Sendable {
         inputsNormalized: Bool = false
     ) async throws -> [[Float]] where V.Scalar == Float {
         guard !queries.isEmpty && !database.isEmpty else {
-            throw AccelerationError.invalidInput("Empty input vectors")
+            throw VectorError.invalidInput("Empty input vectors")
         }
-        
+
         let dimension = queries.first!.count
         guard queries.allSatisfy({ $0.count == dimension }) &&
               database.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.invalidInput("Dimension mismatch in input vectors")
+            throw VectorError.invalidInput("Dimension mismatch in input vectors")
         }
-        
-        // Convert to arrays and compute
-        let queryArrays = queries.map { Array($0.toArray()) }
-        let databaseArrays = database.map { Array($0.toArray()) }
-        
-        return try await compute(
-            queries: queryArrays,
-            database: databaseArrays,
+
+        let numQueries = queries.count
+        let numDatabase = database.count
+
+        // Zero-copy buffer creation: uses withUnsafeBufferPointer internally
+        guard let queryBuffer = kernelContext.createAlignedBufferFromVectors(
+            queries,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create query buffer")
+        }
+
+        guard let databaseBuffer = kernelContext.createAlignedBufferFromVectors(
+            database,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create database buffer")
+        }
+
+        let similarityBuffer = device.makeBuffer(
+            length: numQueries * numDatabase * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        )!
+
+        // Create parameters
+        let parameters = Parameters(
+            numQueries: numQueries,
+            numDatabase: numDatabase,
             dimension: dimension,
             outputDistance: outputDistance,
             inputsNormalized: inputsNormalized
         )
+
+        // Execute computation
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
+        try compute(
+            queryVectors: queryBuffer,
+            databaseVectors: databaseBuffer,
+            similarities: similarityBuffer,
+            parameters: parameters,
+            commandBuffer: commandBuffer
+        )
+
+        commandBuffer.commit()
+        await commandBuffer.completed()
+
+        // Extract results
+        let similarityPointer = similarityBuffer.contents().bindMemory(
+            to: Float.self,
+            capacity: numQueries * numDatabase
+        )
+
+        var results: [[Float]] = []
+        results.reserveCapacity(numQueries)
+        for i in 0..<numQueries {
+            var row: [Float] = []
+            row.reserveCapacity(numDatabase)
+            for j in 0..<numDatabase {
+                row.append(similarityPointer[i * numDatabase + j])
+            }
+            results.append(row)
+        }
+
+        return results
     }
+
+    // MARK: - StaticDimension Optimized Methods
+
+    /// Compute cosine similarities using compile-time dimensioned vectors.
+    ///
+    /// This method provides type-safe cosine similarity computation for vectors with known
+    /// compile-time dimensions. The dimension is known at compile time via `D.value`,
+    /// enabling:
+    /// - Type safety: Cannot mix vectors of different dimensions
+    /// - Compile-time optimization hints
+    /// - Automatic kernel selection for optimized dimensions (384, 512, 768, 1536)
+    ///
+    /// - Parameters:
+    ///   - queries: Query vectors with compile-time dimension D
+    ///   - database: Database vectors with same dimension D
+    ///   - outputDistance: If true, output distance (1 - similarity)
+    ///   - inputsNormalized: If true, vectors are pre-normalized (enables fast path)
+    /// - Returns: Similarity/distance matrix [numQueries x numDatabase]
+    ///
+    /// ## Example Usage
+    /// ```swift
+    /// let queries: [Vector<Dim768>] = [...]  // BERT embeddings
+    /// let database: [Vector<Dim768>] = [...]
+    /// let similarities = try await kernel.compute(queries: queries, database: database)
+    /// ```
+    public func compute<D: StaticDimension>(
+        queries: [Vector<D>],
+        database: [Vector<D>],
+        outputDistance: Bool = false,
+        inputsNormalized: Bool = false
+    ) async throws -> [[Float]] {
+        guard !queries.isEmpty && !database.isEmpty else {
+            throw VectorError.invalidInput("Empty input vectors")
+        }
+
+        // Dimension is known at compile time
+        let dimension = D.value
+
+        let numQueries = queries.count
+        let numDatabase = database.count
+
+        // Zero-copy buffer creation using compile-time known dimension
+        guard let queryBuffer = kernelContext.createAlignedBufferFromVectors(
+            queries,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create query buffer")
+        }
+
+        guard let databaseBuffer = kernelContext.createAlignedBufferFromVectors(
+            database,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create database buffer")
+        }
+
+        let similarityBuffer = device.makeBuffer(
+            length: numQueries * numDatabase * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        )!
+
+        // Create parameters with compile-time known dimension
+        let parameters = Parameters(
+            numQueries: numQueries,
+            numDatabase: numDatabase,
+            dimension: dimension,
+            outputDistance: outputDistance,
+            inputsNormalized: inputsNormalized
+        )
+
+        // Execute computation
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
+        try compute(
+            queryVectors: queryBuffer,
+            databaseVectors: databaseBuffer,
+            similarities: similarityBuffer,
+            parameters: parameters,
+            commandBuffer: commandBuffer
+        )
+
+        commandBuffer.commit()
+        await commandBuffer.completed()
+
+        // Extract results
+        let similarityPointer = similarityBuffer.contents().bindMemory(
+            to: Float.self,
+            capacity: numQueries * numDatabase
+        )
+
+        var results: [[Float]] = []
+        results.reserveCapacity(numQueries)
+        for i in 0..<numQueries {
+            var row: [Float] = []
+            row.reserveCapacity(numDatabase)
+            for j in 0..<numDatabase {
+                row.append(similarityPointer[i * numDatabase + j])
+            }
+            results.append(row)
+        }
+
+        return results
+    }
+
+    /// Convenience type aliases for common embedding dimensions
+    public typealias Vector384 = Vector<Dim384>
+    public typealias Vector512 = Vector<Dim512>
+    public typealias Vector768 = Vector<Dim768>
+    public typealias Vector1536 = Vector<Dim1536>
 }
 
 // MARK: - Performance Extensions

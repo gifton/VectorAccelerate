@@ -124,13 +124,13 @@ public actor CoreMLBridge {
     private func analyzeModelStructure(_ description: MLModelDescription) throws -> (String, String, Int) {
         // Find text/token input
         guard let inputDesc = description.inputDescriptionsByName.first else {
-            throw AccelerationError.invalidOperation("No inputs found in model")
+            throw VectorError.invalidOperation("No inputs found in model")
         }
         let inputName = inputDesc.key
         
         // Find embedding output
         guard let outputDesc = description.outputDescriptionsByName.first else {
-            throw AccelerationError.invalidOperation("No outputs found in model")
+            throw VectorError.invalidOperation("No outputs found in model")
         }
         let outputName = outputDesc.key
         
@@ -142,7 +142,7 @@ public actor CoreMLBridge {
         }
         
         guard dimension > 0 else {
-            throw AccelerationError.invalidOperation("Could not determine embedding dimension")
+            throw VectorError.invalidOperation("Could not determine embedding dimension")
         }
         
         return (inputName, outputName, dimension)
@@ -156,7 +156,7 @@ public actor CoreMLBridge {
         modelId: String
     ) async throws -> [Float] {
         guard let embeddingModel = loadedModels[modelId] else {
-            throw AccelerationError.invalidOperation("Model not loaded: \(modelId)")
+            throw VectorError.invalidOperation("Model not loaded: \(modelId)")
         }
         
         let measureToken = await logger.startMeasure("coreMLInference")
@@ -188,7 +188,7 @@ public actor CoreMLBridge {
         modelId: String
     ) async throws -> [[Float]] {
         guard let embeddingModel = loadedModels[modelId] else {
-            throw AccelerationError.invalidOperation("Model not loaded: \(modelId)")
+            throw VectorError.invalidOperation("Model not loaded: \(modelId)")
         }
         
         let measureToken = await logger.startMeasure("batchCoreMLInference")
@@ -291,7 +291,7 @@ public actor CoreMLBridge {
     /// Extract embeddings from model output
     private func extractEmbeddings(from output: any MLFeatureProvider, model: EmbeddingModel) throws -> [Float] {
         guard let multiArray = output.featureValue(for: model.outputName)?.multiArrayValue else {
-            throw AccelerationError.invalidOperation("Could not extract embeddings from output")
+            throw VectorError.invalidOperation("Could not extract embeddings from output")
         }
         
         return multiArrayToFloatArray(multiArray)
@@ -313,7 +313,7 @@ public actor CoreMLBridge {
     /// Perform GPU operation on embeddings
     private func performGPUOperation(_ buffer: BufferToken, operation: EmbeddingOperation) async throws -> [Float] {
         guard context != nil else {
-            throw AccelerationError.metalNotAvailable
+            throw VectorError.metalNotAvailable()
         }
         
         // For now, all operations fall back to CPU

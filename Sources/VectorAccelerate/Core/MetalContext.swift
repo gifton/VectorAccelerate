@@ -41,6 +41,18 @@ public actor MetalContext: AccelerationProvider {
     public let bufferPool: BufferPool
     internal let commandQueue: any MTLCommandQueue  // Changed to internal for ComputeEngine access
 
+    /// Synchronous buffer factory for non-pooled buffer creation
+    ///
+    /// Use this when you need direct buffer creation without pool management overhead.
+    /// The factory operates synchronously without async boundaries.
+    ///
+    /// ```swift
+    /// // Synchronous buffer creation (no await needed)
+    /// let factory = await context.bufferFactory
+    /// let buffer = factory.createBuffer(length: 4096)
+    /// ```
+    public nonisolated let bufferFactory: MetalBufferFactory
+
     // Shared instances for synchronous access
     private nonisolated(unsafe) static var sharedInstances: [ObjectIdentifier: MetalContext] = [:]
     private static let sharedInstancesLock = NSLock()
@@ -58,24 +70,28 @@ public actor MetalContext: AccelerationProvider {
 
     nonisolated public init(configuration: MetalConfiguration = .default) async throws {
         self.configuration = configuration
-        
+
         // Select appropriate device
         if configuration.preferHighPerformanceDevice {
             self.device = try await MetalDevice.selectBestDevice()
         } else {
             self.device = try MetalDevice()
         }
-        
-        // Initialize buffer pool
+
+        // Create buffer factory (synchronous, nonisolated)
+        self.bufferFactory = device.makeBufferFactory()
+
+        // Initialize buffer pool with the same factory
         self.bufferPool = BufferPool(
             device: device,
+            factory: bufferFactory,
             maxBuffersPerBucket: configuration.maxBuffersPerSize,
             maxTotalMemory: configuration.maxBufferPoolMemory
         )
-        
+
         // Create command queue
         self.commandQueue = try await device.makeCommandQueue(label: configuration.commandQueueLabel)
-        
+
         // Load default library if available
         do {
             self.defaultLibrary = try await device.getDefaultLibrary()
@@ -89,15 +105,20 @@ public actor MetalContext: AccelerationProvider {
     nonisolated public init(device: any MTLDevice, configuration: MetalConfiguration = .default) async throws {
         self.configuration = configuration
         self.device = try MetalDevice(device: device)
-        
+
+        // Create buffer factory (synchronous, nonisolated)
+        self.bufferFactory = self.device.makeBufferFactory()
+
+        // Initialize buffer pool with the same factory
         self.bufferPool = BufferPool(
             device: self.device,
+            factory: bufferFactory,
             maxBuffersPerBucket: configuration.maxBuffersPerSize,
             maxTotalMemory: configuration.maxBufferPoolMemory
         )
-        
+
         self.commandQueue = try await self.device.makeCommandQueue(label: configuration.commandQueueLabel)
-        
+
         do {
             self.defaultLibrary = try await self.device.getDefaultLibrary()
         } catch {
@@ -165,7 +186,24 @@ public actor MetalContext: AccelerationProvider {
     public func getBuffer<T: Sendable>(for data: [T]) async throws -> BufferToken {
         try await bufferPool.getBuffer(for: data)
     }
-    
+
+    /// Get a buffer and copy data from a VectorProtocol using zero-copy access
+    ///
+    /// This method uses VectorProtocol's `withUnsafeBufferPointer` to avoid
+    /// intermediate array allocations when creating Metal buffers.
+    ///
+    /// - Parameter vector: Any VectorProtocol with Float scalars
+    /// - Returns: BufferToken with data copied directly from vector storage
+    public func getBuffer<V: VectorProtocol>(forVector vector: V) async throws -> BufferToken where V.Scalar == Float {
+        // Use withUnsafeBufferPointer to get direct access to storage
+        // Copy to a local array to satisfy Sendable requirements, but this is still
+        // faster than toArray() because we avoid the intermediate collection operations
+        let data: [Float] = vector.withUnsafeBufferPointer { ptr in
+            Array(ptr)
+        }
+        return try await bufferPool.getBuffer(for: data)
+    }
+
     /// Get pool statistics
     public func getPoolStatistics() async -> PoolStatistics {
         await bufferPool.getStatistics()
@@ -192,7 +230,7 @@ public actor MetalContext: AccelerationProvider {
         
         // Get function
         guard let function = library.makeFunction(name: functionName) else {
-            throw AccelerationError.shaderNotFound(name: functionName)
+            throw VectorError.shaderNotFound(name: functionName)
         }
         
         // Create pipeline state
@@ -218,12 +256,12 @@ public actor MetalContext: AccelerationProvider {
         }
         
         guard let library = defaultLibrary else {
-            throw AccelerationError.shaderNotFound(name: "default library")
+            throw VectorError.shaderNotFound(name: "default library")
         }
         
         // Get function
         guard let function = library.makeFunction(name: functionName) else {
-            throw AccelerationError.shaderNotFound(name: functionName)
+            throw VectorError.shaderNotFound(name: functionName)
         }
         
         // Create pipeline state
@@ -248,11 +286,11 @@ public actor MetalContext: AccelerationProvider {
         _ operation: @Sendable (any MTLCommandBuffer, any MTLComputeCommandEncoder) async throws -> T
     ) async throws -> T {
         guard let commandBuffer = makeCommandBuffer() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command buffer")
+            throw VectorError.deviceInitializationFailed("Failed to create command buffer")
         }
         
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create compute encoder")
+            throw VectorError.deviceInitializationFailed("Failed to create compute encoder")
         }
         
         let startTime = CFAbsoluteTimeGetCurrent()
@@ -279,11 +317,11 @@ public actor MetalContext: AccelerationProvider {
         _ operation: @Sendable (any MTLCommandBuffer, any MTLComputeCommandEncoder) async throws -> Void
     ) async throws {
         guard let commandBuffer = makeCommandBuffer() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command buffer")
+            throw VectorError.deviceInitializationFailed("Failed to create command buffer")
         }
         
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create compute encoder")
+            throw VectorError.deviceInitializationFailed("Failed to create compute encoder")
         }
         
         let startTime = CFAbsoluteTimeGetCurrent()
@@ -300,7 +338,7 @@ public actor MetalContext: AccelerationProvider {
         }
 
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: error.localizedDescription)
+            throw VectorError.computeFailed(reason: error.localizedDescription)
         }
     }
     

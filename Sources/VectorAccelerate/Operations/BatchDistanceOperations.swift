@@ -33,7 +33,7 @@ public actor BatchDistanceEngine {
     ) async throws -> [Float] {
         guard !candidates.isEmpty else { return [] }
         guard query.count == candidates[0].count else {
-            throw AccelerationError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
+            throw VectorError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
         }
         
         let shouldUseGPU = useGPU ?? (candidates.count >= gpuThreshold)
@@ -138,7 +138,7 @@ public actor BatchDistanceEngine {
     ) async throws -> [Float] {
         guard !candidates.isEmpty else { return [] }
         guard query.count == candidates[0].count else {
-            throw AccelerationError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
+            throw VectorError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
         }
         
         let shouldUseGPU = useGPU ?? (candidates.count >= gpuThreshold)
@@ -255,7 +255,7 @@ public actor BatchDistanceEngine {
     ) async throws -> [Float] {
         guard !candidates.isEmpty else { return [] }
         guard query.count == candidates[0].count else {
-            throw AccelerationError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
+            throw VectorError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
         }
         
         let shouldUseGPU = useGPU ?? (candidates.count >= gpuThreshold)
@@ -321,7 +321,117 @@ public actor BatchDistanceEngine {
             zip(query, candidate).reduce(0) { $0 + $1.0 * $1.1 }
         }
     }
-    
+
+    // MARK: - Batch Manhattan Distance (VectorCore 0.1.5)
+
+    /// Compute Manhattan (L1) distances between a query and multiple candidates
+    ///
+    /// Uses GPU acceleration for large batches, falls back to VectorCore's
+    /// SIMD4-optimized implementation for smaller batches (3-4x faster than scalar).
+    public func batchManhattanDistance(
+        query: [Float],
+        candidates: [[Float]],
+        useGPU: Bool? = nil
+    ) async throws -> [Float] {
+        guard !candidates.isEmpty else { return [] }
+        guard query.count == candidates[0].count else {
+            throw VectorError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
+        }
+
+        let shouldUseGPU = useGPU ?? (candidates.count >= gpuThreshold)
+
+        if shouldUseGPU {
+            return try await batchManhattanDistanceGPU(query: query, candidates: candidates)
+        } else if candidates.count >= simdThreshold {
+            return try await batchManhattanDistanceSIMD(query: query, candidates: candidates)
+        } else {
+            return batchManhattanDistanceCPU(query: query, candidates: candidates)
+        }
+    }
+
+    private func batchManhattanDistanceGPU(
+        query: [Float],
+        candidates: [[Float]]
+    ) async throws -> [Float] {
+        let dimension = query.count
+        let candidateCount = candidates.count
+
+        // Flatten candidates array
+        let flatCandidates = candidates.flatMap { $0 }
+
+        // Allocate buffers
+        let queryBuffer = try await bufferPool.acquire(with: query)
+        let candidatesBuffer = try await bufferPool.acquire(with: flatCandidates)
+        let resultBuffer = try await bufferPool.acquire(for: Float.self, count: candidateCount)
+
+        // Get pipeline for Manhattan distance
+        let pipeline = try await shaderManager.getPipelineState(functionName: "batchManhattanDistance")
+
+        try await metalContext.executeAndWait { commandBuffer, encoder in
+            encoder.setComputePipelineState(pipeline)
+            encoder.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
+            encoder.setBuffer(candidatesBuffer.buffer, offset: 0, index: 1)
+            encoder.setBuffer(resultBuffer.buffer, offset: 0, index: 2)
+
+            var dim = UInt32(dimension)
+            var count = UInt32(candidateCount)
+            encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
+            encoder.setBytes(&count, length: MemoryLayout<UInt32>.size, index: 4)
+
+            // Dispatch threads
+            let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
+            let threadgroups = MTLSize(
+                width: (candidateCount + 255) / 256,
+                height: 1,
+                depth: 1
+            )
+            encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
+        }
+
+        // Read results
+        let results = resultBuffer.buffer.contents().bindMemory(
+            to: Float.self,
+            capacity: candidateCount
+        )
+        return Array(UnsafeBufferPointer(start: results, count: candidateCount))
+    }
+
+    private func batchManhattanDistanceSIMD(
+        query: [Float],
+        candidates: [[Float]]
+    ) async throws -> [Float] {
+        // Use VectorCore's SIMD4-optimized ManhattanDistance (0.1.5)
+        let queryVector = DynamicVector(query)
+
+        return await withTaskGroup(of: (Int, Float).self) { group in
+            for (index, candidate) in candidates.enumerated() {
+                group.addTask {
+                    let candidateVector = DynamicVector(candidate)
+                    let distance = ManhattanDistance().distance(queryVector, candidateVector)
+                    return (index, distance)
+                }
+            }
+
+            var results = [Float](repeating: 0, count: candidates.count)
+            for await (index, distance) in group {
+                results[index] = distance
+            }
+            return results
+        }
+    }
+
+    private func batchManhattanDistanceCPU(
+        query: [Float],
+        candidates: [[Float]]
+    ) -> [Float] {
+        // Use VectorCore's SIMD4-optimized ManhattanDistance for CPU path too
+        let queryVector = DynamicVector(query)
+        return candidates.map { candidate in
+            let candidateVector = DynamicVector(candidate)
+            return ManhattanDistance().distance(queryVector, candidateVector)
+        }
+    }
+
     // MARK: - K-Nearest Neighbors
     
     /// Find k-nearest neighbors using specified distance metric
@@ -342,8 +452,10 @@ public actor BatchDistanceEngine {
         case .dotProduct:
             let products = try await batchDotProduct(query: query, candidates: candidates)
             distances = products.map { -$0 } // Negate for distance (higher dot product = closer)
-        case .manhattan, .chebyshev:
-            throw AccelerationError.unsupportedOperation("Metric \(metric) not yet implemented for batch operations")
+        case .manhattan:
+            distances = try await batchManhattanDistance(query: query, candidates: candidates)
+        case .chebyshev:
+            throw VectorError.unsupportedGPUOperation("Metric \(metric) not yet implemented for batch operations")
         }
         
         // Find k smallest distances

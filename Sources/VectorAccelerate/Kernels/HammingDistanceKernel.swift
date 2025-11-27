@@ -93,7 +93,7 @@ public final class HammingDistanceKernel: @unchecked Sendable {
               let floatFunc = library.makeFunction(name: "hamming_distance_float"),
               let singleFunc = library.makeFunction(name: "hamming_distance_single"),
               let normalizedFunc = library.makeFunction(name: "hamming_distance_normalized") else {
-            throw AccelerationError.shaderNotFound(name: "Hamming distance kernels not found")
+            throw VectorError.shaderNotFound(name: "Hamming distance kernels not found")
         }
         
         self.batchKernel = try device.makeComputePipelineState(function: batchFunc)
@@ -132,7 +132,7 @@ public final class HammingDistanceKernel: @unchecked Sendable {
                 length: queryCount * datasetCount * MemoryLayout<Float>.stride,
                 options: MTLResourceOptions.storageModeShared
             ) else {
-                throw AccelerationError.bufferCreationFailed("Failed to create output buffer")
+                throw VectorError.bufferCreationFailed("Failed to create output buffer")
             }
             outputBuffer = buffer
         } else {
@@ -140,14 +140,14 @@ public final class HammingDistanceKernel: @unchecked Sendable {
                 length: queryCount * datasetCount * MemoryLayout<UInt32>.stride,
                 options: MTLResourceOptions.storageModeShared
             ) else {
-                throw AccelerationError.bufferCreationFailed("Failed to create output buffer")
+                throw VectorError.bufferCreationFailed("Failed to create output buffer")
             }
             outputBuffer = buffer
         }
         
         // Encode kernel
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         let kernel = config.normalized ? normalizedKernel : batchKernel
@@ -215,12 +215,12 @@ public final class HammingDistanceKernel: @unchecked Sendable {
             length: queryCount * datasetCount * MemoryLayout<UInt32>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create output buffer")
+            throw VectorError.bufferCreationFailed("Failed to create output buffer")
         }
         
         // Encode kernel
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "HammingDistance_Float"
@@ -283,7 +283,7 @@ public final class HammingDistanceKernel: @unchecked Sendable {
         _ b: [Bool]
     ) async throws -> Int {
         guard a.count == b.count else {
-            throw AccelerationError.countMismatch()
+            throw VectorError.countMismatch()
         }
         
         let packedA = packBinary(a)
@@ -293,13 +293,13 @@ public final class HammingDistanceKernel: @unchecked Sendable {
             from: packedA,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         guard let bufferB = kernelContext.createBuffer(
             from: packedB,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         // Use single vector kernel
@@ -307,7 +307,7 @@ public final class HammingDistanceKernel: @unchecked Sendable {
             length: MemoryLayout<UInt32>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create output buffer")
+            throw VectorError.bufferCreationFailed("Failed to create output buffer")
         }
         
         // Initialize to 0
@@ -316,7 +316,7 @@ public final class HammingDistanceKernel: @unchecked Sendable {
         let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.setComputePipelineState(singleKernel)
@@ -347,12 +347,12 @@ public final class HammingDistanceKernel: @unchecked Sendable {
         normalized: Bool = false
     ) async throws -> [[Float]] {
         guard !queries.isEmpty && !dataset.isEmpty else {
-            throw AccelerationError.invalidInput("Empty input arrays")
+            throw VectorError.invalidInput("Empty input arrays")
         }
         
         let dimension = queries[0].count
         guard dataset.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.countMismatch()
+            throw VectorError.countMismatch()
         }
         
         // Pack all vectors
@@ -364,7 +364,7 @@ public final class HammingDistanceKernel: @unchecked Sendable {
             options: MTLResourceOptions.storageModeShared
         
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         guard let datasetBuffer = kernelContext.createBuffer(
@@ -372,7 +372,7 @@ public final class HammingDistanceKernel: @unchecked Sendable {
             options: MTLResourceOptions.storageModeShared
         
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
         
         let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
@@ -394,20 +394,27 @@ public final class HammingDistanceKernel: @unchecked Sendable {
     }
     
     // MARK: - VectorCore Integration
-    
+
     /// Compute Hamming distance using VectorCore binary vectors
+    ///
+    /// Uses `withUnsafeBufferPointer` to avoid intermediate allocations during binarization.
     public func distance<V: VectorProtocol>(
         _ a: V,
         _ b: V,
         threshold: Float = 0.0
     ) async throws -> Int where V.Scalar == Float {
-        let arrayA = Array(a.toArray())
-        let arrayB = Array(b.toArray())
-        
-        // Binarize based on threshold
-        let binaryA = arrayA.map { $0 > threshold }
-        let binaryB = arrayB.map { $0 > threshold }
-        
+        guard a.count == b.count else {
+            throw VectorError.countMismatch(expected: a.count, actual: b.count)
+        }
+
+        // Binarize directly from vector storage without intermediate array allocation
+        let binaryA: [Bool] = a.withUnsafeBufferPointer { ptr in
+            ptr.map { $0 > threshold }
+        }
+        let binaryB: [Bool] = b.withUnsafeBufferPointer { ptr in
+            ptr.map { $0 > threshold }
+        }
+
         return try await distance(binaryA, binaryB)
     }
     

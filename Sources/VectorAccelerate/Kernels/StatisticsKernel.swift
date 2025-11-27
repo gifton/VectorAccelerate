@@ -233,7 +233,7 @@ public final class StatisticsKernel: @unchecked Sendable {
         self.device = device
         
         guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command queue")
+            throw VectorError.deviceInitializationFailed("Failed to create command queue")
         }
         self.commandQueue = queue
         
@@ -243,7 +243,7 @@ public final class StatisticsKernel: @unchecked Sendable {
         // Load compute kernels
         func loadFunction(name: String) throws -> any MTLFunction {
             guard let function = library.makeFunction(name: name) else {
-                throw AccelerationError.shaderNotFound(name: name)
+                throw VectorError.shaderNotFound(name: name)
             }
             return function
         }
@@ -259,13 +259,13 @@ public final class StatisticsKernel: @unchecked Sendable {
             self.quantilesKernel = try device.makeComputePipelineState(function: quantilesFunc)
             self.correlationKernel = try device.makeComputePipelineState(function: correlationFunc)
         } catch {
-            throw AccelerationError.computeFailed(reason: "Failed to create pipeline states: \(error)")
+            throw VectorError.computeFailed(reason: "Failed to create pipeline states: \(error)")
         }
         
         // Validate hardware support
         let maxThreadsPerThreadgroup = basicStatsKernel.maxTotalThreadsPerThreadgroup
         if maxThreadsPerThreadgroup < 256 {
-            throw AccelerationError.unsupportedOperation(
+            throw VectorError.unsupportedGPUOperation(
                 "Device does not support required threadgroup size for statistics computation"
             )
         }
@@ -318,7 +318,7 @@ public final class StatisticsKernel: @unchecked Sendable {
         config: StatisticsConfig = .default
     ) throws -> BatchStatisticsResult {
         guard !datasets.isEmpty else {
-            throw AccelerationError.invalidInput("Datasets array cannot be empty.")
+            throw VectorError.invalidInput("Datasets array cannot be empty.")
         }
         
         let totalStartTime = CACurrentMediaTime()
@@ -332,7 +332,7 @@ public final class StatisticsKernel: @unchecked Sendable {
                 let result = try computeStatistics(data: data, config: config)
                 results.append(result)
             } catch {
-                throw AccelerationError.computeFailed(reason: "Failed processing dataset at index \(index): \(error)")
+                throw VectorError.computeFailed(reason: "Failed processing dataset at index \(index): \(error)")
             }
         }
         
@@ -355,19 +355,19 @@ public final class StatisticsKernel: @unchecked Sendable {
         datasets: [[Float]]
     ) throws -> CorrelationResult {
         guard datasets.count >= 2 else {
-            throw AccelerationError.invalidInput("At least two datasets are required for correlation.")
+            throw VectorError.invalidInput("At least two datasets are required for correlation.")
         }
         
         let N = datasets[0].count
         guard N > 1 else {
-             throw AccelerationError.invalidInput("Datasets must contain more than one element.")
+             throw VectorError.invalidInput("Datasets must contain more than one element.")
         }
         let numDatasets = datasets.count
 
         // Validate dimensions and data
         for data in datasets {
             if data.count != N {
-                throw AccelerationError.countMismatch(expected: N, actual: data.count)
+                throw VectorError.countMismatch(expected: N, actual: data.count)
             }
             try validateInputData(data)
         }
@@ -440,12 +440,12 @@ public final class StatisticsKernel: @unchecked Sendable {
     ) throws -> QuantilesResult {
         try validateInputData(data)
         guard !levels.isEmpty else {
-            throw AccelerationError.invalidInput("Quantile levels cannot be empty.")
+            throw VectorError.invalidInput("Quantile levels cannot be empty.")
         }
         // Ensure levels are sorted and valid
         let sortedLevels = levels.filter { $0 >= 0.0 && $0 <= 1.0 }.sorted()
         if sortedLevels.isEmpty {
-             throw AccelerationError.invalidInput("No valid quantile levels provided (must be 0.0-1.0).")
+             throw VectorError.invalidInput("No valid quantile levels provided (must be 0.0-1.0).")
         }
         return try computeQuantilesInternal(data: data, levels: sortedLevels)
     }
@@ -730,11 +730,11 @@ public final class StatisticsKernel: @unchecked Sendable {
     // MARK: Input Validation
     private func validateInputData(_ data: [Float]) throws {
         if data.isEmpty {
-            throw AccelerationError.invalidInput("Input data array cannot be empty.")
+            throw VectorError.invalidInput("Input data array cannot be empty.")
         }
         
         if data.contains(where: { !$0.isFinite }) {
-            throw AccelerationError.invalidInput("Input data contains NaN or infinite values.")
+            throw VectorError.invalidInput("Input data contains NaN or infinite values.")
         }
     }
     
@@ -747,7 +747,7 @@ public final class StatisticsKernel: @unchecked Sendable {
             length: length,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: length)
+            throw VectorError.bufferAllocationFailed(size: length)
         }
         return buffer
     }
@@ -757,7 +757,7 @@ public final class StatisticsKernel: @unchecked Sendable {
             length: length,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: length)
+            throw VectorError.bufferAllocationFailed(size: length)
         }
         return buffer
     }
@@ -781,7 +781,7 @@ public final class StatisticsKernel: @unchecked Sendable {
         // Create command buffer
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }
         
         // Configure compute pass
@@ -830,7 +830,7 @@ public final class StatisticsKernel: @unchecked Sendable {
         
         // Check for errors
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: "GPU computation failed: \(error)")
+            throw VectorError.computeFailed(reason: "GPU computation failed: \(error)")
         }
         
         return executionTime

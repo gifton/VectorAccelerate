@@ -76,7 +76,7 @@ final class DistanceMetricsTests: XCTestCase {
             XCTFail("Should throw dimension mismatch error")
         } catch {
             // Expected error
-            XCTAssertTrue(error is AccelerationError)
+            XCTAssertTrue(error is VectorError)
         }
     }
     
@@ -172,7 +172,7 @@ final class DistanceMetricsTests: XCTestCase {
             XCTFail("Should throw error for negative p")
         } catch {
             // Expected error
-            XCTAssertTrue(error is AccelerationError)
+            XCTAssertTrue(error is VectorError)
         }
     }
     
@@ -185,7 +185,7 @@ final class DistanceMetricsTests: XCTestCase {
             XCTFail("Should throw error for p=0")
         } catch {
             // Expected error
-            XCTAssertTrue(error is AccelerationError)
+            XCTAssertTrue(error is VectorError)
         }
     }
     
@@ -276,7 +276,7 @@ final class DistanceMetricsTests: XCTestCase {
             // Some implementations might handle empty vectors
         } catch {
             // Or throw an error - both are acceptable
-            XCTAssertTrue(error is AccelerationError)
+            XCTAssertTrue(error is VectorError)
         }
     }
     

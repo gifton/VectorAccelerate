@@ -42,18 +42,23 @@ public struct EmbeddingConfiguration: Sendable {
     }
 }
 
-/// Result of a similarity search operation
-public struct SearchResult: Sendable {
+/// Result of a similarity search operation in the embedding engine
+/// Named `EmbeddingSearchResult` to avoid collision with VectorCore's `SearchResult<ID>`
+public struct EmbeddingSearchResult: Sendable {
     public let index: Int
     public let distance: Float
     public let metadata: [String: String]?  // Changed to String:String for Sendable
-    
+
     public init(index: Int, distance: Float, metadata: [String: String]? = nil) {
         self.index = index
         self.distance = distance
         self.metadata = metadata
     }
 }
+
+/// Type alias for backwards compatibility
+@available(*, deprecated, renamed: "EmbeddingSearchResult")
+public typealias SearchResult = EmbeddingSearchResult
 
 /// Clustering result
 public struct ClusterResult: Sendable {
@@ -112,7 +117,7 @@ public actor EmbeddingEngine {
     /// Add embeddings to the engine
     public func addEmbeddings(_ newEmbeddings: [[Float]], metadata: [[String: String]]? = nil) async throws {
         guard newEmbeddings.allSatisfy({ $0.count == configuration.dimension }) else {
-            throw AccelerationError.dimensionMismatch(
+            throw VectorError.dimensionMismatch(
                 expected: configuration.dimension,
                 actual: newEmbeddings.first?.count ?? 0
             )
@@ -178,9 +183,9 @@ public actor EmbeddingEngine {
         query: [Float],
         k: Int = 10,
         threshold: Float? = nil
-    ) async throws -> [SearchResult] {
+    ) async throws -> [EmbeddingSearchResult] {
         guard query.count == configuration.dimension else {
-            throw AccelerationError.dimensionMismatch(
+            throw VectorError.dimensionMismatch(
                 expected: configuration.dimension,
                 actual: query.count
             )
@@ -231,7 +236,7 @@ public actor EmbeddingEngine {
         
         // Create search results with metadata
         let searchResults = results.map { result in
-            SearchResult(
+            EmbeddingSearchResult(
                 index: result.index,
                 distance: result.distance,
                 metadata: metadata.indices.contains(result.index) ? metadata[result.index] : nil
@@ -250,26 +255,26 @@ public actor EmbeddingEngine {
         queries: [[Float]],
         k: Int = 10,
         threshold: Float? = nil
-    ) async throws -> [[SearchResult]] {
+    ) async throws -> [[EmbeddingSearchResult]] {
         let measureToken = await logger.startMeasure("batchSearch")
         measureToken.addMetadata("batchSize", value: "\(queries.count)")
         defer { measureToken.end() }
         
         // Process queries in parallel
-        return try await withThrowingTaskGroup(of: (Int, [SearchResult]).self) { group in
+        return try await withThrowingTaskGroup(of: (Int, [EmbeddingSearchResult]).self) { group in
             for (index, query) in queries.enumerated() {
                 group.addTask {
                     let results = try await self.search(query: query, k: k, threshold: threshold)
                     return (index, results)
                 }
             }
-            
+
             // Collect results in order
-            var orderedResults = [[SearchResult]](repeating: [], count: queries.count)
+            var orderedResults = [[EmbeddingSearchResult]](repeating: [], count: queries.count)
             for try await (index, results) in group {
                 orderedResults[index] = results
             }
-            
+
             return orderedResults
         }
     }
@@ -290,7 +295,7 @@ public actor EmbeddingEngine {
         tolerance: Float = 1e-4
     ) async throws -> ClusterResult {
         guard !embeddings.isEmpty else {
-            throw AccelerationError.invalidOperation("No embeddings available for clustering")
+            throw VectorError.invalidOperation("No embeddings available for clustering")
         }
         
         let measureToken = await logger.startMeasure("kMeansClustering")
@@ -540,11 +545,8 @@ public actor EmbeddingEngine {
                 let dot = try await simdFallback.dotProduct(query, embedding)
                 distance = 1.0 - dot  // Assuming normalized vectors
             case .manhattan:
-                var sum: Float = 0
-                for i in 0..<query.count {
-                    sum += abs(query[i] - embedding[i])
-                }
-                distance = sum
+                // Delegate to VectorCore's SIMD4-optimized Manhattan distance (0.1.5)
+                distance = try await simdFallback.manhattanDistance(query, embedding)
             case .dotProduct:
                 let dot = try await simdFallback.dotProduct(query, embedding)
                 distance = -dot  // Negate for distance (higher dot product = closer)
@@ -564,7 +566,7 @@ public actor EmbeddingEngine {
     /// Load distance computation shader
     private func loadDistanceShader() async throws -> any MTLComputePipelineState {
         guard let ctx = context else {
-            throw AccelerationError.metalNotAvailable
+            throw VectorError.metalNotAvailable()
         }
         
         let source = """
@@ -637,13 +639,5 @@ public actor EmbeddingEngine {
     ) {
         let avgTime = searchOperations > 0 ? totalSearchTime / Double(searchOperations) : 0
         return (embeddings.count, searchOperations, avgTime)
-    }
-}
-
-// MARK: - Error Extensions
-
-extension AccelerationError {
-    static func invalidOperation(_ reason: String) -> AccelerationError {
-        .unsupportedOperation(reason)
     }
 }

@@ -166,7 +166,7 @@ public actor MatrixEngine {
     ///   - matrixB: Second matrix (row-major order)
     ///   - descriptorB: Dimensions of matrix B
     /// - Returns: Result matrix C in row-major order
-    /// - Throws: `AccelerationError.dimensionMismatch` if A.columns ≠ B.rows
+    /// - Throws: `VectorError.dimensionMismatch` if A.columns ≠ B.rows
     public func multiply(
         _ matrixA: [Float],
         descriptorA: MatrixDescriptor,
@@ -175,7 +175,7 @@ public actor MatrixEngine {
     ) async throws -> [Float] {
         // Validate dimensions
         guard descriptorA.columns == descriptorB.rows else {
-            throw AccelerationError.dimensionMismatch(
+            throw VectorError.dimensionMismatch(
                 expected: descriptorA.columns,
                 actual: descriptorB.rows
             )
@@ -234,7 +234,7 @@ public actor MatrixEngine {
         }
         
         guard let shader = matrixMultiplyShader else {
-            throw AccelerationError.shaderNotFound(name: "matrixMultiply")
+            throw VectorError.shaderNotFound(name: "matrixMultiply")
         }
         
         // Execute on GPU
@@ -422,7 +422,7 @@ public actor MatrixEngine {
         vectors: [[Float]]
     ) async throws -> [[Float]] {
         guard matrices.count == vectors.count else {
-            throw AccelerationError.dimensionMismatch(
+            throw VectorError.dimensionMismatch(
                 expected: matrices.count,
                 actual: vectors.count
             )
@@ -461,7 +461,7 @@ public actor MatrixEngine {
         vector: [Float]
     ) async throws -> [Float] {
         guard vector.count == descriptor.columns else {
-            throw AccelerationError.dimensionMismatch(
+            throw VectorError.dimensionMismatch(
                 expected: descriptor.columns,
                 actual: vector.count
             )
@@ -566,7 +566,7 @@ public extension MatrixEngine {
     /// Create with default context
     static func createDefault() async throws -> MatrixEngine {
         guard let context = await MetalContext.createDefault() else {
-            throw AccelerationError.deviceInitializationFailed("Metal not available")
+            throw VectorError.deviceInitializationFailed("Metal not available")
         }
         return await MatrixEngine(context: context)
     }

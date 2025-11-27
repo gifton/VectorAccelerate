@@ -79,10 +79,10 @@ public final class SIMDFallback: @unchecked Sendable {
     ///   - a: First vector
     ///   - b: Second vector (must be same length as a)
     /// - Returns: Scalar dot product
-    /// - Throws: `AccelerationError.dimensionMismatch` if vectors have different lengths
+    /// - Throws: `VectorError.dimensionMismatch` if vectors have different lengths
     public func dotProduct(_ a: [Float], _ b: [Float]) async throws -> Float {
         guard a.count == b.count else {
-            throw AccelerationError.dimensionMismatch(expected: a.count, actual: b.count)
+            throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
         }
         
         let start = CFAbsoluteTimeGetCurrent()
@@ -144,7 +144,7 @@ public final class SIMDFallback: @unchecked Sendable {
     /// Compute Euclidean distance using SIMD
     public func euclideanDistance(_ a: [Float], _ b: [Float]) async throws -> Float {
         guard a.count == b.count else {
-            throw AccelerationError.dimensionMismatch(expected: a.count, actual: b.count)
+            throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
         }
         
         let start = CFAbsoluteTimeGetCurrent()
@@ -170,13 +170,13 @@ public final class SIMDFallback: @unchecked Sendable {
         // Use SIMD8 regardless of configuration to avoid out-of-bounds access
         let vectorWidth = min(configuration.vectorWidth, 8)
         var sumSquared: Float = 0
-        
+
         let fullVectors = count / vectorWidth
-        
+
         a.withUnsafeBufferPointer { aPtr in
             b.withUnsafeBufferPointer { bPtr in
                 var vectorSum = SIMD8<Float>.zero
-                
+
                 for i in 0..<fullVectors {
                     let offset = i * vectorWidth
                     var va = SIMD8<Float>.zero
@@ -188,9 +188,9 @@ public final class SIMDFallback: @unchecked Sendable {
                     let diff = va - vb
                     vectorSum += diff * diff
                 }
-                
+
                 sumSquared = vectorSum.sum()
-                
+
                 // Handle remaining elements
                 for i in (fullVectors * vectorWidth)..<count {
                     let diff = aPtr[i] - bPtr[i]
@@ -198,8 +198,48 @@ public final class SIMDFallback: @unchecked Sendable {
                 }
             }
         }
-        
+
         return sqrt(sumSquared)
+    }
+
+    // MARK: - Manhattan Distance (VectorCore 0.1.5 SIMD-optimized)
+
+    /// Compute Manhattan (L1) distance using VectorCore's SIMD4-optimized implementation
+    ///
+    /// VectorCore 0.1.5 provides 3-4x faster Manhattan distance computation using SIMD4 vectorization.
+    /// This method delegates to VectorCore's optimized `ManhattanDistance` for best performance.
+    ///
+    /// - Parameters:
+    ///   - a: First vector
+    ///   - b: Second vector (must be same length as a)
+    /// - Returns: L1 distance (sum of absolute differences)
+    /// - Throws: `VectorError.dimensionMismatch` if vectors have different lengths
+    public func manhattanDistance(_ a: [Float], _ b: [Float]) async throws -> Float {
+        guard a.count == b.count else {
+            throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
+        }
+
+        let start = CFAbsoluteTimeGetCurrent()
+        defer { trackOperation(start: start) }
+
+        // Delegate to VectorCore's SIMD4-optimized ManhattanDistance (0.1.5)
+        // Use DynamicVector for optimal performance with VectorCore's optimized path
+        let vectorA = DynamicVector(a)
+        let vectorB = DynamicVector(b)
+        return ManhattanDistance().distance(vectorA, vectorB)
+    }
+
+    /// Compute Manhattan distance for VectorProtocol types using VectorCore's SIMD optimization
+    ///
+    /// This generic version works with any VectorProtocol conforming type, leveraging
+    /// VectorCore 0.1.5's SIMD4-vectorized Manhattan distance implementation.
+    ///
+    /// - Parameters:
+    ///   - a: First vector
+    ///   - b: Second vector
+    /// - Returns: L1 distance
+    public func manhattanDistance<V: VectorProtocol>(_ a: V, _ b: V) -> Float where V.Scalar == Float {
+        return ManhattanDistance().distance(a, b)
     }
     
     /// Normalize vector using SIMD
@@ -304,7 +344,7 @@ public final class SIMDFallback: @unchecked Sendable {
         vector: [Float]
     ) async throws -> [Float] {
         guard vector.count == columns else {
-            throw AccelerationError.dimensionMismatch(expected: columns, actual: vector.count)
+            throw VectorError.dimensionMismatch(expected: columns, actual: vector.count)
         }
         
         let start = CFAbsoluteTimeGetCurrent()
@@ -401,7 +441,7 @@ public final class SIMDFallback: @unchecked Sendable {
         
         let dimension = reference.count
         guard vectors.allSatisfy({ $0.count == dimension }) else {
-            throw AccelerationError.dimensionMismatch(expected: dimension, actual: -1)
+            throw VectorError.dimensionMismatch(expected: dimension, actual: -1)
         }
         
         let start = CFAbsoluteTimeGetCurrent()

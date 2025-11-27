@@ -115,7 +115,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
         guard let initFunc = library.makeFunction(name: "streaming_topk_init"),
               let processFunc = library.makeFunction(name: "streaming_topk_process_chunk"),
               let finalizeFunc = library.makeFunction(name: "streaming_topk_finalize") else {
-            throw AccelerationError.shaderNotFound(name: "Streaming top-k kernels not found")
+            throw VectorError.shaderNotFound(name: "Streaming top-k kernels not found")
         }
         
         self.initKernel = try device.makeComputePipelineState(function: initFunc)
@@ -130,7 +130,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
     /// - Returns: Initialized streaming state
     public func initializeStreaming(config: StreamConfig) throws -> StreamingState {
         guard config.k <= MAX_K_PRIVATE else {
-            throw AccelerationError.invalidInput("K must be <= \(MAX_K_PRIVATE)")
+            throw VectorError.invalidInput("K must be <= \(MAX_K_PRIVATE)")
         }
         
         // Allocate running state buffers
@@ -145,14 +145,14 @@ public final class StreamingTopKKernel: @unchecked Sendable {
         )
         
         guard let distances = distanceBuffer, let indices = indexBuffer else {
-            throw AccelerationError.bufferCreationFailed("Failed to create streaming buffers")
+            throw VectorError.bufferCreationFailed("Failed to create streaming buffers")
         }
         
         // Initialize buffers with infinity/sentinel values
         let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "StreamingTopKInit"
@@ -192,11 +192,11 @@ public final class StreamingTopKKernel: @unchecked Sendable {
         commandBuffer: any MTLCommandBuffer
     ) throws {
         guard !state.isComplete else {
-            throw AccelerationError.invalidInput("Streaming already complete")
+            throw VectorError.invalidInput("Streaming already complete")
         }
         
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "StreamingTopKProcessChunk"
@@ -238,7 +238,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
         commandBuffer: any MTLCommandBuffer
     ) throws -> StreamingResult {
         guard state.isComplete else {
-            throw AccelerationError.invalidInput("Streaming not complete. Processed \(state.chunksProcessed)/\(state.config.numberOfChunks) chunks")
+            throw VectorError.invalidInput("Streaming not complete. Processed \(state.chunksProcessed)/\(state.config.numberOfChunks) chunks")
         }
         
         // Create output buffers in shared memory for CPU access
@@ -253,12 +253,12 @@ public final class StreamingTopKKernel: @unchecked Sendable {
         )
         
         guard let distances = finalDistances, let indices = finalIndices else {
-            throw AccelerationError.bufferCreationFailed("Failed to create final buffers")
+            throw VectorError.bufferCreationFailed("Failed to create final buffers")
         }
         
         // Copy from private to shared memory
         guard let blitEncoder = commandBuffer.makeBlitCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         blitEncoder.copy(
@@ -281,7 +281,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
         
         // Sort using heapsort kernel
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "StreamingTopKFinalize"
@@ -452,7 +452,7 @@ public final class StreamingTopKKernel: @unchecked Sendable {
             options: MTLResourceOptions.storageModeShared
             
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create buffer")
+            throw VectorError.bufferCreationFailed("Failed to create buffer")
         }
             
             let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
@@ -505,7 +505,7 @@ extension StreamingTopKKernel {
     ) async throws -> StreamingResult where V.Scalar == Float {
         let queryCount = queryVectors.count
         guard queryCount > 0 else {
-            throw AccelerationError.invalidInput("No query vectors")
+            throw VectorError.invalidInput("No query vectors")
         }
         
         let _ = queryVectors[0].count

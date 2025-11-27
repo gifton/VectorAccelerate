@@ -249,7 +249,7 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         self.device = device
         
         guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command queue")
+            throw VectorError.deviceInitializationFailed("Failed to create command queue")
         }
         self.commandQueue = queue
         
@@ -257,19 +257,19 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         let library = try KernelContext.getSharedLibrary(for: device)
         
         guard let function = library.makeFunction(name: "computeQuantizationStats") else {
-            throw AccelerationError.shaderNotFound(name: "computeQuantizationStats")
+            throw VectorError.shaderNotFound(name: "computeQuantizationStats")
         }
         
         do {
             self.pipelineState = try device.makeComputePipelineState(function: function)
         } catch {
-            throw AccelerationError.computeFailed(reason: "Failed to create pipeline state: \(error)")
+            throw VectorError.computeFailed(reason: "Failed to create pipeline state: \(error)")
         }
         
         // Validate hardware support
         let maxThreadsPerThreadgroup = pipelineState.maxTotalThreadsPerThreadgroup
         if maxThreadsPerThreadgroup < 64 {
-            throw AccelerationError.unsupportedOperation(
+            throw VectorError.unsupportedGPUOperation(
                 "Device does not support required threadgroup size for statistics computation"
             )
         }
@@ -289,7 +289,7 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         config: StatisticsConfig = .default
     ) async throws -> BatchStatistics {
         guard original.count == quantized.count else {
-            throw AccelerationError.countMismatch(expected: original.count, actual: quantized.count)
+            throw VectorError.countMismatch(expected: original.count, actual: quantized.count)
         }
         
         let numVectors = original.count
@@ -309,12 +309,12 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         // Validate all vectors have same dimension
         for (_, vector) in original.enumerated() {
             guard vector.count == dimension else {
-                throw AccelerationError.countMismatch(expected: dimension, actual: vector.count)
+                throw VectorError.countMismatch(expected: dimension, actual: vector.count)
             }
         }
         for (_, vector) in quantized.enumerated() {
             guard vector.count == dimension else {
-                throw AccelerationError.countMismatch(expected: dimension, actual: vector.count)
+                throw VectorError.countMismatch(expected: dimension, actual: vector.count)
             }
         }
         
@@ -331,7 +331,7 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
             length: originalSize,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: originalSize)
+            throw VectorError.bufferAllocationFailed(size: originalSize)
         }
         
         let quantizedSize = flatQuantized.count * MemoryLayout<Float>.stride
@@ -340,19 +340,19 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
             length: quantizedSize,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: quantizedSize)
+            throw VectorError.bufferAllocationFailed(size: quantizedSize)
         }
         
         let resultSize = numVectors * MemoryLayout<Float>.stride
         guard let mseBuffer = device.makeBuffer(length: resultSize, options: MTLResourceOptions.storageModeShared),
               let psnrBuffer = device.makeBuffer(length: resultSize, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferAllocationFailed(size: resultSize * 2)
+            throw VectorError.bufferAllocationFailed(size: resultSize * 2)
         }
         
         // Create command buffer
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }
         
         // Configure compute pass
@@ -390,7 +390,7 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         
         // Check for errors
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: "Statistics computation failed: \(error)")
+            throw VectorError.computeFailed(reason: "Statistics computation failed: \(error)")
         }
         
         // Extract GPU results

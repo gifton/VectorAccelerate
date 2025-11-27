@@ -40,7 +40,7 @@ public actor ShaderManager {
             if !embeddedShaderSource!.isEmpty {
                 self.defaultLibrary = try await compileLibrary(source: embeddedShaderSource!, label: "VectorAccelerate.Test")
             } else {
-                throw AccelerationError.shaderCompilationFailed("Could not load Metal shaders")
+                throw VectorError.shaderCompilationFailed("Could not load Metal shaders")
             }
         }
     }
@@ -88,11 +88,11 @@ public actor ShaderManager {
         }
         
         guard let lib = lib else {
-            throw AccelerationError.shaderNotFound(name: "No library available")
+            throw VectorError.shaderNotFound(name: "No library available")
         }
         
         guard let function = lib.makeFunction(name: name) else {
-            throw AccelerationError.shaderNotFound(name: name)
+            throw VectorError.shaderNotFound(name: name)
         }
         
         // Cache function
@@ -132,7 +132,7 @@ public actor ShaderManager {
         let lib = library ?? defaultLibrary
         
         guard let lib = lib else {
-            throw AccelerationError.shaderNotFound(name: "No library available")
+            throw VectorError.shaderNotFound(name: "No library available")
         }
         
         // Create function with constants if provided
@@ -144,7 +144,7 @@ public actor ShaderManager {
             )
         } else {
             guard let fn = lib.makeFunction(name: functionName) else {
-                throw AccelerationError.shaderNotFound(name: functionName)
+                throw VectorError.shaderNotFound(name: functionName)
             }
             function = fn
         }

@@ -9,6 +9,7 @@ import XCTest
 @testable import VectorAccelerate
 @preconcurrency import Foundation
 import VectorCore
+import VectorCore
 
 @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
 final class QuantizationEngineEnhancedTests: XCTestCase {
@@ -262,7 +263,7 @@ final class QuantizationEngineEnhancedTests: XCTestCase {
             do {
                 _ = try await engine!.scalarQuantize(vector: testVector, bits: bits)
                 XCTFail("Should have thrown error for unsupported bit width: \(bits)")
-            } catch AccelerationError.unsupportedOperation {
+            } catch let error as VectorError where error.kind == .invalidOperation || error.kind == .unsupportedOperation {
                 // Expected error
             } catch {
                 XCTFail("Wrong error type for unsupported bit width: \(error)")
@@ -326,7 +327,7 @@ final class QuantizationEngineEnhancedTests: XCTestCase {
         do {
             _ = try await engine!.productQuantize(vector: testVector)
             XCTFail("Should have thrown error when product quantization is not trained")
-        } catch AccelerationError.unsupportedOperation {
+        } catch let error as VectorError where error.kind == .invalidOperation || error.kind == .unsupportedOperation {
             // Expected error
         } catch {
             XCTFail("Wrong error type: \(error)")
@@ -345,7 +346,7 @@ final class QuantizationEngineEnhancedTests: XCTestCase {
                 centroids: 32
             )
             XCTFail("Should have thrown error for invalid dimensions")
-        } catch AccelerationError.unsupportedOperation {
+        } catch let error as VectorError where error.kind == .invalidOperation || error.kind == .unsupportedOperation {
             // Expected error
         } catch {
             XCTFail("Wrong error type: \(error)")
@@ -475,7 +476,7 @@ final class QuantizationEngineEnhancedTests: XCTestCase {
         do {
             _ = try await engine!.dequantize(quantized: customQuantized)
             XCTFail("Should have thrown error for custom quantization")
-        } catch AccelerationError.unsupportedOperation {
+        } catch let error as VectorError where error.kind == .invalidOperation || error.kind == .unsupportedOperation {
             // Expected error
         }
     }

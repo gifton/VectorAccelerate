@@ -101,7 +101,7 @@ public final class JaccardDistanceKernel: @unchecked Sendable {
         self.device = device
         
         guard let queue = device.makeCommandQueue() else {
-            throw AccelerationError.deviceInitializationFailed("Failed to create command queue")
+            throw VectorError.deviceInitializationFailed("Failed to create command queue")
         }
         self.commandQueue = queue
         
@@ -109,19 +109,19 @@ public final class JaccardDistanceKernel: @unchecked Sendable {
         let library = try KernelContext.getSharedLibrary(for: device)
         
         guard let function = library.makeFunction(name: "jaccardDistance") else {
-            throw AccelerationError.shaderNotFound(name: "jaccardDistance")
+            throw VectorError.shaderNotFound(name: "jaccardDistance")
         }
         
         do {
             self.pipelineState = try device.makeComputePipelineState(function: function)
         } catch {
-            throw AccelerationError.computeFailed(reason: "Failed to create pipeline state: \(error)")
+            throw VectorError.computeFailed(reason: "Failed to create pipeline state: \(error)")
         }
         
         // Validate hardware support
         let maxThreadsPerThreadgroup = pipelineState.maxTotalThreadsPerThreadgroup
         if maxThreadsPerThreadgroup < THREADS_PER_TG {
-            throw AccelerationError.unsupportedOperation(
+            throw VectorError.unsupportedGPUOperation(
                 "Device does not support required threadgroup size: \(THREADS_PER_TG)"
             )
         }
@@ -141,7 +141,7 @@ public final class JaccardDistanceKernel: @unchecked Sendable {
         config: JaccardConfig = .default
     ) throws -> JaccardResult {
         guard vectorA.count == vectorB.count else {
-            throw AccelerationError.countMismatch(
+            throw VectorError.countMismatch(
                 expected: vectorA.count,
                 actual: vectorB.count
             )
@@ -165,7 +165,7 @@ public final class JaccardDistanceKernel: @unchecked Sendable {
             length: vectorA.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: vectorA.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: vectorA.count * MemoryLayout<Float>.stride)
         }
         
         guard let bufferB = device.makeBuffer(
@@ -173,20 +173,20 @@ public final class JaccardDistanceKernel: @unchecked Sendable {
             length: vectorB.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: vectorB.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: vectorB.count * MemoryLayout<Float>.stride)
         }
         
         guard let resultBuffer = device.makeBuffer(
             length: MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: MemoryLayout<Float>.stride)
         }
         
         // Create command buffer
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }
         
         // Configure compute pass
@@ -222,7 +222,7 @@ public final class JaccardDistanceKernel: @unchecked Sendable {
         
         // Check for errors
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: "Jaccard distance computation failed: \(error)")
+            throw VectorError.computeFailed(reason: "Jaccard distance computation failed: \(error)")
         }
         
         // Extract result
@@ -255,18 +255,18 @@ public final class JaccardDistanceKernel: @unchecked Sendable {
         guard let dimension = vectorsA.first?.count,
               dimension > 0,
               vectorsB.first?.count == dimension else {
-            throw AccelerationError.invalidInput("Input vectors must be non-empty and share the same dimension")
+            throw VectorError.invalidInput("Input vectors must be non-empty and share the same dimension")
         }
         
         // Validate all vectors have same dimension
         for (_, vector) in vectorsA.enumerated() {
             guard vector.count == dimension else {
-                throw AccelerationError.countMismatch(expected: dimension, actual: vector.count)
+                throw VectorError.countMismatch(expected: dimension, actual: vector.count)
             }
         }
         for (_, vector) in vectorsB.enumerated() {
             guard vector.count == dimension else {
-                throw AccelerationError.countMismatch(expected: dimension, actual: vector.count)
+                throw VectorError.countMismatch(expected: dimension, actual: vector.count)
             }
         }
         
@@ -283,7 +283,7 @@ public final class JaccardDistanceKernel: @unchecked Sendable {
             length: flatA.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: flatA.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: flatA.count * MemoryLayout<Float>.stride)
         }
         
         guard let bufferB = device.makeBuffer(
@@ -291,18 +291,18 @@ public final class JaccardDistanceKernel: @unchecked Sendable {
             length: flatB.count * MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferAllocationFailed(size: flatB.count * MemoryLayout<Float>.stride)
+            throw VectorError.bufferAllocationFailed(size: flatB.count * MemoryLayout<Float>.stride)
         }
         
         let resultSize = rows * cols * MemoryLayout<Float>.stride
         guard let resultBuffer = device.makeBuffer(length: resultSize, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferAllocationFailed(size: resultSize)
+            throw VectorError.bufferAllocationFailed(size: resultSize)
         }
         
         // Create command buffer
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.computeFailed(reason: "Failed to create command encoder")
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }
         
         encoder.setComputePipelineState(pipelineState)
@@ -350,7 +350,7 @@ public final class JaccardDistanceKernel: @unchecked Sendable {
         
         // Check for errors
         if let error = commandBuffer.error {
-            throw AccelerationError.computeFailed(reason: "Batch Jaccard computation failed: \(error)")
+            throw VectorError.computeFailed(reason: "Batch Jaccard computation failed: \(error)")
         }
         
         // Extract results
@@ -404,29 +404,224 @@ public final class JaccardDistanceKernel: @unchecked Sendable {
     }
     
     // MARK: - VectorCore Integration
-    
+
     /// Compute Jaccard distance using VectorCore protocol types
+    ///
+    /// Uses zero-copy buffer creation via `withUnsafeBufferPointer`.
     public func computeDistance<V: VectorProtocol>(
         _ vectorA: V,
         _ vectorB: V,
         config: JaccardConfig = .default
     ) throws -> JaccardResult where V.Scalar == Float {
-        return try computeDistance(
-            vectorA: vectorA.toArray(),
-            vectorB: vectorB.toArray(),
-            config: config
+        guard vectorA.count == vectorB.count else {
+            throw VectorError.countMismatch(expected: vectorA.count, actual: vectorB.count)
+        }
+
+        if vectorA.count == 0 {
+            return JaccardResult(
+                distance: 0.0,
+                similarity: 1.0,
+                intersectionSize: 0,
+                unionSize: 0,
+                executionTime: 0.0
+            )
+        }
+
+        let dimension = UInt32(vectorA.count)
+
+        // Zero-copy buffer creation using withUnsafeBufferPointer
+        guard let bufferA = vectorA.withUnsafeBufferPointer({ ptr -> (any MTLBuffer)? in
+            guard let base = ptr.baseAddress else { return nil }
+            return device.makeBuffer(
+                bytes: base,
+                length: ptr.count * MemoryLayout<Float>.stride,
+                options: .storageModeShared
+            )
+        }) else {
+            throw VectorError.bufferAllocationFailed(size: vectorA.count * MemoryLayout<Float>.stride)
+        }
+
+        guard let bufferB = vectorB.withUnsafeBufferPointer({ ptr -> (any MTLBuffer)? in
+            guard let base = ptr.baseAddress else { return nil }
+            return device.makeBuffer(
+                bytes: base,
+                length: ptr.count * MemoryLayout<Float>.stride,
+                options: .storageModeShared
+            )
+        }) else {
+            throw VectorError.bufferAllocationFailed(size: vectorB.count * MemoryLayout<Float>.stride)
+        }
+
+        guard let resultBuffer = device.makeBuffer(
+            length: MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        ) else {
+            throw VectorError.bufferAllocationFailed(size: MemoryLayout<Float>.stride)
+        }
+
+        // Create command buffer
+        guard let commandBuffer = commandQueue.makeCommandBuffer(),
+              let encoder = commandBuffer.makeComputeCommandEncoder() else {
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
+        }
+
+        // Configure compute pass
+        encoder.setComputePipelineState(pipelineState)
+        encoder.setBuffer(bufferA, offset: 0, index: 0)
+        encoder.setBuffer(bufferB, offset: 0, index: 1)
+        encoder.setBuffer(resultBuffer, offset: 0, index: 2)
+
+        // Set parameters
+        var params = dimension
+        encoder.setBytes(&params, length: MemoryLayout<UInt32>.size, index: 3)
+
+        var threshold = config.threshold
+        encoder.setBytes(&threshold, length: MemoryLayout<Float>.size, index: 4)
+
+        // Configure thread groups
+        let threadgroupSize = MTLSize(width: THREADS_PER_TG, height: 1, depth: 1)
+        let threadgroupCount = MTLSize(
+            width: (Int(dimension) + THREADS_PER_TG - 1) / THREADS_PER_TG,
+            height: 1,
+            depth: 1
+        )
+
+        // Execute
+        let startTime = CACurrentMediaTime()
+        encoder.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
+        encoder.endEncoding()
+
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+
+        let executionTime = CACurrentMediaTime() - startTime
+
+        // Read result
+        let resultPtr = resultBuffer.contents().bindMemory(to: Float.self, capacity: 1)
+        let distance = resultPtr.pointee
+
+        return JaccardResult(
+            distance: distance,
+            similarity: 1.0 - distance,
+            intersectionSize: 0, // Not computed in GPU kernel
+            unionSize: 0,        // Not computed in GPU kernel
+            executionTime: executionTime
         )
     }
-    
+
     /// Batch computation using VectorCore protocol types
+    ///
+    /// Uses zero-copy buffer creation via `withUnsafeBufferPointer`.
     public func computeDistanceMatrix<V: VectorProtocol>(
         vectorsA: [V],
         vectorsB: [V],
         config: JaccardConfig = .default
     ) throws -> BatchJaccardResult where V.Scalar == Float {
-        let arraysA = vectorsA.map { $0.toArray() }
-        let arraysB = vectorsB.map { $0.toArray() }
-        return try computeDistanceMatrix(vectorsA: arraysA, vectorsB: arraysB, config: config)
+        guard !vectorsA.isEmpty && !vectorsB.isEmpty else {
+            throw VectorError.invalidInput("Empty input arrays")
+        }
+
+        let dimension = vectorsA[0].count
+        guard vectorsA.allSatisfy({ $0.count == dimension }) &&
+              vectorsB.allSatisfy({ $0.count == dimension }) else {
+            throw VectorError.countMismatch(expected: dimension, actual: nil)
+        }
+
+        // Zero-copy buffer creation: flatten vectors directly into Metal buffer
+        guard let bufferA = createBufferFromVectors(vectorsA, dimension: dimension) else {
+            throw VectorError.bufferCreationFailed("Failed to create vectorsA buffer")
+        }
+
+        guard let bufferB = createBufferFromVectors(vectorsB, dimension: dimension) else {
+            throw VectorError.bufferCreationFailed("Failed to create vectorsB buffer")
+        }
+
+        // Create result buffer for M x N distances
+        let resultSize = vectorsA.count * vectorsB.count * MemoryLayout<Float>.stride
+        guard let resultBuffer = device.makeBuffer(length: resultSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: resultSize)
+        }
+
+        // Create command buffer
+        guard let commandBuffer = commandQueue.makeCommandBuffer(),
+              let encoder = commandBuffer.makeComputeCommandEncoder() else {
+            throw VectorError.computeFailed(reason: "Failed to create command encoder")
+        }
+
+        // Configure compute pass
+        encoder.setComputePipelineState(pipelineState)
+        encoder.setBuffer(bufferA, offset: 0, index: 0)
+        encoder.setBuffer(bufferB, offset: 0, index: 1)
+        encoder.setBuffer(resultBuffer, offset: 0, index: 2)
+
+        // Set parameters
+        var dim = UInt32(dimension)
+        encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
+
+        var threshold = config.threshold
+        encoder.setBytes(&threshold, length: MemoryLayout<Float>.size, index: 4)
+
+        // For batch: we need to dispatch for each pair
+        let totalPairs = vectorsA.count * vectorsB.count
+        let threadgroupSize = MTLSize(width: THREADS_PER_TG, height: 1, depth: 1)
+        let threadgroupCount = MTLSize(
+            width: (totalPairs + THREADS_PER_TG - 1) / THREADS_PER_TG,
+            height: 1,
+            depth: 1
+        )
+
+        // Execute
+        let startTime = CACurrentMediaTime()
+        encoder.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
+        encoder.endEncoding()
+
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+
+        let executionTime = CACurrentMediaTime() - startTime
+
+        // Read results
+        let resultPtr = resultBuffer.contents().bindMemory(to: Float.self, capacity: totalPairs)
+        let distances = Array(UnsafeBufferPointer(start: resultPtr, count: totalPairs))
+
+        let avgDistance = distances.isEmpty ? 0.0 : Double(distances.reduce(0, +)) / Double(distances.count)
+
+        return BatchJaccardResult(
+            distances: distances,
+            rows: vectorsA.count,
+            cols: vectorsB.count,
+            totalExecutionTime: executionTime,
+            averageDistance: avgDistance
+        )
+    }
+
+    /// Create a Metal buffer directly from VectorProtocol array without intermediate allocations
+    private func createBufferFromVectors<V: VectorProtocol>(
+        _ vectors: [V],
+        dimension: Int
+    ) -> (any MTLBuffer)? where V.Scalar == Float {
+        guard !vectors.isEmpty else { return nil }
+
+        let totalCount = vectors.count * dimension
+        let byteSize = totalCount * MemoryLayout<Float>.stride
+
+        // Create buffer
+        guard let buffer = device.makeBuffer(length: byteSize, options: .storageModeShared) else {
+            return nil
+        }
+
+        // Copy each vector directly using withUnsafeBufferPointer
+        let destination = buffer.contents().bindMemory(to: Float.self, capacity: totalCount)
+        for (i, vector) in vectors.enumerated() {
+            let offset = i * dimension
+            vector.withUnsafeBufferPointer { srcPtr in
+                guard let srcBase = srcPtr.baseAddress else { return }
+                let dst = destination.advanced(by: offset)
+                dst.update(from: srcBase, count: min(srcPtr.count, dimension))
+            }
+        }
+
+        return buffer
     }
     
     // MARK: - Performance Analysis

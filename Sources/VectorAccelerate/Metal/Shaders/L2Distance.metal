@@ -85,6 +85,60 @@ kernel void l2_distance_kernel(
 
 // MARK: - Optimized Kernels (Spec Section 3.2)
 
+// Optimized for D=384 (96 float4 ops). Assumes dense packing (stride=384).
+// Critical for MiniLM and Sentence-BERT embeddings (VectorCore 0.1.5 Vector384Optimized)
+kernel void l2_distance_384_kernel(
+    device const float* queryVectors [[buffer(0)]],
+    device const float* databaseVectors [[buffer(1)]],
+    device float* distances [[buffer(2)]],
+    constant L2DistanceParams& params [[buffer(3)]],
+    uint3 tid [[thread_position_in_grid]]
+) {
+    const uint queryIdx = tid.x;
+    const uint dbIdx = tid.y;
+
+    if (queryIdx >= params.numQueries || dbIdx >= params.numDatabase) {
+        return;
+    }
+
+    // Hardcoding the stride allows the compiler to optimize address calculation
+    device const float4* query4 = (device const float4*)(queryVectors + queryIdx * 384);
+    device const float4* database4 = (device const float4*)(databaseVectors + dbIdx * 384);
+
+    // Unroll by 8. Use 2 accumulators and interleave instructions to hide latency and maximize ILP.
+    float4 acc0 = float4(0.0f);
+    float4 acc1 = float4(0.0f);
+
+    // 96 iterations total (12 loops of 8)
+    for (uint i = 0; i < 96; i += 8) {
+        float4 diff0 = query4[i+0] - database4[i+0];
+        float4 diff1 = query4[i+1] - database4[i+1];
+        float4 diff2 = query4[i+2] - database4[i+2];
+        float4 diff3 = query4[i+3] - database4[i+3];
+        float4 diff4 = query4[i+4] - database4[i+4];
+        float4 diff5 = query4[i+5] - database4[i+5];
+        float4 diff6 = query4[i+6] - database4[i+6];
+        float4 diff7 = query4[i+7] - database4[i+7];
+
+        // Interleaved FMA accumulation
+        acc0 = fma(diff0, diff0, acc0);
+        acc1 = fma(diff1, diff1, acc1);
+        acc0 = fma(diff2, diff2, acc0);
+        acc1 = fma(diff3, diff3, acc1);
+        acc0 = fma(diff4, diff4, acc0);
+        acc1 = fma(diff5, diff5, acc1);
+        acc0 = fma(diff6, diff6, acc0);
+        acc1 = fma(diff7, diff7, acc1);
+    }
+
+    // Final reduction
+    float4 total_acc = acc0 + acc1;
+    float sum = total_acc.x + total_acc.y + total_acc.z + total_acc.w;
+
+    float distance = params.computeSqrt ? sqrt(sum) : sum;
+    distances[queryIdx * params.strideOutput + dbIdx] = distance;
+}
+
 // Optimized for D=512 (128 float4 ops). Assumes dense packing (stride=512).
 kernel void l2_distance_512_kernel(
     device const float* queryVectors [[buffer(0)]],

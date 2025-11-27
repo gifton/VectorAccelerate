@@ -354,19 +354,175 @@ public class MinkowskiCalculator {
     }
     
     // MARK: - VectorCore Integration
-    
+
     /// Calculate distance using VectorCore protocol types
+    ///
+    /// Uses zero-copy buffer creation via `withUnsafeBufferPointer`.
     public func calculateDistance<V: VectorProtocol>(_ a: V, _ b: V, p: Float) throws -> Float where V.Scalar == Float {
-        let arrayA = Array(a.toArray())
-        let arrayB = Array(b.toArray())
-        return try calculateDistance(vectorA: arrayA, vectorB: arrayB, p: p)
+        guard a.count == b.count else {
+            throw CalculatorError.invalidInputDimensions
+        }
+
+        let dimension = UInt32(a.count)
+
+        // Zero-copy buffer creation using withUnsafeBufferPointer
+        guard let bufferA = a.withUnsafeBufferPointer({ ptr -> (any MTLBuffer)? in
+            guard let base = ptr.baseAddress else { return nil }
+            return device.makeBuffer(
+                bytes: base,
+                length: ptr.count * MemoryLayout<Float>.stride,
+                options: .storageModeShared
+            )
+        }) else {
+            throw CalculatorError.bufferCreationFailed
+        }
+
+        guard let bufferB = b.withUnsafeBufferPointer({ ptr -> (any MTLBuffer)? in
+            guard let base = ptr.baseAddress else { return nil }
+            return device.makeBuffer(
+                bytes: base,
+                length: ptr.count * MemoryLayout<Float>.stride,
+                options: .storageModeShared
+            )
+        }) else {
+            throw CalculatorError.bufferCreationFailed
+        }
+
+        let distances = try calculateDistances(
+            vectorA: bufferA,
+            vectorB: bufferB,
+            M: 1,
+            N: 1,
+            D: dimension,
+            p: p
+        )
+
+        return distances[0]
     }
-    
+
     /// Calculate distance matrix using VectorCore protocol types
+    ///
+    /// Uses zero-copy buffer creation via `withUnsafeBufferPointer`.
     public func calculateDistanceMatrix<V: VectorProtocol>(vectorsA: [V], vectorsB: [V], p: Float) throws -> DistanceMatrix where V.Scalar == Float {
-        let arraysA = vectorsA.map { Array($0.toArray()) }
-        let arraysB = vectorsB.map { Array($0.toArray()) }
-        return try calculateDistanceMatrix(vectorsA: arraysA, vectorsB: arraysB, p: p)
+        guard !vectorsA.isEmpty && !vectorsB.isEmpty else {
+            throw CalculatorError.invalidInputDimensions
+        }
+
+        let M = UInt32(vectorsA.count)
+        let N = UInt32(vectorsB.count)
+        let D = UInt32(vectorsA[0].count)
+
+        // Validate all vectors have same dimension
+        guard vectorsA.allSatisfy({ $0.count == Int(D) }) &&
+              vectorsB.allSatisfy({ $0.count == Int(D) }) else {
+            throw CalculatorError.invalidInputDimensions
+        }
+
+        // Zero-copy buffer creation: flatten vectors directly into Metal buffer
+        guard let bufferA = createBufferFromVectors(vectorsA, dimension: Int(D)) else {
+            throw CalculatorError.bufferCreationFailed
+        }
+
+        guard let bufferB = createBufferFromVectors(vectorsB, dimension: Int(D)) else {
+            throw CalculatorError.bufferCreationFailed
+        }
+
+        let distances = try calculateDistances(
+            vectorA: bufferA,
+            vectorB: bufferB,
+            M: M,
+            N: N,
+            D: D,
+            p: p
+        )
+
+        return DistanceMatrix(data: distances, rows: Int(M), cols: Int(N))
+    }
+
+    /// Create a Metal buffer directly from VectorProtocol array without intermediate allocations
+    private func createBufferFromVectors<V: VectorProtocol>(
+        _ vectors: [V],
+        dimension: Int
+    ) -> (any MTLBuffer)? where V.Scalar == Float {
+        guard !vectors.isEmpty else { return nil }
+
+        let totalCount = vectors.count * dimension
+        let byteSize = totalCount * MemoryLayout<Float>.stride
+
+        // Create buffer
+        guard let buffer = device.makeBuffer(length: byteSize, options: .storageModeShared) else {
+            return nil
+        }
+
+        // Copy each vector directly using withUnsafeBufferPointer
+        let destination = buffer.contents().bindMemory(to: Float.self, capacity: totalCount)
+        for (i, vector) in vectors.enumerated() {
+            let offset = i * dimension
+            vector.withUnsafeBufferPointer { srcPtr in
+                guard let srcBase = srcPtr.baseAddress else { return }
+                let dst = destination.advanced(by: offset)
+                dst.update(from: srcBase, count: min(srcPtr.count, dimension))
+            }
+        }
+
+        return buffer
+    }
+
+    /// Internal helper to calculate distances from Metal buffers
+    private func calculateDistances(
+        vectorA: any MTLBuffer,
+        vectorB: any MTLBuffer,
+        M: UInt32,
+        N: UInt32,
+        D: UInt32,
+        p: Float
+    ) throws -> [Float] {
+        let outputLength = Int(M) * Int(N)
+        guard let bufferOutput = device.makeBuffer(
+            length: outputLength * MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        ) else {
+            throw CalculatorError.bufferCreationFailed
+        }
+
+        guard let commandBuffer = commandQueue.makeCommandBuffer(),
+              let commandEncoder = commandBuffer.makeComputeCommandEncoder() else {
+            throw CalculatorError.executionFailed("Failed to create command encoder")
+        }
+
+        var p_param = p
+        var M_param = M
+        var N_param = N
+        var D_param = D
+        var mode_param: UInt32 = 0
+
+        let floatStride = MemoryLayout<Float>.stride
+        let uintStride = MemoryLayout<UInt32>.stride
+
+        commandEncoder.setComputePipelineState(pipelineState)
+        commandEncoder.setBuffer(vectorA, offset: 0, index: 0)
+        commandEncoder.setBuffer(vectorB, offset: 0, index: 1)
+        commandEncoder.setBuffer(bufferOutput, offset: 0, index: 2)
+        commandEncoder.setBytes(&p_param, length: floatStride, index: 3)
+        commandEncoder.setBytes(&M_param, length: uintStride, index: 4)
+        commandEncoder.setBytes(&N_param, length: uintStride, index: 5)
+        commandEncoder.setBytes(&D_param, length: uintStride, index: 6)
+        commandEncoder.setBytes(&mode_param, length: uintStride, index: 7)
+
+        let threadgroupSize = MTLSize(width: TILE_SIZE, height: TILE_SIZE, depth: 1)
+        let numThreadgroups = MTLSize(
+            width: (Int(N) + TILE_SIZE - 1) / TILE_SIZE,
+            height: (Int(M) + TILE_SIZE - 1) / TILE_SIZE,
+            depth: 1
+        )
+
+        commandEncoder.dispatchThreadgroups(numThreadgroups, threadsPerThreadgroup: threadgroupSize)
+        commandEncoder.endEncoding()
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+
+        let dataPointer = bufferOutput.contents().bindMemory(to: Float.self, capacity: outputLength)
+        return Array(UnsafeBufferPointer(start: dataPointer, count: outputLength))
     }
     
     // MARK: - Batch Processing

@@ -8,6 +8,7 @@
 @preconcurrency import XCTest
 @preconcurrency import Metal
 @testable import VectorAccelerate
+import VectorCore
 
 // Define test operations that conform to BatchOperation
 struct MultiplyOperation: BatchOperation {
@@ -64,7 +65,7 @@ struct ErrorOperation: BatchOperation {
     
     func process(_ batch: [Float]) async throws -> [Float] {
         if batch.contains(errorValue) {
-            throw AccelerationError.computeFailed(reason: "Test error: found \(errorValue)")
+            throw VectorError.computeFailed(reason: "Test error: found \(errorValue)")
         }
         return batch
     }
@@ -172,7 +173,7 @@ final class BatchProcessorTests: XCTestCase {
             XCTFail("Should have thrown error")
         } catch {
             // Expected error
-            XCTAssertTrue(error is AccelerationError)
+            XCTAssertTrue(error is VectorError)
         }
     }
     

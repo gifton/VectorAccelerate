@@ -97,13 +97,13 @@ public final class ParallelReductionKernel: @unchecked Sendable {
         let library = try KernelContext.getSharedLibrary(for: device)
 
         guard let kernelGeneric = library.makeFunction(name: "parallel_reduce_kernel") else {
-            throw AccelerationError.shaderNotFound(name: "Could not find parallel reduction kernel")
+            throw VectorError.shaderNotFound(name: "Could not find parallel reduction kernel")
         }
 
         do {
             self.pipelineStateGeneric = try device.makeComputePipelineState(function: kernelGeneric)
         } catch {
-            throw AccelerationError.pipelineCreationFailed("Failed to create pipeline state: \(error)")
+            throw VectorError.pipelineCreationFailed("Failed to create pipeline state: \(error)")
         }
         
         // Determine optimal threadgroup size. Must be power of 2 and >= 32 for kernel optimizations.
@@ -131,7 +131,7 @@ public final class ParallelReductionKernel: @unchecked Sendable {
         commandBuffer: any MTLCommandBuffer
     ) throws -> ReductionResult {
         if count <= 0 {
-            throw AccelerationError.invalidInput("Count must be > 0")
+            throw VectorError.invalidInput("Count must be > 0")
         }
         
         var currentInputValue = input
@@ -151,7 +151,7 @@ public final class ParallelReductionKernel: @unchecked Sendable {
                 length: numGroups * MemoryLayout<Float>.stride,
                 options: MTLResourceOptions.storageModePrivate
             ) else {
-                throw AccelerationError.bufferCreationFailed("Failed to create value buffer")
+                throw VectorError.bufferCreationFailed("Failed to create value buffer")
             }
             intermediateValueBuffers.append(outputValues)
             
@@ -161,7 +161,7 @@ public final class ParallelReductionKernel: @unchecked Sendable {
                     length: numGroups * MemoryLayout<UInt32>.stride,
                     options: MTLResourceOptions.storageModePrivate
                 ) else {
-                    throw AccelerationError.bufferCreationFailed("Failed to create index buffer")
+                    throw VectorError.bufferCreationFailed("Failed to create index buffer")
                 }
                 outputIndices = indicesBuffer
                 intermediateIndexBuffers.append(indicesBuffer)
@@ -204,11 +204,11 @@ public final class ParallelReductionKernel: @unchecked Sendable {
         operation: ReductionOperation
     ) async throws -> (value: Float, index: Int?) {
         guard !array.isEmpty else {
-            throw AccelerationError.invalidInput("Empty input array")
+            throw VectorError.invalidInput("Empty input array")
         }
         
         guard let inputBuffer = kernelContext.createBuffer(from: array, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create input buffer")
+            throw VectorError.bufferCreationFailed("Failed to create input buffer")
         }
         
         let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
@@ -225,11 +225,11 @@ public final class ParallelReductionKernel: @unchecked Sendable {
     /// - Returns: Statistics structure with multiple metrics
     public func computeStatistics(_ array: [Float]) async throws -> Statistics {
         guard !array.isEmpty else {
-            throw AccelerationError.invalidInput("Empty input array")
+            throw VectorError.invalidInput("Empty input array")
         }
         
         guard let inputBuffer = kernelContext.createBuffer(from: array, options: MTLResourceOptions.storageModeShared) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create input buffer")
+            throw VectorError.bufferCreationFailed("Failed to create input buffer")
         }
         let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
         
@@ -274,12 +274,32 @@ public final class ParallelReductionKernel: @unchecked Sendable {
     }
 
     /// Reduce vectors using VectorCore types
+    ///
+    /// Uses zero-copy buffer creation via `withUnsafeBufferPointer`.
     public func reduce<V: VectorProtocol>(
         _ vector: V,
         operation: ReductionOperation
     ) async throws -> (value: Float, index: Int?) where V.Scalar == Float {
-        let array = Array(vector.toArray())
-        return try await reduce(array, operation: operation)
+        guard vector.count > 0 else {
+            throw VectorError.invalidInput("Empty vector")
+        }
+
+        // Zero-copy buffer creation using withUnsafeBufferPointer
+        guard let inputBuffer = kernelContext.createAlignedBufferFromVector(
+            vector,
+            options: .storageModeShared,
+            alignment: 16
+        ) else {
+            throw VectorError.bufferCreationFailed("Failed to create input buffer")
+        }
+
+        let commandBuffer = kernelContext.commandQueue.makeCommandBuffer()!
+        let result = try reduce(inputBuffer, operation: operation, count: vector.count, commandBuffer: commandBuffer)
+
+        commandBuffer.commit()
+        await commandBuffer.completed()
+
+        return (result.value, result.index)
     }
 
     // MARK: - Performance Extensions
@@ -330,7 +350,7 @@ public final class ParallelReductionKernel: @unchecked Sendable {
         commandBuffer: any MTLCommandBuffer
     ) throws {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         encoder.label = "ParallelReductionPass (Count=\(count))"
@@ -375,7 +395,7 @@ public final class ParallelReductionKernel: @unchecked Sendable {
             length: MemoryLayout<Float>.stride,
             options: MTLResourceOptions.storageModeShared
         ) else {
-            throw AccelerationError.bufferCreationFailed("Failed to create shared value buffer")
+            throw VectorError.bufferCreationFailed("Failed to create shared value buffer")
         }
         
         var sharedIndexBuffer: (any MTLBuffer)? = nil
@@ -385,12 +405,12 @@ public final class ParallelReductionKernel: @unchecked Sendable {
                 options: MTLResourceOptions.storageModeShared
             )
             if sharedIndexBuffer == nil {
-                throw AccelerationError.bufferCreationFailed("Failed to create shared index buffer")
+                throw VectorError.bufferCreationFailed("Failed to create shared index buffer")
             }
         }
 
         guard let blitEncoder = commandBuffer.makeBlitCommandEncoder() else {
-            throw AccelerationError.encoderCreationFailed
+            throw VectorError.encoderCreationFailed()
         }
         
         blitEncoder.label = "ReductionResultBlit"
