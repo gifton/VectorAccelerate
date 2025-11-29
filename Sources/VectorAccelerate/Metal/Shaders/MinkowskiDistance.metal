@@ -264,11 +264,11 @@ kernel void minkowski_distance_stable(
 ) {
     threadgroup float shared_Q[TILE_Q * TILE_D];
     threadgroup float shared_N[TILE_N * TILE_D];
-    
-    const uint start_q = gid.y - tid.y;
-    const uint start_n = gid.x - tid.x;
-    const uint tid_linear = tid.y * TILE_N + tid.x;
-    
+
+    // Note: Cooperative tile loading would use:
+    //   start_q = gid.y - tid.y, start_n = gid.x - tid.x, tid_linear = tid.y * TILE_N + tid.x
+    // Currently using simplified direct indexing
+
     // For numerical stability with large p, use log-space computation
     // log(sum(x_i^p)) = log(x_max^p) + log(sum((x_i/x_max)^p))
     //                 = p*log(x_max) + log(sum(exp(p*log(x_i/x_max))))
@@ -414,11 +414,11 @@ kernel void minkowski_distance_fractional(
     
     threadgroup float shared_Q[TILE_Q * TILE_D];
     threadgroup float shared_N[TILE_N * TILE_D];
-    
-    const uint start_q = gid.y - tid.y;
-    const uint start_n = gid.x - tid.x;
-    const uint tid_linear = tid.y * TILE_N + tid.x;
-    
+
+    // Note: Cooperative tile loading would use:
+    //   start_q = gid.y - tid.y, start_n = gid.x - tid.x, tid_linear = tid.y * TILE_N + tid.x
+    // Currently using simplified direct indexing
+
     float accumulator = 0.0f;
     
     for (uint d_start = 0; d_start < D; d_start += TILE_D) {

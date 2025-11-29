@@ -125,6 +125,32 @@ struct BestCand {
     uint pos;
 };
 
+/// Min-heap sink-down helper for descending selection (tracks K largest values)
+/// Uses min-heap so root contains smallest of K largest - easy to compare against new candidates
+inline void min_heap_sink_down(thread float* heap_data, thread uint* heap_indices, uint heap_size, uint parent_idx) {
+    float parent_val = heap_data[parent_idx];
+    uint parent_id = heap_indices[parent_idx];
+
+    while (true) {
+        uint child_idx = 2 * parent_idx + 1;
+        if (child_idx >= heap_size) break;
+
+        // Find smaller child (min-heap)
+        if (child_idx + 1 < heap_size && heap_data[child_idx] > heap_data[child_idx + 1]) {
+            child_idx++;
+        }
+
+        if (parent_val <= heap_data[child_idx]) break;
+
+        heap_data[parent_idx] = heap_data[child_idx];
+        heap_indices[parent_idx] = heap_indices[child_idx];
+        parent_idx = child_idx;
+    }
+
+    heap_data[parent_idx] = parent_val;
+    heap_indices[parent_idx] = parent_id;
+}
+
 inline BestCand reduce_min(BestCand a, BestCand b) {
     if (a.distance < b.distance) return a;
     if (b.distance < a.distance) return b;
@@ -844,31 +870,6 @@ kernel void batch_select_k_nearest_descending(
     float heap_dist[MAX_K_PRIVATE];
     uint heap_idx[MAX_K_PRIVATE];
 
-    // Helper: sink down for min-heap (for descending selection)
-    auto min_sink_down = [](thread float* heap_data, thread uint* heap_indices, uint heap_size, uint parent_idx) {
-        float parent_val = heap_data[parent_idx];
-        uint parent_id = heap_indices[parent_idx];
-
-        while (true) {
-            uint child_idx = 2 * parent_idx + 1;
-            if (child_idx >= heap_size) break;
-
-            // Find smaller child (min-heap)
-            if (child_idx + 1 < heap_size && heap_data[child_idx] > heap_data[child_idx + 1]) {
-                child_idx++;
-            }
-
-            if (parent_val <= heap_data[child_idx]) break;
-
-            heap_data[parent_idx] = heap_data[child_idx];
-            heap_indices[parent_idx] = heap_indices[child_idx];
-            parent_idx = child_idx;
-        }
-
-        heap_data[parent_idx] = parent_val;
-        heap_indices[parent_idx] = parent_id;
-    };
-
     // Initialize with first K elements (thread 0 only for simplicity)
     if (tid == 0) {
         for (uint i = 0; i < K; ++i) {
@@ -883,7 +884,7 @@ kernel void batch_select_k_nearest_descending(
 
         // Heapify (build min heap)
         for (int i = (int)K / 2 - 1; i >= 0; --i) {
-            min_sink_down(heap_dist, heap_idx, K, (uint)i);
+            min_heap_sink_down(heap_dist, heap_idx, K, (uint)i);
         }
 
         // Process remaining candidates
@@ -892,7 +893,7 @@ kernel void batch_select_k_nearest_descending(
             if (dist > heap_dist[0]) {  // Larger than smallest in heap
                 heap_dist[0] = dist;
                 heap_idx[0] = i;
-                min_sink_down(heap_dist, heap_idx, K, 0);
+                min_heap_sink_down(heap_dist, heap_idx, K, 0);
             }
         }
 
