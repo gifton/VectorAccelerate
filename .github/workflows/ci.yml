@@ -11,6 +11,77 @@ env:
   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
 
 jobs:
+  metal-shaders:
+    name: Metal Shaders
+    runs-on: macos-15
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16'
+
+      - name: Validate Metal Shaders
+        run: |
+          set -e
+
+          SHADER_DIR="Sources/VectorAccelerate/Metal/Shaders"
+          FAILED=0
+          PASSED=0
+
+          echo "## Metal Shader Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Compiling Metal shaders with \`xcrun metal\`..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Create output directory for .air files
+          mkdir -p .build/metal-validation
+
+          # Compile each shader individually for clear error reporting
+          for shader in "$SHADER_DIR"/*.metal; do
+            name=$(basename "$shader")
+            echo "Compiling $name..."
+
+            if xcrun metal -c "$shader" \
+                -o ".build/metal-validation/${name%.metal}.air" \
+                -std=metal3.0 \
+                -mmacosx-version-min=14.0 \
+                2>&1 | tee -a metal-compile.log; then
+              echo "- ✅ $name" >> $GITHUB_STEP_SUMMARY
+              ((PASSED++))
+            else
+              echo "- ❌ $name" >> $GITHUB_STEP_SUMMARY
+              ((FAILED++))
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Results:** $PASSED passed, $FAILED failed" >> $GITHUB_STEP_SUMMARY
+
+          # Fail the job if any shader failed to compile
+          if [ "$FAILED" -gt 0 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Metal shader compilation failed!" >> $GITHUB_STEP_SUMMARY
+            echo ""
+            echo "::error::$FAILED Metal shader(s) failed to compile. See log for details."
+            exit 1
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All Metal shaders compiled successfully" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Metal Compile Log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: metal-compile-log
+          path: metal-compile.log
+          retention-days: 7
+
   build:
     name: Build
     runs-on: macos-15
