@@ -1,5 +1,5 @@
 //
-//  Metal4StatisticsKernel.swift
+//  StatisticsKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Statistics kernel with ArgumentTable support.
@@ -240,7 +240,7 @@ public struct Metal4BatchStatisticsResult: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4StatisticsKernel(context: context)
+/// let kernel = try await StatisticsKernel(context: context)
 ///
 /// // Basic statistics
 /// let basic = try await kernel.computeBasicStatistics(data)
@@ -253,12 +253,12 @@ public struct Metal4BatchStatisticsResult: Sendable {
 /// let corr = try await kernel.computeCorrelation(datasets: [x, y, z])
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4StatisticsKernel: @unchecked Sendable, Metal4Kernel {
+public final class StatisticsKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4StatisticsKernel"
+    public let name: String = "StatisticsKernel"
 
     // MARK: - Pipelines
 

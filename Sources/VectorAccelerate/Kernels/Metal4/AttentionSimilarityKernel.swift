@@ -1,5 +1,5 @@
 //
-//  Metal4AttentionSimilarityKernel.swift
+//  AttentionSimilarityKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Attention-based Similarity kernel with learned projections.
@@ -91,7 +91,7 @@ public struct Metal4AttentionSimilarityConfig: Sendable {
 
 /// Parameters for attention similarity kernel (matches Metal struct).
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4AttentionSimilarityParameters: Sendable {
+public struct AttentionSimilarityParameters: Sendable {
     public var numQueries: UInt32
     public var numKeys: UInt32
     public var inputDimension: UInt32
@@ -185,7 +185,7 @@ public struct Metal4AttentionSimilarityResult: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+/// let kernel = try await AttentionSimilarityKernel(context: context)
 ///
 /// // Load pre-trained attention weights
 /// try await kernel.loadWeights(
@@ -204,12 +204,12 @@ public struct Metal4AttentionSimilarityResult: Sendable {
 /// let matches = result.topK(forQuery: 0, k: 5)
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4AttentionSimilarityKernel: @unchecked Sendable, Metal4Kernel {
+public final class AttentionSimilarityKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4AttentionSimilarityKernel"
+    public let name: String = "AttentionSimilarityKernel"
 
     // MARK: - Pipelines
 
@@ -400,7 +400,7 @@ public final class Metal4AttentionSimilarityKernel: @unchecked Sendable, Metal4K
         queries: any MTLBuffer,
         keys: any MTLBuffer,
         output: any MTLBuffer,
-        parameters: Metal4AttentionSimilarityParameters
+        parameters: AttentionSimilarityParameters
     ) throws -> Metal4EncodingResult {
         guard let queryProj = queryProjection, let keyProj = keyProjection else {
             throw VectorError.invalidOperation("Projection weights not loaded")
@@ -419,7 +419,7 @@ public final class Metal4AttentionSimilarityKernel: @unchecked Sendable, Metal4K
         encoder.setBuffer(output, offset: 0, index: 4)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4AttentionSimilarityParameters>.size, index: 5)
+        encoder.setBytes(&params, length: MemoryLayout<AttentionSimilarityParameters>.size, index: 5)
 
         // 2D dispatch: (numQueries, numKeys)
         let config = Metal4ThreadConfiguration.forDistanceKernel(
@@ -443,7 +443,7 @@ public final class Metal4AttentionSimilarityKernel: @unchecked Sendable, Metal4K
     public func execute(
         queries: any MTLBuffer,
         keys: any MTLBuffer,
-        parameters: Metal4AttentionSimilarityParameters
+        parameters: AttentionSimilarityParameters
     ) async throws -> any MTLBuffer {
         let device = context.device.rawDevice
         let outputSize = Int(parameters.numQueries) * Int(parameters.numKeys) * MemoryLayout<Float>.size
@@ -522,7 +522,7 @@ public final class Metal4AttentionSimilarityKernel: @unchecked Sendable, Metal4K
         }
         keyBuffer.label = "AttentionSimilarity.keys"
 
-        let parameters = Metal4AttentionSimilarityParameters(
+        let parameters = AttentionSimilarityParameters(
             numQueries: numQueries,
             numKeys: numKeys,
             config: config

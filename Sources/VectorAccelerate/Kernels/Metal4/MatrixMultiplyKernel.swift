@@ -1,5 +1,5 @@
 //
-//  Metal4MatrixMultiplyKernel.swift
+//  MatrixMultiplyKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Matrix Multiply kernel with ArgumentTable support.
@@ -50,7 +50,7 @@ public struct Metal4MatrixMultiplyConfig: Sendable {
 
 /// Parameters for matrix multiply kernel.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4MatrixMultiplyParameters: Sendable {
+public struct MatrixMultiplyParameters: Sendable {
     /// Number of rows in A (or A^T)
     public let M: UInt32
     /// Shared dimension (cols of A, rows of B)
@@ -135,7 +135,7 @@ public struct Metal4MatrixMultiplyResult: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4MatrixMultiplyKernel(context: context)
+/// let kernel = try await MatrixMultiplyKernel(context: context)
 ///
 /// // Standard multiply: C = A × B
 /// let result = try await kernel.multiply(matrixA, matrixB)
@@ -144,12 +144,12 @@ public struct Metal4MatrixMultiplyResult: Sendable {
 /// let result = try await kernel.gemm(A, B, C, config: config)
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4MatrixMultiplyKernel: @unchecked Sendable, Metal4Kernel {
+public final class MatrixMultiplyKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4MatrixMultiplyKernel"
+    public let name: String = "MatrixMultiplyKernel"
 
     // MARK: - Constants
 
@@ -231,7 +231,7 @@ public final class Metal4MatrixMultiplyKernel: @unchecked Sendable, Metal4Kernel
         matrixA: any MTLBuffer,
         matrixB: any MTLBuffer,
         matrixC: any MTLBuffer,
-        parameters: Metal4MatrixMultiplyParameters
+        parameters: MatrixMultiplyParameters
     ) -> Metal4EncodingResult {
         let pipeline = selectPipeline(for: Int(parameters.K))
 
@@ -276,7 +276,7 @@ public final class Metal4MatrixMultiplyKernel: @unchecked Sendable, Metal4Kernel
     public func execute(
         matrixA: any MTLBuffer,
         matrixB: any MTLBuffer,
-        parameters: Metal4MatrixMultiplyParameters
+        parameters: MatrixMultiplyParameters
     ) async throws -> any MTLBuffer {
         let device = context.device.rawDevice
         let outputSize = Int(parameters.M) * Int(parameters.N) * MemoryLayout<Float>.size
@@ -339,7 +339,7 @@ public final class Metal4MatrixMultiplyKernel: @unchecked Sendable, Metal4Kernel
         }
         bufferB.label = "MatrixMultiply.B"
 
-        let parameters = Metal4MatrixMultiplyParameters(M: M, K: K, N: N, config: config)
+        let parameters = MatrixMultiplyParameters(M: M, K: K, N: N, config: config)
 
         let startTime = CACurrentMediaTime()
         let outputBuffer = try await execute(matrixA: bufferA, matrixB: bufferB, parameters: parameters)

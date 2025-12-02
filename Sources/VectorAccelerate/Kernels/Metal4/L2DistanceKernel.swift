@@ -1,5 +1,5 @@
 //
-//  Metal4L2DistanceKernel.swift
+//  L2DistanceKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 L2 (Euclidean) distance kernel with ArgumentTable support.
@@ -25,7 +25,7 @@ import VectorCore
 /// Memory layout must match the Metal shader's `L2DistanceParams` struct.
 /// Uses explicit padding for alignment.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4L2DistanceParameters: Sendable {
+public struct L2DistanceParameters: Sendable {
     /// Number of query vectors (N)
     public let numQueries: UInt32
 
@@ -130,7 +130,7 @@ public struct Metal4L2DistanceParameters: Sendable {
 ///
 /// ### Standalone Execution
 /// ```swift
-/// let kernel = try await Metal4L2DistanceKernel(context: context)
+/// let kernel = try await L2DistanceKernel(context: context)
 /// let distances = try await kernel.execute(
 ///     queries: queryBuffer,
 ///     database: databaseBuffer,
@@ -147,12 +147,12 @@ public struct Metal4L2DistanceParameters: Sendable {
 /// }
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4L2DistanceKernel: @unchecked Sendable, DimensionOptimizedKernel, FusibleKernel {
+public final class L2DistanceKernel: @unchecked Sendable, DimensionOptimizedKernel, FusibleKernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4L2DistanceKernel"
+    public let name: String = "L2DistanceKernel"
 
     public let optimizedDimensions: [Int] = [384, 512, 768, 1536]
     public let fusibleWith: [String] = ["TopKSelection", "L2Normalization"]
@@ -250,7 +250,7 @@ public final class Metal4L2DistanceKernel: @unchecked Sendable, DimensionOptimiz
         queries: any MTLBuffer,
         database: any MTLBuffer,
         distances: any MTLBuffer,
-        parameters: Metal4L2DistanceParameters
+        parameters: L2DistanceParameters
     ) -> Metal4EncodingResult {
         // Select pipeline
         let (pipeline, pipelineName) = selectPipeline(for: parameters.dimension)
@@ -266,7 +266,7 @@ public final class Metal4L2DistanceKernel: @unchecked Sendable, DimensionOptimiz
 
         // Bind parameters
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4L2DistanceParameters>.size, index: 3)
+        encoder.setBytes(&params, length: MemoryLayout<L2DistanceParameters>.size, index: 3)
 
         // Calculate thread configuration
         let config = Metal4ThreadConfiguration.forDistanceKernel(
@@ -303,7 +303,7 @@ public final class Metal4L2DistanceKernel: @unchecked Sendable, DimensionOptimiz
     public func execute(
         queries: any MTLBuffer,
         database: any MTLBuffer,
-        parameters: Metal4L2DistanceParameters
+        parameters: L2DistanceParameters
     ) async throws -> any MTLBuffer {
         // Allocate output buffer
         let outputSize = Int(parameters.numQueries) * Int(parameters.numDatabase) * MemoryLayout<Float>.size
@@ -385,7 +385,7 @@ public final class Metal4L2DistanceKernel: @unchecked Sendable, DimensionOptimiz
         databaseBuffer.label = "L2Distance.database"
 
         // Execute
-        let parameters = Metal4L2DistanceParameters(
+        let parameters = L2DistanceParameters(
             numQueries: numQueries,
             numDatabase: numDatabase,
             dimension: dimension,
@@ -432,7 +432,7 @@ public final class Metal4L2DistanceKernel: @unchecked Sendable, DimensionOptimiz
         let queryBuffer = try createBuffer(from: queries, device: device, label: "L2Distance.queries")
         let databaseBuffer = try createBuffer(from: database, device: device, label: "L2Distance.database")
 
-        let parameters = Metal4L2DistanceParameters(
+        let parameters = L2DistanceParameters(
             numQueries: numQueries,
             numDatabase: numDatabase,
             dimension: dimension,
@@ -473,7 +473,7 @@ public final class Metal4L2DistanceKernel: @unchecked Sendable, DimensionOptimiz
         let queryBuffer = try createBuffer(from: queries, device: device, label: "L2Distance.queries")
         let databaseBuffer = try createBuffer(from: database, device: device, label: "L2Distance.database")
 
-        let parameters = Metal4L2DistanceParameters(
+        let parameters = L2DistanceParameters(
             numQueries: numQueries,
             numDatabase: numDatabase,
             dimension: dimension,
@@ -552,6 +552,6 @@ public final class Metal4L2DistanceKernel: @unchecked Sendable, DimensionOptimiz
 // MARK: - Metal4DistanceKernel Conformance
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-extension Metal4L2DistanceKernel: Metal4DistanceKernel {
-    public typealias Parameters = Metal4L2DistanceParameters
+extension L2DistanceKernel: Metal4DistanceKernel {
+    public typealias Parameters = L2DistanceParameters
 }

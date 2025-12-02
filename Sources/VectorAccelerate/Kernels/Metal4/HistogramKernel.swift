@@ -1,5 +1,5 @@
 //
-//  Metal4HistogramKernel.swift
+//  HistogramKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Histogram kernel with ArgumentTable support.
@@ -231,7 +231,7 @@ public struct Metal4BatchHistogramResult: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4HistogramKernel(context: context)
+/// let kernel = try await HistogramKernel(context: context)
 ///
 /// // Basic histogram
 /// let result = try await kernel.computeHistogram(data: values)
@@ -245,12 +245,12 @@ public struct Metal4BatchHistogramResult: Sendable {
 /// let normalized = try await kernel.computeHistogram(data: values, config: config)
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4HistogramKernel: @unchecked Sendable, Metal4Kernel {
+public final class HistogramKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4HistogramKernel"
+    public let name: String = "HistogramKernel"
 
     // MARK: - Pipelines
 

@@ -78,7 +78,7 @@ public actor MatrixEngine {
     private let logger: Logger
     
     // Legacy shader cache for GPU operations
-    // Note: For Metal 4 optimized operations, use Metal4MatrixMultiplyKernel etc. directly
+    // Note: For Metal 4 optimized operations, use MatrixMultiplyKernel etc. directly
     private var matrixMultiplyShader: (any MTLComputePipelineState)?
     private var matrixTransposeShader: (any MTLComputePipelineState)?
     private var batchMatrixMultiplyShader: (any MTLComputePipelineState)?
@@ -98,7 +98,7 @@ public actor MatrixEngine {
         self.logger = Logger.shared
 
         // Pre-compile shaders for GPU operations
-        // Note: For Metal 4 optimized operations, use Metal4MatrixMultiplyKernel etc. directly
+        // Note: For Metal 4 optimized operations, use MatrixMultiplyKernel etc. directly
         await precompileShaders()
     }
 

@@ -1,5 +1,5 @@
 //
-//  Metal4CosineSimilarityKernel.swift
+//  CosineSimilarityKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Cosine Similarity kernel with ArgumentTable support.
@@ -23,7 +23,7 @@ import VectorCore
 ///
 /// Memory layout must match the Metal shader's `CosineSimilarityParams` struct.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4CosineSimilarityParameters: Sendable {
+public struct CosineSimilarityParameters: Sendable {
     /// Number of query vectors (N)
     public let numQueries: UInt32
 
@@ -121,7 +121,7 @@ public struct Metal4CosineSimilarityParameters: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4CosineSimilarityKernel(context: context)
+/// let kernel = try await CosineSimilarityKernel(context: context)
 ///
 /// // For pre-normalized embeddings (faster)
 /// let similarities = try await kernel.compute(
@@ -138,12 +138,12 @@ public struct Metal4CosineSimilarityParameters: Sendable {
 /// )
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4CosineSimilarityKernel: @unchecked Sendable, DimensionOptimizedKernel, FusibleKernel {
+public final class CosineSimilarityKernel: @unchecked Sendable, DimensionOptimizedKernel, FusibleKernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4CosineSimilarityKernel"
+    public let name: String = "CosineSimilarityKernel"
 
     public let optimizedDimensions: [Int] = [384, 512, 768, 1536]
     public let fusibleWith: [String] = ["TopKSelection", "L2Normalization"]
@@ -234,7 +234,7 @@ public final class Metal4CosineSimilarityKernel: @unchecked Sendable, DimensionO
         queries: any MTLBuffer,
         database: any MTLBuffer,
         output: any MTLBuffer,
-        parameters: Metal4CosineSimilarityParameters
+        parameters: CosineSimilarityParameters
     ) -> Metal4EncodingResult {
         let (pipeline, pipelineName) = selectPipeline(
             for: parameters.dimension,
@@ -249,7 +249,7 @@ public final class Metal4CosineSimilarityKernel: @unchecked Sendable, DimensionO
         encoder.setBuffer(output, offset: 0, index: 2)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4CosineSimilarityParameters>.size, index: 3)
+        encoder.setBytes(&params, length: MemoryLayout<CosineSimilarityParameters>.size, index: 3)
 
         let config = Metal4ThreadConfiguration.forDistanceKernel(
             numQueries: Int(parameters.numQueries),
@@ -275,7 +275,7 @@ public final class Metal4CosineSimilarityKernel: @unchecked Sendable, DimensionO
     public func execute(
         queries: any MTLBuffer,
         database: any MTLBuffer,
-        parameters: Metal4CosineSimilarityParameters
+        parameters: CosineSimilarityParameters
     ) async throws -> any MTLBuffer {
         let outputSize = Int(parameters.numQueries) * Int(parameters.numDatabase) * MemoryLayout<Float>.size
         guard let outputBuffer = context.device.rawDevice.makeBuffer(
@@ -341,7 +341,7 @@ public final class Metal4CosineSimilarityKernel: @unchecked Sendable, DimensionO
             throw VectorError.bufferAllocationFailed(size: flatDatabase.count * MemoryLayout<Float>.size)
         }
 
-        let parameters = Metal4CosineSimilarityParameters(
+        let parameters = CosineSimilarityParameters(
             numQueries: numQueries,
             numDatabase: numDatabase,
             dimension: dimension,
@@ -382,7 +382,7 @@ public final class Metal4CosineSimilarityKernel: @unchecked Sendable, DimensionO
         let queryBuffer = try createBuffer(from: queries, device: device, label: "CosineSimilarity.queries")
         let databaseBuffer = try createBuffer(from: database, device: device, label: "CosineSimilarity.database")
 
-        let parameters = Metal4CosineSimilarityParameters(
+        let parameters = CosineSimilarityParameters(
             numQueries: numQueries,
             numDatabase: numDatabase,
             dimension: dimension,
@@ -450,8 +450,8 @@ public final class Metal4CosineSimilarityKernel: @unchecked Sendable, DimensionO
 // MARK: - Metal4DistanceKernel Conformance
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-extension Metal4CosineSimilarityKernel: Metal4DistanceKernel {
-    public typealias Parameters = Metal4CosineSimilarityParameters
+extension CosineSimilarityKernel: Metal4DistanceKernel {
+    public typealias Parameters = CosineSimilarityParameters
 
     /// Protocol conformance: encode into encoder with distances output buffer.
     @discardableResult
@@ -460,7 +460,7 @@ extension Metal4CosineSimilarityKernel: Metal4DistanceKernel {
         queries: any MTLBuffer,
         database: any MTLBuffer,
         distances: any MTLBuffer,
-        parameters: Metal4CosineSimilarityParameters
+        parameters: CosineSimilarityParameters
     ) -> Metal4EncodingResult {
         // Delegate to the main encode method with output buffer
         encode(into: encoder, queries: queries, database: database, output: distances, parameters: parameters)

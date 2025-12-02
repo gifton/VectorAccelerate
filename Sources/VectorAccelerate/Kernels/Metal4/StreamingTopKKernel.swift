@@ -1,5 +1,5 @@
 //
-//  Metal4StreamingTopKKernel.swift
+//  StreamingTopKKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Streaming Top-K kernel for massive datasets.
@@ -189,7 +189,7 @@ internal struct StreamingProcessParams: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4StreamingTopKKernel(context: context)
+/// let kernel = try await StreamingTopKKernel(context: context)
 ///
 /// // Initialize streaming state
 /// let state = try await kernel.initializeStreaming(config: config)
@@ -203,12 +203,12 @@ internal struct StreamingProcessParams: Sendable {
 /// let result = try await kernel.finalizeStreaming(state: state)
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4StreamingTopKKernel: @unchecked Sendable, Metal4Kernel {
+public final class StreamingTopKKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4StreamingTopKKernel"
+    public let name: String = "StreamingTopKKernel"
 
     // MARK: - Pipelines
 

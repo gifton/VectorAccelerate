@@ -1,5 +1,5 @@
 //
-//  Metal4ElementwiseKernel.swift
+//  ElementwiseKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Elementwise Operations kernel with ArgumentTable support.
@@ -106,7 +106,7 @@ public enum Metal4ElementwiseOperation: Sendable {
 
 /// Parameters for elementwise kernel.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4ElementwiseParameters: Sendable {
+public struct ElementwiseParameters: Sendable {
     /// Number of elements to process
     public let numElements: UInt32
     /// Stride for input A
@@ -210,7 +210,7 @@ public struct Metal4ElementwiseResult: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4ElementwiseKernel(context: context)
+/// let kernel = try await ElementwiseKernel(context: context)
 ///
 /// // Binary operation
 /// let sum = try await kernel.execute(a, b, operation: .add)
@@ -222,12 +222,12 @@ public struct Metal4ElementwiseResult: Sendable {
 /// try await kernel.executeInPlace(&buffer, operation: .absolute)
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4ElementwiseKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
+public final class ElementwiseKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4ElementwiseKernel"
+    public let name: String = "ElementwiseKernel"
     public let fusibleWith: [String] = ["Any"]  // Can fuse with any kernel
     public let requiresBarrierAfter: Bool = true
 
@@ -271,7 +271,7 @@ public final class Metal4ElementwiseKernel: @unchecked Sendable, Metal4Kernel, F
         inputA: any MTLBuffer,
         inputB: (any MTLBuffer)?,
         output: any MTLBuffer,
-        parameters: Metal4ElementwiseParameters
+        parameters: ElementwiseParameters
     ) -> Metal4EncodingResult {
         encoder.setComputePipelineState(pipelineOutOfPlace)
         encoder.label = "Elementwise (op=\(parameters.operation))"
@@ -281,7 +281,7 @@ public final class Metal4ElementwiseKernel: @unchecked Sendable, Metal4Kernel, F
         encoder.setBuffer(output, offset: 0, index: 2)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4ElementwiseParameters>.stride, index: 3)
+        encoder.setBytes(&params, length: MemoryLayout<ElementwiseParameters>.stride, index: 3)
 
         let config = Metal4ThreadConfiguration.linear(
             count: Int(parameters.numElements),
@@ -305,7 +305,7 @@ public final class Metal4ElementwiseKernel: @unchecked Sendable, Metal4Kernel, F
         into encoder: any MTLComputeCommandEncoder,
         data: any MTLBuffer,
         operand: (any MTLBuffer)?,
-        parameters: Metal4ElementwiseParameters
+        parameters: ElementwiseParameters
     ) -> Metal4EncodingResult {
         encoder.setComputePipelineState(pipelineInPlace)
         encoder.label = "ElementwiseInPlace (op=\(parameters.operation))"
@@ -314,7 +314,7 @@ public final class Metal4ElementwiseKernel: @unchecked Sendable, Metal4Kernel, F
         encoder.setBuffer(operand, offset: 0, index: 1)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4ElementwiseParameters>.stride, index: 2)
+        encoder.setBytes(&params, length: MemoryLayout<ElementwiseParameters>.stride, index: 2)
 
         let config = Metal4ThreadConfiguration.linear(
             count: Int(parameters.numElements),
@@ -336,7 +336,7 @@ public final class Metal4ElementwiseKernel: @unchecked Sendable, Metal4Kernel, F
     public func execute(
         inputA: any MTLBuffer,
         inputB: (any MTLBuffer)?,
-        parameters: Metal4ElementwiseParameters
+        parameters: ElementwiseParameters
     ) async throws -> Metal4ElementwiseResult {
         let device = context.device.rawDevice
         let numElements = Int(parameters.numElements)
@@ -411,7 +411,7 @@ public final class Metal4ElementwiseKernel: @unchecked Sendable, Metal4Kernel, F
         }
         inputB.label = "Elementwise.inputB"
 
-        let parameters = Metal4ElementwiseParameters(
+        let parameters = ElementwiseParameters(
             numElements: a.count,
             operation: operation,
             useFastMath: useFastMath
@@ -444,7 +444,7 @@ public final class Metal4ElementwiseKernel: @unchecked Sendable, Metal4Kernel, F
         }
         inputA.label = "Elementwise.input"
 
-        let parameters = Metal4ElementwiseParameters(
+        let parameters = ElementwiseParameters(
             numElements: a.count,
             operation: operation,
             useFastMath: useFastMath

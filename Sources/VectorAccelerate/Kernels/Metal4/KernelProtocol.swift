@@ -1,5 +1,5 @@
 //
-//  Metal4KernelProtocol.swift
+//  KernelProtocol.swift
 //  VectorAccelerate
 //
 //  Protocol definitions for Metal 4 kernels with ArgumentTable support.
@@ -31,7 +31,7 @@ import VectorCore
 ///
 /// ### Standalone Execution
 /// ```swift
-/// let kernel = try await Metal4L2DistanceKernel(context: context)
+/// let kernel = try await L2DistanceKernel(context: context)
 /// let distances = try await kernel.execute(
 ///     queries: queryBuffer,
 ///     database: databaseBuffer,

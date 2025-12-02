@@ -1,5 +1,5 @@
 //
-//  Metal4L2NormalizationKernel.swift
+//  L2NormalizationKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 L2 Normalization kernel with ArgumentTable support.
@@ -21,7 +21,7 @@ import VectorCore
 
 /// Parameters for L2 Normalization kernel.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4L2NormalizationParameters: Sendable {
+public struct L2NormalizationParameters: Sendable {
     /// Number of vectors to normalize
     public let numVectors: UInt32
     /// Vector dimension
@@ -122,7 +122,7 @@ public struct Metal4L2NormalizationResult: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4L2NormalizationKernel(context: context)
+/// let kernel = try await L2NormalizationKernel(context: context)
 ///
 /// // Normalize and get norms
 /// let (normalized, norms) = try await kernel.normalize(vectors, storeNorms: true)
@@ -131,12 +131,12 @@ public struct Metal4L2NormalizationResult: Sendable {
 /// try await kernel.normalizeInPlace(&vectors)
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4L2NormalizationKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
+public final class L2NormalizationKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4L2NormalizationKernel"
+    public let name: String = "L2NormalizationKernel"
     public let fusibleWith: [String] = ["CosineSimilarity", "DotProduct", "Distance"]
     public let requiresBarrierAfter: Bool = true
 
@@ -205,7 +205,7 @@ public final class Metal4L2NormalizationKernel: @unchecked Sendable, Metal4Kerne
         input: any MTLBuffer,
         output: any MTLBuffer,
         norms: (any MTLBuffer)?,
-        parameters: Metal4L2NormalizationParameters
+        parameters: L2NormalizationParameters
     ) -> Metal4EncodingResult {
         let pipeline = selectPipeline(
             for: parameters.dimension,
@@ -221,7 +221,7 @@ public final class Metal4L2NormalizationKernel: @unchecked Sendable, Metal4Kerne
         encoder.setBuffer(norms, offset: 0, index: 2)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4L2NormalizationParameters>.stride, index: 3)
+        encoder.setBytes(&params, length: MemoryLayout<L2NormalizationParameters>.stride, index: 3)
 
         // One thread per vector
         let config = Metal4ThreadConfiguration.linear(
@@ -244,7 +244,7 @@ public final class Metal4L2NormalizationKernel: @unchecked Sendable, Metal4Kerne
         into encoder: any MTLComputeCommandEncoder,
         vectors: any MTLBuffer,
         norms: (any MTLBuffer)?,
-        parameters: Metal4L2NormalizationParameters
+        parameters: L2NormalizationParameters
     ) -> Metal4EncodingResult {
         encoder.setComputePipelineState(pipelineInplace)
         encoder.label = "L2NormalizeInPlace (dim=\(parameters.dimension))"
@@ -253,7 +253,7 @@ public final class Metal4L2NormalizationKernel: @unchecked Sendable, Metal4Kerne
         encoder.setBuffer(norms, offset: 0, index: 1)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4L2NormalizationParameters>.stride, index: 2)
+        encoder.setBytes(&params, length: MemoryLayout<L2NormalizationParameters>.stride, index: 2)
 
         let config = Metal4ThreadConfiguration.linear(
             count: Int(parameters.numVectors),
@@ -274,7 +274,7 @@ public final class Metal4L2NormalizationKernel: @unchecked Sendable, Metal4Kerne
     /// Execute L2 normalization as standalone operation.
     public func execute(
         input: any MTLBuffer,
-        parameters: Metal4L2NormalizationParameters
+        parameters: L2NormalizationParameters
     ) async throws -> Metal4L2NormalizationResult {
         let device = context.device.rawDevice
         let numVectors = Int(parameters.numVectors)
@@ -351,7 +351,7 @@ public final class Metal4L2NormalizationKernel: @unchecked Sendable, Metal4Kerne
         }
         inputBuffer.label = "L2Normalize.input"
 
-        let parameters = Metal4L2NormalizationParameters(
+        let parameters = L2NormalizationParameters(
             numVectors: numVectors,
             dimension: dimension,
             epsilon: epsilon,

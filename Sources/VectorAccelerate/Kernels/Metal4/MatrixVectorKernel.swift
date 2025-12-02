@@ -1,5 +1,5 @@
 //
-//  Metal4MatrixVectorKernel.swift
+//  MatrixVectorKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Matrix-Vector Multiply kernel with ArgumentTable support.
@@ -50,7 +50,7 @@ public struct Metal4MatrixVectorConfig: Sendable {
 
 /// Parameters for matrix-vector kernel.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4MatrixVectorParameters: Sendable {
+public struct MatrixVectorParameters: Sendable {
     /// Number of rows in matrix
     public let rows: UInt32
     /// Number of columns in matrix
@@ -117,7 +117,7 @@ public struct Metal4MatrixVectorResult: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4MatrixVectorKernel(context: context)
+/// let kernel = try await MatrixVectorKernel(context: context)
 ///
 /// // Standard multiply: y = A × x
 /// let result = try await kernel.multiply(matrix: A, vector: x)
@@ -126,12 +126,12 @@ public struct Metal4MatrixVectorResult: Sendable {
 /// let (eigenvalue, eigenvector) = try await kernel.powerIteration(matrix: A)
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4MatrixVectorKernel: @unchecked Sendable, Metal4Kernel {
+public final class MatrixVectorKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4MatrixVectorKernel"
+    public let name: String = "MatrixVectorKernel"
 
     // MARK: - Constants
 
@@ -189,7 +189,7 @@ public final class Metal4MatrixVectorKernel: @unchecked Sendable, Metal4Kernel {
         matrix: any MTLBuffer,
         vector: any MTLBuffer,
         output: any MTLBuffer,
-        parameters: Metal4MatrixVectorParameters,
+        parameters: MatrixVectorParameters,
         useSIMD: Bool = true
     ) -> Metal4EncodingResult {
         let pipeline = useSIMD ? simdPipeline : basicPipeline
@@ -243,7 +243,7 @@ public final class Metal4MatrixVectorKernel: @unchecked Sendable, Metal4Kernel {
     public func execute(
         matrix: any MTLBuffer,
         vector: any MTLBuffer,
-        parameters: Metal4MatrixVectorParameters,
+        parameters: MatrixVectorParameters,
         useSIMD: Bool = true
     ) async throws -> any MTLBuffer {
         let device = context.device.rawDevice
@@ -302,7 +302,7 @@ public final class Metal4MatrixVectorKernel: @unchecked Sendable, Metal4Kernel {
         }
         vectorBuffer.label = "MatrixVector.vector"
 
-        let parameters = Metal4MatrixVectorParameters(
+        let parameters = MatrixVectorParameters(
             rows: matrix.rows,
             columns: matrix.columns,
             config: config

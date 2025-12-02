@@ -1,5 +1,5 @@
 //
-//  Metal4ScalarQuantizationKernel.swift
+//  ScalarQuantizationKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Scalar Quantization kernel with ArgumentTable support.
@@ -61,7 +61,7 @@ public enum Metal4BitWidth: UInt8, Sendable {
 ///
 /// Memory layout must match the Metal shader's parameters struct.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4ScalarQuantizationParameters: Sendable {
+public struct ScalarQuantizationParameters: Sendable {
     /// Total number of elements
     public var numElements: UInt32
     /// Number of channels (for per-channel quantization)
@@ -163,7 +163,7 @@ public struct Metal4QuantizationMetrics: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4ScalarQuantizationKernel(context: context)
+/// let kernel = try await ScalarQuantizationKernel(context: context)
 ///
 /// // Quantize with automatic parameter selection
 /// let result = try await kernel.quantize(vectors, bitWidth: .int8)
@@ -172,12 +172,12 @@ public struct Metal4QuantizationMetrics: Sendable {
 /// let reconstructed = try await kernel.dequantize(result, count: vectors.count)
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4ScalarQuantizationKernel: @unchecked Sendable, Metal4Kernel {
+public final class ScalarQuantizationKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4ScalarQuantizationKernel"
+    public let name: String = "ScalarQuantizationKernel"
 
     // MARK: - Pipelines
 
@@ -226,7 +226,7 @@ public final class Metal4ScalarQuantizationKernel: @unchecked Sendable, Metal4Ke
         output: any MTLBuffer,
         scales: (any MTLBuffer)?,
         zeroPoints: (any MTLBuffer)?,
-        parameters: Metal4ScalarQuantizationParameters
+        parameters: ScalarQuantizationParameters
     ) -> Metal4EncodingResult {
         let bitWidth = Metal4BitWidth(rawValue: parameters.bitWidth) ?? .int8
         let pipeline: any MTLComputePipelineState
@@ -250,7 +250,7 @@ public final class Metal4ScalarQuantizationKernel: @unchecked Sendable, Metal4Ke
         encoder.setBuffer(zeroPoints, offset: 0, index: 3)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4ScalarQuantizationParameters>.size, index: 4)
+        encoder.setBytes(&params, length: MemoryLayout<ScalarQuantizationParameters>.size, index: 4)
 
         let config = Metal4ThreadConfiguration.linear(count: dispatchCount, pipeline: pipeline)
         encoder.dispatchThreadgroups(config.threadgroups, threadsPerThreadgroup: config.threadsPerThreadgroup)
@@ -270,7 +270,7 @@ public final class Metal4ScalarQuantizationKernel: @unchecked Sendable, Metal4Ke
         output: any MTLBuffer,
         scales: (any MTLBuffer)?,
         zeroPoints: (any MTLBuffer)?,
-        parameters: Metal4ScalarQuantizationParameters
+        parameters: ScalarQuantizationParameters
     ) -> Metal4EncodingResult {
         let bitWidth = Metal4BitWidth(rawValue: parameters.bitWidth) ?? .int8
         let pipeline: any MTLComputePipelineState
@@ -294,7 +294,7 @@ public final class Metal4ScalarQuantizationKernel: @unchecked Sendable, Metal4Ke
         encoder.setBuffer(zeroPoints, offset: 0, index: 3)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4ScalarQuantizationParameters>.size, index: 4)
+        encoder.setBytes(&params, length: MemoryLayout<ScalarQuantizationParameters>.size, index: 4)
 
         let config = Metal4ThreadConfiguration.linear(count: dispatchCount, pipeline: pipeline)
         encoder.dispatchThreadgroups(config.threadgroups, threadsPerThreadgroup: config.threadsPerThreadgroup)
@@ -311,7 +311,7 @@ public final class Metal4ScalarQuantizationKernel: @unchecked Sendable, Metal4Ke
     /// Execute quantization as standalone operation.
     public func executeQuantize(
         input: any MTLBuffer,
-        parameters: Metal4ScalarQuantizationParameters
+        parameters: ScalarQuantizationParameters
     ) async throws -> any MTLBuffer {
         let bitWidth = Metal4BitWidth(rawValue: parameters.bitWidth) ?? .int8
         let outputSize = bitWidth.outputSize(for: Int(parameters.numElements))
@@ -341,7 +341,7 @@ public final class Metal4ScalarQuantizationKernel: @unchecked Sendable, Metal4Ke
     /// Execute dequantization as standalone operation.
     public func executeDequantize(
         input: any MTLBuffer,
-        parameters: Metal4ScalarQuantizationParameters
+        parameters: ScalarQuantizationParameters
     ) async throws -> any MTLBuffer {
         let outputSize = Int(parameters.numElements) * MemoryLayout<Float>.size
 
@@ -401,7 +401,7 @@ public final class Metal4ScalarQuantizationKernel: @unchecked Sendable, Metal4Ke
         // Compute quantization parameters
         let (scale, zeroPoint) = computeQuantizationParams(data, type: type, bitWidth: bitWidth)
 
-        let parameters = Metal4ScalarQuantizationParameters(
+        let parameters = ScalarQuantizationParameters(
             numElements: data.count,
             globalScale: scale,
             globalZeroPoint: zeroPoint ?? 0,
@@ -442,7 +442,7 @@ public final class Metal4ScalarQuantizationKernel: @unchecked Sendable, Metal4Ke
         inputBuffer.label = "ScalarDequantize.input"
 
         let type: Metal4QuantizationType = result.zeroPoint != nil ? .asymmetric : .symmetric
-        let parameters = Metal4ScalarQuantizationParameters(
+        let parameters = ScalarQuantizationParameters(
             numElements: count,
             globalScale: result.scale,
             globalZeroPoint: result.zeroPoint ?? 0,

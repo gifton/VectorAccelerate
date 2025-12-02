@@ -1,5 +1,5 @@
 //
-//  Metal4DotProductKernel.swift
+//  DotProductKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Dot Product kernel with ArgumentTable support.
@@ -23,7 +23,7 @@ import VectorCore
 ///
 /// Memory layout must match the Metal shader's `DotProductParams` struct.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4DotProductParameters: Sendable {
+public struct DotProductParameters: Sendable {
     /// Number of query vectors (N)
     public let numQueries: UInt32
 
@@ -120,7 +120,7 @@ public struct Metal4DotProductParameters: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4DotProductKernel(context: context)
+/// let kernel = try await DotProductKernel(context: context)
 ///
 /// // Standard batch computation
 /// let products = try await kernel.compute(
@@ -135,12 +135,12 @@ public struct Metal4DotProductParameters: Sendable {
 /// )
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4DotProductKernel: @unchecked Sendable, DimensionOptimizedKernel, FusibleKernel {
+public final class DotProductKernel: @unchecked Sendable, DimensionOptimizedKernel, FusibleKernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4DotProductKernel"
+    public let name: String = "DotProductKernel"
 
     public let optimizedDimensions: [Int] = [384, 512, 768, 1536]
     public let fusibleWith: [String] = ["TopKSelection", "MatrixOps"]
@@ -230,7 +230,7 @@ public final class Metal4DotProductKernel: @unchecked Sendable, DimensionOptimiz
         queries: any MTLBuffer,
         database: any MTLBuffer,
         output: any MTLBuffer,
-        parameters: Metal4DotProductParameters
+        parameters: DotProductParameters
     ) -> Metal4EncodingResult {
         let (pipeline, pipelineName) = selectPipeline(
             for: parameters.dimension,
@@ -245,7 +245,7 @@ public final class Metal4DotProductKernel: @unchecked Sendable, DimensionOptimiz
         encoder.setBuffer(output, offset: 0, index: 2)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4DotProductParameters>.size, index: 3)
+        encoder.setBytes(&params, length: MemoryLayout<DotProductParameters>.size, index: 3)
 
         // Thread configuration differs for GEMV vs GEMM
         let config: Metal4ThreadConfiguration
@@ -282,7 +282,7 @@ public final class Metal4DotProductKernel: @unchecked Sendable, DimensionOptimiz
     public func execute(
         queries: any MTLBuffer,
         database: any MTLBuffer,
-        parameters: Metal4DotProductParameters
+        parameters: DotProductParameters
     ) async throws -> any MTLBuffer {
         let outputSize = Int(parameters.numQueries) * Int(parameters.numDatabase) * MemoryLayout<Float>.size
         guard let outputBuffer = context.device.rawDevice.makeBuffer(
@@ -347,7 +347,7 @@ public final class Metal4DotProductKernel: @unchecked Sendable, DimensionOptimiz
             throw VectorError.bufferAllocationFailed(size: flatDatabase.count * MemoryLayout<Float>.size)
         }
 
-        let parameters = Metal4DotProductParameters(
+        let parameters = DotProductParameters(
             numQueries: numQueries,
             numDatabase: numDatabase,
             dimension: dimension,
@@ -386,7 +386,7 @@ public final class Metal4DotProductKernel: @unchecked Sendable, DimensionOptimiz
         let queryBuffer = try createBuffer(from: queries, device: device, label: "DotProduct.queries")
         let databaseBuffer = try createBuffer(from: database, device: device, label: "DotProduct.database")
 
-        let parameters = Metal4DotProductParameters(
+        let parameters = DotProductParameters(
             numQueries: numQueries,
             numDatabase: numDatabase,
             dimension: dimension,
@@ -469,8 +469,8 @@ public final class Metal4DotProductKernel: @unchecked Sendable, DimensionOptimiz
 // MARK: - Metal4DistanceKernel Conformance
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-extension Metal4DotProductKernel: Metal4DistanceKernel {
-    public typealias Parameters = Metal4DotProductParameters
+extension DotProductKernel: Metal4DistanceKernel {
+    public typealias Parameters = DotProductParameters
 
     /// Protocol conformance: encode into encoder with distances output buffer.
     @discardableResult
@@ -479,7 +479,7 @@ extension Metal4DotProductKernel: Metal4DistanceKernel {
         queries: any MTLBuffer,
         database: any MTLBuffer,
         distances: any MTLBuffer,
-        parameters: Metal4DotProductParameters
+        parameters: DotProductParameters
     ) -> Metal4EncodingResult {
         // Delegate to the main encode method with output buffer
         encode(into: encoder, queries: queries, database: database, output: distances, parameters: parameters)

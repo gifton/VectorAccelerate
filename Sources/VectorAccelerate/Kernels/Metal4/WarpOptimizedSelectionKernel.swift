@@ -1,5 +1,5 @@
 //
-//  Metal4WarpOptimizedSelectionKernel.swift
+//  WarpOptimizedSelectionKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Warp-Optimized Selection kernel with ArgumentTable support.
@@ -242,7 +242,7 @@ public struct Metal4WarpBatchResult: @unchecked Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4WarpOptimizedSelectionKernel(context: context)
+/// let kernel = try await WarpOptimizedSelectionKernel(context: context)
 ///
 /// // Select 10 smallest from each query row
 /// let result = try await kernel.selectTopK(from: distances, k: 10)
@@ -252,12 +252,12 @@ public struct Metal4WarpBatchResult: @unchecked Sendable {
 /// }
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4WarpOptimizedSelectionKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
+public final class WarpOptimizedSelectionKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4WarpOptimizedSelectionKernel"
+    public let name: String = "WarpOptimizedSelectionKernel"
 
     public let fusibleWith: [String] = ["L2Distance", "CosineSimilarity", "DotProduct", "HammingDistance"]
     public let requiresBarrierAfter: Bool = false  // Output is final

@@ -1,5 +1,5 @@
 //
-//  Metal4TopKSelectionKernel.swift
+//  TopKSelectionKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Top-K Selection kernel with ArgumentTable support.
@@ -33,7 +33,7 @@ public enum Metal4SelectionMode: UInt8, Sendable {
 
 /// Parameters for Top-K Selection kernel.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4TopKParameters: Sendable {
+public struct TopKParameters: Sendable {
     /// Number of queries (batch size)
     public let batchSize: UInt32
 
@@ -176,12 +176,12 @@ public struct Metal4TopKResult: Sendable {
 /// - Single-pass algorithm avoids sorting entire input
 /// - Batch processing for multiple queries in parallel
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4TopKSelectionKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
+public final class TopKSelectionKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4TopKSelectionKernel"
+    public let name: String = "TopKSelectionKernel"
 
     public let fusibleWith: [String] = ["L2Distance", "CosineSimilarity", "DotProduct"]
     public let requiresBarrierAfter: Bool = false  // Output is final, no subsequent reads expected
@@ -234,7 +234,7 @@ public final class Metal4TopKSelectionKernel: @unchecked Sendable, Metal4Kernel,
         input: any MTLBuffer,
         outputValues: any MTLBuffer,
         outputIndices: any MTLBuffer,
-        parameters: Metal4TopKParameters
+        parameters: TopKParameters
     ) -> Metal4EncodingResult {
         encoder.setComputePipelineState(batchPipeline)
         encoder.label = "TopKSelection.batch (K=\(parameters.k))"
@@ -246,7 +246,7 @@ public final class Metal4TopKSelectionKernel: @unchecked Sendable, Metal4Kernel,
 
         // Bind parameters
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4TopKParameters>.size, index: 3)
+        encoder.setBytes(&params, length: MemoryLayout<TopKParameters>.size, index: 3)
 
         // One threadgroup per query
         let config = Metal4ThreadConfiguration.linear(
@@ -276,7 +276,7 @@ public final class Metal4TopKSelectionKernel: @unchecked Sendable, Metal4Kernel,
     /// - Returns: Top-K result with values and indices
     public func execute(
         input: any MTLBuffer,
-        parameters: Metal4TopKParameters
+        parameters: TopKParameters
     ) async throws -> Metal4TopKResult {
         let device = context.device.rawDevice
         let k = Int(parameters.k)
@@ -338,8 +338,8 @@ public final class Metal4TopKSelectionKernel: @unchecked Sendable, Metal4Kernel,
             throw VectorError.invalidInput("All rows must have same length")
         }
 
-        guard k > 0 && k <= Metal4TopKParameters.maxK else {
-            throw VectorError.invalidInput("K must be between 1 and \(Metal4TopKParameters.maxK)")
+        guard k > 0 && k <= TopKParameters.maxK else {
+            throw VectorError.invalidInput("K must be between 1 and \(TopKParameters.maxK)")
         }
 
         let device = context.device.rawDevice
@@ -353,7 +353,7 @@ public final class Metal4TopKSelectionKernel: @unchecked Sendable, Metal4Kernel,
             throw VectorError.bufferAllocationFailed(size: flatValues.count * MemoryLayout<Float>.size)
         }
 
-        let parameters = Metal4TopKParameters(
+        let parameters = TopKParameters(
             batchSize: batchSize,
             numElements: numElements,
             k: k,
@@ -380,7 +380,7 @@ public final class Metal4TopKSelectionKernel: @unchecked Sendable, Metal4Kernel,
 // MARK: - Fused Distance + TopK Helper
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-extension Metal4TopKSelectionKernel {
+extension TopKSelectionKernel {
     /// Convenience method for fused distance + top-k pipeline.
     ///
     /// This encodes both operations in a single command buffer with proper barrier.
@@ -409,13 +409,13 @@ extension Metal4TopKSelectionKernel {
         let numDatabase: Int
 
         // Use reflection or require protocol method
-        if let l2Params = distanceParams as? Metal4L2DistanceParameters {
+        if let l2Params = distanceParams as? L2DistanceParameters {
             numQueries = Int(l2Params.numQueries)
             numDatabase = Int(l2Params.numDatabase)
-        } else if let cosineParams = distanceParams as? Metal4CosineSimilarityParameters {
+        } else if let cosineParams = distanceParams as? CosineSimilarityParameters {
             numQueries = Int(cosineParams.numQueries)
             numDatabase = Int(cosineParams.numDatabase)
-        } else if let dotParams = distanceParams as? Metal4DotProductParameters {
+        } else if let dotParams = distanceParams as? DotProductParameters {
             numQueries = Int(dotParams.numQueries)
             numDatabase = Int(dotParams.numDatabase)
         } else {
@@ -430,7 +430,7 @@ extension Metal4TopKSelectionKernel {
         distanceBuffer.label = "FusedDistanceTopK.distances"
 
         // Allocate top-k output buffers
-        let actualK = min(k, Metal4TopKParameters.maxK)
+        let actualK = min(k, TopKParameters.maxK)
         let valuesSize = numQueries * actualK * MemoryLayout<Float>.size
         let indicesSize = numQueries * actualK * MemoryLayout<UInt32>.size
 
@@ -439,7 +439,7 @@ extension Metal4TopKSelectionKernel {
             throw VectorError.bufferAllocationFailed(size: valuesSize + indicesSize)
         }
 
-        let topKParams = Metal4TopKParameters(
+        let topKParams = TopKParameters(
             batchSize: numQueries,
             numElements: numDatabase,
             k: actualK,
