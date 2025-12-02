@@ -228,15 +228,37 @@ public struct Matrix: Sendable {
     /// Convert to Metal-friendly column-major format
     public func toColumnMajor() -> Matrix {
         guard !isColumnMajor else { return self }
-        
+
         var columnMajorValues = [Float](repeating: 0, count: values.count)
         for row in 0..<rows {
             for col in 0..<columns {
                 columnMajorValues[col * rows + row] = values[row * columns + col]
             }
         }
-        
+
         return Matrix(rows: rows, columns: columns, values: columnMajorValues, isColumnMajor: true)
+    }
+
+    /// Create a matrix with random values in range [0, 1)
+    public static func random(rows: Int, columns: Int, range: ClosedRange<Float> = 0...1) -> Matrix {
+        let values = (0..<(rows * columns)).map { _ in
+            Float.random(in: range)
+        }
+        return Matrix(rows: rows, columns: columns, values: values)
+    }
+
+    /// Create a zero matrix
+    public static func zeros(rows: Int, columns: Int) -> Matrix {
+        Matrix(rows: rows, columns: columns, values: [Float](repeating: 0, count: rows * columns))
+    }
+
+    /// Create an identity matrix
+    public static func identity(size: Int) -> Matrix {
+        var values = [Float](repeating: 0, count: size * size)
+        for i in 0..<size {
+            values[i * size + i] = 1.0
+        }
+        return Matrix(rows: size, columns: size, values: values)
     }
 }
 
@@ -278,28 +300,32 @@ public struct PerformanceMetrics: Sendable {
 // MARK: - Tensor Shape Support
 
 /// Shape representation for multi-dimensional tensors
-public struct TensorShape: Sendable, Equatable {
+public struct TensorShape: Sendable, Equatable, Codable {
     /// Dimensions of the tensor
     public let dimensions: [Int]
-    
+
     /// Total number of elements
     public var elementCount: Int {
         dimensions.reduce(1, *)
     }
-    
+
     /// Number of dimensions (rank)
     public var rank: Int {
         dimensions.count
     }
-    
+
     public init(_ dimensions: Int...) {
         self.dimensions = dimensions
     }
-    
+
+    public init(_ dimensions: [Int]) {
+        self.dimensions = dimensions
+    }
+
     public init(dimensions: [Int]) {
         self.dimensions = dimensions
     }
-    
+
     /// Check if shape is compatible for broadcast
     public func isBroadcastCompatible(with other: TensorShape) -> Bool {
         // Simple broadcasting rules
@@ -312,6 +338,23 @@ public struct TensorShape: Sendable, Equatable {
             }
         }
         return true
+    }
+
+    // MARK: - Factory Methods
+
+    /// Create shape for projection matrix [outputDim, inputDim]
+    public static func projection(inputDim: Int, outputDim: Int) -> TensorShape {
+        TensorShape([outputDim, inputDim])
+    }
+
+    /// Create shape for 1D vector
+    public static func vector(_ size: Int) -> TensorShape {
+        TensorShape([size])
+    }
+
+    /// Create shape for 2D matrix
+    public static func matrix(rows: Int, cols: Int) -> TensorShape {
+        TensorShape([rows, cols])
     }
 }
 

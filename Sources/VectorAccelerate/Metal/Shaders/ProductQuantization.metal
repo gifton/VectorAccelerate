@@ -1,10 +1,20 @@
-#include <metal_stdlib>
+// VectorAccelerate: Product Quantization Shaders
+//
+// GPU kernels for product quantization encoding and search
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
+
+#include "Metal4Common.h"
 #include <metal_atomic>
-using namespace metal;
 
 // Define atomic types required for training
+// Wrapped in guards to avoid redefinition in combined compilation
+#ifndef VA_ATOMIC_TYPES_DEFINED
+#define VA_ATOMIC_TYPES_DEFINED
 typedef atomic<float> atomic_float;
 typedef atomic<uint> atomic_uint;
+#endif
 
 // MARK: - Common Structures and Parameters
 

@@ -1,16 +1,23 @@
 // swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
+//
+// IMPORTANT: VectorAccelerate 0.2.0+ requires Metal 4 (macOS 26.0+, iOS 26.0+)
+// The platform versions below are SPM placeholders; runtime availability is enforced
+// via @available(macOS 26.0, iOS 26.0, ...) attributes on all public APIs.
+// For older OS support, use VectorAccelerate 0.1.x.
 
 import PackageDescription
 
 let package = Package(
     name: "VectorAccelerate",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17),
-        .tvOS(.v17),
-        .watchOS(.v10),
-        .visionOS(.v1)
+        // Note: Metal 4 requires macOS 26.0+ / iOS 26.0+ at runtime
+        // SPM doesn't yet support these platform versions, so we use placeholders
+        .macOS(.v15),
+        .iOS(.v18),
+        .tvOS(.v18),
+        .watchOS(.v11),
+        .visionOS(.v2)
         // Note: No Linux support due to Metal dependency
     ],
     products: [

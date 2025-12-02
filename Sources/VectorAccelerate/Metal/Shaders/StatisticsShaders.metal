@@ -1,15 +1,17 @@
-// Sources/VectorAccelerate/Metal/Shaders/StatisticsShaders.metal
+// VectorAccelerate: Statistics Shaders
+//
+// GPU kernels for statistical computations on vectors
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
 
-#include <metal_stdlib>
-#include <metal_math>
+#include "Metal4Common.h"
 #include <metal_compute> // Provides constants like FLT_MAX
-
-using namespace metal;
 
 // MARK: - Constants and Definitions
 
-// Epsilon for zero comparisons in floating point arithmetic
-constant float EPSILON = 1e-7f;
+// Use common epsilon, with local alias
+constant float EPSILON = VA_EPSILON;
 
 // Maximum threadgroup size supported by the reduction kernels.
 // This defines the static allocation size for threadgroup memory.
@@ -443,5 +445,302 @@ kernel void computeCorrelation(
     if (i != j) {
         output[idx_ji] = correlation;
         output[matrix_size + idx_ji] = covariance;
+    }
+}
+
+// MARK: - Histogram Kernels
+
+// -----------------------------------------------------------------------------
+// Helper: Binary search for variable-width bins
+// -----------------------------------------------------------------------------
+
+/// Find the bin index for a value using binary search on sorted edges.
+///
+/// Finds bin i such that: edges[i] <= value < edges[i+1]
+///
+/// @param value The value to bin
+/// @param edges Sorted bin edges array (numBins + 1 elements)
+/// @param numBins Number of bins
+/// @return Bin index in range [0, numBins - 1]
+inline uint va_findBin(
+    float value,
+    device const float* edges,
+    uint numBins
+) {
+    uint lo = 0;
+    uint hi = numBins;
+
+    // Binary search invariant: bin i covers [edges[i], edges[i+1])
+    while (lo < hi) {
+        uint mid = (lo + hi) / 2u;
+        float left  = edges[mid];
+        float right = edges[mid + 1u];
+
+        if (value < left) {
+            hi = mid;
+        } else if (value >= right) {
+            lo = mid + 1u;
+        } else {
+            // Found: edges[mid] <= value < edges[mid + 1]
+            return mid;
+        }
+    }
+
+    // Fallback clamp for edge cases (floating-point imprecision)
+    return metal::clamp(lo, 0u, numBins - 1u);
+}
+
+// -----------------------------------------------------------------------------
+// Kernel 5: uniformHistogram
+// -----------------------------------------------------------------------------
+
+/// Compute histogram with equal-width bins.
+///
+/// Algorithm: Direct bin index computation using uniform width.
+///   binIndex = floor((value - minEdge) * numBins / range)
+///
+/// @param data Input data array [dataCount elements]
+/// @param binEdges Bin edges [numBins + 1 elements, sorted]
+/// @param histogram Output histogram [numBins atomic counters, pre-zeroed]
+/// @param params uint4: [0]=dataCount, [1]=numBins, [2]=includeOutliers (0/1), [3]=reserved
+///
+/// Dispatch: 1D grid with enough threads to cover dataCount
+kernel void uniformHistogram(
+    device const float*    data       [[buffer(0)]],
+    device const float*    binEdges   [[buffer(1)]],
+    device atomic_uint*    histogram  [[buffer(2)]],
+    constant uint4&        params     [[buffer(3)]],
+    uint                   gid        [[thread_position_in_grid]],
+    uint                   tid        [[thread_position_in_threadgroup]],
+    uint                   tgSize     [[threads_per_threadgroup]]
+) {
+    (void)tid;  // Unused but required by spec signature
+
+    const uint dataCount       = params[0];
+    const uint numBins         = params[1];
+    const bool includeOutliers = (params[2] != 0u);
+
+    // Early exit for empty input
+    if (dataCount == 0u || numBins == 0u) {
+        return;
+    }
+
+    // Compute grid size for grid-stride loop (robust for any dispatch pattern)
+    const uint threadsPerGroup = tgSize;
+    const uint numGroups       = (dataCount + threadsPerGroup - 1u) / threadsPerGroup;
+    const uint gridSize        = numGroups * threadsPerGroup;
+
+    const float minEdge = binEdges[0];
+    const float maxEdge = binEdges[numBins];
+    const float range   = maxEdge - minEdge;
+
+    // Handle degenerate zero-range case (all edges identical)
+    // Put all valid values in bin 0 rather than discarding
+    if (range <= VA_EPSILON) {
+        for (uint i = gid; i < dataCount; i += gridSize) {
+            const float value = data[i];
+
+            // Skip NaN/Infinity
+            if (!isfinite(value)) {
+                continue;
+            }
+
+            // Skip out-of-range values if not including outliers
+            if (!includeOutliers && (value < minEdge || value > maxEdge)) {
+                continue;
+            }
+
+            // All valid values go to bin 0 in degenerate case
+            atomic_fetch_add_explicit(&histogram[0], 1u, memory_order_relaxed);
+        }
+        return;
+    }
+
+    // Precompute inverse bin width for efficient index calculation
+    // binIndex = floor((value - minEdge) * invBinWidth)
+    const float invBinWidth = (float)numBins / range;
+
+    // Grid-stride loop: each thread processes elements at gid, gid+gridSize, ...
+    for (uint i = gid; i < dataCount; i += gridSize) {
+        const float value = data[i];
+
+        // Skip NaN/Infinity values
+        if (!isfinite(value)) {
+            continue;
+        }
+
+        // Handle out-of-range values
+        if (!includeOutliers && (value < minEdge || value > maxEdge)) {
+            continue;
+        }
+
+        // Compute bin index
+        uint binIndex;
+        if (value <= minEdge) {
+            // Values at or below minimum go to first bin
+            binIndex = 0u;
+        } else if (value >= maxEdge) {
+            // Values at or above maximum go to last bin (spec requirement)
+            binIndex = numBins - 1u;
+        } else {
+            // Normal case: compute bin index directly
+            float fIndex = (value - minEdge) * invBinWidth;
+            int idxInt = (int)floor(fIndex);
+            // Clamp to valid range (handles floating-point edge cases)
+            binIndex = (uint)metal::clamp(idxInt, 0, (int)numBins - 1);
+        }
+
+        // Atomic increment (relaxed ordering sufficient for histogram)
+        atomic_fetch_add_explicit(&histogram[binIndex], 1u, memory_order_relaxed);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Kernel 6: adaptiveHistogram
+// -----------------------------------------------------------------------------
+
+/// Compute histogram with variable-width bins (pre-computed edges).
+///
+/// Algorithm: Binary search to find bin where edges[i] <= value < edges[i+1]
+///
+/// @param data Input data array [dataCount elements]
+/// @param binEdges Bin edges [numBins + 1 elements, sorted ascending]
+/// @param histogram Output histogram [numBins atomic counters, pre-zeroed]
+/// @param params uint4: [0]=dataCount, [1]=numBins, [2]=includeOutliers (0/1), [3]=reserved
+///
+/// Dispatch: 1D grid with enough threads to cover dataCount
+kernel void adaptiveHistogram(
+    device const float*    data       [[buffer(0)]],
+    device const float*    binEdges   [[buffer(1)]],
+    device atomic_uint*    histogram  [[buffer(2)]],
+    constant uint4&        params     [[buffer(3)]],
+    uint                   gid        [[thread_position_in_grid]],
+    uint                   tid        [[thread_position_in_threadgroup]],
+    uint                   tgSize     [[threads_per_threadgroup]]
+) {
+    (void)tid;  // Unused but required by spec signature
+
+    const uint dataCount       = params[0];
+    const uint numBins         = params[1];
+    const bool includeOutliers = (params[2] != 0u);
+
+    // Early exit for empty input
+    if (dataCount == 0u || numBins == 0u) {
+        return;
+    }
+
+    // Compute grid size for grid-stride loop
+    const uint threadsPerGroup = tgSize;
+    const uint numGroups       = (dataCount + threadsPerGroup - 1u) / threadsPerGroup;
+    const uint gridSize        = numGroups * threadsPerGroup;
+
+    const float minEdge = binEdges[0];
+    const float maxEdge = binEdges[numBins];
+
+    // Grid-stride loop
+    for (uint i = gid; i < dataCount; i += gridSize) {
+        const float value = data[i];
+
+        // Skip NaN/Infinity values
+        if (!isfinite(value)) {
+            continue;
+        }
+
+        // Handle out-of-range values
+        if (!includeOutliers && (value < minEdge || value > maxEdge)) {
+            continue;
+        }
+
+        // Compute bin index with boundary handling
+        uint binIndex;
+        if (value <= minEdge) {
+            // Values at or below minimum go to first bin
+            // (handles outliers below range when includeOutliers=true)
+            binIndex = 0u;
+        } else if (value >= maxEdge) {
+            // Values at or above maximum go to last bin
+            // (handles outliers above range and value == maxEdge)
+            binIndex = numBins - 1u;
+        } else {
+            // Normal case: binary search for correct bin
+            binIndex = va_findBin(value, binEdges, numBins);
+        }
+
+        // Atomic increment
+        atomic_fetch_add_explicit(&histogram[binIndex], 1u, memory_order_relaxed);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Kernel 7: logarithmicHistogram
+// -----------------------------------------------------------------------------
+
+/// Compute histogram with logarithmic-scale bins.
+///
+/// Algorithm: Binary search on pre-computed log-scale edges (passed in linear space).
+/// Identical to adaptiveHistogram but skips non-positive values (log undefined).
+///
+/// @param data Input data array [dataCount elements, should be > 0]
+/// @param binEdges Log-scale bin edges in linear space [numBins + 1 elements]
+/// @param histogram Output histogram [numBins atomic counters, pre-zeroed]
+/// @param params uint4: [0]=dataCount, [1]=numBins, [2]=includeOutliers (0/1), [3]=reserved
+///
+/// Dispatch: 1D grid with enough threads to cover dataCount
+kernel void logarithmicHistogram(
+    device const float*    data       [[buffer(0)]],
+    device const float*    binEdges   [[buffer(1)]],
+    device atomic_uint*    histogram  [[buffer(2)]],
+    constant uint4&        params     [[buffer(3)]],
+    uint                   gid        [[thread_position_in_grid]],
+    uint                   tid        [[thread_position_in_threadgroup]],
+    uint                   tgSize     [[threads_per_threadgroup]]
+) {
+    (void)tid;  // Unused but required by spec signature
+
+    const uint dataCount       = params[0];
+    const uint numBins         = params[1];
+    const bool includeOutliers = (params[2] != 0u);
+
+    // Early exit for empty input
+    if (dataCount == 0u || numBins == 0u) {
+        return;
+    }
+
+    // Compute grid size for grid-stride loop
+    const uint threadsPerGroup = tgSize;
+    const uint numGroups       = (dataCount + threadsPerGroup - 1u) / threadsPerGroup;
+    const uint gridSize        = numGroups * threadsPerGroup;
+
+    const float minEdge = binEdges[0];
+    const float maxEdge = binEdges[numBins];
+
+    // Grid-stride loop
+    for (uint i = gid; i < dataCount; i += gridSize) {
+        const float value = data[i];
+
+        // Skip non-positive values (logarithm undefined for value <= 0)
+        // Also handles NaN/Infinity
+        if (!isfinite(value) || value <= 0.0f) {
+            continue;
+        }
+
+        // Handle out-of-range values
+        if (!includeOutliers && (value < minEdge || value > maxEdge)) {
+            continue;
+        }
+
+        // Compute bin index with boundary handling
+        uint binIndex;
+        if (value <= minEdge) {
+            binIndex = 0u;
+        } else if (value >= maxEdge) {
+            binIndex = numBins - 1u;
+        } else {
+            // Binary search on log-scale edges (already in linear space)
+            binIndex = va_findBin(value, binEdges, numBins);
+        }
+
+        // Atomic increment
+        atomic_fetch_add_explicit(&histogram[binIndex], 1u, memory_order_relaxed);
     }
 }

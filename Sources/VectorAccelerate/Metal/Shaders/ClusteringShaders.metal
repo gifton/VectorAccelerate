@@ -1,9 +1,11 @@
 // VectorAccelerate: Clustering Shaders
 //
 // Metal shaders for K-means clustering operations
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
 
-#include <metal_stdlib>
-using namespace metal;
+#include "Metal4Common.h"
 
 // Tile dimensions optimized for Apple Silicon
 constant int TILE_SIZE_Q = 32;  // Queries/vectors per tile

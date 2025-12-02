@@ -1,18 +1,21 @@
-// Minkowski Distance Kernel (Lp Norm)
+// VectorAccelerate: Minkowski Distance Kernel (Lp Norm)
+//
 // GPU-accelerated Minkowski distance computation
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
 
-#include <metal_stdlib>
-#include <metal_math>
-using namespace metal;
+#include "Metal4Common.h"
 
 // =============================================================================
 // Configuration Constants
 // =============================================================================
 
-#define TILE_Q 16           // Query tile height
-#define TILE_N 16           // Dataset tile width
-#define TILE_D 64           // Dimension tile size
-#define TILE_D_VEC 16       // TILE_D / 4 for float4 operations
+// Prefixed with MINK_ to avoid conflicts when shaders are combined
+#define MINK_TILE_Q 16           // Query tile height
+#define MINK_TILE_N 16           // Dataset tile width
+#define MINK_TILE_D 64           // Dimension tile size
+#define MINK_TILE_D_VEC 16       // MINK_TILE_D / 4 for float4 operations
 
 // =============================================================================
 // Helper Functions
@@ -62,8 +65,8 @@ kernel void minkowski_distance_batch(
     uint2 tid [[thread_position_in_threadgroup]]   // (local_n, local_q)
 ) {
     // Shared memory for tiled computation
-    threadgroup float shared_Q[TILE_Q * TILE_D];
-    threadgroup float shared_N[TILE_N * TILE_D];
+    threadgroup float shared_Q[MINK_TILE_Q * MINK_TILE_D];
+    threadgroup float shared_N[MINK_TILE_N * MINK_TILE_D];
     
     // Vectorized access for better performance
     threadgroup float4* shared_Q_f4 = reinterpret_cast<threadgroup float4*>(shared_Q);
@@ -74,9 +77,9 @@ kernel void minkowski_distance_batch(
     const uint start_n = gid.x - tid.x;
     
     // Linear thread ID for cooperative loading
-    const uint tid_linear = tid.y * TILE_N + tid.x;
-    const uint tile_row = tid_linear / TILE_D_VEC;
-    const uint tile_col_f4 = tid_linear % TILE_D_VEC;
+    const uint tid_linear = tid.y * MINK_TILE_N + tid.x;
+    const uint tile_row = tid_linear / MINK_TILE_D_VEC;
+    const uint tile_col_f4 = tid_linear % MINK_TILE_D_VEC;
     
     // Initialize accumulator based on p value
     float accumulator = 0.0f;
@@ -90,7 +93,7 @@ kernel void minkowski_distance_batch(
     float max_diff = 0.0f;
     
     // Process dimensions in tiles
-    for (uint d_start = 0; d_start < D; d_start += TILE_D) {
+    for (uint d_start = 0; d_start < D; d_start += MINK_TILE_D) {
         
         // Cooperative loading of query vectors
         const uint global_d_start = d_start + tile_col_f4 * 4;
@@ -111,8 +114,8 @@ kernel void minkowski_distance_batch(
             }
         }
         
-        if (tile_row < TILE_Q && tile_col_f4 < TILE_D_VEC) {
-            shared_Q_f4[tile_row * TILE_D_VEC + tile_col_f4] = q_data;
+        if (tile_row < MINK_TILE_Q && tile_col_f4 < MINK_TILE_D_VEC) {
+            shared_Q_f4[tile_row * MINK_TILE_D_VEC + tile_col_f4] = q_data;
         }
         
         // Cooperative loading of dataset vectors
@@ -133,30 +136,30 @@ kernel void minkowski_distance_batch(
             }
         }
         
-        if (tile_row < TILE_N && tile_col_f4 < TILE_D_VEC) {
-            shared_N_f4[tile_row * TILE_D_VEC + tile_col_f4] = n_data;
+        if (tile_row < MINK_TILE_N && tile_col_f4 < MINK_TILE_D_VEC) {
+            shared_N_f4[tile_row * MINK_TILE_D_VEC + tile_col_f4] = n_data;
         }
         
         // Synchronize after loading
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
         // Compute Minkowski distance for this tile
-        const uint tile_end = min(uint(TILE_D), D - d_start);
+        const uint tile_end = min(uint(MINK_TILE_D), D - d_start);
         
         if (is_manhattan) {
             // Special case: p = 1 (Manhattan distance)
             const uint vec_end = tile_end / 4;
             for (uint k = 0; k < vec_end; ++k) {
-                float4 q_val = shared_Q_f4[tid.y * TILE_D_VEC + k];
-                float4 n_val = shared_N_f4[tid.x * TILE_D_VEC + k];
+                float4 q_val = shared_Q_f4[tid.y * MINK_TILE_D_VEC + k];
+                float4 n_val = shared_N_f4[tid.x * MINK_TILE_D_VEC + k];
                 float4 diff = abs(q_val - n_val);
                 accumulator += diff.x + diff.y + diff.z + diff.w;
             }
             
             // Handle remainder
             for (uint d = vec_end * 4; d < tile_end; ++d) {
-                float q_val = shared_Q[tid.y * TILE_D + d];
-                float n_val = shared_N[tid.x * TILE_D + d];
+                float q_val = shared_Q[tid.y * MINK_TILE_D + d];
+                float n_val = shared_N[tid.x * MINK_TILE_D + d];
                 accumulator += abs(q_val - n_val);
             }
         }
@@ -164,8 +167,8 @@ kernel void minkowski_distance_batch(
             // Special case: p = 2 (Euclidean distance)
             const uint vec_end = tile_end / 4;
             for (uint k = 0; k < vec_end; ++k) {
-                float4 q_val = shared_Q_f4[tid.y * TILE_D_VEC + k];
-                float4 n_val = shared_N_f4[tid.x * TILE_D_VEC + k];
+                float4 q_val = shared_Q_f4[tid.y * MINK_TILE_D_VEC + k];
+                float4 n_val = shared_N_f4[tid.x * MINK_TILE_D_VEC + k];
                 float4 diff = q_val - n_val;
                 // Use FMA for better precision
                 accumulator = fma(diff.x, diff.x, accumulator);
@@ -176,8 +179,8 @@ kernel void minkowski_distance_batch(
             
             // Handle remainder
             for (uint d = vec_end * 4; d < tile_end; ++d) {
-                float q_val = shared_Q[tid.y * TILE_D + d];
-                float n_val = shared_N[tid.x * TILE_D + d];
+                float q_val = shared_Q[tid.y * MINK_TILE_D + d];
+                float n_val = shared_N[tid.x * MINK_TILE_D + d];
                 float diff = q_val - n_val;
                 accumulator = fma(diff, diff, accumulator);
             }
@@ -186,16 +189,16 @@ kernel void minkowski_distance_batch(
             // For large p, approximate as Chebyshev (max norm)
             const uint vec_end = tile_end / 4;
             for (uint k = 0; k < vec_end; ++k) {
-                float4 q_val = shared_Q_f4[tid.y * TILE_D_VEC + k];
-                float4 n_val = shared_N_f4[tid.x * TILE_D_VEC + k];
+                float4 q_val = shared_Q_f4[tid.y * MINK_TILE_D_VEC + k];
+                float4 n_val = shared_N_f4[tid.x * MINK_TILE_D_VEC + k];
                 float4 diff = abs(q_val - n_val);
                 float local_max = max(max(diff.x, diff.y), max(diff.z, diff.w));
                 max_diff = max(max_diff, local_max);
             }
             
             for (uint d = vec_end * 4; d < tile_end; ++d) {
-                float q_val = shared_Q[tid.y * TILE_D + d];
-                float n_val = shared_N[tid.x * TILE_D + d];
+                float q_val = shared_Q[tid.y * MINK_TILE_D + d];
+                float n_val = shared_N[tid.x * MINK_TILE_D + d];
                 max_diff = max(max_diff, abs(q_val - n_val));
             }
         }
@@ -203,8 +206,8 @@ kernel void minkowski_distance_batch(
             // General case: arbitrary p
             const uint vec_end = tile_end / 4;
             for (uint k = 0; k < vec_end; ++k) {
-                float4 q_val = shared_Q_f4[tid.y * TILE_D_VEC + k];
-                float4 n_val = shared_N_f4[tid.x * TILE_D_VEC + k];
+                float4 q_val = shared_Q_f4[tid.y * MINK_TILE_D_VEC + k];
+                float4 n_val = shared_N_f4[tid.x * MINK_TILE_D_VEC + k];
                 float4 diff = abs(q_val - n_val);
                 float4 powered = pow4(diff, p);
                 accumulator += powered.x + powered.y + powered.z + powered.w;
@@ -212,8 +215,8 @@ kernel void minkowski_distance_batch(
             
             // Handle remainder
             for (uint d = vec_end * 4; d < tile_end; ++d) {
-                float q_val = shared_Q[tid.y * TILE_D + d];
-                float n_val = shared_N[tid.x * TILE_D + d];
+                float q_val = shared_Q[tid.y * MINK_TILE_D + d];
+                float n_val = shared_N[tid.x * MINK_TILE_D + d];
                 float diff = abs(q_val - n_val);
                 accumulator += safe_pow(diff, p);
             }
@@ -262,11 +265,11 @@ kernel void minkowski_distance_stable(
     uint2 gid [[thread_position_in_grid]],
     uint2 tid [[thread_position_in_threadgroup]]
 ) {
-    threadgroup float shared_Q[TILE_Q * TILE_D];
-    threadgroup float shared_N[TILE_N * TILE_D];
+    threadgroup float shared_Q[MINK_TILE_Q * MINK_TILE_D];
+    threadgroup float shared_N[MINK_TILE_N * MINK_TILE_D];
 
     // Note: Cooperative tile loading would use:
-    //   start_q = gid.y - tid.y, start_n = gid.x - tid.x, tid_linear = tid.y * TILE_N + tid.x
+    //   start_q = gid.y - tid.y, start_n = gid.x - tid.x, tid_linear = tid.y * MINK_TILE_N + tid.x
     // Currently using simplified direct indexing
 
     // For numerical stability with large p, use log-space computation
@@ -277,17 +280,17 @@ kernel void minkowski_distance_stable(
     float sum_normalized = 0.0f;
     
     // First pass: find maximum difference
-    for (uint d_start = 0; d_start < D; d_start += TILE_D) {
+    for (uint d_start = 0; d_start < D; d_start += MINK_TILE_D) {
         // Load tiles (cooperative loading code same as above)
         // ... (omitted for brevity)
 
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        const uint tile_end = min(uint(TILE_D), D - d_start);
+        const uint tile_end = min(uint(MINK_TILE_D), D - d_start);
         for (uint d = 0; d < tile_end; ++d) {
-            float q_val = shared_Q[tid.y * TILE_D + d];
-            float n_val = shared_N[tid.x * TILE_D + d];
+            float q_val = shared_Q[tid.y * MINK_TILE_D + d];
+            float n_val = shared_N[tid.x * MINK_TILE_D + d];
             max_diff = max(max_diff, abs(q_val - n_val));
         }
         
@@ -303,17 +306,17 @@ kernel void minkowski_distance_stable(
     }
     
     // Second pass: compute normalized sum
-    for (uint d_start = 0; d_start < D; d_start += TILE_D) {
+    for (uint d_start = 0; d_start < D; d_start += MINK_TILE_D) {
         // Load tiles again
         // ... (omitted for brevity)
 
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        const uint tile_end = min(uint(TILE_D), D - d_start);
+        const uint tile_end = min(uint(MINK_TILE_D), D - d_start);
         for (uint d = 0; d < tile_end; ++d) {
-            float q_val = shared_Q[tid.y * TILE_D + d];
-            float n_val = shared_N[tid.x * TILE_D + d];
+            float q_val = shared_Q[tid.y * MINK_TILE_D + d];
+            float n_val = shared_N[tid.x * MINK_TILE_D + d];
             float normalized_diff = abs(q_val - n_val) / max_diff;
             
             if (normalized_diff > 0.0f) {
@@ -412,26 +415,26 @@ kernel void minkowski_distance_fractional(
     // For fractional p, the computation is similar but may not be a metric
     // Implementation similar to main kernel but with special handling
     
-    threadgroup float shared_Q[TILE_Q * TILE_D];
-    threadgroup float shared_N[TILE_N * TILE_D];
+    threadgroup float shared_Q[MINK_TILE_Q * MINK_TILE_D];
+    threadgroup float shared_N[MINK_TILE_N * MINK_TILE_D];
 
     // Note: Cooperative tile loading would use:
-    //   start_q = gid.y - tid.y, start_n = gid.x - tid.x, tid_linear = tid.y * TILE_N + tid.x
+    //   start_q = gid.y - tid.y, start_n = gid.x - tid.x, tid_linear = tid.y * MINK_TILE_N + tid.x
     // Currently using simplified direct indexing
 
     float accumulator = 0.0f;
     
-    for (uint d_start = 0; d_start < D; d_start += TILE_D) {
+    for (uint d_start = 0; d_start < D; d_start += MINK_TILE_D) {
         // Load and process tiles (simplified for brevity)
         // ...
 
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        const uint tile_end = min(uint(TILE_D), D - d_start);
+        const uint tile_end = min(uint(MINK_TILE_D), D - d_start);
         for (uint d = 0; d < tile_end; ++d) {
-            float q_val = shared_Q[tid.y * TILE_D + d];
-            float n_val = shared_N[tid.x * TILE_D + d];
+            float q_val = shared_Q[tid.y * MINK_TILE_D + d];
+            float n_val = shared_N[tid.x * MINK_TILE_D + d];
             float diff = abs(q_val - n_val);
             
             // For fractional p, use careful computation

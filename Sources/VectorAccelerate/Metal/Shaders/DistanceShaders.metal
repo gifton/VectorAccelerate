@@ -1,10 +1,11 @@
 // VectorAccelerate: Distance Computation Shaders
 //
 // GPU kernels for various distance metrics
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
 
-#include <metal_stdlib>
-#include <metal_math>
-using namespace metal;
+#include "Metal4Common.h"
 
 // MARK: - Manhattan Distance
 

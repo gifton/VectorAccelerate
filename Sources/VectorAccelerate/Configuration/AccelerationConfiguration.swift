@@ -13,21 +13,34 @@ public struct AccelerationConfiguration: Sendable {
     public let hybridThreshold: Int
     public let adaptiveThresholds: Bool
     public let preferredDevice: PreferredDevice
-    
+
+    /// Enable experimental ML features (Phase 4)
+    ///
+    /// When enabled, allows use of MTLTensor-based operations like:
+    /// - Learned distance metrics with projection matrices
+    /// - Neural quantization encoders/decoders
+    /// - Attention-based similarity
+    ///
+    /// - Note: Requires `Metal4Capabilities.supportsMLTensor == true` at runtime.
+    ///   Operations will fall back to standard implementations if MLTensor is unavailable.
+    /// - Warning: These features are experimental and may change in future releases.
+    public let enableExperimentalML: Bool
+
     public enum PreferredDevice: Sendable {
         case auto
         case cpu
         case gpu
         case hybrid
     }
-    
+
     public init(
         bufferConfig: BufferPoolConfiguration = .default,
         cpuThreshold: Int = 1000,
         gpuThreshold: Int = 10000,
         hybridThreshold: Int = 100000,
         adaptiveThresholds: Bool = true,
-        preferredDevice: PreferredDevice = .auto
+        preferredDevice: PreferredDevice = .auto,
+        enableExperimentalML: Bool = false
     ) {
         self.bufferConfig = bufferConfig
         self.cpuThreshold = cpuThreshold
@@ -35,6 +48,7 @@ public struct AccelerationConfiguration: Sendable {
         self.hybridThreshold = hybridThreshold
         self.adaptiveThresholds = adaptiveThresholds
         self.preferredDevice = preferredDevice
+        self.enableExperimentalML = enableExperimentalML
     }
     
     public static let `default` = AccelerationConfiguration()

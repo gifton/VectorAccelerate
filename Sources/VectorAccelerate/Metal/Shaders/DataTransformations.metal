@@ -1,5 +1,11 @@
-#include <metal_stdlib>
-using namespace metal;
+// VectorAccelerate: Data Transformation Shaders
+//
+// GPU kernels for element-wise operations and data transformations
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
+
+#include "Metal4Common.h"
 
 // MARK: - Part 1: Element-wise Operations
 

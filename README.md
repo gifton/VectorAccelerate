@@ -1,24 +1,30 @@
 # VectorAccelerate
 
-**GPU-Accelerated Vector Operations for VectorCore**
+**GPU-Accelerated Vector Operations for VectorCore — Metal 4 Edition**
 
-VectorAccelerate provides high-performance GPU acceleration for vector operations, serving as the computational backbone for the VectorCore ecosystem. By leveraging Metal's compute shaders and Apple Silicon's unified memory architecture, VectorAccelerate delivers up to 100x speedups for large-scale vector operations.
+VectorAccelerate provides high-performance GPU acceleration for vector operations, serving as the computational backbone for the VectorCore ecosystem. By leveraging Metal 4's compute shaders, unified command encoding, and Apple Silicon's unified memory architecture, VectorAccelerate delivers up to 100x speedups for large-scale vector operations.
+
+> **⚠️ Version 0.2.0 Breaking Change**: This version requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+). For older OS support, use VectorAccelerate 0.1.x.
 
 ## 🎯 Purpose
 
 VectorAccelerate exists to solve a critical performance bottleneck in vector-based machine learning applications. While VectorCore provides an elegant Swift interface for vector operations, VectorAccelerate ensures these operations run at maximum speed by:
 
-- **GPU Acceleration**: Offloading computations to the GPU for massive parallelism
+- **Metal 4 Acceleration**: Leveraging unified command encoding and tensor operations
 - **Optimized Kernels**: Hand-tuned Metal shaders for specific dimensions (512, 768, 1536)
 - **Memory Efficiency**: Advanced quantization and compression techniques
+- **ML Integration**: Experimental learned distance metrics with MLTensor support
 - **Seamless Integration**: Drop-in acceleration for VectorCore operations
 
-## 📦 Dependencies
+## 📦 Requirements
 
-### Required Dependencies
-- **VectorCore**: The foundational vector mathematics package that VectorAccelerate accelerates
-- **Metal Framework**: Apple's GPU programming framework (included in macOS/iOS)
-- **Swift 5.9+**: For modern concurrency and performance features
+### System Requirements
+- **macOS 26.0+** / **iOS 26.0+** / **tvOS 26.0+** / **visionOS 3.0+**
+- **Metal 4** capable device (Apple Silicon)
+- **Swift 6.0+**
+
+### Dependencies
+- **VectorCore 0.1.5+**: The foundational vector mathematics package
 
 ### Dependent Packages
 VectorAccelerate is a critical dependency for:
@@ -27,96 +33,115 @@ VectorAccelerate is a critical dependency for:
 
 ## 🚀 Accelerated Operations
 
+All kernels use the `Metal4*Kernel` naming convention and require a `Metal4Context` for initialization.
+
 ### Core Distance Metrics
-- **L2 Distance** (`L2DistanceKernel`)
+- **L2 Distance** (`Metal4L2DistanceKernel`)
   - Euclidean distance with optional sqrt
   - Specialized kernels for dimensions 512, 768, 1536
   - Batch processing for multiple query-database pairs
 
-- **Cosine Similarity** (`CosineSimilarityKernel`)
+- **Cosine Similarity** (`Metal4CosineSimilarityKernel`)
   - Pre-normalized and with-normalization variants
   - Output as similarity or distance (1 - similarity)
   - Optimized for high-dimensional embeddings
 
-- **Dot Product** (`DotProductKernel`)
+- **Dot Product** (`Metal4DotProductKernel`)
   - SIMD-optimized implementation
   - Automatic GEMV/GEMM path selection
   - Batch matrix-vector products
 
 ### Advanced Distance Metrics
-- **Hamming Distance** (`HammingDistanceKernel`) - Binary vector distances
-- **Jaccard Distance** (`JaccardDistanceKernel`) - Set similarity measurements
-- **Minkowski Distance** (`MinkowskiDistanceKernel`) - Generalized Lp distances
+- **Manhattan Distance** (`Metal4ManhattanDistanceKernel`) - L1 distance
+- **Chebyshev Distance** (`Metal4ChebyshevDistanceKernel`) - L∞ distance
+- **Hamming Distance** (`Metal4HammingDistanceKernel`) - Binary vector distances
+- **Minkowski Distance** (`Metal4MinkowskiDistanceKernel`) - Generalized Lp distances
+
+### Experimental ML Features
+- **Learned Distance** (`LearnedDistanceKernel`)
+  - Projection-based learned metrics
+  - MLTensor integration for neural distance computation
+  - Automatic fallback to standard L2 when unavailable
+
+- **Attention Similarity** (`Metal4AttentionSimilarityKernel`)
+  - Attention-weighted similarity computation
+  - Multi-head attention support
+
+- **Neural Quantization** (`Metal4NeuralQuantizationKernel`)
+  - Learned quantization with neural networks
+  - Adaptive codebook generation
 
 ### Vector Operations
-- **L2 Normalization** (`L2NormalizationKernel`)
+- **L2 Normalization** (`Metal4L2NormalizationKernel`)
   - In-place and out-of-place normalization
   - Numerical stability for zero vectors
   - Batch normalization support
 
-- **Element-wise Operations** (`ElementwiseKernel`)
+- **Element-wise Operations** (`Metal4ElementwiseKernel`)
   - Addition, subtraction, multiplication, division
   - Trigonometric functions (sin, cos, tan)
   - Power and exponential operations
   - Broadcasting support
 
 ### Selection & Sorting
-- **Top-K Selection** (Multiple implementations)
-  - `TopKSelectionKernel` - General purpose
-  - `WarpOptimizedSelectionKernel` - Warp-level optimization for k=1,10,100
-  - `StreamingTopKKernel` - For massive datasets
-  - `FusedL2TopKKernel` - Combined distance + selection
+- **Top-K Selection** (`Metal4TopKSelectionKernel`)
+  - General purpose top-k with configurable k
+  - Warp-level optimization for common k values
+  - Streaming support for massive datasets
 
-- **Parallel Reduction** (`ParallelReductionKernel`)
+- **Fused L2 + Top-K** (`Metal4FusedL2TopKKernel`)
+  - Combined distance computation and selection
+  - Reduced memory bandwidth
+  - Optimal for nearest neighbor search
+
+- **Parallel Reduction** (`Metal4ParallelReductionKernel`)
   - Sum, min, max reduction
   - Mean and variance computation
   - Custom reduction operations
 
 ### Matrix Operations
-- **Matrix Multiply (GEMM)** (`MatrixMultiplyKernel`)
-  - Tiled implementation with shared memory
+- **Matrix Multiply (GEMM)** (`Metal4MatrixMultiplyKernel`)
+  - Tiled implementation with shared memory (32×32×8 tiles)
   - Support for transposed inputs
   - Alpha/beta scaling (C = α·A·B + β·C)
 
-- **Matrix-Vector (GEMV)** (`MatrixVectorKernel`)
+- **Matrix-Vector (GEMV)** (`Metal4MatrixVectorKernel`)
   - SIMD group optimizations
   - Row/column major support
   - Batch vector operations
 
-- **Matrix Transpose** (`MatrixTransposeKernel`)
+- **Matrix Transpose** (`Metal4MatrixTransposeKernel`)
   - Tiled transpose for coalesced access
-  - In-place transpose support
-  - Batch operations
+  - Optimized shared memory usage
 
-- **Batch Matrix Operations** (`BatchMatrixKernel`)
+- **Batch Matrix Operations** (`Metal4BatchMatrixKernel`)
   - Fused multiply-add with bias
   - Strided tensor operations
-  - Layer normalization
 
 ### Statistical Operations
-- **Statistics** (`StatisticsKernel`)
+- **Statistics** (`Metal4StatisticsKernel`)
   - Mean, variance, standard deviation
   - Skewness and kurtosis
   - Percentiles and quartiles
   - Running statistics updates
 
-- **Histogram** (`HistogramKernel`)
+- **Histogram** (`Metal4HistogramKernel`)
   - Uniform, adaptive, and logarithmic binning
   - Multi-dimensional histograms
   - Kernel density estimation
 
 ### Quantization & Compression
-- **Scalar Quantization** (`ScalarQuantizationKernel`)
+- **Scalar Quantization** (`Metal4ScalarQuantizationKernel`)
   - INT8/INT4 quantization with scale and offset
   - Symmetric and asymmetric modes
   - Per-channel quantization
 
-- **Binary Quantization** (`BinaryQuantizationKernel`)
+- **Binary Quantization** (`Metal4BinaryQuantizationKernel`)
   - 1-bit vector compression
   - Hamming distance on packed bits
   - 32x memory reduction
 
-- **Product Quantization** (`ProductQuantizationKernel`)
+- **Product Quantization** (`Metal4ProductQuantizationKernel`)
   - Subspace decomposition
   - Codebook-based compression
   - Asymmetric distance computation
@@ -129,8 +154,8 @@ Add VectorAccelerate to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/yourusername/VectorAccelerate.git", from: "1.0.0"),
-    .package(url: "https://github.com/yourusername/VectorCore.git", from: "1.0.0")
+    .package(url: "https://github.com/gifton/VectorAccelerate.git", from: "0.2.0"),
+    .package(url: "https://github.com/gifton/VectorCore.git", from: "0.1.5")
 ],
 targets: [
     .target(
@@ -140,6 +165,8 @@ targets: [
 ]
 ```
 
+> **Note**: Version 0.2.0+ requires Metal 4. For macOS 15 / iOS 18 support, use version 0.1.x.
+
 ## 🎓 Getting Started
 
 ### Basic Usage
@@ -148,9 +175,9 @@ targets: [
 import VectorAccelerate
 import VectorCore
 
-// Initialize GPU context
-let device = MTLCreateSystemDefaultDevice()!
-let l2Kernel = try L2DistanceKernel(device: device)
+// Initialize Metal 4 context (async)
+let context = try await Metal4Context()
+let l2Kernel = try await Metal4L2DistanceKernel(context: context)
 
 // Prepare your vectors
 let queries = [[Float]](repeating: [Float](repeating: 0.5, count: 768), count: 10)
@@ -160,7 +187,6 @@ let database = [[Float]](repeating: [Float](repeating: 0.3, count: 768), count: 
 let distances = try await l2Kernel.compute(
     queries: queries,
     database: database,
-    dimension: 768,
     computeSqrt: true  // For Euclidean distance
 )
 
@@ -173,11 +199,12 @@ print("Computed \(distances.count) x \(distances[0].count) distances on GPU")
 import VectorCore
 
 // Create VectorCore vectors
-let vector1 = try DenseVector<Float>([1.0, 2.0, 3.0])
-let vector2 = try DenseVector<Float>([4.0, 5.0, 6.0])
+let vector1 = Vector<D768>([Float](repeating: 1.0, count: 768))
+let vector2 = Vector<D768>([Float](repeating: 0.5, count: 768))
 
 // Use GPU-accelerated operations
-let cosineSim = try CosineSimilarityKernel(device: device)
+let context = try await Metal4Context()
+let cosineSim = try await Metal4CosineSimilarityKernel(context: context)
 let similarity = try await cosineSim.compute(
     queries: [vector1],
     database: [vector2]
@@ -188,95 +215,96 @@ let similarity = try await cosineSim.compute(
 
 ```swift
 // Fused L2 distance + Top-K selection (single kernel execution)
-let fusedKernel = try FusedL2TopKKernel(device: device)
+let context = try await Metal4Context()
+let fusedKernel = try await Metal4FusedL2TopKKernel(context: context)
 
-let result = try fusedKernel.fusedL2TopK(
-    queries: queryBuffer,
-    dataset: datasetBuffer,
-    queryCount: 100,
-    datasetCount: 1_000_000,
-    dimension: 768,
-    k: 10,
-    config: FusedConfig(includeDistances: true),
-    commandBuffer: commandBuffer
+let result = try await fusedKernel.compute(
+    queries: queries,
+    database: database,
+    k: 10
 )
 
 // Result contains top-10 nearest neighbors for each query
+print("Found \(result.indices[0].count) nearest neighbors per query")
 ```
 
-### Quantization for Memory Efficiency
+### Learned Distance (Experimental ML)
 
 ```swift
-// Compress vectors to INT8 for 4x memory reduction
-let quantizer = try ScalarQuantizationKernel(device: device)
+// Use learned projections for distance computation
+let context = try await Metal4Context()
+let config = AccelerationConfiguration(enableExperimentalML: true)
+let service = try await LearnedDistanceService(context: context, configuration: config)
 
-let original = [[Float]](/* your high-precision vectors */)
-let quantized = try await quantizer.quantize(
-    original.flatMap { $0 },
-    bitWidth: .int8,
-    type: .symmetric
+// Load projection weights (e.g., from a trained model)
+try await service.loadProjection(
+    from: weightsURL,
+    inputDim: 768,
+    outputDim: 128
 )
 
-print("Compression ratio: \(quantized.compressionRatio)x")
+// Compute distances with learned projection
+let (distances, mode) = try await service.computeL2(
+    queries: queries,
+    database: database
+)
 
-// Later, dequantize for use
-let restored = try await quantizer.dequantize(quantized, count: original.count)
+print("Computed using \(mode) mode")  // .learned or .standard (fallback)
 ```
 
-### Batch Processing
+### Matrix Operations
 
 ```swift
-// Process multiple matrix operations in parallel
-let matrixKernel = try MatrixMultiplyKernel(device: device)
+// GPU-accelerated matrix multiplication
+let context = try await Metal4Context()
+let matrixKernel = try await Metal4MatrixMultiplyKernel(context: context)
 
-let matrices = [Matrix](/* your matrices */)
-let results = try await matrixKernel.multiplyBatch(
-    matrices: matrices,
-    config: MultiplyConfig(
-        alpha: 1.0,
-        beta: 0.0,
-        useSpecializedKernel: true
-    )
-)
+let a = Matrix.random(rows: 1024, columns: 512)
+let b = Matrix.random(rows: 512, columns: 256)
 
-print("Achieved \(results.averageGflops) GFLOPS")
+let result = try await matrixKernel.multiply(a: a, b: b)
+print("Result: \(result.rows) x \(result.columns)")
 ```
 
 ## 🏗️ Architecture
 
 ### Kernel Organization
 
-VectorAccelerate is organized into specialized kernels, each optimized for specific operations:
+VectorAccelerate is organized into specialized Metal 4 kernels:
 
 ```
 VectorAccelerate/
-├── Kernels/              # GPU compute kernels
-│   ├── Distance/         # L2, Cosine, Hamming, etc.
-│   ├── Selection/        # Top-K, sorting, filtering
-│   ├── Matrix/           # GEMM, GEMV, transpose
-│   ├── Quantization/     # INT8, INT4, binary
-│   └── Statistics/       # Mean, variance, histogram
+├── Core/                    # Metal 4 infrastructure
+│   ├── Metal4Context.swift      # Unified context management
+│   ├── Metal4ComputeEngine.swift # Command encoding
+│   ├── ResidencyManager.swift    # Memory residency
+│   ├── PipelineCache.swift       # Pipeline state caching
+│   └── TensorManager.swift       # Tensor operations
+├── Kernels/
+│   └── Metal4/              # All Metal 4 kernel implementations
+│       ├── Metal4L2DistanceKernel.swift
+│       ├── Metal4CosineSimilarityKernel.swift
+│       ├── Metal4MatrixMultiplyKernel.swift
+│       └── ... (20+ kernels)
 ├── Metal/
-│   └── Shaders/         # Metal shader source files
-├── Core/                # Context and buffer management
-└── Operations/          # High-level operation orchestration
+│   └── Shaders/             # Metal shader source files (.metal)
+└── Operations/              # High-level operation orchestration
 ```
 
-### Memory Management
+### Metal 4 Features Used
 
-VectorAccelerate uses a sophisticated buffer management system:
-- **Shared Memory**: Unified memory architecture on Apple Silicon
-- **Buffer Pools**: Reusable buffer allocation to minimize overhead
-- **Alignment**: Automatic alignment for SIMD operations
-- **Zero-Copy**: Direct memory mapping when possible
+- **Unified Command Encoding**: Single encoder for compute + blit operations
+- **Residency Sets**: Explicit memory management for optimal GPU utilization
+- **Argument Tables**: Efficient parameter passing to shaders
+- **Pipeline Harvesting**: Background pipeline compilation
 
 ### Performance Optimizations
 
 1. **Dimension-Specific Kernels**: Hand-tuned for 512, 768, 1536 dimensions
-2. **Tiled Algorithms**: Optimized for cache hierarchy
-3. **SIMD Operations**: Leveraging float4 and matrix operations
-4. **Warp-Level Primitives**: Using simdgroup operations
-5. **Fused Kernels**: Combining operations to reduce memory bandwidth
+2. **Tiled Algorithms**: 32×32×8 tiles optimized for Apple Silicon cache
+3. **SIMD Operations**: Leveraging float4 and simdgroup matrix operations
+4. **Fused Kernels**: Combined distance + selection for reduced memory bandwidth
+5. **Async Pipeline Creation**: Non-blocking kernel initialization
 
 ## 📊 Performance
 
@@ -310,9 +338,9 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 ### Areas for Contribution
 - Additional distance metrics
-- Optimizations for new Apple Silicon features
-- Support for half-precision (Float16) operations
-- Integration with more ML frameworks
+- Optimizations for new Apple Silicon features (M4, M5)
+- Enhanced ML integration
+- Performance benchmarks and comparisons
 
 ## 📄 License
 
@@ -326,10 +354,10 @@ VectorAccelerate is available under the MIT license. See [LICENSE](LICENSE) for 
 
 ## 📚 Related Projects
 
-- [VectorCore](https://github.com/yourusername/VectorCore) - Core vector mathematics
-- [VectorIndexAccelerated](https://github.com/yourusername/VectorIndexAccelerated) - GPU-accelerated indexing
-- [VectorDatabase](https://github.com/yourusername/VectorDatabase) - Complete vector database solution
+- [VectorCore](https://github.com/gifton/VectorCore) - Core vector mathematics
+- [VectorIndexAccelerated](https://github.com/gifton/VectorIndexAccelerated) - GPU-accelerated indexing
+- [VectorDatabase](https://github.com/gifton/VectorDatabase) - Complete vector database solution
 
 ---
 
-**Note**: VectorAccelerate requires a Mac with Apple Silicon or a discrete GPU supporting Metal 3.0+. Performance characteristics may vary based on hardware configuration.
+**Requirements**: VectorAccelerate 0.2.0+ requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+) and Apple Silicon. For older OS versions, use VectorAccelerate 0.1.x.

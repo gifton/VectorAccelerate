@@ -77,13 +77,8 @@ public actor MatrixEngine {
     private let configuration: MatrixConfiguration
     private let logger: Logger
     
-    // Kernel instances for direct GPU operations
-    private var multiplyKernel: MatrixMultiplyKernel?
-    private var transposeKernel: MatrixTransposeKernel?
-    private var vectorKernel: MatrixVectorKernel?
-    private var batchKernel: BatchMatrixKernel?
-    
-    // Legacy shader cache for fallback operations
+    // Legacy shader cache for GPU operations
+    // Note: For Metal 4 optimized operations, use Metal4MatrixMultiplyKernel etc. directly
     private var matrixMultiplyShader: (any MTLComputePipelineState)?
     private var matrixTransposeShader: (any MTLComputePipelineState)?
     private var batchMatrixMultiplyShader: (any MTLComputePipelineState)?
@@ -101,37 +96,13 @@ public actor MatrixEngine {
         self.context = context
         self.configuration = configuration
         self.logger = Logger.shared
-        
-        // Initialize kernel wrappers
-        do {
-            // Get the actual MTLDevice from MetalContext using explicit Sendable wrapper
-            let mtlDevice = (await context.device.getDeviceHandle()).value
-            
-            self.multiplyKernel = try MatrixMultiplyKernel(device: mtlDevice)
-            self.transposeKernel = try MatrixTransposeKernel(device: mtlDevice)
-            self.vectorKernel = try MatrixVectorKernel(device: mtlDevice)
-            self.batchKernel = try BatchMatrixKernel(device: mtlDevice)
-            await logger.info("Matrix kernels initialized successfully")
-        } catch {
-            await logger.warning("Failed to initialize matrix kernels: \(error)")
-            // Set to nil if initialization fails - will use legacy shaders or CPU fallback
-            self.multiplyKernel = nil
-            self.transposeKernel = nil
-            self.vectorKernel = nil
-            self.batchKernel = nil
-        }
-        
-        // Pre-compile legacy shaders as fallback
+
+        // Pre-compile shaders for GPU operations
+        // Note: For Metal 4 optimized operations, use Metal4MatrixMultiplyKernel etc. directly
         await precompileShaders()
     }
-    
+
     private func precompileShaders() async {
-        // Only compile legacy shaders if kernel wrappers failed to initialize
-        guard multiplyKernel == nil || transposeKernel == nil || batchKernel == nil else {
-            await logger.debug("Skipping legacy shader compilation - kernels available")
-            return
-        }
-        
         do {
             // Try to load pre-compiled legacy shaders as fallback
             matrixMultiplyShader = try await context.loadShader(functionName: "matrixMultiply")
@@ -335,62 +306,63 @@ public actor MatrixEngine {
 
         let startTime = CFAbsoluteTimeGetCurrent()
 
-        // For small matrices, use CPU
+        // For small matrices, use CPU; otherwise use GPU
+        let result: [Float]
         if descriptor.elementCount < configuration.preferGPUThreshold {
-            let result = cpuTranspose(matrix, descriptor: descriptor)
-
-            // Track performance metrics
-            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-            operationCount += 1
-            totalComputeTime += elapsed
-
-            return result
+            result = cpuTranspose(matrix, descriptor: descriptor)
         } else {
-            // Use new kernel wrapper if available
-            if let kernel = transposeKernel {
-                let mat = Matrix(
-                    rows: descriptor.rows,
-                    columns: descriptor.columns,
-                    values: matrix
-                )
-
-                let config = MatrixTransposeKernel.TransposeConfig(
-                    conjugate: false,
-                    inPlace: descriptor.rows == descriptor.columns
-                )
-
-                let result = try await kernel.transpose(mat, config: config)
-
-                operationCount += 1
-                totalComputeTime += result.executionTime
-
-                await logger.debug("Matrix transpose completed: \(result.throughputGBps) GB/s")
-
-                return result.matrix.values
-            } else {
-                let result = try await gpuTranspose(matrix, descriptor: descriptor)
-
-                // Track performance metrics for legacy fallback
-                let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-                operationCount += 1
-                totalComputeTime += elapsed
-
-                return result
-            }
+            result = try await gpuTranspose(matrix, descriptor: descriptor)
         }
+
+        // Track performance metrics
+        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        operationCount += 1
+        totalComputeTime += elapsed
+
+        return result
     }
     
-    /// GPU-accelerated transpose (legacy fallback)
+    /// GPU-accelerated transpose
     private func gpuTranspose(
         _ matrix: [Float],
         descriptor: MatrixDescriptor
     ) async throws -> [Float] {
-        // This method is now legacy - used only if kernel wrapper is unavailable
-        // The new transposeKernel should handle all GPU transpose operations
-        await logger.warning("Using legacy GPU transpose - kernel wrapper unavailable")
-        
-        // Fallback to CPU implementation
-        return cpuTranspose(matrix, descriptor: descriptor)
+        // Ensure shader is loaded
+        if matrixTransposeShader == nil {
+            matrixTransposeShader = try await loadTransposeShader()
+        }
+
+        guard let shader = matrixTransposeShader else {
+            // Fallback to CPU if shader unavailable
+            return cpuTranspose(matrix, descriptor: descriptor)
+        }
+
+        let bufferInput = try await context.getBuffer(for: matrix)
+        let outputBuffer = try await context.getBuffer(size: descriptor.elementCount * MemoryLayout<Float>.stride)
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            encoder.setComputePipelineState(shader)
+            encoder.setBuffer(bufferInput.buffer, offset: 0, index: 0)
+            encoder.setBuffer(outputBuffer.buffer, offset: 0, index: 1)
+
+            var dims = (rows: UInt32(descriptor.rows), cols: UInt32(descriptor.columns))
+            encoder.setBytes(&dims, length: MemoryLayout.size(ofValue: dims), index: 2)
+
+            let threadgroupSize = MTLSize(
+                width: min(16, descriptor.columns),
+                height: min(16, descriptor.rows),
+                depth: 1
+            )
+            let threadgroupCount = MTLSize(
+                width: (descriptor.columns + threadgroupSize.width - 1) / threadgroupSize.width,
+                height: (descriptor.rows + threadgroupSize.height - 1) / threadgroupSize.height,
+                depth: 1
+            )
+
+            encoder.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
+        }
+
+        return outputBuffer.copyData(as: Float.self, count: descriptor.elementCount)
     }
     
     /// CPU transpose using Accelerate

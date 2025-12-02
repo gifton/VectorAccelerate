@@ -1,5 +1,11 @@
-#include <metal_stdlib>
-using namespace metal;
+// VectorAccelerate: L2 Normalization Shaders
+//
+// GPU kernels for vector L2 normalization
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
+
+#include "Metal4Common.h"
 
 // MARK: - Parameters Structure (Spec Section: Parameters Structure)
 
@@ -9,9 +15,8 @@ struct L2NormParams {
     uint32_t input_stride;
     uint32_t output_stride;
     float epsilon;
-    uint8_t compute_stats; // Used only by batch kernel (not implemented here)
     uint8_t store_norms;
-    uint8_t padding[2];    // Alignment padding
+    uint8_t padding[3];    // Alignment padding to match Swift struct
 };
 
 // MARK: - Helper Functions (Implementation Requirements 1 & 2)

@@ -442,4 +442,38 @@ public actor MetalDevice {
     public static nonisolated func isGPUAvailable() -> Bool {
         ComputeDevice.gpu().isAvailable
     }
+
+    // MARK: - Metal 4 Support
+
+    /// Check if this device supports Metal 4
+    @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
+    public var supportsMetal4: Bool {
+        let caps = Metal4Capabilities(device: rawDevice)
+        return caps.supportsMetal4Core
+    }
+
+    /// Get Metal 4 specific capabilities
+    @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
+    public var metal4Capabilities: Metal4Capabilities {
+        Metal4Capabilities(device: rawDevice)
+    }
+
+    /// Check if a specific Metal 4 feature is supported
+    @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
+    public func supports(_ feature: Metal4Feature) -> Bool {
+        metal4Capabilities.supports(feature)
+    }
+
+    // MARK: - Metal 4 Factory Methods
+
+    /// Create a ResidencyManager for Metal 4 explicit residency
+    @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
+    public func makeResidencyManager(initialCapacity: Int = 256) throws -> ResidencyManager {
+        try ResidencyManager(device: rawDevice, initialCapacity: initialCapacity)
+    }
+
+    /// Create a shared event for Metal 4 synchronization
+    public func makeSharedEvent() -> (any MTLSharedEvent)? {
+        rawDevice.makeSharedEvent()
+    }
 }
