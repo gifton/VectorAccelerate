@@ -3,25 +3,25 @@
 // Tests for Phase 5 Metal 4 kernel migrations:
 //
 // Batch 1 (Core Distance):
-// - Metal4L2DistanceKernel
-// - Metal4CosineSimilarityKernel
-// - Metal4DotProductKernel
+// - L2DistanceKernel
+// - CosineSimilarityKernel
+// - DotProductKernel
 //
 // Batch 2 (Selection):
-// - Metal4TopKSelectionKernel
-// - Metal4FusedL2TopKKernel
-// - Metal4StreamingTopKKernel
+// - TopKSelectionKernel
+// - FusedL2TopKKernel
+// - StreamingTopKKernel
 //
 // Batch 3 (Quantization):
-// - Metal4ScalarQuantizationKernel
-// - Metal4BinaryQuantizationKernel
-// - Metal4ProductQuantizationKernel
+// - ScalarQuantizationKernel
+// - BinaryQuantizationKernel
+// - ProductQuantizationKernel
 //
 // Batch 4 (Matrix):
-// - Metal4MatrixMultiplyKernel
-// - Metal4MatrixVectorKernel
-// - Metal4MatrixTransposeKernel
-// - Metal4BatchMatrixKernel
+// - MatrixMultiplyKernel
+// - MatrixVectorKernel
+// - MatrixTransposeKernel
+// - BatchMatrixKernel
 //
 // Note: Requires macOS 26.0+ to run.
 
@@ -94,13 +94,13 @@ final class Metal4KernelTestHelpers {
     }
 }
 
-// MARK: - Metal4L2DistanceKernel Tests
+// MARK: - L2DistanceKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4L2DistanceKernelTests: XCTestCase {
+final class L2DistanceKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4L2DistanceKernel!
+    var kernel: L2DistanceKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -108,7 +108,7 @@ final class Metal4L2DistanceKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4L2DistanceKernel(context: context)
+        kernel = try await L2DistanceKernel(context: context)
     }
 
     override func tearDown() {
@@ -229,13 +229,13 @@ final class Metal4L2DistanceKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Metal4CosineSimilarityKernel Tests
+// MARK: - CosineSimilarityKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4CosineSimilarityKernelTests: XCTestCase {
+final class CosineSimilarityKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4CosineSimilarityKernel!
+    var kernel: CosineSimilarityKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -243,7 +243,7 @@ final class Metal4CosineSimilarityKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4CosineSimilarityKernel(context: context)
+        kernel = try await CosineSimilarityKernel(context: context)
     }
 
     override func tearDown() {
@@ -341,13 +341,13 @@ final class Metal4CosineSimilarityKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Metal4DotProductKernel Tests
+// MARK: - DotProductKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4DotProductKernelTests: XCTestCase {
+final class DotProductKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4DotProductKernel!
+    var kernel: DotProductKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -355,7 +355,7 @@ final class Metal4DotProductKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4DotProductKernel(context: context)
+        kernel = try await DotProductKernel(context: context)
     }
 
     override func tearDown() {
@@ -465,8 +465,8 @@ final class Metal4KernelFusionTests: XCTestCase {
     }
 
     func testEncodeAPI() async throws {
-        let l2Kernel = try await Metal4L2DistanceKernel(context: context)
-        let cosineKernel = try await Metal4CosineSimilarityKernel(context: context)
+        let l2Kernel = try await L2DistanceKernel(context: context)
+        let cosineKernel = try await CosineSimilarityKernel(context: context)
 
         let device = context.device.rawDevice
 
@@ -507,7 +507,7 @@ final class Metal4KernelFusionTests: XCTestCase {
                 queries: queryBuffer,
                 database: databaseBuffer,
                 distances: l2OutputBuffer,
-                parameters: Metal4L2DistanceParameters(
+                parameters: L2DistanceParameters(
                     numQueries: 10,
                     numDatabase: 50,
                     dimension: 128
@@ -524,7 +524,7 @@ final class Metal4KernelFusionTests: XCTestCase {
                 queries: queryBuffer,
                 database: databaseBuffer,
                 output: cosineOutputBuffer,
-                parameters: Metal4CosineSimilarityParameters(
+                parameters: CosineSimilarityParameters(
                     numQueries: 10,
                     numDatabase: 50,
                     dimension: 128
@@ -550,13 +550,13 @@ final class Metal4KernelFusionTests: XCTestCase {
     }
 }
 
-// MARK: - Metal4TopKSelectionKernel Tests
+// MARK: - TopKSelectionKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4TopKSelectionKernelTests: XCTestCase {
+final class TopKSelectionKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4TopKSelectionKernel!
+    var kernel: TopKSelectionKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -564,7 +564,7 @@ final class Metal4TopKSelectionKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4TopKSelectionKernel(context: context)
+        kernel = try await TopKSelectionKernel(context: context)
     }
 
     override func tearDown() {
@@ -692,7 +692,7 @@ final class Metal4TopKSelectionKernelTests: XCTestCase {
             throw XCTSkip("Failed to create buffer")
         }
 
-        let params = Metal4TopKParameters(
+        let params = TopKParameters(
             batchSize: 2,
             numElements: 4,
             k: 2,
@@ -713,13 +713,13 @@ final class Metal4TopKSelectionKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Metal4FusedL2TopKKernel Tests
+// MARK: - FusedL2TopKKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4FusedL2TopKKernelTests: XCTestCase {
+final class FusedL2TopKKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4FusedL2TopKKernel!
+    var kernel: FusedL2TopKKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -727,7 +727,7 @@ final class Metal4FusedL2TopKKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4FusedL2TopKKernel(context: context)
+        kernel = try await FusedL2TopKKernel(context: context)
     }
 
     override func tearDown() {
@@ -870,13 +870,13 @@ final class Metal4FusedL2TopKKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Metal4StreamingTopKKernel Tests
+// MARK: - StreamingTopKKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4StreamingTopKKernelTests: XCTestCase {
+final class StreamingTopKKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4StreamingTopKKernel!
+    var kernel: StreamingTopKKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -884,7 +884,7 @@ final class Metal4StreamingTopKKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4StreamingTopKKernel(context: context)
+        kernel = try await StreamingTopKKernel(context: context)
     }
 
     override func tearDown() {
@@ -1072,8 +1072,8 @@ final class Metal4DistanceTopKFusionTests: XCTestCase {
     }
 
     func testL2DistanceTopKFusion() async throws {
-        let l2Kernel = try await Metal4L2DistanceKernel(context: context)
-        let topKKernel = try await Metal4TopKSelectionKernel(context: context)
+        let l2Kernel = try await L2DistanceKernel(context: context)
+        let topKKernel = try await TopKSelectionKernel(context: context)
 
         // Use the fusedDistanceTopK helper
         let queries = Metal4KernelTestHelpers.randomVectors(count: 5, dimension: 64)
@@ -1100,7 +1100,7 @@ final class Metal4DistanceTopKFusionTests: XCTestCase {
             throw XCTSkip("Failed to create database buffer")
         }
 
-        let params = Metal4L2DistanceParameters(
+        let params = L2DistanceParameters(
             numQueries: 5,
             numDatabase: 100,
             dimension: 64
@@ -1133,8 +1133,8 @@ final class Metal4DistanceTopKFusionTests: XCTestCase {
     }
 
     func testCosineSimilarityTopKFusion() async throws {
-        let cosineKernel = try await Metal4CosineSimilarityKernel(context: context)
-        let topKKernel = try await Metal4TopKSelectionKernel(context: context)
+        let cosineKernel = try await CosineSimilarityKernel(context: context)
+        let topKKernel = try await TopKSelectionKernel(context: context)
 
         let queries = Metal4KernelTestHelpers.normalizedVectors(count: 5, dimension: 64)
         let database = Metal4KernelTestHelpers.normalizedVectors(count: 100, dimension: 64)
@@ -1160,7 +1160,7 @@ final class Metal4DistanceTopKFusionTests: XCTestCase {
             throw XCTSkip("Failed to create database buffer")
         }
 
-        let params = Metal4CosineSimilarityParameters(
+        let params = CosineSimilarityParameters(
             numQueries: 5,
             numDatabase: 100,
             dimension: 64,
@@ -1192,13 +1192,13 @@ final class Metal4DistanceTopKFusionTests: XCTestCase {
     }
 }
 
-// MARK: - Metal4ScalarQuantizationKernel Tests
+// MARK: - ScalarQuantizationKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4ScalarQuantizationKernelTests: XCTestCase {
+final class ScalarQuantizationKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4ScalarQuantizationKernel!
+    var kernel: ScalarQuantizationKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -1206,7 +1206,7 @@ final class Metal4ScalarQuantizationKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4ScalarQuantizationKernel(context: context)
+        kernel = try await ScalarQuantizationKernel(context: context)
     }
 
     override func tearDown() {
@@ -1318,13 +1318,13 @@ final class Metal4ScalarQuantizationKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Metal4BinaryQuantizationKernel Tests
+// MARK: - BinaryQuantizationKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4BinaryQuantizationKernelTests: XCTestCase {
+final class BinaryQuantizationKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4BinaryQuantizationKernel!
+    var kernel: BinaryQuantizationKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -1332,7 +1332,7 @@ final class Metal4BinaryQuantizationKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4BinaryQuantizationKernel(context: context)
+        kernel = try await BinaryQuantizationKernel(context: context)
     }
 
     override func tearDown() {
@@ -1462,18 +1462,18 @@ final class Metal4BinaryQuantizationKernelTests: XCTestCase {
 
     func testCompressionRatio() {
         // 128-dim float32: 512 bytes → 4 UInt32 words: 16 bytes = 32x compression
-        let ratio = Metal4BinaryQuantizationKernel.compressionRatio(for: 128)
+        let ratio = BinaryQuantizationKernel.compressionRatio(for: 128)
         XCTAssertEqual(ratio, 32.0, accuracy: 0.1)
     }
 }
 
-// MARK: - Metal4ProductQuantizationKernel Tests
+// MARK: - ProductQuantizationKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4ProductQuantizationKernelTests: XCTestCase {
+final class ProductQuantizationKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4ProductQuantizationKernel!
+    var kernel: ProductQuantizationKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -1481,7 +1481,7 @@ final class Metal4ProductQuantizationKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4ProductQuantizationKernel(context: context)
+        kernel = try await ProductQuantizationKernel(context: context)
     }
 
     override func tearDown() {
@@ -1600,13 +1600,13 @@ final class Metal4ProductQuantizationKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Metal4MatrixMultiplyKernel Tests
+// MARK: - MatrixMultiplyKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4MatrixMultiplyKernelTests: XCTestCase {
+final class MatrixMultiplyKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4MatrixMultiplyKernel!
+    var kernel: MatrixMultiplyKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -1614,7 +1614,7 @@ final class Metal4MatrixMultiplyKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4MatrixMultiplyKernel(context: context)
+        kernel = try await MatrixMultiplyKernel(context: context)
     }
 
     override func tearDown() {
@@ -1715,13 +1715,13 @@ final class Metal4MatrixMultiplyKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Metal4MatrixVectorKernel Tests
+// MARK: - MatrixVectorKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4MatrixVectorKernelTests: XCTestCase {
+final class MatrixVectorKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4MatrixVectorKernel!
+    var kernel: MatrixVectorKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -1729,7 +1729,7 @@ final class Metal4MatrixVectorKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4MatrixVectorKernel(context: context)
+        kernel = try await MatrixVectorKernel(context: context)
     }
 
     override func tearDown() {
@@ -1817,13 +1817,13 @@ final class Metal4MatrixVectorKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Metal4MatrixTransposeKernel Tests
+// MARK: - MatrixTransposeKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4MatrixTransposeKernelTests: XCTestCase {
+final class MatrixTransposeKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4MatrixTransposeKernel!
+    var kernel: MatrixTransposeKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -1831,7 +1831,7 @@ final class Metal4MatrixTransposeKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4MatrixTransposeKernel(context: context)
+        kernel = try await MatrixTransposeKernel(context: context)
     }
 
     override func tearDown() {
@@ -1924,13 +1924,13 @@ final class Metal4MatrixTransposeKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Metal4BatchMatrixKernel Tests
+// MARK: - BatchMatrixKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4BatchMatrixKernelTests: XCTestCase {
+final class BatchMatrixKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4BatchMatrixKernel!
+    var kernel: BatchMatrixKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -1938,7 +1938,7 @@ final class Metal4BatchMatrixKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4BatchMatrixKernel(context: context)
+        kernel = try await BatchMatrixKernel(context: context)
     }
 
     override func tearDown() {
@@ -2061,13 +2061,13 @@ final class Metal4BatchMatrixKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Batch 5: Metal4L2NormalizationKernel Tests
+// MARK: - Batch 5: L2NormalizationKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4L2NormalizationKernelTests: XCTestCase {
+final class L2NormalizationKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4L2NormalizationKernel!
+    var kernel: L2NormalizationKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -2075,7 +2075,7 @@ final class Metal4L2NormalizationKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4L2NormalizationKernel(context: context)
+        kernel = try await L2NormalizationKernel(context: context)
     }
 
     override func tearDown() {
@@ -2202,13 +2202,13 @@ final class Metal4L2NormalizationKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Batch 5: Metal4ParallelReductionKernel Tests
+// MARK: - Batch 5: ParallelReductionKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4ParallelReductionKernelTests: XCTestCase {
+final class ParallelReductionKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4ParallelReductionKernel!
+    var kernel: ParallelReductionKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -2216,7 +2216,7 @@ final class Metal4ParallelReductionKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4ParallelReductionKernel(context: context)
+        kernel = try await ParallelReductionKernel(context: context)
     }
 
     override func tearDown() {
@@ -2335,13 +2335,13 @@ final class Metal4ParallelReductionKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Batch 5: Metal4ElementwiseKernel Tests
+// MARK: - Batch 5: ElementwiseKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4ElementwiseKernelTests: XCTestCase {
+final class ElementwiseKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4ElementwiseKernel!
+    var kernel: ElementwiseKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -2349,7 +2349,7 @@ final class Metal4ElementwiseKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4ElementwiseKernel(context: context)
+        kernel = try await ElementwiseKernel(context: context)
     }
 
     override func tearDown() {
@@ -2543,13 +2543,13 @@ final class Metal4ElementwiseKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Batch 5: Metal4StatisticsKernel Tests
+// MARK: - Batch 5: StatisticsKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4StatisticsKernelTests: XCTestCase {
+final class StatisticsKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4StatisticsKernel!
+    var kernel: StatisticsKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -2557,7 +2557,7 @@ final class Metal4StatisticsKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4StatisticsKernel(context: context)
+        kernel = try await StatisticsKernel(context: context)
     }
 
     override func tearDown() {
@@ -2738,13 +2738,13 @@ final class Metal4StatisticsKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Batch 6a: Metal4MinkowskiDistanceKernel Tests
+// MARK: - Batch 6a: MinkowskiDistanceKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4MinkowskiDistanceKernelTests: XCTestCase {
+final class MinkowskiDistanceKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4MinkowskiDistanceKernel!
+    var kernel: MinkowskiDistanceKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -2752,7 +2752,7 @@ final class Metal4MinkowskiDistanceKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4MinkowskiDistanceKernel(context: context)
+        kernel = try await MinkowskiDistanceKernel(context: context)
     }
 
     override func tearDown() {
@@ -2854,13 +2854,13 @@ final class Metal4MinkowskiDistanceKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Batch 6a: Metal4HammingDistanceKernel Tests
+// MARK: - Batch 6a: HammingDistanceKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4HammingDistanceKernelTests: XCTestCase {
+final class HammingDistanceKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4HammingDistanceKernel!
+    var kernel: HammingDistanceKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -2868,7 +2868,7 @@ final class Metal4HammingDistanceKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4HammingDistanceKernel(context: context)
+        kernel = try await HammingDistanceKernel(context: context)
     }
 
     override func tearDown() {
@@ -2956,13 +2956,13 @@ final class Metal4HammingDistanceKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Batch 6a: Metal4JaccardDistanceKernel Tests
+// MARK: - Batch 6a: JaccardDistanceKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4JaccardDistanceKernelTests: XCTestCase {
+final class JaccardDistanceKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4JaccardDistanceKernel!
+    var kernel: JaccardDistanceKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -2970,7 +2970,7 @@ final class Metal4JaccardDistanceKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4JaccardDistanceKernel(context: context)
+        kernel = try await JaccardDistanceKernel(context: context)
     }
 
     override func tearDown() {
@@ -3071,13 +3071,13 @@ final class Metal4JaccardDistanceKernelTests: XCTestCase {
     }
 }
 
-// MARK: - Batch 6a: Metal4HistogramKernel Tests
+// MARK: - Batch 6a: HistogramKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4HistogramKernelTests: XCTestCase {
+final class HistogramKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4HistogramKernel!
+    var kernel: HistogramKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -3086,7 +3086,7 @@ final class Metal4HistogramKernelTests: XCTestCase {
         }
         context = try await Metal4Context()
         do {
-            kernel = try await Metal4HistogramKernel(context: context)
+            kernel = try await HistogramKernel(context: context)
         } catch {
             // Histogram Metal shaders (uniformHistogram, adaptiveHistogram, logarithmicHistogram)
             // are not yet implemented - skip tests until shaders are added
@@ -3235,7 +3235,7 @@ final class Metal4HistogramKernelTests: XCTestCase {
 final class Metal4ThreadConfigurationTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4L2DistanceKernel!
+    var kernel: L2DistanceKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -3243,7 +3243,7 @@ final class Metal4ThreadConfigurationTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4L2DistanceKernel(context: context)
+        kernel = try await L2DistanceKernel(context: context)
     }
 
     override func tearDown() {
@@ -3286,13 +3286,13 @@ final class Metal4ThreadConfigurationTests: XCTestCase {
     }
 }
 
-// MARK: - Phase 1 Integration: Metal4WarpOptimizedSelectionKernel Tests
+// MARK: - Phase 1 Integration: WarpOptimizedSelectionKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4WarpOptimizedSelectionKernelTests: XCTestCase {
+final class WarpOptimizedSelectionKernelTests: XCTestCase {
 
     var context: Metal4Context!
-    var kernel: Metal4WarpOptimizedSelectionKernel!
+    var kernel: WarpOptimizedSelectionKernel!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -3300,7 +3300,7 @@ final class Metal4WarpOptimizedSelectionKernelTests: XCTestCase {
             throw XCTSkip("Metal device not available")
         }
         context = try await Metal4Context()
-        kernel = try await Metal4WarpOptimizedSelectionKernel(context: context)
+        kernel = try await WarpOptimizedSelectionKernel(context: context)
     }
 
     override func tearDown() {
@@ -3675,6 +3675,6 @@ final class Metal4WarpOptimizedSelectionKernelTests: XCTestCase {
     }
 
     func testKernelName() {
-        XCTAssertEqual(kernel.name, "Metal4WarpOptimizedSelectionKernel")
+        XCTAssertEqual(kernel.name, "WarpOptimizedSelectionKernel")
     }
 }

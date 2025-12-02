@@ -1,5 +1,5 @@
 //
-//  Metal4MatrixTransposeKernel.swift
+//  MatrixTransposeKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Matrix Transpose kernel with ArgumentTable support.
@@ -39,7 +39,7 @@ public struct Metal4TransposeConfig: Sendable {
 
 /// Parameters for transpose kernel.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4TransposeParameters: Sendable {
+public struct TransposeParameters: Sendable {
     /// Number of rows in input matrix
     public let rows: UInt32
     /// Number of columns in input matrix
@@ -101,7 +101,7 @@ public struct Metal4TransposeResult: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4MatrixTransposeKernel(context: context)
+/// let kernel = try await MatrixTransposeKernel(context: context)
 ///
 /// // Transpose: B = A^T
 /// let result = try await kernel.transpose(matrixA)
@@ -110,12 +110,12 @@ public struct Metal4TransposeResult: Sendable {
 /// let valid = try await kernel.validate(matrixA)
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4MatrixTransposeKernel: @unchecked Sendable, Metal4Kernel {
+public final class MatrixTransposeKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4MatrixTransposeKernel"
+    public let name: String = "MatrixTransposeKernel"
 
     // MARK: - Constants
 
@@ -165,7 +165,7 @@ public final class Metal4MatrixTransposeKernel: @unchecked Sendable, Metal4Kerne
         into encoder: any MTLComputeCommandEncoder,
         input: any MTLBuffer,
         output: any MTLBuffer,
-        parameters: Metal4TransposeParameters,
+        parameters: TransposeParameters,
         inPlace: Bool = false
     ) -> Metal4EncodingResult {
         let canDoInPlace = inPlace && parameters.rows == parameters.columns && inPlacePipeline != nil
@@ -206,7 +206,7 @@ public final class Metal4MatrixTransposeKernel: @unchecked Sendable, Metal4Kerne
     /// Execute transpose as standalone operation.
     public func execute(
         input: any MTLBuffer,
-        parameters: Metal4TransposeParameters,
+        parameters: TransposeParameters,
         config: Metal4TransposeConfig = .default
     ) async throws -> any MTLBuffer {
         let device = context.device.rawDevice
@@ -256,7 +256,7 @@ public final class Metal4MatrixTransposeKernel: @unchecked Sendable, Metal4Kerne
         }
         inputBuffer.label = "MatrixTranspose.input"
 
-        let parameters = Metal4TransposeParameters(rows: matrix.rows, columns: matrix.columns)
+        let parameters = TransposeParameters(rows: matrix.rows, columns: matrix.columns)
 
         let startTime = CACurrentMediaTime()
         let outputBuffer = try await execute(input: inputBuffer, parameters: parameters, config: config)

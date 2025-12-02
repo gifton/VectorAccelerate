@@ -11,7 +11,7 @@ import XCTest
 // MARK: - Neural Quantization Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4NeuralQuantizationKernelTests: XCTestCase {
+final class NeuralQuantizationKernelTests: XCTestCase {
 
     var context: Metal4Context!
 
@@ -31,13 +31,13 @@ final class Metal4NeuralQuantizationKernelTests: XCTestCase {
     // MARK: - Initialization Tests
 
     func testKernelInitialization() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
-        XCTAssertEqual(kernel.name, "Metal4NeuralQuantizationKernel")
+        let kernel = try await NeuralQuantizationKernel(context: context)
+        XCTAssertEqual(kernel.name, "NeuralQuantizationKernel")
         XCTAssertFalse(kernel.hasWeights)
     }
 
     func testRandomWeightCreation() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig(
             inputDimension: 128,
             latentDimension: 32,
@@ -56,7 +56,7 @@ final class Metal4NeuralQuantizationKernelTests: XCTestCase {
     // MARK: - Encoding Tests
 
     func testBasicEncoding() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig.balanced(inputDim: 128)
 
         try await kernel.createRandomWeights(config: config)
@@ -75,7 +75,7 @@ final class Metal4NeuralQuantizationKernelTests: XCTestCase {
     }
 
     func testHighCompressionEncoding() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig.highCompression(inputDim: 256)
 
         try await kernel.createRandomWeights(config: config)
@@ -100,7 +100,7 @@ final class Metal4NeuralQuantizationKernelTests: XCTestCase {
     // MARK: - Decoding Tests
 
     func testEncodeDecode() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig(
             inputDimension: 64,
             latentDimension: 32,
@@ -133,7 +133,7 @@ final class Metal4NeuralQuantizationKernelTests: XCTestCase {
     // MARK: - Metrics Tests
 
     func testEncodeDecodeWithMetrics() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig(
             inputDimension: 64,
             latentDimension: 32,
@@ -194,7 +194,7 @@ final class Metal4NeuralQuantizationKernelTests: XCTestCase {
     // MARK: - Weight Management Tests
 
     func testWeightUnloading() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig(
             inputDimension: 64,
             latentDimension: 16,
@@ -216,7 +216,7 @@ final class Metal4NeuralQuantizationKernelTests: XCTestCase {
     }
 
     func testLoadWeightsFromArrays() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig(
             inputDimension: 8,
             latentDimension: 4,
@@ -248,7 +248,7 @@ final class Metal4NeuralQuantizationKernelTests: XCTestCase {
     // MARK: - Error Handling Tests
 
     func testEncodeWithoutWeights() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
 
         let vectors = [[Float](repeating: 0.5, count: 64)]
 
@@ -261,7 +261,7 @@ final class Metal4NeuralQuantizationKernelTests: XCTestCase {
     }
 
     func testDimensionMismatch() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig(
             inputDimension: 64,
             latentDimension: 16,
@@ -283,7 +283,7 @@ final class Metal4NeuralQuantizationKernelTests: XCTestCase {
     }
 
     func testEmptyInput() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig(
             inputDimension: 64,
             latentDimension: 16,
@@ -306,7 +306,7 @@ final class Metal4NeuralQuantizationKernelTests: XCTestCase {
     // MARK: - Performance Tests
 
     func testEncodingPerformance() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig.balanced(inputDim: 768)
 
         try await kernel.createRandomWeights(config: config)

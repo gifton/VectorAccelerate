@@ -1,5 +1,5 @@
 //
-//  Metal4JaccardDistanceKernel.swift
+//  JaccardDistanceKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Jaccard Distance kernel with ArgumentTable support.
@@ -142,7 +142,7 @@ public struct Metal4BatchJaccardResult: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4JaccardDistanceKernel(context: context)
+/// let kernel = try await JaccardDistanceKernel(context: context)
 ///
 /// // Single pair distance
 /// let result = try await kernel.computeDistance(vectorA, vectorB)
@@ -153,12 +153,12 @@ public struct Metal4BatchJaccardResult: Sendable {
 /// let nearest = batch.nearestNeighbors(k: 5)
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4JaccardDistanceKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
+public final class JaccardDistanceKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4JaccardDistanceKernel"
+    public let name: String = "JaccardDistanceKernel"
     public let fusibleWith: [String] = ["TopKSelection"]
     public let requiresBarrierAfter: Bool = true
 

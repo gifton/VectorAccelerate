@@ -33,29 +33,29 @@ VectorAccelerate is a critical dependency for:
 
 ## 🚀 Accelerated Operations
 
-All kernels use the `Metal4*Kernel` naming convention and require a `Metal4Context` for initialization.
+All kernels require a `Metal4Context` for initialization.
 
 ### Core Distance Metrics
-- **L2 Distance** (`Metal4L2DistanceKernel`)
+- **L2 Distance** (`L2DistanceKernel`)
   - Euclidean distance with optional sqrt
   - Specialized kernels for dimensions 512, 768, 1536
   - Batch processing for multiple query-database pairs
 
-- **Cosine Similarity** (`Metal4CosineSimilarityKernel`)
+- **Cosine Similarity** (`CosineSimilarityKernel`)
   - Pre-normalized and with-normalization variants
   - Output as similarity or distance (1 - similarity)
   - Optimized for high-dimensional embeddings
 
-- **Dot Product** (`Metal4DotProductKernel`)
+- **Dot Product** (`DotProductKernel`)
   - SIMD-optimized implementation
   - Automatic GEMV/GEMM path selection
   - Batch matrix-vector products
 
 ### Advanced Distance Metrics
-- **Manhattan Distance** (`Metal4ManhattanDistanceKernel`) - L1 distance
-- **Chebyshev Distance** (`Metal4ChebyshevDistanceKernel`) - L∞ distance
-- **Hamming Distance** (`Metal4HammingDistanceKernel`) - Binary vector distances
-- **Minkowski Distance** (`Metal4MinkowskiDistanceKernel`) - Generalized Lp distances
+- **Manhattan Distance** (`ManhattanDistanceKernel`) - L1 distance
+- **Chebyshev Distance** (`ChebyshevDistanceKernel`) - L∞ distance
+- **Hamming Distance** (`HammingDistanceKernel`) - Binary vector distances
+- **Minkowski Distance** (`MinkowskiDistanceKernel`) - Generalized Lp distances
 
 ### Experimental ML Features
 - **Learned Distance** (`LearnedDistanceKernel`)
@@ -63,85 +63,85 @@ All kernels use the `Metal4*Kernel` naming convention and require a `Metal4Conte
   - MLTensor integration for neural distance computation
   - Automatic fallback to standard L2 when unavailable
 
-- **Attention Similarity** (`Metal4AttentionSimilarityKernel`)
+- **Attention Similarity** (`AttentionSimilarityKernel`)
   - Attention-weighted similarity computation
   - Multi-head attention support
 
-- **Neural Quantization** (`Metal4NeuralQuantizationKernel`)
+- **Neural Quantization** (`NeuralQuantizationKernel`)
   - Learned quantization with neural networks
   - Adaptive codebook generation
 
 ### Vector Operations
-- **L2 Normalization** (`Metal4L2NormalizationKernel`)
+- **L2 Normalization** (`L2NormalizationKernel`)
   - In-place and out-of-place normalization
   - Numerical stability for zero vectors
   - Batch normalization support
 
-- **Element-wise Operations** (`Metal4ElementwiseKernel`)
+- **Element-wise Operations** (`ElementwiseKernel`)
   - Addition, subtraction, multiplication, division
   - Trigonometric functions (sin, cos, tan)
   - Power and exponential operations
   - Broadcasting support
 
 ### Selection & Sorting
-- **Top-K Selection** (`Metal4TopKSelectionKernel`)
+- **Top-K Selection** (`TopKSelectionKernel`)
   - General purpose top-k with configurable k
   - Warp-level optimization for common k values
   - Streaming support for massive datasets
 
-- **Fused L2 + Top-K** (`Metal4FusedL2TopKKernel`)
+- **Fused L2 + Top-K** (`FusedL2TopKKernel`)
   - Combined distance computation and selection
   - Reduced memory bandwidth
   - Optimal for nearest neighbor search
 
-- **Parallel Reduction** (`Metal4ParallelReductionKernel`)
+- **Parallel Reduction** (`ParallelReductionKernel`)
   - Sum, min, max reduction
   - Mean and variance computation
   - Custom reduction operations
 
 ### Matrix Operations
-- **Matrix Multiply (GEMM)** (`Metal4MatrixMultiplyKernel`)
+- **Matrix Multiply (GEMM)** (`MatrixMultiplyKernel`)
   - Tiled implementation with shared memory (32×32×8 tiles)
   - Support for transposed inputs
   - Alpha/beta scaling (C = α·A·B + β·C)
 
-- **Matrix-Vector (GEMV)** (`Metal4MatrixVectorKernel`)
+- **Matrix-Vector (GEMV)** (`MatrixVectorKernel`)
   - SIMD group optimizations
   - Row/column major support
   - Batch vector operations
 
-- **Matrix Transpose** (`Metal4MatrixTransposeKernel`)
+- **Matrix Transpose** (`MatrixTransposeKernel`)
   - Tiled transpose for coalesced access
   - Optimized shared memory usage
 
-- **Batch Matrix Operations** (`Metal4BatchMatrixKernel`)
+- **Batch Matrix Operations** (`BatchMatrixKernel`)
   - Fused multiply-add with bias
   - Strided tensor operations
 
 ### Statistical Operations
-- **Statistics** (`Metal4StatisticsKernel`)
+- **Statistics** (`StatisticsKernel`)
   - Mean, variance, standard deviation
   - Skewness and kurtosis
   - Percentiles and quartiles
   - Running statistics updates
 
-- **Histogram** (`Metal4HistogramKernel`)
+- **Histogram** (`HistogramKernel`)
   - Uniform, adaptive, and logarithmic binning
   - Multi-dimensional histograms
   - Kernel density estimation
 
 ### Quantization & Compression
-- **Scalar Quantization** (`Metal4ScalarQuantizationKernel`)
+- **Scalar Quantization** (`ScalarQuantizationKernel`)
   - INT8/INT4 quantization with scale and offset
   - Symmetric and asymmetric modes
   - Per-channel quantization
 
-- **Binary Quantization** (`Metal4BinaryQuantizationKernel`)
+- **Binary Quantization** (`BinaryQuantizationKernel`)
   - 1-bit vector compression
   - Hamming distance on packed bits
   - 32x memory reduction
 
-- **Product Quantization** (`Metal4ProductQuantizationKernel`)
+- **Product Quantization** (`ProductQuantizationKernel`)
   - Subspace decomposition
   - Codebook-based compression
   - Asymmetric distance computation
@@ -177,7 +177,7 @@ import VectorCore
 
 // Initialize Metal 4 context (async)
 let context = try await Metal4Context()
-let l2Kernel = try await Metal4L2DistanceKernel(context: context)
+let l2Kernel = try await L2DistanceKernel(context: context)
 
 // Prepare your vectors
 let queries = [[Float]](repeating: [Float](repeating: 0.5, count: 768), count: 10)
@@ -204,7 +204,7 @@ let vector2 = Vector<D768>([Float](repeating: 0.5, count: 768))
 
 // Use GPU-accelerated operations
 let context = try await Metal4Context()
-let cosineSim = try await Metal4CosineSimilarityKernel(context: context)
+let cosineSim = try await CosineSimilarityKernel(context: context)
 let similarity = try await cosineSim.compute(
     queries: [vector1],
     database: [vector2]
@@ -216,7 +216,7 @@ let similarity = try await cosineSim.compute(
 ```swift
 // Fused L2 distance + Top-K selection (single kernel execution)
 let context = try await Metal4Context()
-let fusedKernel = try await Metal4FusedL2TopKKernel(context: context)
+let fusedKernel = try await FusedL2TopKKernel(context: context)
 
 let result = try await fusedKernel.compute(
     queries: queries,
@@ -257,7 +257,7 @@ print("Computed using \(mode) mode")  // .learned or .standard (fallback)
 ```swift
 // GPU-accelerated matrix multiplication
 let context = try await Metal4Context()
-let matrixKernel = try await Metal4MatrixMultiplyKernel(context: context)
+let matrixKernel = try await MatrixMultiplyKernel(context: context)
 
 let a = Matrix.random(rows: 1024, columns: 512)
 let b = Matrix.random(rows: 512, columns: 256)
@@ -282,9 +282,9 @@ VectorAccelerate/
 │   └── TensorManager.swift       # Tensor operations
 ├── Kernels/
 │   └── Metal4/              # All Metal 4 kernel implementations
-│       ├── Metal4L2DistanceKernel.swift
-│       ├── Metal4CosineSimilarityKernel.swift
-│       ├── Metal4MatrixMultiplyKernel.swift
+│       ├── L2DistanceKernel.swift
+│       ├── CosineSimilarityKernel.swift
+│       ├── MatrixMultiplyKernel.swift
 │       └── ... (20+ kernels)
 ├── Metal/
 │   └── Shaders/             # Metal shader source files (.metal)

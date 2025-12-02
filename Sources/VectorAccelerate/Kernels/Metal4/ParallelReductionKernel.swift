@@ -1,5 +1,5 @@
 //
-//  Metal4ParallelReductionKernel.swift
+//  ParallelReductionKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Parallel Reduction kernel with ArgumentTable support.
@@ -114,7 +114,7 @@ internal struct Metal4ReductionParams: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4ParallelReductionKernel(context: context)
+/// let kernel = try await ParallelReductionKernel(context: context)
 ///
 /// // Find minimum with its index
 /// let (value, index, _) = try await kernel.reduce(array, operation: .argMin)
@@ -123,12 +123,12 @@ internal struct Metal4ReductionParams: Sendable {
 /// let stats = try await kernel.computeStatistics(array)
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4ParallelReductionKernel: @unchecked Sendable, Metal4Kernel {
+public final class ParallelReductionKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4ParallelReductionKernel"
+    public let name: String = "ParallelReductionKernel"
 
     // MARK: - Constants
 

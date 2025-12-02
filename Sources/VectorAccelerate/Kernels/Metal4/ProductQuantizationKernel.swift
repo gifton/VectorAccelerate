@@ -1,5 +1,5 @@
 //
-//  Metal4ProductQuantizationKernel.swift
+//  ProductQuantizationKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Product Quantization kernel with ArgumentTable support.
@@ -188,7 +188,7 @@ internal struct Metal4PQParams: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4ProductQuantizationKernel(context: context)
+/// let kernel = try await ProductQuantizationKernel(context: context)
 ///
 /// // Train model on dataset
 /// let model = try await kernel.train(data: trainingData, config: config)
@@ -205,12 +205,12 @@ internal struct Metal4PQParams: Sendable {
 /// )
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4ProductQuantizationKernel: @unchecked Sendable, Metal4Kernel {
+public final class ProductQuantizationKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4ProductQuantizationKernel"
+    public let name: String = "ProductQuantizationKernel"
 
     // MARK: - Pipelines
 

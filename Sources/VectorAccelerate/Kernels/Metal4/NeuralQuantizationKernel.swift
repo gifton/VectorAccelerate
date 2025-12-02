@@ -1,5 +1,5 @@
 //
-//  Metal4NeuralQuantizationKernel.swift
+//  NeuralQuantizationKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Neural Quantization kernel with learned encoder/decoder.
@@ -90,7 +90,7 @@ public struct Metal4NeuralQuantizationConfig: Sendable {
 
 /// Parameters for neural quantization kernel (matches Metal struct).
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4NeuralQuantizationParameters: Sendable {
+public struct NeuralQuantizationParameters: Sendable {
     public var numVectors: UInt32
     public var inputDimension: UInt32
     public var latentDimension: UInt32
@@ -182,7 +182,7 @@ public struct Metal4NeuralQuantizationMetrics: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+/// let kernel = try await NeuralQuantizationKernel(context: context)
 ///
 /// // Load pre-trained weights
 /// try await kernel.loadWeights(
@@ -203,12 +203,12 @@ public struct Metal4NeuralQuantizationMetrics: Sendable {
 /// Encoder/decoder weights should be trained with a reconstruction objective,
 /// optionally with quantization-aware training for best results.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
+public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4NeuralQuantizationKernel"
+    public let name: String = "NeuralQuantizationKernel"
 
     // MARK: - Pipelines
 
@@ -419,7 +419,7 @@ public final class Metal4NeuralQuantizationKernel: @unchecked Sendable, Metal4Ke
         into encoder: any MTLComputeCommandEncoder,
         input: any MTLBuffer,
         output: any MTLBuffer,
-        parameters: Metal4NeuralQuantizationParameters
+        parameters: NeuralQuantizationParameters
     ) throws -> Metal4EncodingResult {
         guard let encoderWeights = encoderWeights else {
             throw VectorError.invalidOperation("Encoder weights not loaded")
@@ -434,7 +434,7 @@ public final class Metal4NeuralQuantizationKernel: @unchecked Sendable, Metal4Ke
         encoder.setBuffer(encoderBias?.buffer, offset: 0, index: 3)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4NeuralQuantizationParameters>.size, index: 4)
+        encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 4)
 
         // 2D dispatch: (numVectors, latentDim)
         let config = Metal4ThreadConfiguration.forDistanceKernel(
@@ -459,7 +459,7 @@ public final class Metal4NeuralQuantizationKernel: @unchecked Sendable, Metal4Ke
         input: any MTLBuffer,
         output: any MTLBuffer,
         scale: any MTLBuffer,
-        parameters: Metal4NeuralQuantizationParameters
+        parameters: NeuralQuantizationParameters
     ) throws -> Metal4EncodingResult {
         guard let encoderWeights = encoderWeights else {
             throw VectorError.invalidOperation("Encoder weights not loaded")
@@ -475,7 +475,7 @@ public final class Metal4NeuralQuantizationKernel: @unchecked Sendable, Metal4Ke
         encoder.setBuffer(encoderBias?.buffer, offset: 0, index: 4)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4NeuralQuantizationParameters>.size, index: 5)
+        encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
 
         let numVectors = Int(parameters.numVectors)
         let config = Metal4ThreadConfiguration.linear(count: numVectors, pipeline: encodeQuantizePipeline)
@@ -496,7 +496,7 @@ public final class Metal4NeuralQuantizationKernel: @unchecked Sendable, Metal4Ke
         into encoder: any MTLComputeCommandEncoder,
         input: any MTLBuffer,
         output: any MTLBuffer,
-        parameters: Metal4NeuralQuantizationParameters
+        parameters: NeuralQuantizationParameters
     ) throws -> Metal4EncodingResult {
         guard let decoderWeights = decoderWeights else {
             throw VectorError.invalidOperation("Decoder weights not loaded")
@@ -511,7 +511,7 @@ public final class Metal4NeuralQuantizationKernel: @unchecked Sendable, Metal4Ke
         encoder.setBuffer(decoderBias?.buffer, offset: 0, index: 3)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4NeuralQuantizationParameters>.size, index: 4)
+        encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 4)
 
         // 2D dispatch: (numVectors, inputDim)
         let config = Metal4ThreadConfiguration.forDistanceKernel(
@@ -536,7 +536,7 @@ public final class Metal4NeuralQuantizationKernel: @unchecked Sendable, Metal4Ke
         input: any MTLBuffer,
         scale: any MTLBuffer,
         output: any MTLBuffer,
-        parameters: Metal4NeuralQuantizationParameters
+        parameters: NeuralQuantizationParameters
     ) throws -> Metal4EncodingResult {
         guard let decoderWeights = decoderWeights else {
             throw VectorError.invalidOperation("Decoder weights not loaded")
@@ -552,7 +552,7 @@ public final class Metal4NeuralQuantizationKernel: @unchecked Sendable, Metal4Ke
         encoder.setBuffer(decoderBias?.buffer, offset: 0, index: 4)
 
         var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4NeuralQuantizationParameters>.size, index: 5)
+        encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
 
         let numVectors = Int(parameters.numVectors)
         let config = Metal4ThreadConfiguration.linear(count: numVectors, pipeline: dequantizeDecodePipeline)
@@ -619,7 +619,7 @@ public final class Metal4NeuralQuantizationKernel: @unchecked Sendable, Metal4Ke
         }
         scaleBuffer.label = "NeuralQuantize.scale"
 
-        let parameters = Metal4NeuralQuantizationParameters(
+        let parameters = NeuralQuantizationParameters(
             numVectors: numVectors,
             config: config
         )
@@ -700,7 +700,7 @@ public final class Metal4NeuralQuantizationKernel: @unchecked Sendable, Metal4Ke
         }
         outputBuffer.label = "NeuralDequantize.output"
 
-        let parameters = Metal4NeuralQuantizationParameters(
+        let parameters = NeuralQuantizationParameters(
             numVectors: numVectors,
             config: config
         )

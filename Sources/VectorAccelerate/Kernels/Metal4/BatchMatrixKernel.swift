@@ -1,5 +1,5 @@
 //
-//  Metal4BatchMatrixKernel.swift
+//  BatchMatrixKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Batch Matrix kernel with ArgumentTable support.
@@ -105,7 +105,7 @@ public struct Metal4BatchStridedConfig: Sendable {
 
 /// Parameters for fused batch kernel.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4BatchFusedParameters: Sendable {
+public struct BatchFusedParameters: Sendable {
     public let batchSize: UInt32
     public let M: UInt32
     public let K: UInt32
@@ -205,7 +205,7 @@ public struct Metal4BatchMatrixResult: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4BatchMatrixKernel(context: context)
+/// let kernel = try await BatchMatrixKernel(context: context)
 ///
 /// // Fused batch multiply with ReLU
 /// let result = try await kernel.multiplyFused(
@@ -216,12 +216,12 @@ public struct Metal4BatchMatrixResult: Sendable {
 /// )
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
+public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4BatchMatrixKernel"
+    public let name: String = "BatchMatrixKernel"
 
     // MARK: - Constants
 
@@ -273,7 +273,7 @@ public final class Metal4BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
         batchB: any MTLBuffer,
         output: any MTLBuffer,
         bias: (any MTLBuffer)?,
-        parameters: Metal4BatchFusedParameters
+        parameters: BatchFusedParameters
     ) -> Metal4EncodingResult {
         encoder.setComputePipelineState(fusedPipeline)
         encoder.label = "BatchMatrixFused (batch=\(parameters.batchSize))"
@@ -452,7 +452,7 @@ public final class Metal4BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
             biasBuffer = nil
         }
 
-        let parameters = Metal4BatchFusedParameters(
+        let parameters = BatchFusedParameters(
             batchSize: batchSize,
             M: M,
             K: K,

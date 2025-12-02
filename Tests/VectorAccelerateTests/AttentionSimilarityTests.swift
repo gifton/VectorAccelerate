@@ -11,7 +11,7 @@ import XCTest
 // MARK: - Attention Similarity Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-final class Metal4AttentionSimilarityKernelTests: XCTestCase {
+final class AttentionSimilarityKernelTests: XCTestCase {
 
     var context: Metal4Context!
 
@@ -31,13 +31,13 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     // MARK: - Initialization Tests
 
     func testKernelInitialization() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
-        XCTAssertEqual(kernel.name, "Metal4AttentionSimilarityKernel")
+        let kernel = try await AttentionSimilarityKernel(context: context)
+        XCTAssertEqual(kernel.name, "AttentionSimilarityKernel")
         XCTAssertFalse(kernel.hasWeights)
     }
 
     func testRandomWeightCreation() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig(
             inputDimension: 128,
             headDimension: 32,
@@ -55,7 +55,7 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     // MARK: - Single-Head Attention Tests
 
     func testSingleHeadSimilarity() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.singleHead(
             inputDim: 64,
             projectedDim: 16
@@ -88,7 +88,7 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     }
 
     func testSimilaritySymmetry() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.singleHead(
             inputDim: 32,
             projectedDim: 8
@@ -124,7 +124,7 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     // MARK: - Multi-Head Attention Tests
 
     func testMultiHeadSimilarity() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig(
             inputDimension: 64,
             headDimension: 16,
@@ -190,7 +190,7 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     // MARK: - Top-K Helper Tests
 
     func testTopKMatches() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.singleHead(
             inputDim: 32,
             projectedDim: 8
@@ -226,7 +226,7 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     }
 
     func testSimilarityLookup() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.singleHead(
             inputDim: 16,
             projectedDim: 4
@@ -255,7 +255,7 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     // MARK: - Normalization Tests
 
     func testNormalizedSimilarities() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig(
             inputDimension: 32,
             headDimension: 8,
@@ -286,7 +286,7 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     // MARK: - Weight Management Tests
 
     func testWeightUnloading() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.singleHead(
             inputDim: 32,
             projectedDim: 8
@@ -303,7 +303,7 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     }
 
     func testLoadWeightsFromArrays() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig(
             inputDimension: 4,
             headDimension: 2,
@@ -327,7 +327,7 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     // MARK: - Error Handling Tests
 
     func testComputeWithoutWeights() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
 
         let queries = [[Float](repeating: 0.5, count: 64)]
         let keys = [[Float](repeating: 0.5, count: 64)]
@@ -341,7 +341,7 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     }
 
     func testDimensionMismatch() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.singleHead(
             inputDim: 64,
             projectedDim: 16
@@ -362,7 +362,7 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     }
 
     func testEmptyInput() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.singleHead(
             inputDim: 32,
             projectedDim: 8
@@ -384,7 +384,7 @@ final class Metal4AttentionSimilarityKernelTests: XCTestCase {
     // MARK: - Performance Tests
 
     func testSimilarityPerformance() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.singleHead(
             inputDim: 768,
             projectedDim: 64

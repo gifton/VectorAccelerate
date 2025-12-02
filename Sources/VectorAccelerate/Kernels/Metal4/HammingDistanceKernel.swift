@@ -1,5 +1,5 @@
 //
-//  Metal4HammingDistanceKernel.swift
+//  HammingDistanceKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Hamming Distance kernel with ArgumentTable support.
@@ -151,7 +151,7 @@ public struct Metal4HammingResult: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4HammingDistanceKernel(context: context)
+/// let kernel = try await HammingDistanceKernel(context: context)
 ///
 /// // Binary arrays
 /// let dist = try await kernel.distance([true, false, true], [true, true, true])
@@ -160,12 +160,12 @@ public struct Metal4HammingResult: Sendable {
 /// let result = try await kernel.computeFloat(queries, dataset, dimension: 768)
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4HammingDistanceKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
+public final class HammingDistanceKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4HammingDistanceKernel"
+    public let name: String = "HammingDistanceKernel"
     public let fusibleWith: [String] = ["BinaryQuantization", "TopKSelection"]
     public let requiresBarrierAfter: Bool = true
 

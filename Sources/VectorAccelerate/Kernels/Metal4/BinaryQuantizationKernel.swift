@@ -1,5 +1,5 @@
 //
-//  Metal4BinaryQuantizationKernel.swift
+//  BinaryQuantizationKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Binary Quantization kernel with ArgumentTable support.
@@ -211,7 +211,7 @@ internal struct Metal4HammingParams: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4BinaryQuantizationKernel(context: context)
+/// let kernel = try await BinaryQuantizationKernel(context: context)
 ///
 /// // Quantize vectors to binary
 /// let result = try await kernel.quantize(vectors: floatVectors)
@@ -223,12 +223,12 @@ internal struct Metal4HammingParams: Sendable {
 /// )
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4BinaryQuantizationKernel: @unchecked Sendable, Metal4Kernel {
+public final class BinaryQuantizationKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4BinaryQuantizationKernel"
+    public let name: String = "BinaryQuantizationKernel"
 
     // MARK: - Pipelines
 

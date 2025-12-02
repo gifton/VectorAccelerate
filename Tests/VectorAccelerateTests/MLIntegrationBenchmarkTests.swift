@@ -15,7 +15,7 @@ final class MLIntegrationBenchmarkTests: XCTestCase {
 
     var device: MTLDevice!
     var context: Metal4Context!
-    var standardKernel: Metal4L2DistanceKernel!
+    var standardKernel: L2DistanceKernel!
     var learnedKernel: LearnedDistanceKernel!
 
     override func setUp() async throws {
@@ -27,7 +27,7 @@ final class MLIntegrationBenchmarkTests: XCTestCase {
         self.device = device
         self.context = try await Metal4Context()
 
-        standardKernel = try await Metal4L2DistanceKernel(context: context)
+        standardKernel = try await L2DistanceKernel(context: context)
         learnedKernel = try LearnedDistanceKernel(device: device)
     }
 
@@ -466,7 +466,7 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
 
     /// Benchmark: Neural encoding throughput (768 -> 128)
     func testNeuralEncodingThroughput768to128() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig.balanced(inputDim: 768)
 
         try await kernel.createRandomWeights(config: config)
@@ -501,7 +501,7 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
 
     /// Benchmark: Neural encoding throughput (384 -> 64) - MiniLM config
     func testNeuralEncodingThroughputMiniLM() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig.miniLM()
 
         try await kernel.createRandomWeights(config: config)
@@ -535,7 +535,7 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
 
     /// Benchmark: High compression (768 -> 64)
     func testNeuralEncodingHighCompression() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig.highCompression(inputDim: 768)
 
         try await kernel.createRandomWeights(config: config)
@@ -569,7 +569,7 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
 
     /// Benchmark: Full encode-decode cycle with quality metrics
     func testEncodeDecodeQuality() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig.balanced(inputDim: 768)
 
         try await kernel.createRandomWeights(config: config)
@@ -597,7 +597,7 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
 
     /// Benchmark: How encoding throughput scales with vector count
     func testEncodingScaling() async throws {
-        let kernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let kernel = try await NeuralQuantizationKernel(context: context)
         let config = Metal4NeuralQuantizationConfig.balanced(inputDim: 768)
 
         try await kernel.createRandomWeights(config: config)
@@ -665,7 +665,7 @@ final class AttentionSimilarityBenchmarkTests: XCTestCase {
 
     /// Benchmark: Single-head attention similarity (768 -> 64)
     func testSingleHeadAttentionSimilarity768() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.singleHead(inputDim: 768, projectedDim: 64)
 
         try await kernel.createRandomWeights(config: config)
@@ -703,7 +703,7 @@ final class AttentionSimilarityBenchmarkTests: XCTestCase {
 
     /// Benchmark: Single-head attention (384 -> 64) MiniLM style
     func testSingleHeadAttentionSimilarityMiniLM() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.singleHead(inputDim: 384, projectedDim: 64)
 
         try await kernel.createRandomWeights(config: config)
@@ -740,7 +740,7 @@ final class AttentionSimilarityBenchmarkTests: XCTestCase {
 
     /// Benchmark: Multi-head attention (transformer768 config)
     func testMultiHeadAttentionTransformer768() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.transformer768()
 
         try await kernel.createRandomWeights(config: config)
@@ -778,7 +778,7 @@ final class AttentionSimilarityBenchmarkTests: XCTestCase {
 
     /// Benchmark: Multi-head attention (MiniLM config)
     func testMultiHeadAttentionMiniLM() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.miniLM()
 
         try await kernel.createRandomWeights(config: config)
@@ -816,7 +816,7 @@ final class AttentionSimilarityBenchmarkTests: XCTestCase {
 
     /// Benchmark: How attention similarity scales with key count
     func testAttentionSimilarityScaling() async throws {
-        let kernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernel = try await AttentionSimilarityKernel(context: context)
         let config = Metal4AttentionSimilarityConfig.singleHead(inputDim: 768, projectedDim: 64)
 
         try await kernel.createRandomWeights(config: config)
@@ -862,7 +862,7 @@ final class AttentionSimilarityBenchmarkTests: XCTestCase {
         let keys = generateRandomVectors(count: numKeys, dimension: 768)
 
         // Test raw scores
-        let kernelRaw = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernelRaw = try await AttentionSimilarityKernel(context: context)
         let configRaw = Metal4AttentionSimilarityConfig(
             inputDimension: 768,
             headDimension: 64,
@@ -881,7 +881,7 @@ final class AttentionSimilarityBenchmarkTests: XCTestCase {
         let rawAvg = rawTimes.reduce(0, +) / Double(rawTimes.count)
 
         // Test normalized scores
-        let kernelNorm = try await Metal4AttentionSimilarityKernel(context: context)
+        let kernelNorm = try await AttentionSimilarityKernel(context: context)
         let configNorm = Metal4AttentionSimilarityConfig(
             inputDimension: 768,
             headDimension: 64,
@@ -944,7 +944,7 @@ final class Phase4BenchmarkSummaryTests: XCTestCase {
         print("║  1. NEURAL QUANTIZATION                                          ║")
         print("║  ─────────────────────────────────────────────────────────────── ║")
 
-        let nqKernel = try await Metal4NeuralQuantizationKernel(context: context)
+        let nqKernel = try await NeuralQuantizationKernel(context: context)
         let nqConfig = Metal4NeuralQuantizationConfig.balanced(inputDim: 768)
         try await nqKernel.createRandomWeights(config: nqConfig)
 
@@ -963,7 +963,7 @@ final class Phase4BenchmarkSummaryTests: XCTestCase {
         print("║  2. ATTENTION SIMILARITY                                         ║")
         print("║  ─────────────────────────────────────────────────────────────── ║")
 
-        let asKernel = try await Metal4AttentionSimilarityKernel(context: context)
+        let asKernel = try await AttentionSimilarityKernel(context: context)
         let asConfig = Metal4AttentionSimilarityConfig.singleHead(inputDim: 768, projectedDim: 64)
         try await asKernel.createRandomWeights(config: asConfig)
 

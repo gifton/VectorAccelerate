@@ -1,5 +1,5 @@
 //
-//  Metal4MinkowskiDistanceKernel.swift
+//  MinkowskiDistanceKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Minkowski Distance kernel with ArgumentTable support.
@@ -172,7 +172,7 @@ public struct Metal4MinkowskiResult: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4MinkowskiDistanceKernel(context: context)
+/// let kernel = try await MinkowskiDistanceKernel(context: context)
 ///
 /// // Euclidean distance
 /// let euclidean = try await kernel.computeDistances(queries, dataset, config: .euclidean)
@@ -184,12 +184,12 @@ public struct Metal4MinkowskiResult: Sendable {
 /// let custom = try await kernel.computeDistances(queries, dataset, config: Metal4MinkowskiConfig(p: 3.0))
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4MinkowskiDistanceKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
+public final class MinkowskiDistanceKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4MinkowskiDistanceKernel"
+    public let name: String = "MinkowskiDistanceKernel"
     public let fusibleWith: [String] = ["TopKSelection"]
     public let requiresBarrierAfter: Bool = true
 

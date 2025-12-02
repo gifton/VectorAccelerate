@@ -1,5 +1,5 @@
 //
-//  Metal4FusedL2TopKKernel.swift
+//  FusedL2TopKKernel.swift
 //  VectorAccelerate
 //
 //  Metal 4 Fused L2 Distance + Top-K Selection kernel.
@@ -23,7 +23,7 @@ import VectorCore
 ///
 /// Memory layout must match the Metal shader expectations.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public struct Metal4FusedL2TopKParameters: Sendable {
+public struct FusedL2TopKParameters: Sendable {
     /// Number of query vectors (Q)
     public let numQueries: UInt32
 
@@ -153,7 +153,7 @@ public struct Metal4StreamingL2Params: Sendable {
 /// ## Usage
 ///
 /// ```swift
-/// let kernel = try await Metal4FusedL2TopKKernel(context: context)
+/// let kernel = try await FusedL2TopKKernel(context: context)
 ///
 /// // Single-pass nearest neighbor search
 /// let result = try await kernel.findNearestNeighbors(
@@ -163,12 +163,12 @@ public struct Metal4StreamingL2Params: Sendable {
 /// )
 /// ```
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public final class Metal4FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
+public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
 
     public let context: Metal4Context
-    public let name: String = "Metal4FusedL2TopKKernel"
+    public let name: String = "FusedL2TopKKernel"
 
     // MARK: - Pipelines
 
@@ -228,7 +228,7 @@ public final class Metal4FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         dataset: any MTLBuffer,
         outputIndices: any MTLBuffer,
         outputDistances: (any MTLBuffer)?,
-        parameters: Metal4FusedL2TopKParameters
+        parameters: FusedL2TopKParameters
     ) -> Metal4EncodingResult {
         encoder.setComputePipelineState(fusedPipeline)
         encoder.label = "FusedL2TopK (K=\(parameters.k))"
@@ -310,7 +310,7 @@ public final class Metal4FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
     public func execute(
         queries: any MTLBuffer,
         dataset: any MTLBuffer,
-        parameters: Metal4FusedL2TopKParameters,
+        parameters: FusedL2TopKParameters,
         config: Metal4FusedL2Config = .default
     ) async throws -> Metal4FusedL2TopKResult {
         let device = context.device.rawDevice
@@ -318,9 +318,9 @@ public final class Metal4FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         let k = Int(parameters.k)
 
         // Validate parameters
-        guard parameters.dimension <= Metal4FusedL2TopKParameters.maxDimension else {
+        guard parameters.dimension <= FusedL2TopKParameters.maxDimension else {
             throw VectorError.invalidInput(
-                "Dimension \(parameters.dimension) exceeds maximum \(Metal4FusedL2TopKParameters.maxDimension)"
+                "Dimension \(parameters.dimension) exceeds maximum \(FusedL2TopKParameters.maxDimension)"
             )
         }
 
@@ -388,9 +388,9 @@ public final class Metal4FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
             throw VectorError.invalidInput("Dimension mismatch in input vectors")
         }
 
-        guard dimension <= Metal4FusedL2TopKParameters.maxDimension else {
+        guard dimension <= FusedL2TopKParameters.maxDimension else {
             throw VectorError.invalidInput(
-                "Dimension \(dimension) exceeds maximum \(Metal4FusedL2TopKParameters.maxDimension)"
+                "Dimension \(dimension) exceeds maximum \(FusedL2TopKParameters.maxDimension)"
             )
         }
 
@@ -416,7 +416,7 @@ public final class Metal4FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         }
         datasetBuffer.label = "FusedL2TopK.dataset"
 
-        let parameters = Metal4FusedL2TopKParameters(
+        let parameters = FusedL2TopKParameters(
             numQueries: queries.count,
             numDataset: dataset.count,
             dimension: dimension,
@@ -454,7 +454,7 @@ public final class Metal4FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         let queryBuffer = try createBuffer(from: queries, device: device, label: "FusedL2TopK.queries")
         let datasetBuffer = try createBuffer(from: dataset, device: device, label: "FusedL2TopK.dataset")
 
-        let parameters = Metal4FusedL2TopKParameters(
+        let parameters = FusedL2TopKParameters(
             numQueries: queries.count,
             numDataset: dataset.count,
             dimension: dimension,
@@ -493,11 +493,11 @@ public final class Metal4FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         chunkSize: Int = 100_000
     ) async throws -> Metal4FusedL2TopKResult {
         let device = context.device.rawDevice
-        let actualK = min(k, Metal4FusedL2TopKParameters.maxK)
+        let actualK = min(k, FusedL2TopKParameters.maxK)
 
         // Process first chunk to initialize results
         let firstChunkSize = min(chunkSize, datasetCount)
-        let firstParams = Metal4FusedL2TopKParameters(
+        let firstParams = FusedL2TopKParameters(
             numQueries: queryCount,
             numDataset: firstChunkSize,
             dimension: dimension,

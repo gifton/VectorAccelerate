@@ -54,7 +54,7 @@ public actor LearnedDistanceService {
     // Standard kernel (always available) - Metal4 version
     // Using nonisolated(unsafe) because the kernel is immutable after init
     // and its methods are thread-safe (they create their own command buffers)
-    nonisolated private let standardKernel: Metal4L2DistanceKernel
+    nonisolated private let standardKernel: L2DistanceKernel
 
     // Learned kernel (only when ML is enabled and supported)
     nonisolated private let learnedKernel: LearnedDistanceKernel?
@@ -94,7 +94,7 @@ public actor LearnedDistanceService {
         self.capabilities = Metal4Capabilities(device: context.device.rawDevice)
 
         // Always create standard kernel (Metal4 version)
-        self.standardKernel = try await Metal4L2DistanceKernel(context: context)
+        self.standardKernel = try await L2DistanceKernel(context: context)
 
         // Create learned kernel only if ML is enabled and supported
         if configuration.enableExperimentalML && capabilities.supportsMLTensor {
