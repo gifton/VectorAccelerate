@@ -1,11 +1,18 @@
 // VectorAccelerate: L2 Distance Computation Kernels
 //
 // High-performance GPU kernels for L2 (Euclidean) distance computation
-// Optimized for dimensions 512, 768, and 1536
+// Optimized for embedding dimensions: 384, 512, 768, and 1536
 //
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
+//
+// Dimension optimizations:
+// - D=384:  MiniLM, all-MiniLM-L6-v2, Sentence-BERT
+// - D=512:  Small BERT variants
+// - D=768:  BERT-base, DistilBERT, MPNet
+// - D=1536: OpenAI ada-002
 
-#include <metal_stdlib>
-using namespace metal;
+#include "Metal4Common.h"
 
 // MARK: - Parameters Structure (Spec Section 2)
 

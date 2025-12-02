@@ -1,20 +1,23 @@
-// Hamming Distance Kernel
+// VectorAccelerate: Hamming Distance Kernel
+//
 // GPU-accelerated Hamming distance for binary vectors
-// Adapted from VectorIndexAccelerated for VectorAccelerate
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
 
-#include <metal_stdlib>
-using namespace metal;
+#include "Metal4Common.h"
 
 // =============================================================================
 // Configuration Constants
 // =============================================================================
 
 // Tiling configuration optimized for binary operations
-#define TILE_Q 16           // Query tile height
-#define TILE_N 16           // Dataset tile width  
-#define VEC_WIDTH 4         // uint4 = 128 bits
-#define TILE_D_WORDS 64     // uint32 words per tile (2048 bits)
-#define TILE_D_VEC (TILE_D_WORDS / VEC_WIDTH)  // 16 uint4 vectors
+// Prefixed with HAMM_ to avoid conflicts when shaders are combined
+#define HAMM_TILE_Q 16           // Query tile height
+#define HAMM_TILE_N 16           // Dataset tile width
+#define HAMM_VEC_WIDTH 4         // uint4 = 128 bits
+#define HAMM_TILE_D_WORDS 64     // uint32 words per tile (2048 bits)
+#define HAMM_TILE_D_VEC (HAMM_TILE_D_WORDS / HAMM_VEC_WIDTH)  // 16 uint4 vectors
 
 // =============================================================================
 // Main Kernels
@@ -33,8 +36,8 @@ kernel void hamming_distance_batch(
     uint2 tid [[thread_position_in_threadgroup]]   // (local_n, local_q)
 ) {
     // Shared memory for tiled computation
-    threadgroup uint shared_Q[TILE_Q * TILE_D_WORDS];
-    threadgroup uint shared_N[TILE_N * TILE_D_WORDS];
+    threadgroup uint shared_Q[HAMM_TILE_Q * HAMM_TILE_D_WORDS];
+    threadgroup uint shared_N[HAMM_TILE_N * HAMM_TILE_D_WORDS];
     
     // Vectorized access pointers for 128-bit operations
     threadgroup uint4* shared_Q_u4 = reinterpret_cast<threadgroup uint4*>(shared_Q);
@@ -45,30 +48,30 @@ kernel void hamming_distance_batch(
     const uint start_n = gid.x - tid.x;
     
     // Linear thread ID for cooperative loading
-    const uint tid_linear = tid.y * TILE_N + tid.x;
-    const uint tile_row = tid_linear / TILE_D_VEC;
-    const uint tile_col_u4 = tid_linear % TILE_D_VEC;
+    const uint tid_linear = tid.y * HAMM_TILE_N + tid.x;
+    const uint tile_row = tid_linear / HAMM_TILE_D_VEC;
+    const uint tile_col_u4 = tid_linear % HAMM_TILE_D_VEC;
     const uint smem_idx = tid_linear;
     
     // Initialize accumulator
     uint hamming_dist = 0;
     
     // Process binary vectors in tiles
-    for (uint d_start = 0; d_start < D_words; d_start += TILE_D_WORDS) {
+    for (uint d_start = 0; d_start < D_words; d_start += HAMM_TILE_D_WORDS) {
         
         // Cooperative loading of query vectors
-        const uint global_d_start = d_start + tile_col_u4 * VEC_WIDTH;
+        const uint global_d_start = d_start + tile_col_u4 * HAMM_VEC_WIDTH;
         uint global_q_idx = start_q + tile_row;
         uint4 q_data = uint4(0);
         
         if (global_q_idx < Q) {
-            if (global_d_start + VEC_WIDTH <= D_words) {
+            if (global_d_start + HAMM_VEC_WIDTH <= D_words) {
                 // Fast path: aligned uint4 load (128 bits)
                 device const uint* q_ptr = queries + (uint64_t)global_q_idx * D_words + global_d_start;
                 q_data = *(reinterpret_cast<device const uint4*>(q_ptr));
             } else if (global_d_start < D_words) {
                 // Slow path: partial load for remainder
-                for (uint i = 0; i < VEC_WIDTH && global_d_start + i < D_words; ++i) {
+                for (uint i = 0; i < HAMM_VEC_WIDTH && global_d_start + i < D_words; ++i) {
                     q_data[i] = queries[(uint64_t)global_q_idx * D_words + global_d_start + i];
                 }
             }
@@ -80,13 +83,13 @@ kernel void hamming_distance_batch(
         uint4 n_data = uint4(0);
         
         if (global_n_idx < N) {
-            if (global_d_start + VEC_WIDTH <= D_words) {
+            if (global_d_start + HAMM_VEC_WIDTH <= D_words) {
                 // Fast path: aligned uint4 load
                 device const uint* n_ptr = dataset + (uint64_t)global_n_idx * D_words + global_d_start;
                 n_data = *(reinterpret_cast<device const uint4*>(n_ptr));
             } else if (global_d_start < D_words) {
                 // Slow path: partial load
-                for (uint i = 0; i < VEC_WIDTH && global_d_start + i < D_words; ++i) {
+                for (uint i = 0; i < HAMM_VEC_WIDTH && global_d_start + i < D_words; ++i) {
                     n_data[i] = dataset[(uint64_t)global_n_idx * D_words + global_d_start + i];
                 }
             }
@@ -98,10 +101,10 @@ kernel void hamming_distance_batch(
         
         // Compute Hamming distance using XOR and popcount
         #pragma unroll
-        for (uint k = 0; k < TILE_D_VEC; ++k) {
+        for (uint k = 0; k < HAMM_TILE_D_VEC; ++k) {
             // Load 128 bits from each vector
-            uint4 q_val = shared_Q_u4[tid.y * TILE_D_VEC + k];
-            uint4 n_val = shared_N_u4[tid.x * TILE_D_VEC + k];
+            uint4 q_val = shared_Q_u4[tid.y * HAMM_TILE_D_VEC + k];
+            uint4 n_val = shared_N_u4[tid.x * HAMM_TILE_D_VEC + k];
             
             // XOR to find differing bits
             uint4 xor_result = q_val ^ n_val;
@@ -141,13 +144,13 @@ kernel void hamming_distance_float(
     uint2 tid [[thread_position_in_threadgroup]]
 ) {
     // Shared memory for float vectors
-    threadgroup float shared_Q[TILE_Q * 64];  // Process 64 dims at a time
-    threadgroup float shared_N[TILE_N * 64];
+    threadgroup float shared_Q[HAMM_TILE_Q * 64];  // Process 64 dims at a time
+    threadgroup float shared_N[HAMM_TILE_N * 64];
     
     const uint TILE_D = 64;
     const uint start_q = gid.y - tid.y;
     const uint start_n = gid.x - tid.x;
-    const uint tid_linear = tid.y * TILE_N + tid.x;
+    const uint tid_linear = tid.y * HAMM_TILE_N + tid.x;
     
     uint hamming_dist = 0;
     
@@ -155,7 +158,7 @@ kernel void hamming_distance_float(
     for (uint d_start = 0; d_start < D; d_start += TILE_D) {
         
         // Cooperative loading of queries
-        for (uint d = tid_linear; d < TILE_Q * TILE_D; d += TILE_Q * TILE_N) {
+        for (uint d = tid_linear; d < HAMM_TILE_Q * TILE_D; d += HAMM_TILE_Q * HAMM_TILE_N) {
             uint q_idx = d / TILE_D;
             uint d_idx = d % TILE_D;
             uint global_q = start_q + q_idx;
@@ -169,7 +172,7 @@ kernel void hamming_distance_float(
         }
         
         // Cooperative loading of dataset
-        for (uint d = tid_linear; d < TILE_N * TILE_D; d += TILE_Q * TILE_N) {
+        for (uint d = tid_linear; d < HAMM_TILE_N * TILE_D; d += HAMM_TILE_Q * HAMM_TILE_N) {
             uint n_idx = d / TILE_D;
             uint d_idx = d % TILE_D;
             uint global_n = start_n + n_idx;
@@ -250,31 +253,31 @@ kernel void hamming_distance_normalized(
     // Similar structure to hamming_distance_batch
     // but divides result by D_bits at the end
     
-    threadgroup uint shared_Q[TILE_Q * TILE_D_WORDS];
-    threadgroup uint shared_N[TILE_N * TILE_D_WORDS];
+    threadgroup uint shared_Q[HAMM_TILE_Q * HAMM_TILE_D_WORDS];
+    threadgroup uint shared_N[HAMM_TILE_N * HAMM_TILE_D_WORDS];
     threadgroup uint4* shared_Q_u4 = reinterpret_cast<threadgroup uint4*>(shared_Q);
     threadgroup uint4* shared_N_u4 = reinterpret_cast<threadgroup uint4*>(shared_N);
     
     const uint start_q = gid.y - tid.y;
     const uint start_n = gid.x - tid.x;
-    const uint tid_linear = tid.y * TILE_N + tid.x;
-    const uint tile_row = tid_linear / TILE_D_VEC;
-    const uint tile_col_u4 = tid_linear % TILE_D_VEC;
+    const uint tid_linear = tid.y * HAMM_TILE_N + tid.x;
+    const uint tile_row = tid_linear / HAMM_TILE_D_VEC;
+    const uint tile_col_u4 = tid_linear % HAMM_TILE_D_VEC;
     const uint smem_idx = tid_linear;
     
     uint hamming_dist = 0;
     
-    for (uint d_start = 0; d_start < D_words; d_start += TILE_D_WORDS) {
-        const uint global_d_start = d_start + tile_col_u4 * VEC_WIDTH;
+    for (uint d_start = 0; d_start < D_words; d_start += HAMM_TILE_D_WORDS) {
+        const uint global_d_start = d_start + tile_col_u4 * HAMM_VEC_WIDTH;
         uint global_q_idx = start_q + tile_row;
         uint4 q_data = uint4(0);
         
         if (global_q_idx < Q && global_d_start < D_words) {
-            if (global_d_start + VEC_WIDTH <= D_words) {
+            if (global_d_start + HAMM_VEC_WIDTH <= D_words) {
                 device const uint* q_ptr = queries + (uint64_t)global_q_idx * D_words + global_d_start;
                 q_data = *(reinterpret_cast<device const uint4*>(q_ptr));
             } else {
-                for (uint i = 0; i < VEC_WIDTH && global_d_start + i < D_words; ++i) {
+                for (uint i = 0; i < HAMM_VEC_WIDTH && global_d_start + i < D_words; ++i) {
                     q_data[i] = queries[(uint64_t)global_q_idx * D_words + global_d_start + i];
                 }
             }
@@ -285,11 +288,11 @@ kernel void hamming_distance_normalized(
         uint4 n_data = uint4(0);
         
         if (global_n_idx < N && global_d_start < D_words) {
-            if (global_d_start + VEC_WIDTH <= D_words) {
+            if (global_d_start + HAMM_VEC_WIDTH <= D_words) {
                 device const uint* n_ptr = dataset + (uint64_t)global_n_idx * D_words + global_d_start;
                 n_data = *(reinterpret_cast<device const uint4*>(n_ptr));
             } else {
-                for (uint i = 0; i < VEC_WIDTH && global_d_start + i < D_words; ++i) {
+                for (uint i = 0; i < HAMM_VEC_WIDTH && global_d_start + i < D_words; ++i) {
                     n_data[i] = dataset[(uint64_t)global_n_idx * D_words + global_d_start + i];
                 }
             }
@@ -299,9 +302,9 @@ kernel void hamming_distance_normalized(
         threadgroup_barrier(mem_flags::mem_threadgroup);
         
         #pragma unroll
-        for (uint k = 0; k < TILE_D_VEC; ++k) {
-            uint4 q_val = shared_Q_u4[tid.y * TILE_D_VEC + k];
-            uint4 n_val = shared_N_u4[tid.x * TILE_D_VEC + k];
+        for (uint k = 0; k < HAMM_TILE_D_VEC; ++k) {
+            uint4 q_val = shared_Q_u4[tid.y * HAMM_TILE_D_VEC + k];
+            uint4 n_val = shared_N_u4[tid.x * HAMM_TILE_D_VEC + k];
             uint4 xor_result = q_val ^ n_val;
             uint4 counts = popcount(xor_result);
             hamming_dist += counts.x + counts.y + counts.z + counts.w;

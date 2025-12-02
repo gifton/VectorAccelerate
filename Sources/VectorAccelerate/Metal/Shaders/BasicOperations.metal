@@ -1,12 +1,25 @@
 // VectorAccelerate: Basic Operations Shaders
 //
 // Core GPU kernels for fundamental vector and matrix operations
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
+//
+// This file contains the core compute kernels used throughout VectorAccelerate:
+// - Euclidean distance (single pair and batch)
+// - Cosine distance/similarity
+// - Dot product
+// - Vector normalization
+// - Vector arithmetic (add, subtract, scale)
+// - Matrix-vector multiplication
 
-#include <metal_stdlib>
-#include <metal_math>
-using namespace metal;
+#include "Metal4Common.h"
 
-constant float EPSILON = 1e-7f;
+// Use common constants from Metal4Common.h
+// VA_EPSILON, VA_INFINITY, VA_INVALID_INDEX are available
+
+// Local alias for backward compatibility
+constant float EPSILON = VA_EPSILON;
 
 // MARK: - Basic Distance Operations
 

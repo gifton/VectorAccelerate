@@ -1,8 +1,11 @@
-// Chebyshev Distance Kernel (L∞ Norm)
+// VectorAccelerate: Chebyshev Distance Kernel (L∞ Norm)
+//
 // GPU-accelerated Chebyshev distance computation
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
 
-#include <metal_stdlib>
-using namespace metal;
+#include "Metal4Common.h"
 
 // =============================================================================
 // Configuration Constants

@@ -1,9 +1,17 @@
-// Advanced Top-K Selection Kernels
+// VectorAccelerate: Advanced Top-K Selection Kernels
+//
 // GPU-accelerated selection with fusion, streaming, and warp optimization
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
+//
+// Features:
+// - Fused L2 distance + top-K selection
+// - Streaming top-K for large datasets
+// - Warp-optimized selection for small K
+// - Bitonic sort for large K values
 
-#include <metal_stdlib>
-#include <metal_simdgroup>
-using namespace metal;
+#include "Metal4Common.h"
 
 // MARK: - Configuration Constants
 

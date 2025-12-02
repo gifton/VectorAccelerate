@@ -4,14 +4,27 @@
 //
 //  Optimized matrix operations using tiling and shared memory
 //
+//  MSL Version: 4.0 (Metal 4 SDK)
+//  Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
+//
 
-#include <metal_stdlib>
-using namespace metal;
+#include "Metal4Common.h"
 
 // Tile sizes optimized for Apple Silicon
-constant int TILE_M = 32;  // Rows per tile
-constant int TILE_N = 32;  // Columns per tile
-constant int TILE_K = 8;   // Depth per tile
+// Wrapped in guards to avoid conflicts in combined compilation
+#ifndef VA_TILE_M
+#define VA_TILE_M 32
+#endif
+#ifndef VA_TILE_N
+#define VA_TILE_N 32
+#endif
+#ifndef VA_TILE_K
+#define VA_TILE_K 8
+#endif
+
+constant int TILE_M = VA_TILE_M;  // Rows per tile
+constant int TILE_N = VA_TILE_N;  // Columns per tile
+constant int TILE_K = VA_TILE_K;  // Depth per tile
 
 /// Optimized tiled matrix multiplication with shared memory
 /// Uses 2D tiling strategy for better cache utilization
@@ -43,33 +56,39 @@ kernel void tiledMatrixMultiply(
     // Iterate over tiles
     for (uint tileIdx = 0; tileIdx < numTiles; ++tileIdx) {
         // Load tile from A into shared memory
-        const uint aRow = globalRow;
-        const uint aCol = tileIdx * TILE_K + tid.x;
-        
-        if (aRow < M && aCol < K) {
-            sharedA[tid.y * TILE_K + tid.x] = A[aRow * K + aCol];
-        } else {
-            sharedA[tid.y * TILE_K + tid.x] = 0.0f;
+        // sharedA is TILE_M x TILE_K, so only threads with tid.x < TILE_K load
+        if (tid.x < TILE_K) {
+            const uint aRow = globalRow;
+            const uint aCol = tileIdx * TILE_K + tid.x;
+
+            if (aRow < M && aCol < K) {
+                sharedA[tid.y * TILE_K + tid.x] = A[aRow * K + aCol];
+            } else {
+                sharedA[tid.y * TILE_K + tid.x] = 0.0f;
+            }
         }
-        
+
         // Load tile from B into shared memory
-        const uint bRow = tileIdx * TILE_K + tid.y;
-        const uint bCol = globalCol;
-        
-        if (bRow < K && bCol < N) {
-            sharedB[tid.y * TILE_N + tid.x] = B[bRow * N + bCol];
-        } else {
-            sharedB[tid.y * TILE_N + tid.x] = 0.0f;
+        // sharedB is TILE_K x TILE_N, so only threads with tid.y < TILE_K load
+        if (tid.y < TILE_K) {
+            const uint bRow = tileIdx * TILE_K + tid.y;
+            const uint bCol = globalCol;
+
+            if (bRow < K && bCol < N) {
+                sharedB[tid.y * TILE_N + tid.x] = B[bRow * N + bCol];
+            } else {
+                sharedB[tid.y * TILE_N + tid.x] = 0.0f;
+            }
         }
-        
+
         // Synchronize to ensure tiles are loaded
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        
+
         // Compute partial dot product for this tile
         for (uint k = 0; k < TILE_K && (tileIdx * TILE_K + k) < K; ++k) {
             acc += sharedA[tid.y * TILE_K + k] * sharedB[k * TILE_N + tid.x];
         }
-        
+
         // Synchronize before loading next tile
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }

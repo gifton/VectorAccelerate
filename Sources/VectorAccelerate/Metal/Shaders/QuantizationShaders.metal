@@ -1,10 +1,16 @@
 // VectorAccelerate: Quantization Shaders
 //
 // GPU kernels for vector quantization operations
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
+//
+// Supports:
+// - Scalar quantization (8-bit)
+// - Binary quantization
+// - Product quantization (PQ)
 
-#include <metal_stdlib>
-#include <metal_math>
-using namespace metal;
+#include "Metal4Common.h"
 
 // MARK: - Scalar Quantization
 

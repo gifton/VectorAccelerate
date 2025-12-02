@@ -1,11 +1,22 @@
 // VectorAccelerate: Cosine Similarity Computation Kernels
 //
 // High-performance GPU kernels for cosine similarity/distance computation
-// Optimized for dimensions 512, 768, and 1536
+// Optimized for embedding dimensions: 384, 512, 768, and 1536
 //
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
+//
+// Supports both normalized and unnormalized inputs:
+// - Pre-normalized: Fast path using dot product only
+// - Unnormalized: Computes norms on-the-fly
+//
+// Dimension optimizations:
+// - D=384:  MiniLM, all-MiniLM-L6-v2, Sentence-BERT
+// - D=512:  Small BERT variants
+// - D=768:  BERT-base, DistilBERT, MPNet
+// - D=1536: OpenAI ada-002
 
-#include <metal_stdlib>
-using namespace metal;
+#include "Metal4Common.h"
 
 // MARK: - Parameters Structure (Spec Section 2)
 
@@ -22,8 +33,8 @@ struct CosineSimilarityParams {
     uint8_t  padding[2];        // Alignment padding
 };
 
-// Define a small constant for numerical stability checks
-constant float EPSILON = 1e-8f;
+// Use common epsilon from Metal4Common.h with local alias
+constant float EPSILON = 1e-8f;  // Tighter epsilon for cosine similarity
 
 // MARK: - Helper Functions
 

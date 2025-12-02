@@ -1,6 +1,11 @@
-#include <metal_stdlib>
-#include <metal_simdgroup>
-using namespace metal;
+// VectorAccelerate: Search and Retrieval Shaders
+//
+// GPU kernels for top-k selection and search operations
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
+
+#include "Metal4Common.h"
 
 // MARK: - Common Structs
 

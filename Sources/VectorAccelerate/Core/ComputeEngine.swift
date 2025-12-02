@@ -625,12 +625,12 @@ public actor ComputeEngine: ComputeProvider {
     /// Prefer `commandQueueHandle` to avoid returning non-Sendable types across actors.
     @preconcurrency
     public var commandQueue: any MTLCommandQueue {
-        get async { await context.commandQueue }
+        get { context.commandQueue }
     }
 
     /// Sendable wrapper handle for the command queue to cross actor boundaries safely.
     public var commandQueueHandle: UnsafeSendable<any MTLCommandQueue> {
-        get async { await context.commandQueue.uncheckedSendable }
+        get { context.commandQueue.uncheckedSendable }
     }
 
     // MARK: - Performance & Statistics

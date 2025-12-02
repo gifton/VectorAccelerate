@@ -79,27 +79,59 @@ public final class KernelContext: @unchecked Sendable {
     }
 
     /// Compile Metal shader sources from bundle resources
+    ///
+    /// Note: This runtime compilation supports core shaders only. For full Metal4 kernel
+    /// support (matrix ops, quantization, etc.), use a pre-compiled metallib or Xcode project.
     private static func compileMetalSourcesFromBundle(device: any MTLDevice) -> (any MTLLibrary)? {
         #if SWIFT_PACKAGE
-        // Load specific shader files that are commonly needed
-        // These are selected to avoid duplicate symbol conflicts
+        // Load core shader files that can be safely combined without symbol conflicts
+        // Additional shaders (matrix ops, quantization) require pre-compiled metallib
+        // due to complex dependencies and potential symbol collisions
         let shaderFiles = [
+            // Core distance kernels
             "L2Distance",
             "DotProduct",
             "CosineSimilarity",
+            "DistanceShaders",
+            "HammingDistance",
+            "MinkowskiDistance",
+            // Utility operations
             "BasicOperations",
             "L2Normalization",
-            "AdvancedTopK"
+            "DataTransformations",
+            "StatisticsShaders",
+            // Selection and reduction
+            "AdvancedTopK",
+            "SearchAndRetrieval",
+            // Quantization (all types)
+            "QuantizationShaders",
+            "ProductQuantization",
+            // Matrix operations
+            "OptimizedMatrixOps",
+            // ML integration
+            "LearnedDistance",
+            "NeuralQuantization",
+            "AttentionSimilarity"
+            // NOTE: All shaders now use VA_* prefixed guards to avoid conflicts
+            // NOTE: Histogram kernels are in StatisticsShaders.metal
         ]
 
         var combinedSource = """
         #include <metal_stdlib>
         #include <metal_simdgroup>
+        #include <metal_atomic>
         using namespace metal;
 
         // Common constants
         #ifndef EPSILON
         #define EPSILON 1e-7f
+        #endif
+
+        // Atomic types for ProductQuantization
+        #ifndef VA_ATOMIC_TYPES_DEFINED
+        #define VA_ATOMIC_TYPES_DEFINED
+        typedef atomic<float> atomic_float;
+        typedef atomic<uint> atomic_uint;
         #endif
 
         """
@@ -111,6 +143,9 @@ public final class KernelContext: @unchecked Sendable {
                 var cleanedSource = source
                     .replacingOccurrences(of: "#include <metal_stdlib>", with: "")
                     .replacingOccurrences(of: "#include <metal_simdgroup>", with: "")
+                    .replacingOccurrences(of: "#include <metal_math>", with: "")
+                    .replacingOccurrences(of: "#include <metal_atomic>", with: "")
+                    .replacingOccurrences(of: "#include \"Metal4Common.h\"", with: "")
                     .replacingOccurrences(of: "using namespace metal;", with: "")
 
                 // Remove conflicting constant definitions
@@ -125,6 +160,20 @@ public final class KernelContext: @unchecked Sendable {
                 cleanedSource = cleanedSource.replacingOccurrences(
                     of: "constexpr constant float EPSILON = 1e-7f;",
                     with: "// EPSILON defined globally"
+                )
+                // Remove Metal4Common.h aliases
+                cleanedSource = cleanedSource.replacingOccurrences(
+                    of: "constant float EPSILON = VA_EPSILON;",
+                    with: "// EPSILON defined globally"
+                )
+                // Replace Metal4Common.h constants used in LearnedDistance.metal
+                cleanedSource = cleanedSource.replacingOccurrences(
+                    of: "VA_EPSILON",
+                    with: "EPSILON"
+                )
+                cleanedSource = cleanedSource.replacingOccurrences(
+                    of: "VA_INVALID_INDEX",
+                    with: "0xFFFFFFFF"
                 )
 
                 combinedSource += "\n// === \(fileName).metal ===\n"
