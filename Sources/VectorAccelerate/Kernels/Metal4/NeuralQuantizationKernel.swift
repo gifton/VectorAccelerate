@@ -26,7 +26,6 @@ import VectorCore
 // MARK: - Configuration
 
 /// Configuration for neural quantization.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4NeuralQuantizationConfig: Sendable {
     /// Input dimension of vectors
     public let inputDimension: Int
@@ -89,7 +88,6 @@ public struct Metal4NeuralQuantizationConfig: Sendable {
 // MARK: - Parameters
 
 /// Parameters for neural quantization kernel (matches Metal struct).
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct NeuralQuantizationParameters: Sendable {
     public var numVectors: UInt32
     public var inputDimension: UInt32
@@ -115,7 +113,6 @@ public struct NeuralQuantizationParameters: Sendable {
 // MARK: - Result Types
 
 /// Result from neural encoding.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4NeuralEncodingResult: Sendable {
     /// Encoded latent vectors as INT8
     public let latentCodes: Data
@@ -136,7 +133,6 @@ public struct Metal4NeuralEncodingResult: Sendable {
 }
 
 /// Metrics for neural quantization quality.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4NeuralQuantizationMetrics: Sendable {
     /// Mean Squared Error in reconstruction
     public let mse: Float
@@ -202,7 +198,6 @@ public struct Metal4NeuralQuantizationMetrics: Sendable {
 ///
 /// Encoder/decoder weights should be trained with a reconstruction objective,
 /// optionally with quantization-aware training for best results.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

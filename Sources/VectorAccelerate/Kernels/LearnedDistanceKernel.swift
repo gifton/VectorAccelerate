@@ -44,7 +44,6 @@ import VectorCore
 /// ## Fallback Behavior
 /// When projection weights are unavailable or ML features are disabled,
 /// use the standard `L2DistanceKernel` for unprojected distance computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class LearnedDistanceKernel: @unchecked Sendable {
     // MARK: - Properties
 
@@ -705,7 +704,6 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
 
 // MARK: - Performance Extensions
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension LearnedDistanceKernel {
     /// Performance statistics for kernel execution
     public struct PerformanceStats: Sendable {

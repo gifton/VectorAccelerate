@@ -13,7 +13,6 @@ import VectorCore
 
 /// Protocol for Metal 4 argument tables
 /// Abstracts the actual Metal 4 MTL4ArgumentTable type
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public protocol ArgumentTable: AnyObject, Sendable {
     /// Set a buffer's GPU address at the specified index
     func setAddress(_ address: UInt64, index: Int)
@@ -31,7 +30,6 @@ public protocol ArgumentTable: AnyObject, Sendable {
 // MARK: - Argument Table Descriptor
 
 /// Descriptor for creating argument tables
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct ArgumentTableDescriptor: Sendable {
     /// Maximum number of buffer bindings
     public var maxBufferBindCount: Int
@@ -76,7 +74,6 @@ public struct ArgumentTableDescriptor: Sendable {
 // MARK: - Argument Table Implementation
 
 /// Concrete implementation of ArgumentTable using Metal 4 APIs
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 internal final class Metal4ArgumentTable: ArgumentTable, @unchecked Sendable {
     let maxBufferBindCount: Int
     private let lock = NSLock()
@@ -133,7 +130,6 @@ internal final class Metal4ArgumentTable: ArgumentTable, @unchecked Sendable {
 // MARK: - Argument Table Pool Statistics
 
 /// Statistics for argument table pool monitoring
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct ArgumentTablePoolStatistics: Sendable {
     public let totalTables: Int
     public let availableTables: Int
@@ -165,7 +161,6 @@ public struct ArgumentTablePoolStatistics: Sendable {
 /// table.setAddress(databaseBuffer.gpuAddress, index: 1)
 /// encoder.setArgumentTable(table, stages: .compute)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor ArgumentTablePool {
     // MARK: - Properties
 
@@ -341,7 +336,6 @@ public actor ArgumentTablePool {
 // MARK: - Argument Table Token
 
 /// RAII token that automatically releases argument table on deinit
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class ArgumentTableToken: @unchecked Sendable {
     public let table: any ArgumentTable
     private let pool: ArgumentTablePool?
@@ -381,7 +375,6 @@ public final class ArgumentTableToken: @unchecked Sendable {
 
 // MARK: - Pool Extension for Token-based API
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension ArgumentTablePool {
     /// Acquire an argument table wrapped in an auto-releasing token
     ///

@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Configuration
 
 /// Configuration for Hamming distance computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4HammingConfig: Sendable {
     /// Return normalized distance (0.0-1.0)
     public let normalized: Bool
@@ -42,7 +41,6 @@ public struct Metal4HammingConfig: Sendable {
 // MARK: - Result Types
 
 /// Result from Hamming distance computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4HammingResult: Sendable {
     /// Distance buffer
     public let distances: any MTLBuffer
@@ -159,7 +157,6 @@ public struct Metal4HammingResult: Sendable {
 /// // Float vectors with binarization
 /// let result = try await kernel.computeFloat(queries, dataset, dimension: 768)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class HammingDistanceKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties

@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Reduction Operations
 
 /// Supported reduction operations.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum Metal4ReductionOperation: UInt8, Sendable {
     case sum = 0
     case minimum = 2
@@ -49,7 +48,6 @@ public enum Metal4ReductionOperation: UInt8, Sendable {
 // MARK: - Result Types
 
 /// Result from reduction operation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4ReductionResult: Sendable {
     /// Result value
     public let value: Float
@@ -62,7 +60,6 @@ public struct Metal4ReductionResult: Sendable {
 }
 
 /// Comprehensive statistics result.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4Statistics: Sendable {
     public let count: Int
     public let sum: Float
@@ -79,7 +76,6 @@ public struct Metal4Statistics: Sendable {
 // MARK: - Parameters
 
 /// Parameters for reduction kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 internal struct Metal4ReductionParams: Sendable {
     var numElements: UInt32
     var stride: UInt32
@@ -122,7 +118,6 @@ internal struct Metal4ReductionParams: Sendable {
 /// // Compute multiple statistics efficiently
 /// let stats = try await kernel.computeStatistics(array)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class ParallelReductionKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

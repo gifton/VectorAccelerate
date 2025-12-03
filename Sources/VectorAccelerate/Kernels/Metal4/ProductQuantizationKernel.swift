@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Configuration
 
 /// Configuration for Product Quantization.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4PQConfig: Sendable {
     /// Number of subspaces (vector is split into M parts)
     public let M: Int
@@ -62,7 +61,6 @@ public struct Metal4PQConfig: Sendable {
 // MARK: - Model
 
 /// Trained PQ model containing codebooks.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class Metal4PQModel: @unchecked Sendable {
     /// Codebook buffer [M × K × D_sub]
     public let codebooks: any MTLBuffer
@@ -108,7 +106,6 @@ public final class Metal4PQModel: @unchecked Sendable {
 // MARK: - Encoded Vectors
 
 /// Encoded vectors result.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4EncodedVectors: Sendable {
     /// Code buffer [N × M] uint8
     public let codes: any MTLBuffer
@@ -148,7 +145,6 @@ public struct Metal4EncodedVectors: Sendable {
 // MARK: - Internal Parameters
 
 /// PQ kernel parameters structure (matches Metal shader).
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 internal struct Metal4PQParams: Sendable {
     var N: UInt32      // Number of vectors
     var D: UInt32      // Full dimension
@@ -204,7 +200,6 @@ internal struct Metal4PQParams: Sendable {
 ///     k: 10
 /// )
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class ProductQuantizationKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

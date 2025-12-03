@@ -24,15 +24,23 @@ let package = Package(
         .library(
             name: "VectorAccelerate",
             targets: ["VectorAccelerate"]),
+        // VectorIndexAcceleration: GPU-accelerated index operations
+        // Provides Metal 4 acceleration for VectorIndex types (HNSW, IVF, Flat)
+        .library(
+            name: "VectorIndexAcceleration",
+            targets: ["VectorIndexAcceleration"]),
         .executable(
             name: "VectorAccelerateBenchmarks",
             targets: ["VectorAccelerateBenchmarks"]),
     ],
     dependencies: [
         // VectorCore for base protocols and types
-        .package(url: "https://github.com/gifton/VectorCore", from: "0.1.6")
+        .package(url: "https://github.com/gifton/VectorCore", from: "0.1.6"),
+        // VectorIndex for index protocols and types (HNSW, IVF, Flat)
+        .package(url: "https://github.com/gifton/VectorIndex", from: "0.1.3")
     ],
     targets: [
+        // MARK: - Core GPU Acceleration (no VectorIndex dependency)
         .target(
             name: "VectorAccelerate",
             dependencies: [
@@ -46,6 +54,27 @@ let package = Package(
                 .enableUpcomingFeature("ExistentialAny")
             ]
         ),
+
+        // MARK: - Index Acceleration (depends on VectorIndex)
+        // Provides GPU-accelerated implementations of VectorIndex types
+        .target(
+            name: "VectorIndexAcceleration",
+            dependencies: [
+                "VectorAccelerate",
+                .product(name: "VectorCore", package: "VectorCore"),
+                .product(name: "VectorIndex", package: "VectorIndex")
+            ],
+            path: "Sources/VectorIndexAcceleration",
+            resources: [
+                .process("Shaders")  // Index-specific Metal shaders (HNSW, IVF, Clustering)
+            ],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+                .enableUpcomingFeature("ExistentialAny")
+            ]
+        ),
+
+        // MARK: - Benchmarks
         .executableTarget(
             name: "VectorAccelerateBenchmarks",
             dependencies: [
@@ -53,6 +82,8 @@ let package = Package(
                 .product(name: "VectorCore", package: "VectorCore")
             ]
         ),
+
+        // MARK: - Tests
         .testTarget(
             name: "VectorAccelerateTests",
             dependencies: [
@@ -62,6 +93,15 @@ let package = Package(
             exclude: [
                 "ShaderManagerTests.swift.disabled",
                 "VectorCoreIntegrationEnhancedTests.swift.disabled"
+            ]
+        ),
+        .testTarget(
+            name: "VectorIndexAccelerationTests",
+            dependencies: [
+                "VectorIndexAcceleration",
+                "VectorAccelerate",
+                .product(name: "VectorCore", package: "VectorCore"),
+                .product(name: "VectorIndex", package: "VectorIndex")
             ]
         )
     ]

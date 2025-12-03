@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Configuration
 
 /// Configuration for matrix-vector operations.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4MatrixVectorConfig: Sendable {
     /// Scaling factor for result
     public let alpha: Float
@@ -49,7 +48,6 @@ public struct Metal4MatrixVectorConfig: Sendable {
 // MARK: - Parameters
 
 /// Parameters for matrix-vector kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct MatrixVectorParameters: Sendable {
     /// Number of rows in matrix
     public let rows: UInt32
@@ -78,7 +76,6 @@ public struct MatrixVectorParameters: Sendable {
 // MARK: - Result Type
 
 /// Result from matrix-vector multiplication.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4MatrixVectorResult: Sendable {
     /// Result vector buffer
     public let buffer: any MTLBuffer
@@ -125,7 +122,6 @@ public struct Metal4MatrixVectorResult: Sendable {
 /// // Power iteration for eigenvalue
 /// let (eigenvalue, eigenvector) = try await kernel.powerIteration(matrix: A)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class MatrixVectorKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Activation Types
 
 /// Activation function types for fused operations.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum Metal4ActivationType: UInt8, Sendable {
     case none = 0
     case relu = 1
@@ -32,7 +31,6 @@ public enum Metal4ActivationType: UInt8, Sendable {
 // MARK: - Configuration
 
 /// Configuration for fused batch operations.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4BatchFusedConfig: Sendable {
     /// Scaling factor for A*B result
     public let alpha: Float
@@ -59,7 +57,6 @@ public struct Metal4BatchFusedConfig: Sendable {
 }
 
 /// Configuration for strided batch operations.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4BatchStridedConfig: Sendable {
     /// Strides for tensor A (row, col, batch)
     public let strideA: (row: Int, col: Int, batch: Int)
@@ -104,7 +101,6 @@ public struct Metal4BatchStridedConfig: Sendable {
 // MARK: - Parameters
 
 /// Parameters for fused batch kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct BatchFusedParameters: Sendable {
     public let batchSize: UInt32
     public let M: UInt32
@@ -134,7 +130,6 @@ public struct BatchFusedParameters: Sendable {
 // MARK: - Result Type
 
 /// Result from batch matrix operations.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4BatchMatrixResult: Sendable {
     /// Result buffer containing all output matrices
     public let buffer: any MTLBuffer
@@ -215,7 +210,6 @@ public struct Metal4BatchMatrixResult: Sendable {
 ///     config: Metal4BatchFusedConfig(activation: .relu)
 /// )
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

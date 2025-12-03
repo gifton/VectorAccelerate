@@ -10,7 +10,6 @@ import Foundation
 import VectorCore
 
 /// Configuration for Metal 4 compute context
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4Configuration: Sendable {
     public let preferHighPerformanceDevice: Bool
     public let maxBufferPoolMemory: Int?
@@ -64,7 +63,6 @@ public struct Metal4Configuration: Sendable {
 ///     encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threads)
 /// }
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor Metal4Context {
     // MARK: - Core Components
 
@@ -552,7 +550,6 @@ public actor Metal4Context {
 // MARK: - Context Factory
 
 /// Factory for creating specialized Metal 4 contexts
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum Metal4ContextFactory {
 
     /// Create context optimized for batch operations

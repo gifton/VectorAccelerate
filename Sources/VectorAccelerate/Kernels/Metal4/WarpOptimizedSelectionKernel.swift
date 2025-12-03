@@ -21,7 +21,6 @@ import VectorCore
 // MARK: - Selection Mode
 
 /// Mode for warp-optimized selection
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum Metal4WarpSelectionMode: Sendable {
     /// Select K smallest values (nearest neighbors for distance metrics)
     case ascending
@@ -41,7 +40,6 @@ public enum Metal4WarpSelectionMode: Sendable {
 // MARK: - Configuration
 
 /// Configuration for warp-optimized selection.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4WarpSelectionConfig: Sendable {
     /// Selection mode
     public let mode: Metal4WarpSelectionMode
@@ -70,7 +68,6 @@ public struct Metal4WarpSelectionConfig: Sendable {
 // MARK: - Result Types
 
 /// Result from single-batch warp selection.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4WarpSelectionResult: @unchecked Sendable {
     /// Buffer containing selected indices [queryCount × k]
     public let indices: any MTLBuffer
@@ -156,7 +153,6 @@ public struct Metal4WarpSelectionResult: @unchecked Sendable {
 }
 
 /// Result from multi-batch warp selection.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4WarpBatchResult: @unchecked Sendable {
     /// Buffer containing selected indices [batchSize × queryCount × k]
     public let indices: any MTLBuffer
@@ -251,7 +247,6 @@ public struct Metal4WarpBatchResult: @unchecked Sendable {
 ///     print("Query \(q) nearest: \(nearest)")
 /// }
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class WarpOptimizedSelectionKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties

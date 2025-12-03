@@ -15,7 +15,6 @@ import VectorCore
 // MARK: - Tensor Data Type
 
 /// Supported data types for tensor operations
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum TensorDataType: String, Codable, Sendable {
     case float32
     case float16
@@ -47,7 +46,6 @@ public enum TensorDataType: String, Codable, Sendable {
 // MARK: - TensorShape Extensions for ML
 
 /// Extension to add byte size calculation for TensorDataType
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public extension TensorShape {
     /// Size in bytes for given data type
     func byteSize(dataType: TensorDataType) -> Int {
@@ -58,7 +56,6 @@ public extension TensorShape {
 // MARK: - Tensor Buffer
 
 /// A Metal buffer containing tensor data with shape metadata
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct TensorBuffer: Sendable {
     /// The underlying Metal buffer
     public let buffer: any MTLBuffer
@@ -93,7 +90,6 @@ public struct TensorBuffer: Sendable {
 // MARK: - Tensor Metadata
 
 /// Metadata for serialized tensor files
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct TensorMetadata: Codable, Sendable {
     public let name: String
     public let shape: TensorShape
@@ -122,7 +118,6 @@ public struct TensorMetadata: Codable, Sendable {
 // MARK: - Weight File Format
 
 /// Format for weight files (header + binary data)
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct WeightFileManifest: Codable, Sendable {
     public let version: String
     public let tensors: [TensorMetadata]
@@ -140,7 +135,6 @@ public struct WeightFileManifest: Codable, Sendable {
 // MARK: - Tensor Manager Statistics
 
 /// Statistics for tensor manager monitoring
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct TensorManagerStatistics: Sendable {
     public let loadedTensors: Int
     public let totalMemoryBytes: Int
@@ -176,7 +170,6 @@ public struct TensorManagerStatistics: Sendable {
 /// // Use in shader
 /// encoder.setBuffer(projection.buffer, offset: 0, index: 2)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor TensorManager {
     // MARK: - Properties
 
@@ -481,7 +474,6 @@ public actor TensorManager {
 
 // MARK: - Weight File Utilities
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum WeightFileUtils {
     /// Create a weight file from tensors
     public static func createWeightFile(
@@ -521,7 +513,6 @@ public enum WeightFileUtils {
 
 // MARK: - VectorError Extension
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public extension VectorError {
     /// Tensor size mismatch error
     static func tensorSizeMismatch(expected: Int, actual: Int) -> VectorError {

@@ -21,7 +21,6 @@ import VectorCore
 // MARK: - Operation Enum
 
 /// Supported element-wise operations.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum Metal4ElementwiseOperation: Sendable {
     // Binary operations (require two input buffers)
     case add
@@ -105,7 +104,6 @@ public enum Metal4ElementwiseOperation: Sendable {
 // MARK: - Parameters
 
 /// Parameters for elementwise kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct ElementwiseParameters: Sendable {
     /// Number of elements to process
     public let numElements: UInt32
@@ -164,7 +162,6 @@ public struct ElementwiseParameters: Sendable {
 // MARK: - Result Type
 
 /// Result from elementwise operation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4ElementwiseResult: Sendable {
     /// Output buffer
     public let output: any MTLBuffer
@@ -221,7 +218,6 @@ public struct Metal4ElementwiseResult: Sendable {
 /// // In-place operation
 /// try await kernel.executeInPlace(&buffer, operation: .absolute)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class ElementwiseKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties

@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Configuration
 
 /// Configuration for streaming top-k operations.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4StreamingConfig: Sendable {
     /// Number of query vectors
     public let queryCount: Int
@@ -60,7 +59,6 @@ public struct Metal4StreamingConfig: Sendable {
 /// Mutable state for streaming top-k operation.
 ///
 /// Tracks progress and holds running buffers during chunk processing.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class Metal4StreamingState: @unchecked Sendable {
     /// Running top-k distances [queryCount × k]
     public let runningDistances: any MTLBuffer
@@ -108,7 +106,6 @@ public final class Metal4StreamingState: @unchecked Sendable {
 // MARK: - Result Type
 
 /// Final result after streaming completes.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4StreamingResult: Sendable {
     /// Final sorted indices [queryCount × k]
     public let indices: any MTLBuffer
@@ -152,14 +149,12 @@ public struct Metal4StreamingResult: Sendable {
 // MARK: - Internal Params
 
 /// Parameters for streaming init kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 internal struct StreamingInitParams: Sendable {
     var K: UInt32
     var Q: UInt32
 }
 
 /// Parameters for streaming process chunk kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 internal struct StreamingProcessParams: Sendable {
     var Q: UInt32
     var chunkSize: UInt32
@@ -202,7 +197,6 @@ internal struct StreamingProcessParams: Sendable {
 /// // Finalize and get results
 /// let result = try await kernel.finalizeStreaming(state: state)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class StreamingTopKKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Parameters
 
 /// Parameters for L2 Normalization kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct L2NormalizationParameters: Sendable {
     /// Number of vectors to normalize
     public let numVectors: UInt32
@@ -57,7 +56,6 @@ public struct L2NormalizationParameters: Sendable {
 // MARK: - Result Type
 
 /// Result from L2 normalization operation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4L2NormalizationResult: Sendable {
     /// Normalized vectors buffer
     public let normalizedVectors: any MTLBuffer
@@ -130,7 +128,6 @@ public struct Metal4L2NormalizationResult: Sendable {
 /// // In-place normalization
 /// try await kernel.normalizeInPlace(&vectors)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class L2NormalizationKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties

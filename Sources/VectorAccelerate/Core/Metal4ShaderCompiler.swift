@@ -12,7 +12,6 @@ import VectorCore
 // MARK: - Compiler Configuration
 
 /// Configuration for Metal 4 shader compiler
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4CompilerConfiguration: Sendable {
     /// Quality of service for compilation operations
     public let qualityOfService: QualityOfService
@@ -72,7 +71,6 @@ public struct Metal4CompilerConfiguration: Sendable {
 // MARK: - Compilation Statistics
 
 /// Statistics for shader compilation
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4CompilationStatistics: Sendable {
     public let totalCompilations: Int
     public let successfulCompilations: Int
@@ -105,7 +103,6 @@ public struct Metal4CompilationStatistics: Sendable {
 /// let compiler = try Metal4ShaderCompiler(device: device)
 /// let pipeline = try await compiler.compilePipeline(for: .l2Distance(dimension: 384))
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor Metal4ShaderCompiler {
     // MARK: - Properties
 
@@ -508,7 +505,6 @@ public actor Metal4ShaderCompiler {
 
 // MARK: - Convenience Extension
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public extension Metal4ShaderCompiler {
     /// Compile pipeline with error context
     func compilePipelineWithContext(

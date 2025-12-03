@@ -11,7 +11,6 @@ import Foundation
 // MARK: - Pipeline Stage
 
 /// Metal pipeline stages for barrier specification
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct PipelineStage: OptionSet, Sendable {
     public let rawValue: UInt
 
@@ -35,7 +34,6 @@ public struct PipelineStage: OptionSet, Sendable {
 // MARK: - Barrier Type
 
 /// Types of barriers supported in Metal 4
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum BarrierType: Sendable {
     /// Resource-specific barrier - waits for specific buffers
     case resource([any MTLBuffer])
@@ -53,7 +51,6 @@ public enum BarrierType: Sendable {
 // MARK: - Barrier Descriptor
 
 /// Describes a barrier to be inserted in a pipeline
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct BarrierDescriptor: Sendable {
     /// Type of barrier
     public let type: BarrierType
@@ -113,7 +110,6 @@ public struct BarrierDescriptor: Sendable {
 // MARK: - Hazard Tracking
 
 /// Tracks resource hazards for automatic barrier insertion
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class HazardTracker: @unchecked Sendable {
     /// Access type for a resource
     public enum AccessType: Sendable {
@@ -202,7 +198,6 @@ public final class HazardTracker: @unchecked Sendable {
 // MARK: - Barrier Helper
 
 /// Helper for inserting barriers in Metal 4 encoders
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct BarrierHelper: Sendable {
 
     // MARK: - Common Barrier Patterns
@@ -307,7 +302,6 @@ public struct BarrierHelper: Sendable {
 
 // MARK: - Encoder Extension for Barriers
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public extension MTLComputeCommandEncoder {
     /// Insert a dispatch barrier for specific resources
     ///
@@ -329,7 +323,6 @@ public extension MTLComputeCommandEncoder {
 // MARK: - Fused Pipeline Builder
 
 /// Builder for constructing fused pipelines with automatic barrier insertion
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class FusedPipelineBuilder: @unchecked Sendable {
     /// A stage in the pipeline
     public struct Stage {

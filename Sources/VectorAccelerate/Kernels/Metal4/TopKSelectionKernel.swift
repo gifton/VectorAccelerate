@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Selection Mode
 
 /// Mode for top-k selection
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum Metal4SelectionMode: UInt8, Sendable {
     /// Select K smallest values (nearest neighbors for distance metrics)
     case minimum = 0
@@ -32,7 +31,6 @@ public enum Metal4SelectionMode: UInt8, Sendable {
 // MARK: - Parameters
 
 /// Parameters for Top-K Selection kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct TopKParameters: Sendable {
     /// Number of queries (batch size)
     public let batchSize: UInt32
@@ -108,7 +106,6 @@ public struct TopKParameters: Sendable {
 // MARK: - Result Type
 
 /// Result from top-k selection operation
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4TopKResult: Sendable {
     /// Buffer containing selected values [batchSize × k]
     public let values: any MTLBuffer
@@ -175,7 +172,6 @@ public struct Metal4TopKResult: Sendable {
 /// - Uses heap-based selection for K << N (K up to 128)
 /// - Single-pass algorithm avoids sorting entire input
 /// - Batch processing for multiple queries in parallel
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class TopKSelectionKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties
@@ -379,7 +375,6 @@ public final class TopKSelectionKernel: @unchecked Sendable, Metal4Kernel, Fusib
 
 // MARK: - Fused Distance + TopK Helper
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension TopKSelectionKernel {
     /// Convenience method for fused distance + top-k pipeline.
     ///

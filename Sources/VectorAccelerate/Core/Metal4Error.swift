@@ -10,7 +10,6 @@ import VectorCore
 
 // MARK: - Metal 4 Specific Error Factory Methods
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public extension VectorError {
 
     // MARK: - Setup Errors
