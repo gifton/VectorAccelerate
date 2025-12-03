@@ -3,7 +3,6 @@
 //  VectorIndexAcceleration
 //
 //  Error types specific to index acceleration operations.
-//  Extends VectorAccelerate's error hierarchy.
 //
 
 import Foundation
@@ -14,8 +13,8 @@ import VectorCore
 
 /// Errors specific to GPU-accelerated index operations.
 ///
-/// These errors extend VectorAccelerate's `VectorError` with index-specific cases.
-/// Use the convenience static methods for creating properly formatted errors.
+/// These errors cover GPU initialization, buffer management, kernel execution,
+/// and configuration validation for AcceleratedVectorIndex operations.
 public enum IndexAccelerationError: Error, Sendable {
 
     // MARK: - Initialization Errors
@@ -26,15 +25,9 @@ public enum IndexAccelerationError: Error, Sendable {
     /// Failed to create GPU resources for index.
     case gpuResourceCreationFailed(index: String, reason: String)
 
-    // MARK: - Index Compatibility Errors
+    // MARK: - Dimension Errors
 
-    /// Index type does not support GPU acceleration.
-    case indexNotAccelerable(indexType: String)
-
-    /// Index is empty and cannot be searched.
-    case emptyIndex(indexType: String)
-
-    /// Index dimension mismatch with query.
+    /// Index dimension mismatch with input vector.
     case dimensionMismatch(expected: Int, got: Int)
 
     // MARK: - Kernel Errors
@@ -53,14 +46,6 @@ public enum IndexAccelerationError: Error, Sendable {
     /// Buffer size exceeds GPU memory limits.
     case bufferTooLarge(requested: Int, available: Int)
 
-    // MARK: - Search Errors
-
-    /// Search operation failed.
-    case searchFailed(indexType: String, reason: String)
-
-    /// Batch search operation failed.
-    case batchSearchFailed(queryIndex: Int, reason: String)
-
     // MARK: - Configuration Errors
 
     /// Invalid configuration parameter.
@@ -70,6 +55,11 @@ public enum IndexAccelerationError: Error, Sendable {
 
     /// Invalid input provided to operation.
     case invalidInput(message: String)
+
+    // MARK: - Training Errors
+
+    /// IVF training failed.
+    case trainingFailed(reason: String)
 }
 
 // MARK: - LocalizedError Conformance
@@ -79,16 +69,10 @@ extension IndexAccelerationError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .gpuNotInitialized(let operation):
-            return "GPU not initialized for operation: \(operation). Call prepareForGPU() first."
+            return "GPU not initialized for operation: \(operation)"
 
         case .gpuResourceCreationFailed(let index, let reason):
             return "Failed to create GPU resources for \(index): \(reason)"
-
-        case .indexNotAccelerable(let indexType):
-            return "Index type '\(indexType)' does not support GPU acceleration"
-
-        case .emptyIndex(let indexType):
-            return "\(indexType) is empty and cannot be searched"
 
         case .dimensionMismatch(let expected, let got):
             return "Dimension mismatch: index expects \(expected), got \(got)"
@@ -105,32 +89,14 @@ extension IndexAccelerationError: LocalizedError {
         case .bufferTooLarge(let requested, let available):
             return "Buffer too large: requested \(requested) bytes, available \(available) bytes"
 
-        case .searchFailed(let indexType, let reason):
-            return "\(indexType) search failed: \(reason)"
-
-        case .batchSearchFailed(let queryIndex, let reason):
-            return "Batch search failed at query \(queryIndex): \(reason)"
-
         case .invalidConfiguration(let parameter, let reason):
             return "Invalid configuration for '\(parameter)': \(reason)"
 
         case .invalidInput(let message):
             return "Invalid input: \(message)"
+
+        case .trainingFailed(let reason):
+            return "IVF training failed: \(reason)"
         }
-    }
-}
-
-// MARK: - Convenience Initializers
-
-public extension IndexAccelerationError {
-
-    /// Create a GPU not initialized error for the given operation.
-    static func notInitialized(for operation: String) -> IndexAccelerationError {
-        .gpuNotInitialized(operation: operation)
-    }
-
-    /// Create a dimension mismatch error.
-    static func wrongDimension(expected: Int, got: Int) -> IndexAccelerationError {
-        .dimensionMismatch(expected: expected, got: got)
     }
 }

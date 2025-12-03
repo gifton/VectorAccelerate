@@ -10,6 +10,7 @@
 //  - Generation-based stale handle detection
 //  - Lazy deletion with on-demand compaction
 //  - Native GPU distances (L2² for euclidean)
+//  - Support for both Flat and IVF index types
 //
 
 import Foundation
@@ -30,6 +31,10 @@ public typealias VectorMetadata = [String: String]
 /// Unlike wrapper-based approaches, this index owns the vector data directly on
 /// the GPU, eliminating redundant CPU copies.
 ///
+/// ## Index Types
+/// - **Flat**: Exhaustive search, best for < 10K vectors
+/// - **IVF**: Inverted file index with clustering, best for > 10K vectors
+///
 /// ## Features
 /// - **Direct GPU ownership**: Vectors live on GPU, no duplication
 /// - **Opaque handles**: `VectorHandle` instead of string IDs
@@ -41,35 +46,29 @@ public typealias VectorMetadata = [String: String]
 /// Currently, only `.euclidean` metric is supported for GPU-accelerated search.
 /// The search returns L2² (squared euclidean distance) for efficiency.
 ///
-/// ## Usage
+/// ## Flat Index Usage
 /// ```swift
-/// // Create index
 /// let index = try await AcceleratedVectorIndex(
 ///     configuration: .flat(dimension: 768, capacity: 10_000)
 /// )
-///
-/// // Insert vectors
-/// let handle = try await index.insert(embedding, metadata: ["type": "document"])
-///
-/// // Search
+/// let handle = try await index.insert(embedding)
 /// let results = try await index.search(query: queryVector, k: 10)
-/// // results[0].distance is L2² (squared) for euclidean metric
-///
-/// // Retrieve vector data
-/// if let vector = try await index.vector(for: handle) {
-///     print("Retrieved \(vector.count) dimensions")
-/// }
-///
-/// // Search with filter
-/// let filtered = try await index.search(query: queryVector, k: 10) { handle, meta in
-///     meta?["type"] == "document"
-/// }
 /// ```
 ///
-/// ## Distance Values
-/// For the euclidean metric, distances are L2² (squared euclidean distance).
-/// This is the native GPU computation and preserves ranking order.
-/// Call `sqrt(result.distance)` if you need the actual euclidean distance.
+/// ## IVF Index Usage
+/// ```swift
+/// let index = try await AcceleratedVectorIndex(
+///     configuration: .ivf(dimension: 768, nlist: 256, nprobe: 16, capacity: 100_000)
+/// )
+/// // Insert vectors - training happens automatically
+/// for vector in vectors {
+///     _ = try await index.insert(vector)
+/// }
+/// // Or trigger training manually
+/// try await index.train()
+/// // Search
+/// let results = try await index.search(query: queryVector, k: 10)
+/// ```
 public actor AcceleratedVectorIndex {
 
     // MARK: - Configuration
@@ -97,6 +96,17 @@ public actor AcceleratedVectorIndex {
     /// Fused L2 Top-K kernel for flat search.
     private var fusedL2TopKKernel: FusedL2TopKKernel?
 
+    // MARK: - IVF Components (Optional)
+
+    /// IVF structure for inverted file index (nil for flat index).
+    private var ivfStructure: IVFStructure?
+
+    /// IVF search pipeline (nil for flat index).
+    private var ivfSearchPipeline: IVFSearchPipeline?
+
+    /// Whether auto-training is enabled for IVF.
+    private var autoTrainEnabled: Bool = true
+
     // MARK: - Initialization
 
     /// Create an accelerated vector index with the given configuration.
@@ -112,7 +122,7 @@ public actor AcceleratedVectorIndex {
         self.configuration = configuration
         self.context = try await Metal4Context()
 
-        // Initialize internal components
+        // Initialize core components
         self.storage = try GPUVectorStorage(
             device: context.device.rawDevice,
             dimension: configuration.dimension,
@@ -122,8 +132,29 @@ public actor AcceleratedVectorIndex {
         self.deletionMask = DeletionMask(capacity: configuration.capacity)
         self.metadataStore = MetadataStore(capacity: configuration.capacity / 10)
 
-        // Initialize kernel
-        self.fusedL2TopKKernel = try await FusedL2TopKKernel(context: context)
+        // Initialize index-type-specific components
+        switch configuration.indexType {
+        case .flat:
+            self.fusedL2TopKKernel = try await FusedL2TopKKernel(context: context)
+
+        case .ivf(let nlist, let nprobe):
+            self.fusedL2TopKKernel = try await FusedL2TopKKernel(context: context)
+            self.ivfStructure = IVFStructure(
+                numClusters: nlist,
+                nprobe: nprobe,
+                dimension: configuration.dimension
+            )
+            let ivfConfig = IVFSearchConfiguration(
+                numCentroids: nlist,
+                nprobe: nprobe,
+                dimension: configuration.dimension,
+                metric: configuration.metric
+            )
+            self.ivfSearchPipeline = try await IVFSearchPipeline(
+                context: context,
+                configuration: ivfConfig
+            )
+        }
     }
 
     /// Create an accelerated vector index with an existing Metal context.
@@ -141,7 +172,7 @@ public actor AcceleratedVectorIndex {
         self.configuration = configuration
         self.context = context
 
-        // Initialize internal components
+        // Initialize core components
         self.storage = try GPUVectorStorage(
             device: context.device.rawDevice,
             dimension: configuration.dimension,
@@ -151,8 +182,29 @@ public actor AcceleratedVectorIndex {
         self.deletionMask = DeletionMask(capacity: configuration.capacity)
         self.metadataStore = MetadataStore(capacity: configuration.capacity / 10)
 
-        // Initialize kernel
-        self.fusedL2TopKKernel = try await FusedL2TopKKernel(context: context)
+        // Initialize index-type-specific components
+        switch configuration.indexType {
+        case .flat:
+            self.fusedL2TopKKernel = try await FusedL2TopKKernel(context: context)
+
+        case .ivf(let nlist, let nprobe):
+            self.fusedL2TopKKernel = try await FusedL2TopKKernel(context: context)
+            self.ivfStructure = IVFStructure(
+                numClusters: nlist,
+                nprobe: nprobe,
+                dimension: configuration.dimension
+            )
+            let ivfConfig = IVFSearchConfiguration(
+                numCentroids: nlist,
+                nprobe: nprobe,
+                dimension: configuration.dimension,
+                metric: configuration.metric
+            )
+            self.ivfSearchPipeline = try await IVFSearchPipeline(
+                context: context,
+                configuration: ivfConfig
+            )
+        }
     }
 
     /// Validate that the metric is supported for GPU acceleration.
@@ -195,11 +247,23 @@ public actor AcceleratedVectorIndex {
         storage.capacity
     }
 
+    /// Whether the index uses IVF.
+    public var isIVF: Bool {
+        ivfStructure != nil
+    }
+
+    /// Whether the IVF index is trained (always true for flat index).
+    public var isTrained: Bool {
+        ivfStructure?.isTrained ?? true
+    }
+
     // MARK: - Statistics
 
     /// Get statistics about the index.
     public func statistics() -> GPUIndexStats {
-        GPUIndexStats(
+        let ivfStats = ivfStructure?.getStats()
+
+        return GPUIndexStats(
             vectorCount: handleAllocator.occupiedCount,
             allocatedSlots: storage.allocatedSlots,
             deletedSlots: deletionMask.deletedCount,
@@ -209,8 +273,64 @@ public actor AcceleratedVectorIndex {
             capacity: storage.capacity,
             gpuVectorMemoryBytes: storage.usedBytes,
             gpuIndexStructureBytes: 0,
-            cpuMetadataMemoryBytes: metadataStore.estimatedMemoryBytes
+            cpuMetadataMemoryBytes: metadataStore.estimatedMemoryBytes,
+            ivfStats: ivfStats
         )
+    }
+
+    // MARK: - IVF Training
+
+    /// Train the IVF index.
+    ///
+    /// For IVF indexes, this runs K-Means clustering on the inserted vectors
+    /// to compute centroids. Training is required before search returns accurate results.
+    ///
+    /// For flat indexes, this method does nothing.
+    ///
+    /// - Note: Training happens automatically when enough vectors are inserted
+    ///         (if auto-training is enabled).
+    /// - Throws: `IndexAccelerationError` if training fails
+    public func train() async throws {
+        guard let ivf = ivfStructure else { return }
+        guard !ivf.isTrained else { return }
+
+        // Gather all vectors for training
+        var trainingVectors: [[Float]] = []
+        trainingVectors.reserveCapacity(handleAllocator.occupiedCount)
+
+        for slotIndex in deletionMask {
+            let vector = try storage.readVector(at: slotIndex)
+            trainingVectors.append(vector)
+        }
+
+        guard !trainingVectors.isEmpty else {
+            throw IndexAccelerationError.invalidInput(
+                message: "Cannot train IVF index with no vectors"
+            )
+        }
+
+        try await ivf.train(vectors: trainingVectors, context: context)
+
+        // Reassign all vectors to clusters
+        for slotIndex in deletionMask {
+            let vector = try storage.readVector(at: slotIndex)
+            if let handle = handleAllocator.handle(for: UInt32(slotIndex)) {
+                _ = ivf.assignToCluster(
+                    vector: vector,
+                    slotIndex: UInt32(slotIndex),
+                    generation: handle.generation
+                )
+            }
+        }
+    }
+
+    /// Enable or disable auto-training for IVF indexes.
+    ///
+    /// When enabled, the index automatically trains when enough vectors are inserted.
+    ///
+    /// - Parameter enabled: Whether auto-training should be enabled
+    public func setAutoTraining(_ enabled: Bool) {
+        autoTrainEnabled = enabled
     }
 
     // MARK: - Insert Operations
@@ -247,6 +367,26 @@ public actor AcceleratedVectorIndex {
         // Store metadata if provided
         if let metadata = metadata {
             metadataStore[handle.index] = metadata
+        }
+
+        // Handle IVF-specific logic
+        if let ivf = ivfStructure {
+            if ivf.isTrained {
+                // Assign to cluster
+                _ = ivf.assignToCluster(
+                    vector: vector,
+                    slotIndex: UInt32(slotIndex),
+                    generation: handle.generation
+                )
+            } else {
+                // Add to staging
+                ivf.addToStaging(UInt32(slotIndex))
+
+                // Auto-train if we have enough vectors
+                if autoTrainEnabled && ivf.canTrain {
+                    try await train()
+                }
+            }
         }
 
         return handle
@@ -300,6 +440,30 @@ public actor AcceleratedVectorIndex {
             for (i, meta) in metadata.enumerated() {
                 if let meta = meta {
                     metadataStore[handles[i].index] = meta
+                }
+            }
+        }
+
+        // Handle IVF-specific logic
+        if let ivf = ivfStructure {
+            if ivf.isTrained {
+                // Assign each vector to a cluster
+                for (i, vector) in vectors.enumerated() {
+                    _ = ivf.assignToCluster(
+                        vector: vector,
+                        slotIndex: handles[i].index,
+                        generation: handles[i].generation
+                    )
+                }
+            } else {
+                // Add all to staging
+                for handle in handles {
+                    ivf.addToStaging(handle.index)
+                }
+
+                // Auto-train if we have enough vectors
+                if autoTrainEnabled && ivf.canTrain {
+                    try await train()
                 }
             }
         }
@@ -376,6 +540,9 @@ public actor AcceleratedVectorIndex {
         handleAllocator.markDeleted(handle)
         deletionMask.markDeleted(Int(handle.index))
         metadataStore.remove(handle.index)
+
+        // Remove from IVF structure
+        ivfStructure?.removeVector(slotIndex: handle.index, generation: handle.generation)
     }
 
     /// Mark multiple vectors as deleted (lazy deletion).
@@ -392,6 +559,7 @@ public actor AcceleratedVectorIndex {
                 handleAllocator.markDeleted(handle)
                 deletionMask.markDeleted(Int(handle.index))
                 metadataStore.remove(handle.index)
+                ivfStructure?.removeVector(slotIndex: handle.index, generation: handle.generation)
                 removedCount += 1
             }
         }
@@ -422,6 +590,9 @@ public actor AcceleratedVectorIndex {
         // Compact metadata store
         let uint32Mapping = compactionResult.indexMapping
         metadataStore.compact(using: uint32Mapping)
+
+        // Compact IVF structure
+        ivfStructure?.compact(using: uint32Mapping)
 
         // Reset deletion mask
         deletionMask.resetAfterCompaction(newCapacity: compactionResult.newSlotCount)
@@ -464,6 +635,12 @@ public actor AcceleratedVectorIndex {
             return []
         }
 
+        // Use IVF search if available and trained
+        if let ivf = ivfStructure, ivf.isTrained {
+            return try await searchIVF(query: query, k: k, filter: filter)
+        }
+
+        // Fall back to flat search
         guard let filter = filter else {
             return try await searchUnfiltered(query: query, k: k)
         }
@@ -502,7 +679,12 @@ public actor AcceleratedVectorIndex {
             return queries.map { _ in [] }
         }
 
-        // Execute queries (future: batch GPU execution)
+        // Use IVF batch search if available and trained
+        if let ivf = ivfStructure, ivf.isTrained, filter == nil {
+            return try await searchIVFBatch(queries: queries, k: k)
+        }
+
+        // Fall back to sequential search
         var results: [[SearchResult]] = []
         results.reserveCapacity(queries.count)
 
@@ -579,6 +761,8 @@ public actor AcceleratedVectorIndex {
     public func releaseResources() {
         storage.release()
         fusedL2TopKKernel = nil
+        ivfSearchPipeline = nil
+        ivfStructure?.reset()
         metadataStore.reset()
         handleAllocator.reset()
         deletionMask.reset()
@@ -602,7 +786,7 @@ public actor AcceleratedVectorIndex {
         handleAllocator.handle(for: slotIndex)
     }
 
-    // MARK: - Private Implementation
+    // MARK: - Private Implementation - Flat Search
 
     private func searchUnfiltered(query: [Float], k: Int) async throws -> [SearchResult] {
         guard let kernel = fusedL2TopKKernel,
@@ -734,6 +918,101 @@ public actor AcceleratedVectorIndex {
         }
 
         return results
+    }
+
+    // MARK: - Private Implementation - IVF Search
+
+    private func searchIVF(
+        query: [Float],
+        k: Int,
+        filter: (@Sendable (VectorHandle, VectorMetadata?) -> Bool)?
+    ) async throws -> [SearchResult] {
+        guard let ivf = ivfStructure,
+              let pipeline = ivfSearchPipeline else {
+            throw IndexAccelerationError.gpuNotInitialized(operation: "searchIVF")
+        }
+
+        // Prepare GPU structure
+        let gpuStructure = try ivf.prepareGPUStructure(
+            storage: storage,
+            device: context.device.rawDevice
+        )
+
+        // Execute IVF search
+        let ivfResult = try await pipeline.search(
+            queries: [query],
+            structure: gpuStructure,
+            k: filter != nil ? k * 3 : k  // Over-fetch for filtering
+        )
+
+        // Convert to SearchResults
+        var results: [SearchResult] = []
+        results.reserveCapacity(k)
+
+        for (rawIndex, distance) in ivfResult.results(for: 0) {
+            // Skip deleted vectors
+            if deletionMask.isDeleted(rawIndex) { continue }
+
+            // Get valid handle
+            guard let handle = handleAllocator.handle(for: UInt32(rawIndex)) else { continue }
+
+            // Apply filter if provided
+            if let filter = filter {
+                let meta = metadataStore[handle.index]
+                if !filter(handle, meta) { continue }
+            }
+
+            results.append(SearchResult(handle: handle, distance: distance))
+
+            if results.count >= k { break }
+        }
+
+        return results
+    }
+
+    private func searchIVFBatch(queries: [[Float]], k: Int) async throws -> [[SearchResult]] {
+        guard let ivf = ivfStructure,
+              let pipeline = ivfSearchPipeline else {
+            throw IndexAccelerationError.gpuNotInitialized(operation: "searchIVFBatch")
+        }
+
+        // Prepare GPU structure
+        let gpuStructure = try ivf.prepareGPUStructure(
+            storage: storage,
+            device: context.device.rawDevice
+        )
+
+        // Execute batch IVF search
+        let ivfResult = try await pipeline.search(
+            queries: queries,
+            structure: gpuStructure,
+            k: k
+        )
+
+        // Convert all results
+        var allResults: [[SearchResult]] = []
+        allResults.reserveCapacity(queries.count)
+
+        for queryIdx in 0..<queries.count {
+            var results: [SearchResult] = []
+            results.reserveCapacity(k)
+
+            for (rawIndex, distance) in ivfResult.results(for: queryIdx) {
+                // Skip deleted vectors
+                if deletionMask.isDeleted(rawIndex) { continue }
+
+                // Get valid handle
+                guard let handle = handleAllocator.handle(for: UInt32(rawIndex)) else { continue }
+
+                results.append(SearchResult(handle: handle, distance: distance))
+
+                if results.count >= k { break }
+            }
+
+            allResults.append(results)
+        }
+
+        return allResults
     }
 }
 

@@ -11,6 +11,36 @@ import VectorAccelerate
 import VectorIndex
 import VectorCore
 
+// MARK: - Acceleration Decision Types
+
+/// Reason for acceleration decision.
+public enum AccelerationReason: Sendable {
+    /// GPU acceleration forced by configuration
+    case forcedByConfiguration
+    /// Dataset too small for GPU to provide benefit
+    case datasetTooSmall
+    /// Query count too low for GPU overhead to be worthwhile
+    case queryCountTooLow
+    /// GPU acceleration recommended based on workload analysis
+    case gpuRecommended
+}
+
+/// Decision about whether to use GPU acceleration.
+public struct AccelerationDecision: Sendable {
+    /// Whether to use GPU for this operation
+    public let useGPU: Bool
+    /// Reason for the decision
+    public let reason: AccelerationReason
+    /// Estimated speedup factor (1.0 = same as CPU, >1.0 = faster on GPU)
+    public let estimatedSpeedup: Float
+
+    public init(useGPU: Bool, reason: AccelerationReason, estimatedSpeedup: Float) {
+        self.useGPU = useGPU
+        self.reason = reason
+        self.estimatedSpeedup = estimatedSpeedup
+    }
+}
+
 // MARK: - Index Acceleration Context
 
 /// Shared context for GPU-accelerated index operations.
