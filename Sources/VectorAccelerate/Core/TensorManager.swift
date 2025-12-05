@@ -184,7 +184,7 @@ public actor TensorManager {
     // MARK: - Initialization
 
     /// Create a tensor manager for the given device
-    public init(device: any MTLDevice) {
+    public init(device: sending any MTLDevice) {
         self.device = device
     }
 
