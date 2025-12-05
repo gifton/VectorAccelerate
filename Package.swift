@@ -24,23 +24,17 @@ let package = Package(
         .library(
             name: "VectorAccelerate",
             targets: ["VectorAccelerate"]),
-        // VectorIndexAcceleration: GPU-accelerated index operations
-        // Provides Metal 4 acceleration for VectorIndex types (HNSW, IVF, Flat)
-        .library(
-            name: "VectorIndexAcceleration",
-            targets: ["VectorIndexAcceleration"]),
         .executable(
             name: "VectorAccelerateBenchmarks",
             targets: ["VectorAccelerateBenchmarks"]),
     ],
     dependencies: [
         // VectorCore for base protocols and types
-        .package(url: "https://github.com/gifton/VectorCore", from: "0.1.6"),
-        // VectorIndex for index protocols and types (HNSW, IVF, Flat)
-        .package(url: "https://github.com/gifton/VectorIndex", from: "0.1.3")
+        .package(url: "https://github.com/gifton/VectorCore", from: "0.1.6")
     ],
     targets: [
-        // MARK: - Core GPU Acceleration (no VectorIndex dependency)
+        // MARK: - Core GPU Acceleration
+        // Includes GPU-first vector index (AcceleratedVectorIndex) and all Metal kernels
         .target(
             name: "VectorAccelerate",
             dependencies: [
@@ -48,25 +42,6 @@ let package = Package(
             ],
             resources: [
                 .process("Metal/Shaders")  // Metal shader files
-            ],
-            swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency"),
-                .enableUpcomingFeature("ExistentialAny")
-            ]
-        ),
-
-        // MARK: - Index Acceleration (depends on VectorIndex)
-        // Provides GPU-accelerated implementations of VectorIndex types
-        .target(
-            name: "VectorIndexAcceleration",
-            dependencies: [
-                "VectorAccelerate",
-                .product(name: "VectorCore", package: "VectorCore"),
-                .product(name: "VectorIndex", package: "VectorIndex")
-            ],
-            path: "Sources/VectorIndexAcceleration",
-            resources: [
-                .process("Shaders")  // Index-specific Metal shaders (HNSW, IVF, Clustering)
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
@@ -89,19 +64,6 @@ let package = Package(
             dependencies: [
                 "VectorAccelerate",
                 .product(name: "VectorCore", package: "VectorCore")
-            ],
-            exclude: [
-                "ShaderManagerTests.swift.disabled",
-                "VectorCoreIntegrationEnhancedTests.swift.disabled"
-            ]
-        ),
-        .testTarget(
-            name: "VectorIndexAccelerationTests",
-            dependencies: [
-                "VectorIndexAcceleration",
-                "VectorAccelerate",
-                .product(name: "VectorCore", package: "VectorCore"),
-                .product(name: "VectorIndex", package: "VectorIndex")
             ]
         )
     ]

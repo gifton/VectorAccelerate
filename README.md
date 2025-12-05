@@ -16,6 +16,103 @@ VectorAccelerate exists to solve a critical performance bottleneck in vector-bas
 - **ML Integration**: Experimental learned distance metrics with MLTensor support
 - **Seamless Integration**: Drop-in acceleration for VectorCore operations
 
+## 🏛️ Two-Layer API Architecture
+
+VectorAccelerate provides **two complementary API layers** designed for different use cases:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Layer 1: High-Level API (AcceleratedVectorIndex)           │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  • Complete vector search solution                     │  │
+│  │  • insert(), search(), remove(), compact()             │  │
+│  │  • Automatic GPU/CPU routing                           │  │
+│  │  • Best for: Applications needing similarity search    │  │
+│  └───────────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────────┤
+│  Layer 2: Low-Level API (25+ GPU Kernel Primitives)         │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  • Direct GPU kernel access                            │  │
+│  │  • Distance, Selection, Quantization, Matrix kernels   │  │
+│  │  • Pipeline composition with encode() methods          │  │
+│  │  • Best for: Custom ML pipelines, fine-grained control │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Layer 1: High-Level API
+
+For most applications, use `AcceleratedVectorIndex`:
+
+```swift
+import VectorAccelerate
+
+// Create a flat index (exact search)
+let index = try await AcceleratedVectorIndex(
+    configuration: .flat(dimension: 768, capacity: 10_000)
+)
+
+// Insert vectors and get handles
+let handle = try await index.insert(embedding)
+
+// Search for nearest neighbors
+let results = try await index.search(query: queryVector, k: 10)
+for result in results {
+    print("Handle: \(result.handle), Distance: \(result.distance)")
+}
+```
+
+### Layer 2: Low-Level Kernel Primitives
+
+For custom pipelines or maximum control, use kernels directly:
+
+```swift
+import VectorAccelerate
+
+let context = try await Metal4Context()
+
+// Use individual kernels
+let l2Kernel = try await L2DistanceKernel(context: context)
+let distances = try await l2Kernel.compute(
+    queries: queryVectors,
+    database: databaseVectors,
+    computeSqrt: true
+)
+
+// Compose kernels in a pipeline
+let normKernel = try await L2NormalizationKernel(context: context)
+let cosineKernel = try await CosineSimilarityKernel(context: context)
+let topKKernel = try await TopKSelectionKernel(context: context)
+
+try await context.executeAndWait { _, encoder in
+    normKernel.encode(into: encoder, ...)
+    encoder.memoryBarrier(scope: .buffers)
+    cosineKernel.encode(into: encoder, ...)
+    encoder.memoryBarrier(scope: .buffers)
+    topKKernel.encode(into: encoder, ...)
+}
+```
+
+### Convenient Type Aliases
+
+```swift
+// Context
+let context: GPUContext = try await Metal4Context()
+
+// Distance kernels
+let l2 = try await L2Kernel(context: context)
+let cosine = try await CosineKernel(context: context)
+let dot = try await DotKernel(context: context)
+
+// Selection kernels
+let topK = try await TopKKernel(context: context)
+let fused = try await FusedTopKKernel(context: context)
+
+// Quantization kernels
+let binary = try await BinaryQuantKernel(context: context)
+let scalar = try await ScalarQuantKernel(context: context)
+```
+
 ## 📦 Requirements
 
 ### System Requirements
@@ -24,12 +121,12 @@ VectorAccelerate exists to solve a critical performance bottleneck in vector-bas
 - **Swift 6.0+**
 
 ### Dependencies
-- **VectorCore 0.1.5+**: The foundational vector mathematics package
+- **VectorCore 0.1.6+**: The foundational vector mathematics package
+- **VectorIndex 0.1.3+**: Vector index algorithms (for VectorIndexAcceleration module)
 
-### Dependent Packages
-VectorAccelerate is a critical dependency for:
-- **VectorIndexAccelerated**: GPU-accelerated vector indexing and search
-- **VectorDatabase**: High-performance vector storage and retrieval
+### Products
+- **VectorAccelerate**: Core GPU acceleration library
+- **VectorIndexAcceleration**: GPU-first vector index with Flat and IVF support
 
 ## 🚀 Accelerated Operations
 
@@ -146,6 +243,44 @@ All kernels require a `Metal4Context` for initialization.
   - Codebook-based compression
   - Asymmetric distance computation
 
+## 🗂️ VectorIndexAcceleration
+
+GPU-first vector index for high-performance similarity search.
+
+### Quick Start
+
+```swift
+import VectorIndexAcceleration
+
+// Create a GPU-accelerated flat index
+let config = IndexConfiguration.flat(dimension: 768, capacity: 10_000)
+let index = try await AcceleratedVectorIndex(configuration: config)
+
+// Insert vectors
+let handle = try await index.insert(embedding, metadata: ["type": "document"])
+
+// Search (returns L2² distances - native GPU format)
+let results = try await index.search(query: queryVector, k: 10)
+
+// Filtered search
+let filtered = try await index.search(query: queryVector, k: 10) { handle, meta in
+    meta?["type"] == "document"
+}
+```
+
+### Index Types
+
+| Type | Use Case | Performance |
+|------|----------|-------------|
+| **Flat** | Small-medium datasets (<100K) | Exact results, ~0.3ms search |
+| **IVF** | Large datasets (100K+) | Approximate, faster at scale |
+
+### Performance
+
+- **Insert**: ~21K vectors/sec (128D), ~3.7K vectors/sec (768D)
+- **Search**: 0.30ms (128D), 0.73ms (768D) on 5K vectors
+- **Sub-millisecond** latency for typical workloads
+
 ## 🔧 Installation
 
 ### Swift Package Manager
@@ -155,12 +290,17 @@ Add VectorAccelerate to your `Package.swift`:
 ```swift
 dependencies: [
     .package(url: "https://github.com/gifton/VectorAccelerate.git", from: "0.2.0"),
-    .package(url: "https://github.com/gifton/VectorCore.git", from: "0.1.5")
+    .package(url: "https://github.com/gifton/VectorCore.git", from: "0.1.6")
 ],
 targets: [
     .target(
         name: "YourTarget",
-        dependencies: ["VectorAccelerate", "VectorCore"]
+        dependencies: [
+            "VectorAccelerate",
+            "VectorCore",
+            // Add if using GPU-accelerated indices:
+            "VectorIndexAcceleration"
+        ]
     )
 ]
 ```
@@ -266,6 +406,82 @@ let result = try await matrixKernel.multiply(a: a, b: b)
 print("Result: \(result.rows) x \(result.columns)")
 ```
 
+### VectorCore Integration
+
+VectorAccelerate provides GPU-accelerated `DistanceProvider` implementations:
+
+```swift
+import VectorAccelerate
+import VectorCore
+
+// Create a kernel-backed distance provider
+let context = try await Metal4Context()
+let provider = try await L2KernelDistanceProvider(context: context)
+
+// Works with VectorCore's DynamicVector
+let v1 = DynamicVector([1.0, 0.0, 0.0])
+let v2 = DynamicVector([0.0, 1.0, 0.0])
+
+let distance = try await provider.distance(from: v1, to: v2, metric: .euclidean)
+
+// Batch distance computation
+let candidates = [v1, v2, DynamicVector([0.5, 0.5, 0.0])]
+let distances = try await provider.batchDistance(from: v1, to: candidates, metric: .euclidean)
+```
+
+**Universal Distance Provider** - handles all metrics automatically:
+
+```swift
+// Dispatches to the optimal kernel for each metric
+let provider = await context.universalDistanceProvider()
+
+let euclidean = try await provider.distance(from: v1, to: v2, metric: .euclidean)
+let cosine = try await provider.distance(from: v1, to: v2, metric: .cosine)
+let manhattan = try await provider.distance(from: v1, to: v2, metric: .manhattan)
+```
+
+**Available Distance Providers:**
+
+| Provider | Metric | Features |
+|----------|--------|----------|
+| `L2KernelDistanceProvider` | Euclidean | Dimension-optimized (384, 512, 768, 1536) |
+| `CosineKernelDistanceProvider` | Cosine | Auto-normalization |
+| `DotProductKernelDistanceProvider` | Dot Product | GEMV optimization |
+| `MinkowskiKernelDistanceProvider` | Manhattan, Chebyshev | Configurable p-norm |
+| `JaccardKernelDistanceProvider` | Jaccard | Set similarity |
+| `HammingKernelDistanceProvider` | Hamming | Binary vectors |
+| `UniversalKernelDistanceProvider` | All | Auto-dispatch |
+
+## 📋 Choosing the Right Kernel
+
+### Distance Computation
+
+| Use Case | Recommended Kernel | Notes |
+|----------|-------------------|-------|
+| Nearest neighbor search | `L2DistanceKernel` | Best for embeddings |
+| Semantic similarity | `CosineSimilarityKernel` | Direction-based |
+| Maximum inner product | `DotProductKernel` | For unnormalized vectors |
+| Sparse data / sets | `JaccardDistanceKernel` | Document fingerprints |
+| Binary vectors | `HammingDistanceKernel` | After binary quantization |
+| Custom Lp norm | `MinkowskiDistanceKernel` | Configurable p |
+
+### Selection
+
+| Use Case | Recommended Kernel | Notes |
+|----------|-------------------|-------|
+| Standard top-k | `TopKSelectionKernel` | General purpose |
+| Memory-constrained | `FusedL2TopKKernel` | Avoids full distance matrix |
+| Very large k | `StreamingTopKKernel` | For k > 1000 |
+| SIMD-optimized | `WarpOptimizedSelectionKernel` | Small k values |
+
+### Quantization
+
+| Use Case | Recommended Kernel | Compression |
+|----------|-------------------|-------------|
+| Fast approximate search | `BinaryQuantizationKernel` | 32x |
+| Quality-preserving | `ScalarQuantizationKernel` | 4-8x |
+| High compression | `ProductQuantizationKernel` | 32-64x |
+
 ## 🏗️ Architecture
 
 ### Kernel Organization
@@ -355,7 +571,7 @@ VectorAccelerate is available under the MIT license. See [LICENSE](LICENSE) for 
 ## 📚 Related Projects
 
 - [VectorCore](https://github.com/gifton/VectorCore) - Core vector mathematics
-- [VectorIndexAccelerated](https://github.com/gifton/VectorIndexAccelerated) - GPU-accelerated indexing
+- [VectorIndex](https://github.com/gifton/VectorIndex) - CPU-based vector indexing algorithms
 - [VectorDatabase](https://github.com/gifton/VectorDatabase) - Complete vector database solution
 
 ---
