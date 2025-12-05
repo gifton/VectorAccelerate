@@ -120,6 +120,7 @@ jobs:
 
       - name: Build (Debug)
         run: |
+          set -eo pipefail
           swift build -v 2>&1 | tee build.log
           echo "## Build (Debug)" >> $GITHUB_STEP_SUMMARY
           echo "✅ Build succeeded" >> $GITHUB_STEP_SUMMARY
@@ -159,6 +160,7 @@ jobs:
 
       - name: Run Tests
         run: |
+          set -eo pipefail
           swift test --parallel 2>&1 | tee test.log
 
           # Extract test summary
@@ -201,6 +203,7 @@ jobs:
 
       - name: Build (Release)
         run: |
+          set -eo pipefail
           swift build -c release -v 2>&1 | tee build-release.log
           echo "## Build (Release)" >> $GITHUB_STEP_SUMMARY
           echo "✅ Release build succeeded" >> $GITHUB_STEP_SUMMARY
