@@ -383,9 +383,14 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         encoder.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
         encoder.endEncoding()
         
-        commandBuffer.commit()
-        await commandBuffer.completed()
-        
+        // Wait for completion using continuation (handler must be added before commit)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            commandBuffer.addCompletedHandler { _ in
+                continuation.resume()
+            }
+            commandBuffer.commit()
+        }
+
         let gpuExecutionTime = CACurrentMediaTime() - gpuStartTime
         
         // Check for errors

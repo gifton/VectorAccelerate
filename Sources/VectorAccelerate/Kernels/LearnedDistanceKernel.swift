@@ -434,8 +434,13 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
             commandBuffer: commandBuffer
         )
 
-        commandBuffer.commit()
-        await commandBuffer.completed()
+        // Wait for completion using continuation (handler must be added before commit)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            commandBuffer.addCompletedHandler { _ in
+                continuation.resume()
+            }
+            commandBuffer.commit()
+        }
 
         // Extract results
         let distancePointer = distanceBuffer.contents().bindMemory(
@@ -532,8 +537,13 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
             commandBuffer: commandBuffer
         )
 
-        commandBuffer.commit()
-        await commandBuffer.completed()
+        // Wait for completion using continuation
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            commandBuffer.addCompletedHandler { _ in
+                continuation.resume()
+            }
+            commandBuffer.commit()
+        }
 
         let distancePointer = distanceBuffer.contents().bindMemory(
             to: Float.self,
@@ -666,8 +676,13 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
             normalizeEncoder.endEncoding()
         }
 
-        commandBuffer.commit()
-        await commandBuffer.completed()
+        // Wait for completion using continuation (handler must be added before commit)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            commandBuffer.addCompletedHandler { _ in
+                continuation.resume()
+            }
+            commandBuffer.commit()
+        }
 
         // Extract results
         let outputPointer = outputBuffer.contents().bindMemory(

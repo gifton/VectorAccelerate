@@ -295,8 +295,10 @@ public actor Metal4Context {
         // In Metal 4:
         // commandQueue.commit([commandBuffer])
         // commandQueue.signalEvent(completionEvent, value: targetValue)
-        commandBuffer.addCompletedHandler { [weak self] _ in
-            self?.completionEvent.signaledValue = targetValue
+        // Capture event outside closure to avoid actor isolation issues
+        let event = completionEvent
+        commandBuffer.addCompletedHandler { _ in
+            event.signaledValue = targetValue
         }
         commandBuffer.commit()
 
@@ -349,8 +351,10 @@ public actor Metal4Context {
         eventCounter += 1
         let targetValue = eventCounter
 
-        commandBuffer.addCompletedHandler { [weak self] _ in
-            self?.completionEvent.signaledValue = targetValue
+        // Capture event outside closure to avoid actor isolation issues
+        let event = completionEvent
+        commandBuffer.addCompletedHandler { _ in
+            event.signaledValue = targetValue
         }
         commandBuffer.commit()
 

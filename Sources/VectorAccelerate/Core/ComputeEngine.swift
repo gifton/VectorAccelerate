@@ -20,6 +20,9 @@ public actor ComputeEngine: ComputeProvider {
     private var operationCount: Int = 0
     private var totalComputeTime: TimeInterval = 0
 
+    // Cached command queue reference (captured during init to avoid actor isolation issues)
+    private nonisolated let _commandQueue: any MTLCommandQueue
+
     // ComputeProvider cached properties (nonisolated for protocol conformance)
     public nonisolated let device: ComputeDevice
     public nonisolated let maxConcurrency: Int
@@ -60,6 +63,9 @@ public actor ComputeEngine: ComputeProvider {
         self.thresholdManager = AdaptiveThresholdManager(configuration: accelerationConfig)
         self.performanceMonitor = PerformanceMonitor()
         self.logger = Logger(configuration: configuration.enableProfiling ? .debug : .default)
+
+        // Cache command queue reference to avoid actor isolation issues in computed properties
+        self._commandQueue = await context.getCommandQueue()
 
         // Initialize ComputeProvider properties by caching device info
         self.device = .gpu(index: 0)
@@ -624,13 +630,13 @@ public actor ComputeEngine: ComputeProvider {
     /// Direct access to the Metal command queue for manual command buffer creation (legacy).
     /// Prefer `commandQueueHandle` to avoid returning non-Sendable types across actors.
     @preconcurrency
-    public var commandQueue: any MTLCommandQueue {
-        get { context.commandQueue }
+    public nonisolated var commandQueue: any MTLCommandQueue {
+        get { _commandQueue }
     }
 
     /// Sendable wrapper handle for the command queue to cross actor boundaries safely.
-    public var commandQueueHandle: UnsafeSendable<any MTLCommandQueue> {
-        get { context.commandQueue.uncheckedSendable }
+    public nonisolated var commandQueueHandle: UnsafeSendable<any MTLCommandQueue> {
+        get { _commandQueue.uncheckedSendable }
     }
 
     // MARK: - Performance & Statistics
