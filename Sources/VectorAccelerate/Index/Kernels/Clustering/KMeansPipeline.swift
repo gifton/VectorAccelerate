@@ -446,7 +446,7 @@ public final class KMeansPipeline: @unchecked Sendable {
         k: Int
     ) throws -> [[Float]] {
         let n = vectors.count
-        let d = vectors[0].count
+        // Note: dimension d = vectors[0].count is implicit in vector operations
 
         guard n >= k else {
             throw IndexError.invalidInput(

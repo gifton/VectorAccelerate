@@ -173,7 +173,9 @@ public struct TensorManagerStatistics: Sendable {
 public actor TensorManager {
     // MARK: - Properties
 
-    private let device: any MTLDevice
+    /// Metal device for buffer creation.
+    /// Marked nonisolated to allow synchronous initialization.
+    private nonisolated let device: any MTLDevice
     private var tensors: [String: TensorBuffer] = [:]
     private var totalMemoryBytes: Int = 0
 
@@ -184,7 +186,7 @@ public actor TensorManager {
     // MARK: - Initialization
 
     /// Create a tensor manager for the given device
-    public init(device: sending any MTLDevice) {
+    public init(device: any MTLDevice) {
         self.device = device
     }
 
