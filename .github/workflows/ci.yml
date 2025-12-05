@@ -13,7 +13,7 @@ env:
 jobs:
   metal-shaders:
     name: Metal Shaders
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 10
 
     steps:
@@ -23,7 +23,7 @@ jobs:
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16'
+          xcode-version: 'latest-stable'
 
       - name: Validate Metal Shaders
         run: |
@@ -85,7 +85,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 15
 
     steps:
@@ -95,7 +95,7 @@ jobs:
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16'
+          xcode-version: 'latest-stable'
 
       - name: System Info
         run: |
@@ -135,7 +135,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: macos-15
+    runs-on: macos-26
     needs: build
     timeout-minutes: 20
 
@@ -146,7 +146,7 @@ jobs:
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16'
+          xcode-version: 'latest-stable'
 
       - name: Restore SPM Cache
         uses: actions/cache@v4
@@ -178,7 +178,7 @@ jobs:
 
   build-release:
     name: Build (Release)
-    runs-on: macos-15
+    runs-on: macos-26
     needs: build
     timeout-minutes: 20
 
@@ -189,7 +189,7 @@ jobs:
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16'
+          xcode-version: 'latest-stable'
 
       - name: Restore SPM Cache
         uses: actions/cache@v4
@@ -218,7 +218,7 @@ jobs:
 
   lint:
     name: SwiftLint
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 10
 
     steps:
