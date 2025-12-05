@@ -125,7 +125,14 @@ public actor MetalContext: AccelerationProvider {
             self.defaultLibrary = nil
         }
     }
-    
+
+    // MARK: - Command Queue Access
+
+    /// Get the command queue for cross-actor access.
+    /// Use this during actor initialization to cache the queue reference.
+    public func getCommandQueue() -> any MTLCommandQueue {
+        commandQueue
+    }
 
     // MARK: - Static Methods
 

@@ -5,6 +5,57 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-12-05
+
+### Added
+
+- **VectorIndexAcceleration Module** - New GPU-first vector index implementation
+  - `AcceleratedVectorIndex` — Actor-based GPU vector index with Flat and IVF support
+  - `VectorHandle` — Generation-based opaque handles for stable vector references
+  - `IndexConfiguration` — Flexible index configuration with presets
+  - `GPUIndexStats` — Comprehensive index introspection and statistics
+  - `SearchResult` — Native GPU search results with L2² distances
+
+- **Flat Index Features**
+  - Sub-millisecond search on 5K+ vectors (0.30ms for 128D, 0.73ms for 768D)
+  - Filtered search with iterative fetch strategy
+  - Batch insert (~21K vectors/sec for 128D)
+  - Lazy deletion with compaction support
+
+- **IVF Index Features**
+  - GPU-accelerated IVF (Inverted File) index
+  - K-means clustering for coarse quantization
+  - Configurable nlist and nprobe parameters
+
+- **Handle Lifecycle**
+  - Generation-based stale handle detection
+  - Automatic handle remapping after compaction
+  - Metadata preservation across operations
+
+- **Comprehensive Test Suite** (109 new tests)
+  - `FlatIndexSearchTests` — Search edge cases, filtering, batch operations
+  - `HandleLifecycleTests` — Handle validity, compaction, generation tracking
+  - `IntrospectionTests` — Statistics, memory reporting, configuration
+  - `IVFTests` — IVF creation, training, search, compaction
+  - `ValidationEdgeCaseTests` — Input validation, concurrency, error handling
+  - `PerformanceBenchmarks` — Performance regression tests
+
+### Fixed
+
+- **IVF Training Bounds Check** — Fixed off-by-one error in IVF training where DeletionMask iteration could access unallocated vector slots
+
+### Performance
+
+| Operation | Dimension | Throughput |
+|-----------|-----------|------------|
+| Flat Insert | 128D | 21,866 vec/s |
+| Flat Insert | 768D | 3,670 vec/s |
+| Flat Search | 128D | 0.30ms (5K vectors) |
+| Flat Search | 768D | 0.73ms (5K vectors) |
+| IVF Search | 128D | 0.21ms (500 vectors) |
+
+---
+
 ## [0.2.0] - 2025-12-01
 
 ### Breaking Changes

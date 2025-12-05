@@ -23,7 +23,6 @@ import Foundation
 ///     // Use simdgroup_matrix operations
 /// }
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4Capabilities: Sendable, Equatable, Codable {
     // MARK: - Core Support
 
@@ -209,7 +208,6 @@ public struct Metal4Capabilities: Sendable, Equatable, Codable {
 
 // MARK: - CustomStringConvertible
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension Metal4Capabilities: CustomStringConvertible {
     public var description: String {
         """
@@ -227,7 +225,6 @@ extension Metal4Capabilities: CustomStringConvertible {
 // MARK: - Feature Enum
 
 /// Checkable Metal 4 features for runtime queries
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum Metal4Feature: String, Sendable, CaseIterable, Codable {
     case argumentTables
     case residencySets
@@ -240,7 +237,6 @@ public enum Metal4Feature: String, Sendable, CaseIterable, Codable {
 
 // MARK: - Feature Checking
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension Metal4Capabilities {
     /// Check if a specific feature is available
     public func supports(_ feature: Metal4Feature) -> Bool {
@@ -269,7 +265,6 @@ extension Metal4Capabilities {
 // MARK: - Backend Selection
 
 /// Backend selection for VectorAccelerate operations
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum GPUBackend: Sendable {
     /// Metal 4 backend with specific capabilities
     case metal4(any MTLDevice, Metal4Capabilities)

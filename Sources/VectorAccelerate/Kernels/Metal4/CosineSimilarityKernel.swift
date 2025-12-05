@@ -22,7 +22,6 @@ import VectorCore
 /// Parameters for Cosine Similarity kernel.
 ///
 /// Memory layout must match the Metal shader's `CosineSimilarityParams` struct.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct CosineSimilarityParameters: Sendable {
     /// Number of query vectors (N)
     public let numQueries: UInt32
@@ -137,7 +136,6 @@ public struct CosineSimilarityParameters: Sendable {
 ///     inputsNormalized: false
 /// )
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class CosineSimilarityKernel: @unchecked Sendable, DimensionOptimizedKernel, FusibleKernel {
 
     // MARK: - Protocol Properties
@@ -449,7 +447,6 @@ public final class CosineSimilarityKernel: @unchecked Sendable, DimensionOptimiz
 
 // MARK: - Metal4DistanceKernel Conformance
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension CosineSimilarityKernel: Metal4DistanceKernel {
     public typealias Parameters = CosineSimilarityParameters
 

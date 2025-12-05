@@ -22,7 +22,6 @@ import Accelerate
 // MARK: - Configuration
 
 /// Configuration for statistics computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4StatisticsConfig: Sendable, Hashable {
     /// Compute higher-order moments (skewness, kurtosis)
     public let computeHigherMoments: Bool
@@ -53,7 +52,6 @@ public struct Metal4StatisticsConfig: Sendable, Hashable {
 // MARK: - Result Types
 
 /// Basic statistics result.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4BasicStatistics: Sendable {
     public let count: Int
     public let mean: Float
@@ -84,7 +82,6 @@ public struct Metal4BasicStatistics: Sendable {
 }
 
 /// Higher-order moments result.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4HigherMoments: Sendable {
     public let skewness: Float
     public let kurtosis: Float
@@ -119,7 +116,6 @@ public struct Metal4HigherMoments: Sendable {
 }
 
 /// Quantiles result.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4QuantilesResult: Sendable {
     public let quantiles: [Float: Float]
     public let executionTime: TimeInterval
@@ -143,7 +139,6 @@ public struct Metal4QuantilesResult: Sendable {
 }
 
 /// Comprehensive statistics result.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4StatisticsResult: Sendable {
     public let basic: Metal4BasicStatistics
     public let moments: Metal4HigherMoments?
@@ -192,7 +187,6 @@ public struct Metal4StatisticsResult: Sendable {
 }
 
 /// Correlation result.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4CorrelationResult: Sendable {
     public let matrix: [[Float]]
     public let covarianceMatrix: [[Float]]
@@ -200,7 +194,6 @@ public struct Metal4CorrelationResult: Sendable {
 }
 
 /// Batch statistics result.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4BatchStatisticsResult: Sendable {
     public let results: [Metal4StatisticsResult]
     public let totalExecutionTime: TimeInterval
@@ -252,7 +245,6 @@ public struct Metal4BatchStatisticsResult: Sendable {
 /// // Correlation matrix
 /// let corr = try await kernel.computeCorrelation(datasets: [x, y, z])
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class StatisticsKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

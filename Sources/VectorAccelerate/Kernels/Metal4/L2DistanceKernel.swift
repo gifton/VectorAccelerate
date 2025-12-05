@@ -24,7 +24,6 @@ import VectorCore
 ///
 /// Memory layout must match the Metal shader's `L2DistanceParams` struct.
 /// Uses explicit padding for alignment.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct L2DistanceParameters: Sendable {
     /// Number of query vectors (N)
     public let numQueries: UInt32
@@ -146,7 +145,6 @@ public struct L2DistanceParameters: Sendable {
 ///     try topKKernel.encode(into: encoder, ...)
 /// }
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class L2DistanceKernel: @unchecked Sendable, DimensionOptimizedKernel, FusibleKernel {
 
     // MARK: - Protocol Properties
@@ -551,7 +549,6 @@ public final class L2DistanceKernel: @unchecked Sendable, DimensionOptimizedKern
 
 // MARK: - Metal4DistanceKernel Conformance
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension L2DistanceKernel: Metal4DistanceKernel {
     public typealias Parameters = L2DistanceParameters
 }

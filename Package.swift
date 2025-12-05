@@ -1,7 +1,7 @@
 // swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 //
-// IMPORTANT: VectorAccelerate 0.2.0+ requires Metal 4 (macOS 26.0+, iOS 26.0+)
+// IMPORTANT: VectorAccelerate 0.3.0+ requires Metal 4 (macOS 26.0+, iOS 26.0+)
 // The platform versions below are SPM placeholders; runtime availability is enforced
 // via @available(macOS 26.0, iOS 26.0, ...) attributes on all public APIs.
 // For older OS support, use VectorAccelerate 0.1.x.
@@ -33,6 +33,8 @@ let package = Package(
         .package(url: "https://github.com/gifton/VectorCore", from: "0.1.6")
     ],
     targets: [
+        // MARK: - Core GPU Acceleration
+        // Includes GPU-first vector index (AcceleratedVectorIndex) and all Metal kernels
         .target(
             name: "VectorAccelerate",
             dependencies: [
@@ -46,6 +48,8 @@ let package = Package(
                 .enableUpcomingFeature("ExistentialAny")
             ]
         ),
+
+        // MARK: - Benchmarks
         .executableTarget(
             name: "VectorAccelerateBenchmarks",
             dependencies: [
@@ -53,15 +57,13 @@ let package = Package(
                 .product(name: "VectorCore", package: "VectorCore")
             ]
         ),
+
+        // MARK: - Tests
         .testTarget(
             name: "VectorAccelerateTests",
             dependencies: [
                 "VectorAccelerate",
                 .product(name: "VectorCore", package: "VectorCore")
-            ],
-            exclude: [
-                "ShaderManagerTests.swift.disabled",
-                "VectorCoreIntegrationEnhancedTests.swift.disabled"
             ]
         )
     ]

@@ -17,7 +17,7 @@
 
 constexpr constant uint K_PRIVATE = 8;                // Per-thread register heap size
 constexpr constant uint MAX_TGS = 256;                // Maximum threadgroup size
-constexpr constant uint MAX_D = 512;                  // Maximum dimension for query caching
+constexpr constant uint MAX_D = 768;                  // Maximum dimension for query caching (supports BERT-768)
 constexpr constant uint MAX_SHARED_CANDIDATES_POT = 2048; // Max candidates in shared memory
 constexpr constant uint SENTINEL_INDEX = 0xFFFFFFFF;  // Invalid index marker
 constexpr constant uint MAX_K_PRIVATE = 128;          // Maximum K for streaming

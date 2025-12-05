@@ -10,7 +10,6 @@ import Foundation
 import VectorCore
 
 /// Residency registration mode for resource lifecycle management
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum ResidencyMode: String, Sendable, Codable {
     /// Resource is long-lived, rarely changes (e.g., model weights)
     case `static`
@@ -23,7 +22,6 @@ public enum ResidencyMode: String, Sendable, Codable {
 }
 
 /// Statistics for residency manager monitoring
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct ResidencyStatistics: Sendable, Equatable {
     public let totalAllocations: Int
     public let staticAllocations: Int
@@ -59,7 +57,6 @@ public struct ResidencyStatistics: Sendable, Equatable {
 /// try await manager.commit()
 /// // Buffer is now GPU-resident
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor ResidencyManager {
     // MARK: - Types
 
@@ -377,7 +374,6 @@ public actor ResidencyManager {
 
 /// Residency set descriptor for Metal 4
 /// Note: This mirrors the expected Metal 4 API
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public class MTLResidencySetDescriptor: NSObject {
     public var initialCapacity: Int = 64
 
@@ -390,7 +386,6 @@ public class MTLResidencySetDescriptor: NSObject {
 
 /// Protocol for Metal 4 residency set
 /// Note: This abstracts the Metal 4 MTLResidencySet type
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public protocol MTLResidencySet: AnyObject, Sendable {
     func addAllocation(_ allocation: any MTLBuffer)
     func removeAllocation(_ allocation: any MTLBuffer)
@@ -399,7 +394,6 @@ public protocol MTLResidencySet: AnyObject, Sendable {
 
 // MARK: - MTLDevice Extension
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public extension MTLDevice {
     /// Create a residency set for Metal 4
     /// Note: This will use the actual Metal 4 API when available
@@ -413,7 +407,6 @@ public extension MTLDevice {
 // MARK: - Metal 4 Residency Set Implementation
 
 /// Implementation of MTLResidencySet using Metal 4 APIs
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 internal final class Metal4ResidencySetImpl: MTLResidencySet, @unchecked Sendable {
     private let device: any MTLDevice
     private var allocations: Set<ObjectIdentifier> = []

@@ -12,7 +12,6 @@ import VectorCore
 // MARK: - Pipeline Cache Statistics
 
 /// Statistics for pipeline cache monitoring
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct PipelineCacheStatistics: Sendable {
     public let hits: Int
     public let misses: Int
@@ -35,7 +34,6 @@ public struct PipelineCacheStatistics: Sendable {
 // MARK: - Cache Entry Metadata
 
 /// Metadata for cached pipeline entries
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct PipelineCacheEntry: Codable, Sendable {
     public let key: PipelineCacheKey
     public let createdAt: Date
@@ -101,7 +99,6 @@ public struct PipelineCacheEntry: Codable, Sendable {
 /// let cache = try await PipelineCache(compiler: compiler)
 /// let pipeline = try await cache.getPipeline(for: .l2Distance(dimension: 384))
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor PipelineCache {
     // MARK: - Properties
 
@@ -343,7 +340,6 @@ public actor PipelineCache {
 
 // MARK: - Disk Persistence Extension
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension PipelineCache {
     /// Save cache manifest to disk
     public func saveManifest() async throws {
@@ -383,7 +379,6 @@ extension PipelineCache {
 
 // MARK: - Pipeline Cache Factory
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum PipelineCacheFactory {
     /// Create a memory-only cache
     public static func createMemoryOnly(

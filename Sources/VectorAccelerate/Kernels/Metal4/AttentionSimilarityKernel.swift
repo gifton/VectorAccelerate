@@ -27,7 +27,6 @@ import VectorCore
 // MARK: - Configuration
 
 /// Configuration for attention-based similarity.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4AttentionSimilarityConfig: Sendable {
     /// Input dimension of vectors
     public let inputDimension: Int
@@ -90,7 +89,6 @@ public struct Metal4AttentionSimilarityConfig: Sendable {
 // MARK: - Parameters
 
 /// Parameters for attention similarity kernel (matches Metal struct).
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct AttentionSimilarityParameters: Sendable {
     public var numQueries: UInt32
     public var numKeys: UInt32
@@ -125,7 +123,6 @@ public struct AttentionSimilarityParameters: Sendable {
 // MARK: - Result Types
 
 /// Result from attention similarity computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4AttentionSimilarityResult: Sendable {
     /// Similarity scores [numQueries, numKeys]
     public let similarities: [[Float]]
@@ -203,7 +200,6 @@ public struct Metal4AttentionSimilarityResult: Sendable {
 /// // Get top-5 matches for first query
 /// let matches = result.topK(forQuery: 0, k: 5)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class AttentionSimilarityKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

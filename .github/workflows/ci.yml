@@ -13,7 +13,7 @@ env:
 jobs:
   metal-shaders:
     name: Metal Shaders
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 10
 
     steps:
@@ -23,7 +23,7 @@ jobs:
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16'
+          xcode-version: 'latest-stable'
 
       - name: Validate Metal Shaders
         run: |
@@ -85,7 +85,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 15
 
     steps:
@@ -95,7 +95,7 @@ jobs:
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16'
+          xcode-version: 'latest-stable'
 
       - name: System Info
         run: |
@@ -120,6 +120,7 @@ jobs:
 
       - name: Build (Debug)
         run: |
+          set -eo pipefail
           swift build -v 2>&1 | tee build.log
           echo "## Build (Debug)" >> $GITHUB_STEP_SUMMARY
           echo "✅ Build succeeded" >> $GITHUB_STEP_SUMMARY
@@ -134,7 +135,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: macos-15
+    runs-on: macos-26
     needs: build
     timeout-minutes: 20
 
@@ -145,7 +146,7 @@ jobs:
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16'
+          xcode-version: 'latest-stable'
 
       - name: Restore SPM Cache
         uses: actions/cache@v4
@@ -159,6 +160,7 @@ jobs:
 
       - name: Run Tests
         run: |
+          set -eo pipefail
           swift test --parallel 2>&1 | tee test.log
 
           # Extract test summary
@@ -176,7 +178,7 @@ jobs:
 
   build-release:
     name: Build (Release)
-    runs-on: macos-15
+    runs-on: macos-26
     needs: build
     timeout-minutes: 20
 
@@ -187,7 +189,7 @@ jobs:
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16'
+          xcode-version: 'latest-stable'
 
       - name: Restore SPM Cache
         uses: actions/cache@v4
@@ -201,6 +203,7 @@ jobs:
 
       - name: Build (Release)
         run: |
+          set -eo pipefail
           swift build -c release -v 2>&1 | tee build-release.log
           echo "## Build (Release)" >> $GITHUB_STEP_SUMMARY
           echo "✅ Release build succeeded" >> $GITHUB_STEP_SUMMARY
@@ -215,7 +218,7 @@ jobs:
 
   lint:
     name: SwiftLint
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 10
 
     steps:

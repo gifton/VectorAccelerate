@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Configuration
 
 /// Configuration for Jaccard distance computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4JaccardConfig: Sendable {
     /// Threshold for binarizing float vectors
     public let threshold: Float
@@ -41,7 +40,6 @@ public struct Metal4JaccardConfig: Sendable {
 // MARK: - Result Types
 
 /// Result from single Jaccard distance computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4JaccardResult: Sendable {
     /// Jaccard distance (1 - similarity)
     public let distance: Float
@@ -65,7 +63,6 @@ public struct Metal4JaccardResult: Sendable {
 }
 
 /// Result from batch Jaccard distance computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4BatchJaccardResult: Sendable {
     /// Flattened distance matrix
     public let distances: [Float]
@@ -152,7 +149,6 @@ public struct Metal4BatchJaccardResult: Sendable {
 /// let batch = try await kernel.computeDistanceMatrix(queries, dataset)
 /// let nearest = batch.nearestNeighbors(k: 5)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class JaccardDistanceKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties

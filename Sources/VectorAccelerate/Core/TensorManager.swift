@@ -15,7 +15,6 @@ import VectorCore
 // MARK: - Tensor Data Type
 
 /// Supported data types for tensor operations
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum TensorDataType: String, Codable, Sendable {
     case float32
     case float16
@@ -47,7 +46,6 @@ public enum TensorDataType: String, Codable, Sendable {
 // MARK: - TensorShape Extensions for ML
 
 /// Extension to add byte size calculation for TensorDataType
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public extension TensorShape {
     /// Size in bytes for given data type
     func byteSize(dataType: TensorDataType) -> Int {
@@ -58,7 +56,6 @@ public extension TensorShape {
 // MARK: - Tensor Buffer
 
 /// A Metal buffer containing tensor data with shape metadata
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct TensorBuffer: Sendable {
     /// The underlying Metal buffer
     public let buffer: any MTLBuffer
@@ -93,7 +90,6 @@ public struct TensorBuffer: Sendable {
 // MARK: - Tensor Metadata
 
 /// Metadata for serialized tensor files
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct TensorMetadata: Codable, Sendable {
     public let name: String
     public let shape: TensorShape
@@ -122,7 +118,6 @@ public struct TensorMetadata: Codable, Sendable {
 // MARK: - Weight File Format
 
 /// Format for weight files (header + binary data)
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct WeightFileManifest: Codable, Sendable {
     public let version: String
     public let tensors: [TensorMetadata]
@@ -140,7 +135,6 @@ public struct WeightFileManifest: Codable, Sendable {
 // MARK: - Tensor Manager Statistics
 
 /// Statistics for tensor manager monitoring
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct TensorManagerStatistics: Sendable {
     public let loadedTensors: Int
     public let totalMemoryBytes: Int
@@ -164,7 +158,7 @@ public struct TensorManagerStatistics: Sendable {
 ///
 /// Example:
 /// ```swift
-/// let manager = TensorManager(device: device)
+/// let manager = await TensorManager(device: device)
 ///
 /// // Load projection weights
 /// let projection = try await manager.loadWeights(
@@ -176,7 +170,6 @@ public struct TensorManagerStatistics: Sendable {
 /// // Use in shader
 /// encoder.setBuffer(projection.buffer, offset: 0, index: 2)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor TensorManager {
     // MARK: - Properties
 
@@ -210,7 +203,7 @@ public actor TensorManager {
         name: String,
         shape: TensorShape,
         dataType: TensorDataType = .float32
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         let expectedSize = shape.byteSize(dataType: dataType)
 
         // Load file data
@@ -223,7 +216,7 @@ public actor TensorManager {
             )
         }
 
-        return try await loadWeights(
+        return try loadWeights(
             from: data,
             name: name,
             shape: shape,
@@ -237,7 +230,7 @@ public actor TensorManager {
         name: String,
         shape: TensorShape,
         dataType: TensorDataType = .float32
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         let expectedSize = shape.byteSize(dataType: dataType)
 
         guard data.count >= expectedSize else {
@@ -276,7 +269,7 @@ public actor TensorManager {
     }
 
     /// Load multiple tensors from a weight file with manifest
-    public func loadWeightFile(from url: URL) async throws -> [String: TensorBuffer] {
+    public func loadWeightFile(from url: URL) throws -> [String: TensorBuffer] {
         let manifestURL = url.appendingPathExtension("json")
         let dataURL = url
 
@@ -302,7 +295,7 @@ public actor TensorManager {
                 in: metadata.byteOffset..<(metadata.byteOffset + metadata.byteSize)
             )
 
-            let tensor = try await loadWeights(
+            let tensor = try loadWeights(
                 from: tensorData,
                 name: metadata.name,
                 shape: metadata.shape,
@@ -322,7 +315,7 @@ public actor TensorManager {
         from data: [Float],
         name: String,
         shape: TensorShape
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         let expectedCount = shape.elementCount
 
         guard data.count == expectedCount else {
@@ -366,7 +359,7 @@ public actor TensorManager {
     public func createProjectionMatrix(
         from weights: [[Float]],
         name: String
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         guard !weights.isEmpty, !weights[0].isEmpty else {
             throw VectorError.invalidDimension(0, reason: "Projection matrix cannot be empty")
         }
@@ -377,7 +370,7 @@ public actor TensorManager {
         // Flatten row-major
         let flattened = weights.flatMap { $0 }
 
-        return try await createTensor(
+        return try createTensor(
             from: flattened,
             name: name,
             shape: TensorShape.matrix(rows: rows, cols: cols)
@@ -390,7 +383,7 @@ public actor TensorManager {
         outputDim: Int,
         name: String,
         scale: Float = 0.02
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         // Xavier/Glorot initialization
         let fanIn = Float(inputDim)
         let fanOut = Float(outputDim)
@@ -405,7 +398,7 @@ public actor TensorManager {
             weights[i] = z * stddev
         }
 
-        return try await createTensor(
+        return try createTensor(
             from: weights,
             name: name,
             shape: TensorShape.projection(inputDim: inputDim, outputDim: outputDim)
@@ -416,17 +409,17 @@ public actor TensorManager {
 
     /// Get a loaded tensor by name
     public func getTensor(name: String) -> TensorBuffer? {
-        tensors[name]
+        return tensors[name]
     }
 
     /// Get all loaded tensor names
     public var loadedTensorNames: [String] {
-        Array(tensors.keys)
+        return Array(tensors.keys)
     }
 
     /// Check if a tensor is loaded
     public func isLoaded(_ name: String) -> Bool {
-        tensors[name] != nil
+        return tensors[name] != nil
     }
 
     // MARK: - Unloading
@@ -451,7 +444,7 @@ public actor TensorManager {
 
     /// Get current statistics
     public func getStatistics() -> TensorManagerStatistics {
-        TensorManagerStatistics(
+        return TensorManagerStatistics(
             loadedTensors: tensors.count,
             totalMemoryBytes: totalMemoryBytes,
             loadCount: loadCount,
@@ -475,13 +468,12 @@ public actor TensorManager {
 
     /// Validate all required tensors are loaded
     public func validateRequired(_ names: [String]) -> [String] {
-        names.filter { tensors[$0] == nil }
+        return names.filter { tensors[$0] == nil }
     }
 }
 
 // MARK: - Weight File Utilities
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum WeightFileUtils {
     /// Create a weight file from tensors
     public static func createWeightFile(
@@ -521,7 +513,6 @@ public enum WeightFileUtils {
 
 // MARK: - VectorError Extension
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public extension VectorError {
     /// Tensor size mismatch error
     static func tensorSizeMismatch(expected: Int, actual: Int) -> VectorError {

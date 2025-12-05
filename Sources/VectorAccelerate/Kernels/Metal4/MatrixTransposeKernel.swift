@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Configuration
 
 /// Configuration for transpose operation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4TransposeConfig: Sendable {
     /// Conjugate transpose (for complex numbers, future)
     public let conjugate: Bool
@@ -38,7 +37,6 @@ public struct Metal4TransposeConfig: Sendable {
 // MARK: - Parameters
 
 /// Parameters for transpose kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct TransposeParameters: Sendable {
     /// Number of rows in input matrix
     public let rows: UInt32
@@ -54,7 +52,6 @@ public struct TransposeParameters: Sendable {
 // MARK: - Result Type
 
 /// Result from transpose operation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4TransposeResult: Sendable {
     /// Transposed matrix buffer [columns × rows]
     public let buffer: any MTLBuffer
@@ -109,7 +106,6 @@ public struct Metal4TransposeResult: Sendable {
 /// // Verify: (A^T)^T == A
 /// let valid = try await kernel.validate(matrixA)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class MatrixTransposeKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

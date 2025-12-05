@@ -21,7 +21,6 @@ import Accelerate
 // MARK: - Binning Strategy
 
 /// Binning strategy for histogram computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum Metal4BinningStrategy: Sendable {
     case uniform(bins: Int)
     case adaptive(bins: Int, method: AdaptiveMethod)
@@ -48,7 +47,6 @@ public enum Metal4BinningStrategy: Sendable {
 // MARK: - Configuration
 
 /// Configuration for histogram computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4HistogramConfig: Sendable {
     /// Binning strategy
     public let binningStrategy: Metal4BinningStrategy
@@ -81,7 +79,6 @@ public struct Metal4HistogramConfig: Sendable {
 // MARK: - Statistics
 
 /// Statistical measures derived from histogram.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4HistogramStatistics: Sendable {
     public let totalCount: Float
     public let mean: Float
@@ -120,7 +117,6 @@ public struct Metal4HistogramStatistics: Sendable {
 // MARK: - Result Types
 
 /// Comprehensive histogram result with statistics.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4HistogramResult: Sendable {
     /// Bin counts or probabilities
     public let bins: [Float]
@@ -201,7 +197,6 @@ public struct Metal4HistogramResult: Sendable {
 }
 
 /// Batch histogram result for multiple datasets.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4BatchHistogramResult: Sendable {
     public let histograms: [Metal4HistogramResult]
     public let totalExecutionTime: TimeInterval
@@ -244,7 +239,6 @@ public struct Metal4BatchHistogramResult: Sendable {
 /// )
 /// let normalized = try await kernel.computeHistogram(data: values, config: config)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class HistogramKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

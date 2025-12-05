@@ -22,7 +22,6 @@ import VectorCore
 /// Parameters for Fused L2 Top-K kernel.
 ///
 /// Memory layout must match the Metal shader expectations.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct FusedL2TopKParameters: Sendable {
     /// Number of query vectors (Q)
     public let numQueries: UInt32
@@ -39,8 +38,8 @@ public struct FusedL2TopKParameters: Sendable {
     /// Maximum K supported by the kernel
     public static let maxK: Int = 128
 
-    /// Maximum dimension supported by the kernel
-    public static let maxDimension: Int = 512
+    /// Maximum dimension supported by the kernel (supports BERT-768)
+    public static let maxDimension: Int = 768
 
     /// Create parameters for fused L2 + Top-K.
     ///
@@ -65,7 +64,6 @@ public struct FusedL2TopKParameters: Sendable {
 // MARK: - Configuration
 
 /// Configuration for fused operation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4FusedL2Config: Sendable {
     /// Whether to include distance values in output
     public let includeDistances: Bool
@@ -85,7 +83,6 @@ public struct Metal4FusedL2Config: Sendable {
 // MARK: - Result Type
 
 /// Result from fused L2 + Top-K operation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4FusedL2TopKResult: Sendable {
     /// Buffer containing selected indices [numQueries × k]
     public let indices: any MTLBuffer
@@ -128,7 +125,6 @@ public struct Metal4FusedL2TopKResult: Sendable {
 // MARK: - Streaming Update Parameters
 
 /// Parameters for streaming update kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4StreamingL2Params: Sendable {
     var Q: UInt32
     var chunkSize: UInt32
@@ -162,7 +158,6 @@ public struct Metal4StreamingL2Params: Sendable {
 ///     k: 10
 /// )
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

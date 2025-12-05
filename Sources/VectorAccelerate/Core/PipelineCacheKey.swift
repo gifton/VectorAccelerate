@@ -23,7 +23,6 @@ import Foundation
 /// let key = PipelineCacheKey.distance("l2Distance", dimension: 384)
 /// let pipeline = try await cache.getPipeline(for: key)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct PipelineCacheKey: Hashable, Codable, Sendable {
     /// Operation type (l2Distance, cosine, topK, etc.)
     public let operation: String
@@ -281,7 +280,6 @@ public struct PipelineCacheKey: Hashable, Codable, Sendable {
 
 // MARK: - Common Cache Keys
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public extension PipelineCacheKey {
     /// Common keys for pre-warming cache
     static var commonKeys: [PipelineCacheKey] {
@@ -338,7 +336,6 @@ public extension PipelineCacheKey {
 // MARK: - Cache Key Set
 
 /// Set of cache keys for batch operations
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct PipelineCacheKeySet: Codable, Sendable {
     public let keys: [PipelineCacheKey]
     public let version: String

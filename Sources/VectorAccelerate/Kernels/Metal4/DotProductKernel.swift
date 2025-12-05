@@ -22,7 +22,6 @@ import VectorCore
 /// Parameters for Dot Product kernel.
 ///
 /// Memory layout must match the Metal shader's `DotProductParams` struct.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct DotProductParameters: Sendable {
     /// Number of query vectors (N)
     public let numQueries: UInt32
@@ -134,7 +133,6 @@ public struct DotProductParameters: Sendable {
 ///     database: database
 /// )
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class DotProductKernel: @unchecked Sendable, DimensionOptimizedKernel, FusibleKernel {
 
     // MARK: - Protocol Properties
@@ -468,7 +466,6 @@ public final class DotProductKernel: @unchecked Sendable, DimensionOptimizedKern
 
 // MARK: - Metal4DistanceKernel Conformance
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension DotProductKernel: Metal4DistanceKernel {
     public typealias Parameters = DotProductParameters
 

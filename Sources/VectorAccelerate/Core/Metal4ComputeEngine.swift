@@ -10,7 +10,6 @@ import Foundation
 import VectorCore
 
 /// Configuration for Metal 4 compute engine
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4ComputeEngineConfiguration: Sendable {
     public let preferAsync: Bool
     public let maxBatchSize: Int
@@ -53,7 +52,6 @@ public struct Metal4ComputeEngineConfiguration: Sendable {
 /// // Fused pipeline (distance + selection in one encoder)
 /// let topK = try await engine.fusedDistanceTopK(query: query, database: database, k: 10)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor Metal4ComputeEngine {
     // MARK: - Properties
 
@@ -556,7 +554,6 @@ public actor Metal4ComputeEngine {
 // MARK: - Statistics
 
 /// Statistics for Metal 4 compute engine
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4EngineStatistics: Sendable {
     public let operationCount: Int
     public let totalComputeTime: TimeInterval
@@ -569,7 +566,6 @@ public struct Metal4EngineStatistics: Sendable {
 // MARK: - Distance Metric Type
 
 /// Supported distance metric types for Metal 4 compute engine
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum Metal4DistanceMetric: String, Sendable, CaseIterable {
     case euclidean
     case cosine

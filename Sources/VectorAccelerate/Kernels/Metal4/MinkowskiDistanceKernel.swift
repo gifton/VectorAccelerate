@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Configuration
 
 /// Configuration for Minkowski distance computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4MinkowskiConfig: Sendable {
     /// Minkowski parameter (p value)
     public let p: Float
@@ -71,7 +70,6 @@ public struct Metal4MinkowskiConfig: Sendable {
 // MARK: - Parameters
 
 /// Parameters for Minkowski distance kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 internal struct Metal4MinkowskiParams: Sendable {
     var p: Float
     var M: UInt32
@@ -83,7 +81,6 @@ internal struct Metal4MinkowskiParams: Sendable {
 // MARK: - Result Types
 
 /// Result from Minkowski distance computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4MinkowskiResult: Sendable {
     /// Distance matrix buffer
     public let distances: any MTLBuffer
@@ -183,7 +180,6 @@ public struct Metal4MinkowskiResult: Sendable {
 /// // Custom p value
 /// let custom = try await kernel.computeDistances(queries, dataset, config: Metal4MinkowskiConfig(p: 3.0))
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class MinkowskiDistanceKernel: @unchecked Sendable, Metal4Kernel, FusibleKernel {
 
     // MARK: - Protocol Properties

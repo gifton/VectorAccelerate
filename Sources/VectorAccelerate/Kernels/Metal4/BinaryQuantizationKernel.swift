@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Binary Vector Types
 
 /// Bit-packed binary vector representation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4BinaryVector: Sendable {
     /// Bit-packed data (32 bits per UInt32 word)
     public let data: [UInt32]
@@ -76,7 +75,6 @@ public struct Metal4BinaryVector: Sendable {
 }
 
 /// Batch of binary vectors for efficient GPU operations.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4BinaryVectorBatch: Sendable {
     public let vectors: [Metal4BinaryVector]
     public let dimension: Int
@@ -105,7 +103,6 @@ public struct Metal4BinaryVectorBatch: Sendable {
 // MARK: - Configuration
 
 /// Configuration for binary quantization.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4BinaryQuantizationConfig: Sendable {
     /// Threshold for binary conversion (values > threshold → 1)
     public let threshold: Float
@@ -130,7 +127,6 @@ public struct Metal4BinaryQuantizationConfig: Sendable {
 // MARK: - Result Types
 
 /// Result from binary quantization.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4BinaryQuantizationResult: Sendable {
     public let binaryVectors: Metal4BinaryVectorBatch
     public let compressionRatio: Float
@@ -149,7 +145,6 @@ public struct Metal4BinaryQuantizationResult: Sendable {
 }
 
 /// Result from Hamming distance computation.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4HammingDistanceResult: Sendable {
     public let distances: [Float]
     public let minDistance: Float
@@ -173,7 +168,6 @@ public struct Metal4HammingDistanceResult: Sendable {
 // MARK: - Parameters
 
 /// Parameters for binary quantization kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 internal struct Metal4BinaryQuantizationParams: Sendable {
     var dimension: UInt32
     var numVectors: UInt32
@@ -182,7 +176,6 @@ internal struct Metal4BinaryQuantizationParams: Sendable {
 }
 
 /// Parameters for Hamming distance kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 internal struct Metal4HammingParams: Sendable {
     var numWords: UInt32
     var numCandidates: UInt32
@@ -222,7 +215,6 @@ internal struct Metal4HammingParams: Sendable {
 ///     candidates: result.binaryVectors
 /// )
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class BinaryQuantizationKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

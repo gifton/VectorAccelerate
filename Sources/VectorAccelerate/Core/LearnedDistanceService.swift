@@ -43,7 +43,6 @@ import VectorCore
 /// - `enableExperimentalML` is false in configuration
 /// - Device doesn't support MLTensor (Metal4Capabilities.supportsMLTensor == false)
 /// - No projection weights are loaded
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor LearnedDistanceService {
     // MARK: - Properties
 
@@ -434,7 +433,6 @@ public actor LearnedDistanceService {
 
 // MARK: - Factory Methods
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension LearnedDistanceService {
     /// Create service with ML features enabled
     public static func withMLEnabled(context: Metal4Context) async throws -> LearnedDistanceService {

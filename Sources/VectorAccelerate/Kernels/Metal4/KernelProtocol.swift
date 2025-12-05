@@ -62,7 +62,6 @@ import VectorCore
 ///     )
 /// }
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public protocol Metal4Kernel: Sendable {
     /// The Metal 4 context this kernel operates with
     var context: Metal4Context { get }
@@ -79,7 +78,6 @@ public protocol Metal4Kernel: Sendable {
 /// Result of encoding a kernel operation.
 ///
 /// Contains information about the dispatch for debugging and profiling.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4EncodingResult: Sendable {
     /// The pipeline that was used
     public let pipelineName: String
@@ -103,7 +101,6 @@ public struct Metal4EncodingResult: Sendable {
 ///
 /// Distance kernels compute pairwise distances between query and database vectors.
 /// The output is a matrix of distances with shape [numQueries, numDatabase].
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public protocol Metal4DistanceKernel: Metal4Kernel {
     /// Parameters type for this distance kernel
     associatedtype Parameters: Sendable
@@ -154,7 +151,6 @@ public protocol Metal4DistanceKernel: Metal4Kernel {
 /// Some kernels (like L2 distance) have hand-tuned implementations for
 /// common embedding dimensions (384, 512, 768, 1536). This protocol
 /// provides introspection of available optimizations.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public protocol DimensionOptimizedKernel: Metal4Kernel {
     /// Dimensions that have specialized optimized pipelines
     var optimizedDimensions: [Int] { get }
@@ -163,7 +159,6 @@ public protocol DimensionOptimizedKernel: Metal4Kernel {
     func hasOptimizedPipeline(for dimension: Int) -> Bool
 }
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension DimensionOptimizedKernel {
     public func hasOptimizedPipeline(for dimension: Int) -> Bool {
         optimizedDimensions.contains(dimension)
@@ -176,7 +171,6 @@ extension DimensionOptimizedKernel {
 ///
 /// Fusible kernels can share a command encoder with other operations,
 /// reducing submission overhead and enabling better GPU utilization.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public protocol FusibleKernel: Metal4Kernel {
     /// Types of kernels this can be fused with
     var fusibleWith: [String] { get }
@@ -191,7 +185,6 @@ public protocol FusibleKernel: Metal4Kernel {
 ///
 /// Provides optimal thread configuration based on pipeline characteristics
 /// and workload size.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4ThreadConfiguration: Sendable {
     public let threadgroups: MTLSize
     public let threadsPerThreadgroup: MTLSize
@@ -273,7 +266,6 @@ public struct Metal4ThreadConfiguration: Sendable {
 // MARK: - Kernel Statistics
 
 /// Statistics for Metal 4 kernel execution.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4KernelStatistics: Sendable {
     public let encodeCount: Int
     public let executeCount: Int
@@ -296,7 +288,6 @@ public struct Metal4KernelStatistics: Sendable {
 ///
 /// Small parameters (< 4KB) can use setBytes, but larger or frequently
 /// reused parameters benefit from a dedicated buffer.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum ParameterBinding {
     /// Bind parameters inline using setBytes (for small, one-off parameters)
     case inline
@@ -312,7 +303,9 @@ public enum ParameterBinding {
     ) {
         switch self {
         case .inline:
-            encoder.setBytes(&value, length: MemoryLayout<T>.size, index: index)
+            withUnsafeBytes(of: &value) { bytes in
+                encoder.setBytes(bytes.baseAddress!, length: bytes.count, index: index)
+            }
         case .buffer(let buffer):
             encoder.setBuffer(buffer, offset: 0, index: index)
         }

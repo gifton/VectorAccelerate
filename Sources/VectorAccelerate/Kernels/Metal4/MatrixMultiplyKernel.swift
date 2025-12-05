@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Configuration
 
 /// Configuration for matrix multiplication.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4MatrixMultiplyConfig: Sendable {
     /// Scaling factor for A*B result
     public let alpha: Float
@@ -49,7 +48,6 @@ public struct Metal4MatrixMultiplyConfig: Sendable {
 // MARK: - Parameters
 
 /// Parameters for matrix multiply kernel.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct MatrixMultiplyParameters: Sendable {
     /// Number of rows in A (or A^T)
     public let M: UInt32
@@ -82,7 +80,6 @@ public struct MatrixMultiplyParameters: Sendable {
 // MARK: - Result Type
 
 /// Result from matrix multiplication.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4MatrixMultiplyResult: Sendable {
     /// Result matrix as buffer [M × N]
     public let buffer: any MTLBuffer
@@ -143,7 +140,6 @@ public struct Metal4MatrixMultiplyResult: Sendable {
 /// // GEMM: C = alpha * A × B + beta * C
 /// let result = try await kernel.gemm(A, B, C, config: config)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class MatrixMultiplyKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

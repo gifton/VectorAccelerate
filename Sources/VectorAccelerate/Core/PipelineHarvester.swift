@@ -12,7 +12,6 @@ import VectorCore
 // MARK: - Harvest Manifest
 
 /// Manifest describing harvested pipeline data
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct HarvestManifest: Codable, Sendable {
     /// Manifest version
     public let version: String
@@ -59,7 +58,6 @@ public struct HarvestManifest: Codable, Sendable {
 }
 
 /// Information about a single harvested pipeline
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct HarvestedPipelineInfo: Codable, Sendable {
     /// Cache key for the pipeline
     public let key: PipelineCacheKey
@@ -84,7 +82,6 @@ public struct HarvestedPipelineInfo: Codable, Sendable {
 // MARK: - Harvest Result
 
 /// Result of a harvest operation
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct HarvestResult: Sendable {
     public let manifest: HarvestManifest
     public let successCount: Int
@@ -115,7 +112,6 @@ public struct HarvestResult: Sendable {
 /// let harvester = try PipelineHarvester(device: device, outputDirectory: harvestDir)
 /// let result = try await harvester.harvest(keys: PipelineCacheKey.commonKeys)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor PipelineHarvester {
     // MARK: - Properties
 
@@ -137,7 +133,7 @@ public actor PipelineHarvester {
         device: any MTLDevice,
         compiler: Metal4ShaderCompiler,
         outputDirectory: URL,
-        vectorAccelerateVersion: String = "0.2.0"
+        vectorAccelerateVersion: String = "0.3.0"
     ) throws {
         self.device = device
         self.compiler = compiler
@@ -388,7 +384,6 @@ private extension Data {
 
 // MARK: - Harvester Factory
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum PipelineHarvesterFactory {
     /// Create harvester with default output directory
     public static func create(
@@ -421,7 +416,6 @@ public enum PipelineHarvesterFactory {
 
 // MARK: - Additional VectorError Extensions
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public extension VectorError {
     /// Harvest manifest not found
     static func harvestManifestNotFound(

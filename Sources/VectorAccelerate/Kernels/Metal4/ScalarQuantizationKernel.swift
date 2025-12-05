@@ -20,7 +20,6 @@ import VectorCore
 // MARK: - Quantization Types
 
 /// Quantization scheme type
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum Metal4QuantizationType: UInt8, Sendable {
     /// Zero-point = 0, symmetric around origin
     case symmetric = 0
@@ -33,7 +32,6 @@ public enum Metal4QuantizationType: UInt8, Sendable {
 }
 
 /// Quantization bit width
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public enum Metal4BitWidth: UInt8, Sendable {
     case int8 = 8
     case int4 = 4
@@ -60,7 +58,6 @@ public enum Metal4BitWidth: UInt8, Sendable {
 /// Parameters for Scalar Quantization kernel.
 ///
 /// Memory layout must match the Metal shader's parameters struct.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct ScalarQuantizationParameters: Sendable {
     /// Total number of elements
     public var numElements: UInt32
@@ -100,7 +97,6 @@ public struct ScalarQuantizationParameters: Sendable {
 // MARK: - Result Types
 
 /// Result from quantization operation
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4QuantizationResult: Sendable {
     /// Quantized data as raw bytes
     public let quantizedData: Data
@@ -127,7 +123,6 @@ public struct Metal4QuantizationResult: Sendable {
 }
 
 /// Quality metrics from quantization
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct Metal4QuantizationMetrics: Sendable {
     /// Mean Squared Error
     public let mse: Float
@@ -171,7 +166,6 @@ public struct Metal4QuantizationMetrics: Sendable {
 /// // Dequantize back to floats
 /// let reconstructed = try await kernel.dequantize(result, count: vectors.count)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class ScalarQuantizationKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
