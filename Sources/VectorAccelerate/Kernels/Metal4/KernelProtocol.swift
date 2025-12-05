@@ -303,7 +303,9 @@ public enum ParameterBinding {
     ) {
         switch self {
         case .inline:
-            encoder.setBytes(&value, length: MemoryLayout<T>.size, index: index)
+            withUnsafeBytes(of: &value) { bytes in
+                encoder.setBytes(bytes.baseAddress!, length: bytes.count, index: index)
+            }
         case .buffer(let buffer):
             encoder.setBuffer(buffer, offset: 0, index: index)
         }
