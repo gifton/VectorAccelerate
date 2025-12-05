@@ -158,7 +158,7 @@ public struct TensorManagerStatistics: Sendable {
 ///
 /// Example:
 /// ```swift
-/// let manager = TensorManager(device: device)
+/// let manager = await TensorManager(device: device)
 ///
 /// // Load projection weights
 /// let projection = try await manager.loadWeights(
@@ -170,7 +170,7 @@ public struct TensorManagerStatistics: Sendable {
 /// // Use in shader
 /// encoder.setBuffer(projection.buffer, offset: 0, index: 2)
 /// ```
-public final class TensorManager: @unchecked Sendable {
+public actor TensorManager {
     // MARK: - Properties
 
     private let device: any MTLDevice
@@ -180,9 +180,6 @@ public final class TensorManager: @unchecked Sendable {
     // Statistics
     private var loadCount: Int = 0
     private var unloadCount: Int = 0
-
-    // Thread safety lock for mutable state
-    private let lock = NSLock()
 
     // MARK: - Initialization
 
@@ -263,9 +260,7 @@ public final class TensorManager: @unchecked Sendable {
             name: name
         )
 
-        // Store and track (thread-safe)
-        lock.lock()
-        defer { lock.unlock() }
+        // Store and track
         tensors[name] = tensor
         totalMemoryBytes += expectedSize
         loadCount += 1
@@ -353,9 +348,6 @@ public final class TensorManager: @unchecked Sendable {
             name: name
         )
 
-        // Thread-safe state update
-        lock.lock()
-        defer { lock.unlock() }
         tensors[name] = tensor
         totalMemoryBytes += byteSize
         loadCount += 1
@@ -417,22 +409,16 @@ public final class TensorManager: @unchecked Sendable {
 
     /// Get a loaded tensor by name
     public func getTensor(name: String) -> TensorBuffer? {
-        lock.lock()
-        defer { lock.unlock() }
         return tensors[name]
     }
 
     /// Get all loaded tensor names
     public var loadedTensorNames: [String] {
-        lock.lock()
-        defer { lock.unlock() }
         return Array(tensors.keys)
     }
 
     /// Check if a tensor is loaded
     public func isLoaded(_ name: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
         return tensors[name] != nil
     }
 
@@ -440,8 +426,6 @@ public final class TensorManager: @unchecked Sendable {
 
     /// Unload a tensor and free memory
     public func unload(name: String) {
-        lock.lock()
-        defer { lock.unlock() }
         if let tensor = tensors.removeValue(forKey: name) {
             totalMemoryBytes -= tensor.byteSize
             unloadCount += 1
@@ -450,8 +434,6 @@ public final class TensorManager: @unchecked Sendable {
 
     /// Unload all tensors
     public func unloadAll() {
-        lock.lock()
-        defer { lock.unlock() }
         let count = tensors.count
         tensors.removeAll()
         totalMemoryBytes = 0
@@ -462,8 +444,6 @@ public final class TensorManager: @unchecked Sendable {
 
     /// Get current statistics
     public func getStatistics() -> TensorManagerStatistics {
-        lock.lock()
-        defer { lock.unlock() }
         return TensorManagerStatistics(
             loadedTensors: tensors.count,
             totalMemoryBytes: totalMemoryBytes,
@@ -474,8 +454,6 @@ public final class TensorManager: @unchecked Sendable {
 
     /// Reset statistics counters
     public func resetStatistics() {
-        lock.lock()
-        defer { lock.unlock() }
         loadCount = 0
         unloadCount = 0
     }
@@ -484,16 +462,12 @@ public final class TensorManager: @unchecked Sendable {
 
     /// Validate tensor shape matches expected
     public func validateShape(name: String, expected: TensorShape) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
         guard let tensor = tensors[name] else { return false }
         return tensor.shape == expected
     }
 
     /// Validate all required tensors are loaded
     public func validateRequired(_ names: [String]) -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
         return names.filter { tensors[$0] == nil }
     }
 }

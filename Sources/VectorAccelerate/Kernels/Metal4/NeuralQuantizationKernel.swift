@@ -271,7 +271,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         encoderURL: URL,
         decoderURL: URL,
         config: Metal4NeuralQuantizationConfig
-    ) throws {
+    ) async throws {
         let encoderShape = TensorShape.projection(
             inputDim: config.inputDimension,
             outputDim: config.latentDimension
@@ -281,14 +281,14 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             outputDim: config.inputDimension
         )
 
-        encoderWeights = try tensorManager.loadWeights(
+        encoderWeights = try await tensorManager.loadWeights(
             from: encoderURL,
             name: "neural_encoder",
             shape: encoderShape,
             dataType: .float32
         )
 
-        decoderWeights = try tensorManager.loadWeights(
+        decoderWeights = try await tensorManager.loadWeights(
             from: decoderURL,
             name: "neural_decoder",
             shape: decoderShape,
@@ -303,7 +303,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         encoderData: Data,
         decoderData: Data,
         config: Metal4NeuralQuantizationConfig
-    ) throws {
+    ) async throws {
         let encoderShape = TensorShape.projection(
             inputDim: config.inputDimension,
             outputDim: config.latentDimension
@@ -313,14 +313,14 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             outputDim: config.inputDimension
         )
 
-        encoderWeights = try tensorManager.loadWeights(
+        encoderWeights = try await tensorManager.loadWeights(
             from: encoderData,
             name: "neural_encoder",
             shape: encoderShape,
             dataType: .float32
         )
 
-        decoderWeights = try tensorManager.loadWeights(
+        decoderWeights = try await tensorManager.loadWeights(
             from: decoderData,
             name: "neural_decoder",
             shape: decoderShape,
@@ -340,7 +340,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         encoderWeights: [Float],
         decoderWeights: [Float],
         config: Metal4NeuralQuantizationConfig
-    ) throws {
+    ) async throws {
         let encoderShape = TensorShape.projection(
             inputDim: config.inputDimension,
             outputDim: config.latentDimension
@@ -350,13 +350,13 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             outputDim: config.inputDimension
         )
 
-        self.encoderWeights = try tensorManager.createTensor(
+        self.encoderWeights = try await tensorManager.createTensor(
             from: encoderWeights,
             name: "neural_encoder",
             shape: encoderShape
         )
 
-        self.decoderWeights = try tensorManager.createTensor(
+        self.decoderWeights = try await tensorManager.createTensor(
             from: decoderWeights,
             name: "neural_decoder",
             shape: decoderShape
@@ -370,14 +370,14 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     /// Uses Xavier/Glorot initialization for proper scaling.
     public func createRandomWeights(
         config: Metal4NeuralQuantizationConfig
-    ) throws {
-        encoderWeights = try tensorManager.createRandomProjection(
+    ) async throws {
+        encoderWeights = try await tensorManager.createRandomProjection(
             inputDim: config.inputDimension,
             outputDim: config.latentDimension,
             name: "neural_encoder"
         )
 
-        decoderWeights = try tensorManager.createRandomProjection(
+        decoderWeights = try await tensorManager.createRandomProjection(
             inputDim: config.latentDimension,
             outputDim: config.inputDimension,
             name: "neural_decoder"
@@ -392,11 +392,11 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     }
 
     /// Unload weights to free memory.
-    public func unloadWeights() {
-        tensorManager.unload(name: "neural_encoder")
-        tensorManager.unload(name: "neural_decoder")
-        tensorManager.unload(name: "encoder_bias")
-        tensorManager.unload(name: "decoder_bias")
+    public func unloadWeights() async {
+        await tensorManager.unload(name: "neural_encoder")
+        await tensorManager.unload(name: "neural_decoder")
+        await tensorManager.unload(name: "encoder_bias")
+        await tensorManager.unload(name: "decoder_bias")
         encoderWeights = nil
         decoderWeights = nil
         encoderBias = nil
@@ -794,7 +794,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     // MARK: - Statistics
 
     /// Get tensor manager statistics.
-    public func getTensorStatistics() -> TensorManagerStatistics {
-        tensorManager.getStatistics()
+    public func getTensorStatistics() async -> TensorManagerStatistics {
+        await tensorManager.getStatistics()
     }
 }

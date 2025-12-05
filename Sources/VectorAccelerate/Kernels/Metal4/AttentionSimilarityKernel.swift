@@ -265,21 +265,21 @@ public final class AttentionSimilarityKernel: @unchecked Sendable, Metal4Kernel 
         queryProjectionURL: URL,
         keyProjectionURL: URL,
         config: Metal4AttentionSimilarityConfig
-    ) throws {
+    ) async throws {
         let projectionDim = config.numHeads * config.headDimension
         let projectionShape = TensorShape.projection(
             inputDim: config.inputDimension,
             outputDim: projectionDim
         )
 
-        queryProjection = try tensorManager.loadWeights(
+        queryProjection = try await tensorManager.loadWeights(
             from: queryProjectionURL,
             name: "attention_query",
             shape: projectionShape,
             dataType: .float32
         )
 
-        keyProjection = try tensorManager.loadWeights(
+        keyProjection = try await tensorManager.loadWeights(
             from: keyProjectionURL,
             name: "attention_key",
             shape: projectionShape,
@@ -294,21 +294,21 @@ public final class AttentionSimilarityKernel: @unchecked Sendable, Metal4Kernel 
         queryProjectionData: Data,
         keyProjectionData: Data,
         config: Metal4AttentionSimilarityConfig
-    ) throws {
+    ) async throws {
         let projectionDim = config.numHeads * config.headDimension
         let projectionShape = TensorShape.projection(
             inputDim: config.inputDimension,
             outputDim: projectionDim
         )
 
-        queryProjection = try tensorManager.loadWeights(
+        queryProjection = try await tensorManager.loadWeights(
             from: queryProjectionData,
             name: "attention_query",
             shape: projectionShape,
             dataType: .float32
         )
 
-        keyProjection = try tensorManager.loadWeights(
+        keyProjection = try await tensorManager.loadWeights(
             from: keyProjectionData,
             name: "attention_key",
             shape: projectionShape,
@@ -328,20 +328,20 @@ public final class AttentionSimilarityKernel: @unchecked Sendable, Metal4Kernel 
         queryProjection: [Float],
         keyProjection: [Float],
         config: Metal4AttentionSimilarityConfig
-    ) throws {
+    ) async throws {
         let projectionDim = config.numHeads * config.headDimension
         let projectionShape = TensorShape.projection(
             inputDim: config.inputDimension,
             outputDim: projectionDim
         )
 
-        self.queryProjection = try tensorManager.createTensor(
+        self.queryProjection = try await tensorManager.createTensor(
             from: queryProjection,
             name: "attention_query",
             shape: projectionShape
         )
 
-        self.keyProjection = try tensorManager.createTensor(
+        self.keyProjection = try await tensorManager.createTensor(
             from: keyProjection,
             name: "attention_key",
             shape: projectionShape
@@ -355,16 +355,16 @@ public final class AttentionSimilarityKernel: @unchecked Sendable, Metal4Kernel 
     /// Uses Xavier/Glorot initialization for proper scaling.
     public func createRandomWeights(
         config: Metal4AttentionSimilarityConfig
-    ) throws {
+    ) async throws {
         let projectionDim = config.numHeads * config.headDimension
 
-        queryProjection = try tensorManager.createRandomProjection(
+        queryProjection = try await tensorManager.createRandomProjection(
             inputDim: config.inputDimension,
             outputDim: projectionDim,
             name: "attention_query"
         )
 
-        keyProjection = try tensorManager.createRandomProjection(
+        keyProjection = try await tensorManager.createRandomProjection(
             inputDim: config.inputDimension,
             outputDim: projectionDim,
             name: "attention_key"
@@ -379,9 +379,9 @@ public final class AttentionSimilarityKernel: @unchecked Sendable, Metal4Kernel 
     }
 
     /// Unload weights to free memory.
-    public func unloadWeights() {
-        tensorManager.unload(name: "attention_query")
-        tensorManager.unload(name: "attention_key")
+    public func unloadWeights() async {
+        await tensorManager.unload(name: "attention_query")
+        await tensorManager.unload(name: "attention_key")
         queryProjection = nil
         keyProjection = nil
         currentConfig = nil
@@ -575,7 +575,7 @@ public final class AttentionSimilarityKernel: @unchecked Sendable, Metal4Kernel 
     // MARK: - Statistics
 
     /// Get tensor manager statistics.
-    public func getTensorStatistics() -> TensorManagerStatistics {
-        tensorManager.getStatistics()
+    public func getTensorStatistics() async -> TensorManagerStatistics {
+        await tensorManager.getStatistics()
     }
 }
