@@ -170,18 +170,19 @@ public struct TensorManagerStatistics: Sendable {
 /// // Use in shader
 /// encoder.setBuffer(projection.buffer, offset: 0, index: 2)
 /// ```
-public actor TensorManager {
+public final class TensorManager: @unchecked Sendable {
     // MARK: - Properties
 
-    /// Metal device for buffer creation.
-    /// Marked nonisolated to allow synchronous initialization.
-    private nonisolated let device: any MTLDevice
+    private let device: any MTLDevice
     private var tensors: [String: TensorBuffer] = [:]
     private var totalMemoryBytes: Int = 0
 
     // Statistics
     private var loadCount: Int = 0
     private var unloadCount: Int = 0
+
+    // Thread safety lock for mutable state
+    private let lock = NSLock()
 
     // MARK: - Initialization
 
@@ -205,7 +206,7 @@ public actor TensorManager {
         name: String,
         shape: TensorShape,
         dataType: TensorDataType = .float32
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         let expectedSize = shape.byteSize(dataType: dataType)
 
         // Load file data
@@ -218,7 +219,7 @@ public actor TensorManager {
             )
         }
 
-        return try await loadWeights(
+        return try loadWeights(
             from: data,
             name: name,
             shape: shape,
@@ -232,7 +233,7 @@ public actor TensorManager {
         name: String,
         shape: TensorShape,
         dataType: TensorDataType = .float32
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         let expectedSize = shape.byteSize(dataType: dataType)
 
         guard data.count >= expectedSize else {
@@ -262,7 +263,9 @@ public actor TensorManager {
             name: name
         )
 
-        // Store and track
+        // Store and track (thread-safe)
+        lock.lock()
+        defer { lock.unlock() }
         tensors[name] = tensor
         totalMemoryBytes += expectedSize
         loadCount += 1
@@ -271,7 +274,7 @@ public actor TensorManager {
     }
 
     /// Load multiple tensors from a weight file with manifest
-    public func loadWeightFile(from url: URL) async throws -> [String: TensorBuffer] {
+    public func loadWeightFile(from url: URL) throws -> [String: TensorBuffer] {
         let manifestURL = url.appendingPathExtension("json")
         let dataURL = url
 
@@ -297,7 +300,7 @@ public actor TensorManager {
                 in: metadata.byteOffset..<(metadata.byteOffset + metadata.byteSize)
             )
 
-            let tensor = try await loadWeights(
+            let tensor = try loadWeights(
                 from: tensorData,
                 name: metadata.name,
                 shape: metadata.shape,
@@ -317,7 +320,7 @@ public actor TensorManager {
         from data: [Float],
         name: String,
         shape: TensorShape
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         let expectedCount = shape.elementCount
 
         guard data.count == expectedCount else {
@@ -350,6 +353,9 @@ public actor TensorManager {
             name: name
         )
 
+        // Thread-safe state update
+        lock.lock()
+        defer { lock.unlock() }
         tensors[name] = tensor
         totalMemoryBytes += byteSize
         loadCount += 1
@@ -361,7 +367,7 @@ public actor TensorManager {
     public func createProjectionMatrix(
         from weights: [[Float]],
         name: String
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         guard !weights.isEmpty, !weights[0].isEmpty else {
             throw VectorError.invalidDimension(0, reason: "Projection matrix cannot be empty")
         }
@@ -372,7 +378,7 @@ public actor TensorManager {
         // Flatten row-major
         let flattened = weights.flatMap { $0 }
 
-        return try await createTensor(
+        return try createTensor(
             from: flattened,
             name: name,
             shape: TensorShape.matrix(rows: rows, cols: cols)
@@ -385,7 +391,7 @@ public actor TensorManager {
         outputDim: Int,
         name: String,
         scale: Float = 0.02
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         // Xavier/Glorot initialization
         let fanIn = Float(inputDim)
         let fanOut = Float(outputDim)
@@ -400,7 +406,7 @@ public actor TensorManager {
             weights[i] = z * stddev
         }
 
-        return try await createTensor(
+        return try createTensor(
             from: weights,
             name: name,
             shape: TensorShape.projection(inputDim: inputDim, outputDim: outputDim)
@@ -411,23 +417,31 @@ public actor TensorManager {
 
     /// Get a loaded tensor by name
     public func getTensor(name: String) -> TensorBuffer? {
-        tensors[name]
+        lock.lock()
+        defer { lock.unlock() }
+        return tensors[name]
     }
 
     /// Get all loaded tensor names
     public var loadedTensorNames: [String] {
-        Array(tensors.keys)
+        lock.lock()
+        defer { lock.unlock() }
+        return Array(tensors.keys)
     }
 
     /// Check if a tensor is loaded
     public func isLoaded(_ name: String) -> Bool {
-        tensors[name] != nil
+        lock.lock()
+        defer { lock.unlock() }
+        return tensors[name] != nil
     }
 
     // MARK: - Unloading
 
     /// Unload a tensor and free memory
     public func unload(name: String) {
+        lock.lock()
+        defer { lock.unlock() }
         if let tensor = tensors.removeValue(forKey: name) {
             totalMemoryBytes -= tensor.byteSize
             unloadCount += 1
@@ -436,6 +450,8 @@ public actor TensorManager {
 
     /// Unload all tensors
     public func unloadAll() {
+        lock.lock()
+        defer { lock.unlock() }
         let count = tensors.count
         tensors.removeAll()
         totalMemoryBytes = 0
@@ -446,7 +462,9 @@ public actor TensorManager {
 
     /// Get current statistics
     public func getStatistics() -> TensorManagerStatistics {
-        TensorManagerStatistics(
+        lock.lock()
+        defer { lock.unlock() }
+        return TensorManagerStatistics(
             loadedTensors: tensors.count,
             totalMemoryBytes: totalMemoryBytes,
             loadCount: loadCount,
@@ -456,6 +474,8 @@ public actor TensorManager {
 
     /// Reset statistics counters
     public func resetStatistics() {
+        lock.lock()
+        defer { lock.unlock() }
         loadCount = 0
         unloadCount = 0
     }
@@ -464,13 +484,17 @@ public actor TensorManager {
 
     /// Validate tensor shape matches expected
     public func validateShape(name: String, expected: TensorShape) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
         guard let tensor = tensors[name] else { return false }
         return tensor.shape == expected
     }
 
     /// Validate all required tensors are loaded
     public func validateRequired(_ names: [String]) -> [String] {
-        names.filter { tensors[$0] == nil }
+        lock.lock()
+        defer { lock.unlock() }
+        return names.filter { tensors[$0] == nil }
     }
 }
 

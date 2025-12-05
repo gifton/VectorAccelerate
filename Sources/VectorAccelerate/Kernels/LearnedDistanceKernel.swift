@@ -173,9 +173,9 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
         inputDim: Int,
         outputDim: Int,
         name: String = "projection"
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         let shape = TensorShape.projection(inputDim: inputDim, outputDim: outputDim)
-        return try await tensorManager.loadWeights(
+        return try tensorManager.loadWeights(
             from: url,
             name: name,
             shape: shape,
@@ -189,9 +189,9 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
         inputDim: Int,
         outputDim: Int,
         name: String = "projection"
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         let shape = TensorShape.projection(inputDim: inputDim, outputDim: outputDim)
-        return try await tensorManager.loadWeights(
+        return try tensorManager.loadWeights(
             from: data,
             name: name,
             shape: shape,
@@ -208,9 +208,9 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
         inputDim: Int,
         outputDim: Int,
         name: String = "projection"
-    ) async throws -> TensorBuffer {
+    ) throws -> TensorBuffer {
         let shape = TensorShape.projection(inputDim: inputDim, outputDim: outputDim)
-        return try await tensorManager.createTensor(
+        return try tensorManager.createTensor(
             from: weights,
             name: name,
             shape: shape
@@ -224,8 +224,8 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
         inputDim: Int,
         outputDim: Int,
         name: String = "random_projection"
-    ) async throws -> TensorBuffer {
-        return try await tensorManager.createRandomProjection(
+    ) throws -> TensorBuffer {
+        return try tensorManager.createRandomProjection(
             inputDim: inputDim,
             outputDim: outputDim,
             name: name
@@ -233,8 +233,8 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
     }
 
     /// Get a previously loaded projection by name
-    public func getProjection(name: String) async -> TensorBuffer? {
-        await tensorManager.getTensor(name: name)
+    public func getProjection(name: String) -> TensorBuffer? {
+        tensorManager.getTensor(name: name)
     }
 
     // MARK: - Distance Computation
@@ -707,13 +707,13 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
     // MARK: - Statistics
 
     /// Get tensor manager statistics
-    public func getTensorStatistics() async -> TensorManagerStatistics {
-        await tensorManager.getStatistics()
+    public func getTensorStatistics() -> TensorManagerStatistics {
+        tensorManager.getStatistics()
     }
 
     /// Unload projection weights to free memory
-    public func unloadProjection(name: String) async {
-        await tensorManager.unload(name: name)
+    public func unloadProjection(name: String) {
+        tensorManager.unload(name: name)
     }
 }
 
