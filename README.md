@@ -4,11 +4,11 @@
 
 VectorAccelerate provides high-performance GPU acceleration for vector operations, serving as the computational backbone for the VectorCore ecosystem. By leveraging Metal 4's compute shaders, unified command encoding, and Apple Silicon's unified memory architecture, VectorAccelerate delivers up to 100x speedups for large-scale vector operations.
 
-> **⚠️ Version 0.3.0**: Requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+). For older OS support, use VectorAccelerate 0.1.x.
+> **⚠️ Version 0.3.0**: Requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+). For older OS support, use VectorAccelerate 0.2.x
 
 ## 🎯 Purpose
 
-VectorAccelerate exists to solve a critical performance bottleneck in vector-based machine learning applications. While VectorCore provides an elegant Swift interface for vector operations, VectorAccelerate ensures these operations run at maximum speed by:
+VectorAccelerate exists to solve a critical performance bottleneck in vector-based machine learning applications on in storage, thermal, and power constrained environments. While VectorCore provides an elegant Swift interface for vector operations, VectorAccelerate ensures these operations run at maximum speed by:
 
 - **Metal 4 Acceleration**: Leveraging unified command encoding and tensor operations
 - **Optimized Kernels**: Hand-tuned Metal shaders for specific dimensions (512, 768, 1536)
@@ -122,11 +122,9 @@ let scalar = try await ScalarQuantKernel(context: context)
 
 ### Dependencies
 - **VectorCore 0.1.6+**: The foundational vector mathematics package
-- **VectorIndex 0.1.3+**: Vector index algorithms (for VectorIndexAcceleration module)
 
 ### Products
 - **VectorAccelerate**: Core GPU acceleration library
-- **VectorIndexAcceleration**: GPU-first vector index with Flat and IVF support
 
 ## 🚀 Accelerated Operations
 
