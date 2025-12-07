@@ -176,6 +176,48 @@ jobs:
           path: test.log
           retention-days: 7
 
+  build-ios:
+    name: Build (iOS)
+    runs-on: macos-26
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: 'latest-stable'
+
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-spm-ios-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-ios-
+
+      - name: Build for iOS
+        run: |
+          set -eo pipefail
+          xcodebuild -scheme VectorAccelerate \
+            -destination 'generic/platform=iOS' \
+            -sdk iphoneos \
+            build 2>&1 | tee build-ios.log
+          echo "## Build (iOS)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ iOS build succeeded" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Build Log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-ios-log
+          path: build-ios.log
+          retention-days: 7
+
   build-release:
     name: Build (Release)
     runs-on: macos-26
