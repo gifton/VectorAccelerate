@@ -38,7 +38,11 @@ public struct MetalBuffer: @unchecked Sendable {
     
     /// Check if buffer is accessible from CPU
     public var isCPUAccessible: Bool {
-        storageMode == .shared || storageMode == .managed
+        #if os(macOS)
+        return storageMode == .shared || storageMode == .managed
+        #else
+        return storageMode == .shared
+        #endif
     }
     
     /// Get typed pointer for CPU access (only for shared/managed buffers)

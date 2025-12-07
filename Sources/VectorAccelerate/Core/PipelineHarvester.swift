@@ -360,11 +360,13 @@ public actor PipelineHarvester {
             return "apple7"
         } else if device.supportsFamily(.apple6) {
             return "apple6"
-        } else if device.supportsFamily(.mac2) {
-            return "mac2"
-        } else {
-            return "unknown"
         }
+        #if os(macOS)
+        if device.supportsFamily(.mac2) {
+            return "mac2"
+        }
+        #endif
+        return "unknown"
     }
 }
 

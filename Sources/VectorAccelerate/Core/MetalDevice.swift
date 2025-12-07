@@ -155,25 +155,27 @@ public actor MetalDevice {
         device.name
     }
     
+    #if os(macOS)
     public var isLowPower: Bool {
         device.isLowPower
     }
-    
+
     public var isRemovable: Bool {
         device.isRemovable
     }
-    
+
     public var isHeadless: Bool {
         device.isHeadless
     }
-    
+
     public var location: MTLDeviceLocation {
         device.location
     }
-    
+
     public var locationNumber: UInt64 {
         UInt64(device.locationNumber)
     }
+    #endif
     
     public var maxThreadgroupMemoryLength: Int {
         capabilities.maxThreadgroupMemoryLength
