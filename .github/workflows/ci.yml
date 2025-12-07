@@ -77,7 +77,7 @@ jobs:
 
       - name: Upload Metal Compile Log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: metal-compile-log
           path: metal-compile.log
@@ -127,7 +127,7 @@ jobs:
 
       - name: Upload Build Log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: build-log
           path: build.log
@@ -170,7 +170,7 @@ jobs:
 
       - name: Upload Test Log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-log
           path: test.log
@@ -212,7 +212,7 @@ jobs:
 
       - name: Upload Build Log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: build-ios-log
           path: build-ios.log
@@ -252,7 +252,7 @@ jobs:
 
       - name: Upload Build Log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: build-release-log
           path: build-release.log
@@ -295,7 +295,7 @@ jobs:
 
       - name: Upload SwiftLint Log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: swiftlint-log
           path: swiftlint.log
