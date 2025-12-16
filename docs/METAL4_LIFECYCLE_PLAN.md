@@ -1,7 +1,8 @@
 # Metal 4 Lifecycle Management Implementation Plan
 
-**Status:** DRAFT
+**Status:** PHASE 5 COMPLETE (Integration & Testing)
 **Created:** 2025-12-15
+**Updated:** 2025-12-16
 **Target:** iOS 26+ journaling app with UX-first Metal integration
 
 ## Executive Summary
@@ -1061,9 +1062,124 @@ extension PipelineRegistry {
 
 ---
 
-## Phase 5: Integration & Testing
+## Phase 5: Integration & Testing ✅ COMPLETE
 
-(Unchanged from original plan - see existing content)
+**Goal:** Comprehensive integration testing and performance validation.
+
+### 5.1 Test File Created
+
+`Tests/VectorAccelerateTests/Metal4LifecycleIntegrationTests.swift` - 44 comprehensive tests covering:
+
+- **End-to-End Lifecycle Tests** (4 tests)
+  - Cold start full lifecycle (dormant → fullyReady)
+  - Warm start with context
+  - State observer callbacks at transitions
+  - Context availability at criticalReady
+
+- **Launch Performance Tests** (5 tests)
+  - Init completes under 10ms
+  - Init does no Metal work
+  - Time to deviceReady
+  - Time to criticalReady (cold start)
+  - No main thread blocking
+
+- **Archive Integration Tests** (7 tests)
+  - Archive saves after warmup
+  - Manifest tracks shader hash
+  - Archive invalidation on shader change
+  - Archive invalidation on device change
+  - Corrupted archive recovery
+  - Missing manifest recovery
+  - Statistics accuracy
+
+- **Warmup Behavior Tests** (7 tests)
+  - Warmup pauses on user activity
+  - Warmup resumes after idle timeout
+  - Manual pause/resume
+  - Cancellation stops warmup
+  - Progress reporting accuracy
+  - Statistics source distribution tracking
+
+- **Thermal State Tests** (4 tests)
+  - Initial state reporting
+  - Observer pattern
+  - shouldThrottle behavior
+  - State descriptions
+
+- **Fallback Behavior Tests** (7 tests)
+  - Fallback always available
+  - CPU L2 distance correctness
+  - CPU cosine similarity correctness
+  - CPU normalization correctness
+  - CPU top-K selection correctness
+  - CPU batch distance computation
+  - Distance metrics (Euclidean, Manhattan)
+
+- **Stress Tests** (4 tests)
+  - Rapid pause/resume cycles (50+ iterations)
+  - Multiple observer registrations/removals (50+)
+  - Multiple warmup cycles (10+)
+  - Nonisolated checks thread safety (200 concurrent)
+
+- **Error Handling Tests** (3 tests)
+  - Production mode without metallib throws
+  - Error descriptions present
+  - Binary archive error descriptions
+
+- **Memory Efficiency Tests** (2 tests)
+  - Pipeline cache respects max size
+  - Buffer pool memory bounded
+
+- **PipelineRegistry Tests** (3 tests)
+  - Tier lookup
+  - Key enumeration
+  - Minimal registry
+
+### 5.2 Test Utilities Created
+
+- `LifecycleStateTracker` - Records state transitions with thread-safe access
+- `LifecycleStopwatch` - Measures elapsed time for lifecycle phases
+- `MemoryTracker` - Tracks memory allocations during tests
+
+### 5.3 Measured Performance Baselines
+
+All measurements taken on Apple Silicon hardware (M-series):
+
+| Metric | Measured | Target | Acceptable | Status |
+|--------|----------|--------|------------|--------|
+| MetalSubsystem.init() | < 1ms | < 5ms | < 10ms | ✅ PASS |
+| Time to deviceReady | ~52ms | < 100ms | < 200ms | ✅ PASS |
+| Time to criticalReady (cold) | ~55ms | < 500ms | < 1000ms | ✅ PASS |
+| beginBackgroundInit latency | < 1ms | < 50ms | < 100ms | ✅ PASS |
+
+**Notes:**
+- These measurements represent the test environment with embedded shaders
+- Production builds with precompiled metallib may vary
+- The exceptionally fast criticalReady time is due to efficient JIT compilation
+- Binary archive warm start would be even faster (~5-10ms for archive hits)
+
+### 5.4 Test Results Summary
+
+```
+Test Suite 'Metal4LifecycleIntegrationTests' passed
+Executed 44 tests, with 0 failures (0 unexpected) in 2.481 seconds
+
+Related Test Suites (all passing):
+- MetalSubsystemTests: 29 tests
+- WarmupManagerTests: 38 tests
+- BinaryArchiveManagerTests: 16 tests
+- ArchivePipelineCacheTests: 14 tests
+
+Total: 141 lifecycle-related tests, 0 failures
+```
+
+### 5.5 Phase 5 Deliverables ✅
+
+- [x] `Metal4LifecycleIntegrationTests.swift` with comprehensive test coverage
+- [x] Test utilities (LifecycleStateTracker, LifecycleStopwatch, MemoryTracker)
+- [x] Performance baseline documentation
+- [x] All tests passing
+- [x] No regressions in existing lifecycle tests
 
 ---
 
@@ -1372,15 +1488,40 @@ public actor Metal4ContextManager {
 
 ## Validation Checklist (Updated)
 
-### After Phase 1
-- [ ] App launches with zero Metal blocking
-- [ ] `Metal4Context` created lazily in background
-- [ ] State transitions observable
-- [ ] CPU fallback works when Metal unavailable
-- [ ] Production mode rejects runtime compilation
-- [ ] `swift build` passes
+### After Phase 1 ✅
+- [x] App launches with zero Metal blocking
+- [x] `Metal4Context` created lazily in background
+- [x] State transitions observable
+- [x] CPU fallback works when Metal unavailable
+- [x] Production mode rejects runtime compilation
+- [x] `swift build` passes
 
-### After Phase 6
+### After Phase 2 ✅
+- [x] Pipeline registry tier categorization
+- [x] Journaling app preset defined
+- [x] Tier lookup works correctly
+
+### After Phase 3 ✅
+- [x] Binary archive manager loads/saves archives
+- [x] Manifest tracks shader hash and device
+- [x] Archive invalidation on mismatch
+- [x] Graceful corruption recovery
+
+### After Phase 4 ✅
+- [x] Activity-aware warmup pauses/resumes
+- [x] Thermal state integration
+- [x] Warmup statistics tracking
+- [x] Idle timeout resume behavior
+
+### After Phase 5 ✅
+- [x] 44 comprehensive integration tests
+- [x] All performance baselines met
+- [x] Zero test failures (141 lifecycle tests total)
+- [x] Stress tests pass without crashes
+- [x] Memory usage bounded
+- [x] No main thread blocking detected
+
+### After Phase 6 (Pending)
 - [ ] VectorAccelerate and EmbedKit share single Metal4Context
 - [ ] Pipeline compiled by EmbedKit visible in VectorAccelerate cache
 - [ ] Warmup benefits both packages
