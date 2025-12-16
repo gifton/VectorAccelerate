@@ -2,7 +2,7 @@
 
 This document tracks correctness, performance, and DX improvements based on external code review feedback. Each issue is categorized by priority and includes implementation notes, affected files, and completion status.
 
-**Last Updated:** 2025-12-14
+**Last Updated:** 2025-12-15
 **Review Source:** External deep-dive code review
 
 ---
@@ -23,9 +23,12 @@ This document tracks correctness, performance, and DX improvements based on exte
 | **P1.2** | IVF CPU Gather Elimination | **COMPLETED** | 2025-12-14 |
 | **P1.3** | Buffer Pool Consistency | **COMPLETED** | 2025-12-14 |
 | **P1.4** | Distance Clarity (euclideanDistance) | **COMPLETED** | 2025-12-13 |
+| **P2.2** | Scalar Quantization Integration | **COMPLETED** | 2025-12-15 |
 | **P2.3** | Benchmarking Harness | **COMPLETED** | 2025-12-14 |
 | **P3.1** | CI Runner Fix (macos-26 → macos-latest) | **COMPLETED** | 2025-12-13 |
 | **P3.2** | Documentation Alignment | **COMPLETED** | 2025-12-13 |
+| **P4.1** | K-Means++ Initialization | **COMPLETED** | 2025-12-14 |
+| **P4.2** | Adaptive nlist Selection | **COMPLETED** | 2025-12-15 |
 
 ### Summary of Completed Work
 
@@ -1228,11 +1231,46 @@ kernel void ivf_build_candidates(
 
 ---
 
-### P2.2: Quantization Integration
+### P2.2: Scalar Quantization Integration
 
-**Status:** [ ] Not Started
+**Status:** [x] **COMPLETED** (2025-12-15)
 
-Integrate scalar/binary quantization into index for memory reduction.
+**Solution Implemented:**
+Integrated scalar quantization into IVF index for 4x-8x memory reduction.
+
+**Key Components:**
+
+`VectorQuantization` enum (in `IndexConfiguration.swift`):
+- `.none`: Full float32 precision (default)
+- `.sq8`: INT8 symmetric quantization (4x compression)
+- `.sq8Asymmetric`: INT8 asymmetric quantization (4x compression, better for non-centered data)
+- `.sq4`: INT4 quantization (8x compression, higher recall loss)
+
+`IVFQuantizedStorage` class (new file):
+- Manages quantized vector storage for IVF indexes
+- Computes optimal quantization parameters (scale, zero-point) from training data
+- Supports quantization and dequantization operations
+- CPU-based quantization with GPU buffer storage
+
+**Integration Points:**
+- `IndexConfiguration`: Added `quantization` property and updated factory methods
+- `IVFStructure`: Added `quantization` parameter, initializes `IVFQuantizedStorage` after training
+- `bytesPerVector`: Accounts for quantization compression ratio
+
+**Memory Savings:**
+- SQ8: 4x reduction (float32 → int8)
+- SQ4: 8x reduction (float32 → int4, packed 2 elements per byte)
+
+**Expected Recall Impact:**
+- SQ8: < 5% recall loss
+- SQ4: < 10% recall loss
+
+**Files:**
+- `Sources/VectorAccelerate/Index/Types/IndexConfiguration.swift`
+- `Sources/VectorAccelerate/Index/Internal/IVFQuantizedStorage.swift` (NEW)
+- `Sources/VectorAccelerate/Index/Internal/IVFStructure.swift`
+- `Sources/VectorAccelerate/Index/AcceleratedVectorIndex.swift`
+- `Tests/VectorAccelerateTests/IVFQuantizationTests.swift` (NEW)
 
 ---
 
@@ -1409,10 +1447,12 @@ Designed for future Option C upgrade path.
 | P1 | P1.3 Buffer pool | [x] **DONE** | Buffer pool in search hot paths |
 | P1 | P1.4 Distance clarity | [x] **DONE** | euclideanDistance property + test |
 | P2 | P2.1 GPU coarse quant + candidates | [ ] | After P0.1 |
-| P2 | P2.2 Quantization | [ ] | Future |
+| P2 | P2.2 Scalar Quantization | [x] **DONE** | VectorQuantization enum, IVFQuantizedStorage |
 | P2 | P2.3 Benchmarks | [x] **DONE** | IndexBenchmarkHarness implemented |
 | P3 | P3.2 Doc alignment | [x] **DONE** | README updated |
 | P3 | P3.3 API surface | [ ] | Future |
+| P4 | P4.1 K-Means++ Init | [x] **DONE** | Improved cluster quality |
+| P4 | P4.2 Adaptive nlist | [x] **DONE** | recommendedNlist, ivfAuto factory |
 
 ---
 
@@ -1476,28 +1516,20 @@ Based on quality assessment, these improvements would enhance IVF performance:
 
 ### P4.1: K-Means++ Initialization
 
+**Status:** [x] **COMPLETED** (2025-12-14)
+
 **Priority:** Medium
 **Impact:** +5-10% recall at same nprobe
 
 **Problem:**
 Current K-means uses random centroid initialization, which can lead to suboptimal clustering.
 
-**Solution:**
-Implement K-means++ initialization:
-```swift
-// Instead of random initialization:
-// centroids = randomSample(data, k: nlist)
-
-// Use K-means++:
-// 1. Choose first centroid uniformly at random
-// 2. For each subsequent centroid:
-//    - Compute D(x) = distance to nearest existing centroid
-//    - Choose next centroid with probability proportional to D(x)²
-```
+**Solution Implemented:**
+K-means++ initialization was implemented in the clustering pipeline.
 
 **Files:**
 - `Sources/VectorAccelerate/Index/Kernels/Clustering/KMeansPipeline.swift`
-- New: `Sources/VectorAccelerate/Index/Kernels/Clustering/KMeansPlusPlusInit.swift`
+- `Sources/VectorAccelerate/Index/Kernels/Clustering/ClusteringKernels.swift`
 
 **Expected Improvement:**
 - Better cluster separation → fewer missed neighbors
@@ -1507,32 +1539,44 @@ Implement K-means++ initialization:
 
 ### P4.2: Adaptive nlist Selection
 
+**Status:** [x] **COMPLETED** (2025-12-15)
+
 **Priority:** Low
 **Impact:** Better defaults for users
 
-**Problem:**
-Users must manually choose `nlist`. Suboptimal choices hurt performance:
-- Too few clusters → large lists, slow search
-- Too many clusters → poor recall, training instability
+**Solution Implemented:**
+Added helper methods and `ivfAuto` factory to `IndexConfiguration`.
 
-**Solution:**
-Implement heuristic-based default:
+**Key Components:**
+
+`recommendedNlist(for:)`:
+- Uses sqrt(N) heuristic, clamped to [8, 4096]
+- Example: 100K vectors → nlist=316
+
+`recommendedNprobe(for:targetRecall:)`:
+- Scales with nlist based on target recall
+- 70% recall: 10% of nlist
+- 90% recall: 23% of nlist
+- 99% recall: 50% of nlist
+
+`ivfAuto(dimension:expectedSize:targetRecall:metric:quantization:)`:
+- One-stop factory for optimal IVF configuration
+- Automatically computes nlist and nprobe from dataset size and recall target
+
+**Usage Example:**
 ```swift
-// Rule of thumb: nlist ≈ sqrt(N) for balanced tradeoff
-public static func recommendedNlist(for datasetSize: Int) -> Int {
-    let sqrtN = Int(sqrt(Double(datasetSize)))
-    // Clamp to reasonable range
-    return max(8, min(sqrtN, 4096))
-}
-
-// For nprobe, default to ~10% of nlist for 80%+ recall
-public static func recommendedNprobe(for nlist: Int) -> Int {
-    return max(1, nlist / 10)
-}
+// For a 100K vector dataset with 90% target recall
+let config = IndexConfiguration.ivfAuto(
+    dimension: 768,
+    expectedSize: 100_000,
+    targetRecall: 0.90
+)
+// Results: nlist=316, nprobe=73
 ```
 
 **Files:**
 - `Sources/VectorAccelerate/Index/Types/IndexConfiguration.swift`
+- `Tests/VectorAccelerateTests/AdaptiveNlistTests.swift` (NEW)
 
 ---
 
@@ -1614,14 +1658,14 @@ Implement Hierarchical Navigable Small World (HNSW):
 
 ### Performance Improvement Priority Order
 
-| Priority | Item | Impact | Effort |
-|----------|------|--------|--------|
-| 1 | P2.1 GPU Coarse Quantization | Remove CPU bottleneck | Medium |
-| 2 | P4.1 K-Means++ Init | +5-10% recall | Low |
-| 3 | P4.5 HNSW Index | State-of-the-art | High |
-| 4 | P2.2 Scalar Quantization | 4x memory reduction | Medium |
-| 5 | P4.2 Adaptive nlist | Better UX | Low |
-| 6 | P4.3 Product Quantization | 64x compression | High |
+| Priority | Item | Impact | Effort | Status |
+|----------|------|--------|--------|--------|
+| 1 | P2.1 GPU Coarse Quantization | Remove CPU bottleneck | Medium | Not Started |
+| 2 | P4.1 K-Means++ Init | +5-10% recall | Low | **COMPLETED** |
+| 3 | P4.5 HNSW Index | State-of-the-art | High | Not Started |
+| 4 | P2.2 Scalar Quantization | 4x memory reduction | Medium | **COMPLETED** |
+| 5 | P4.2 Adaptive nlist | Better UX | Low | **COMPLETED** |
+| 6 | P4.3 Product Quantization | 64x compression | High | Not Started |
 
 ---
 
