@@ -96,7 +96,7 @@ final class QuantizationEngineTests: XCTestCase {
             throw XCTSkip("Metal not available")
         }
         
-        let context = try await MetalContext()
+        let context = try await Metal4Context()
         let config = QuantizationConfiguration(useGPU: true)
         let testEngine = await QuantizationEngine(configuration: config, context: context)
         

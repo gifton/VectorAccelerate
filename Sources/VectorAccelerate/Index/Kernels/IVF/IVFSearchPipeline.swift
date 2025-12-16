@@ -57,6 +57,7 @@ public final class IVFSearchPipeline: @unchecked Sendable {
     private let coarseQuantizer: IVFCoarseQuantizerKernel
     private let topKSelection: TopKSelectionKernel
     private let indirectionDistance: IVFIndirectionDistanceKernel
+    private let gpuCandidateBuilder: IVFGPUCandidateBuilderKernel?
 
     // MARK: - Initialization
 
@@ -78,6 +79,9 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         self.coarseQuantizer = try await IVFCoarseQuantizerKernel(context: context)
         self.topKSelection = try await TopKSelectionKernel(context: context)
         self.indirectionDistance = try await IVFIndirectionDistanceKernel(context: context)
+
+        // GPU candidate builder (optional, may fail on older Metal versions)
+        self.gpuCandidateBuilder = try? await IVFGPUCandidateBuilderKernel(context: context)
     }
 
     // MARK: - Warm Up
@@ -87,6 +91,7 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         try await coarseQuantizer.warmUp()
         try await topKSelection.warmUp()
         try await indirectionDistance.warmUp()
+        try await gpuCandidateBuilder?.warmUp()
     }
 
     // MARK: - Index Structure Preparation
@@ -297,6 +302,199 @@ public final class IVFSearchPipeline: @unchecked Sendable {
     // MARK: - Private Helpers
 
     private func gatherAndSearch(
+        queries: any MTLBuffer,
+        structure: IVFGPUIndexStructure,
+        coarseResult: IVFCoarseResult,
+        numQueries: Int,
+        dimension: Int,
+        k: Int
+    ) async throws -> (indices: any MTLBuffer, distances: any MTLBuffer) {
+        // Use GPU candidate building if available and enabled
+        if let gpuBuilder = gpuCandidateBuilder, configuration.useGPUCandidateBuilder {
+            return try await gatherAndSearchGPU(
+                queries: queries,
+                structure: structure,
+                coarseResult: coarseResult,
+                gpuBuilder: gpuBuilder,
+                numQueries: numQueries,
+                dimension: dimension,
+                k: k
+            )
+        }
+
+        // Fall back to CPU candidate building
+        return try await gatherAndSearchCPU(
+            queries: queries,
+            structure: structure,
+            coarseResult: coarseResult,
+            numQueries: numQueries,
+            dimension: dimension,
+            k: k
+        )
+    }
+
+    /// GPU-accelerated candidate building and search.
+    private func gatherAndSearchGPU(
+        queries: any MTLBuffer,
+        structure: IVFGPUIndexStructure,
+        coarseResult: IVFCoarseResult,
+        gpuBuilder: IVFGPUCandidateBuilderKernel,
+        numQueries: Int,
+        dimension: Int,
+        k: Int
+    ) async throws -> (indices: any MTLBuffer, distances: any MTLBuffer) {
+        let nprobe = coarseResult.nprobe
+
+        // Allocate final output buffers
+        let outputSize = numQueries * k
+        let outputIndicesToken = try await context.getBuffer(size: outputSize * MemoryLayout<UInt32>.size)
+        let outputIndices = outputIndicesToken.buffer
+        outputIndices.label = "IVFSearchPipeline.outputIndices"
+
+        let outputDistancesToken = try await context.getBuffer(size: outputSize * MemoryLayout<Float>.size)
+        let outputDistances = outputDistancesToken.buffer
+        outputDistances.label = "IVFSearchPipeline.outputDistances"
+
+        // Initialize with sentinel values
+        let indicesPtr = outputIndices.contents().bindMemory(to: UInt32.self, capacity: outputSize)
+        let distancesPtr = outputDistances.contents().bindMemory(to: Float.self, capacity: outputSize)
+        for i in 0..<outputSize {
+            indicesPtr[i] = 0xFFFFFFFF
+            distancesPtr[i] = Float.infinity
+        }
+
+        // Build candidate lists on GPU
+        let candidateResult = try await gpuBuilder.buildCandidates(
+            nearestCentroids: coarseResult.listIndices,
+            listOffsets: structure.listOffsets,
+            numQueries: numQueries,
+            nprobe: nprobe,
+            numLists: structure.numCentroids
+        )
+
+        let totalCandidates = candidateResult.totalCandidates
+        if totalCandidates == 0 {
+            return (indices: outputIndices, distances: outputDistances)
+        }
+
+        // Allocate candidate outputs
+        let distanceBytes = max(totalCandidates * MemoryLayout<Float>.size, 4)
+        let slotBytes = max(totalCandidates * MemoryLayout<UInt32>.size, 4)
+        let candidateDistancesToken = try await context.getBuffer(size: distanceBytes)
+        let candidateSlotsToken = try await context.getBuffer(size: slotBytes)
+        let candidateDistances = candidateDistancesToken.buffer
+        let candidateSlots = candidateSlotsToken.buffer
+        candidateDistances.label = "IVFSearchPipeline.candidateDistances"
+        candidateSlots.label = "IVFSearchPipeline.candidateSlots"
+
+        // Allocate top-k outputs per query
+        let topKBytesValues = max(numQueries * k * MemoryLayout<Float>.size, 4)
+        let topKBytesIndices = max(numQueries * k * MemoryLayout<UInt32>.size, 4)
+        let topKValuesToken = try await context.getBuffer(size: topKBytesValues)
+        let topKCandidateIndicesToken = try await context.getBuffer(size: topKBytesIndices)
+        let topKValues = topKValuesToken.buffer
+        let topKCandidateIndices = topKCandidateIndicesToken.buffer
+        topKValues.label = "IVFSearchPipeline.topKValues"
+        topKCandidateIndices.label = "IVFSearchPipeline.topKCandidateIndices"
+
+        // Compute storage capacity
+        let bytesPerVector = dimension * MemoryLayout<Float>.size
+        let storageCapacity = bytesPerVector > 0 ? (structure.listVectors.length / bytesPerVector) : 0
+
+        let distanceParams = IVFIndirectionDistanceParameters(
+            dimension: dimension,
+            totalCandidates: totalCandidates,
+            numQueries: numQueries,
+            totalIVFEntries: structure.totalVectors,
+            storageCapacity: storageCapacity
+        )
+
+        // Read offsets for TopK dispatch (small data, O(Q))
+        let offsetsPtr = candidateResult.candidateOffsets.contents().bindMemory(
+            to: UInt32.self,
+            capacity: numQueries + 1
+        )
+        let offsets: [UInt32] = (0...numQueries).map { offsetsPtr[$0] }
+
+        // Run distance + per-query top-k selection
+        try await context.executeAndWait { [self, offsets] _, encoder in
+            _ = self.indirectionDistance.encode(
+                into: encoder,
+                queries: queries,
+                vectors: structure.listVectors,
+                vectorIndices: structure.vectorIndices,
+                candidateIVFIndices: candidateResult.candidateIVFIndices,
+                candidateQueryIds: candidateResult.candidateQueryIds,
+                outDistances: candidateDistances,
+                outSlots: candidateSlots,
+                parameters: distanceParams
+            )
+
+            encoder.memoryBarrier(scope: .buffers)
+
+            for q in 0..<numQueries {
+                let start = Int(offsets[q])
+                let end = Int(offsets[q + 1])
+                let count = end - start
+                if count <= 0 { continue }
+
+                let topParams = TopKParameters(
+                    batchSize: 1,
+                    numElements: count,
+                    k: k,
+                    mode: .minimum,
+                    sorted: true
+                )
+
+                let inputOffsetBytes = start * MemoryLayout<Float>.size
+                let outValueOffsetBytes = (q * k) * MemoryLayout<Float>.size
+                let outIndexOffsetBytes = (q * k) * MemoryLayout<UInt32>.size
+
+                _ = self.topKSelection.encodeWithOffsets(
+                    into: encoder,
+                    input: candidateDistances,
+                    inputOffset: inputOffsetBytes,
+                    outputValues: topKValues,
+                    outputValuesOffset: outValueOffsetBytes,
+                    outputIndices: topKCandidateIndices,
+                    outputIndicesOffset: outIndexOffsetBytes,
+                    parameters: topParams
+                )
+            }
+        }
+
+        // Map per-query candidate positions to storage slots
+        let slotsPtr = candidateSlots.contents().bindMemory(to: UInt32.self, capacity: totalCandidates)
+        let topValPtr = topKValues.contents().bindMemory(to: Float.self, capacity: numQueries * k)
+        let topIdxPtr = topKCandidateIndices.contents().bindMemory(to: UInt32.self, capacity: numQueries * k)
+
+        for q in 0..<numQueries {
+            let start = Int(offsets[q])
+            let end = Int(offsets[q + 1])
+            let count = end - start
+            if count <= 0 { continue }
+
+            let base = q * k
+            for i in 0..<k {
+                let localPos = topIdxPtr[base + i]
+                if localPos == 0xFFFFFFFF { continue }
+
+                let globalCandidate = start + Int(localPos)
+                if globalCandidate < 0 || globalCandidate >= totalCandidates { continue }
+
+                let slot = slotsPtr[globalCandidate]
+                if slot == 0xFFFFFFFF { continue }
+
+                indicesPtr[base + i] = slot
+                distancesPtr[base + i] = topValPtr[base + i]
+            }
+        }
+
+        return (indices: outputIndices, distances: outputDistances)
+    }
+
+    /// CPU-based candidate building and search (legacy path).
+    private func gatherAndSearchCPU(
         queries: any MTLBuffer,
         structure: IVFGPUIndexStructure,
         coarseResult: IVFCoarseResult,

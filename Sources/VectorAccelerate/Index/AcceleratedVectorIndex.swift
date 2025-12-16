@@ -146,7 +146,8 @@ public actor AcceleratedVectorIndex {
                 numClusters: nlist,
                 nprobe: nprobe,
                 dimension: configuration.dimension,
-                minTrainingVectors: minTrainingVectors
+                minTrainingVectors: minTrainingVectors,
+                quantization: configuration.quantization
             )
             let ivfConfig = IVFSearchConfiguration(
                 numCentroids: nlist,
@@ -197,7 +198,8 @@ public actor AcceleratedVectorIndex {
                 numClusters: nlist,
                 nprobe: nprobe,
                 dimension: configuration.dimension,
-                minTrainingVectors: minTrainingVectors
+                minTrainingVectors: minTrainingVectors,
+                quantization: configuration.quantization
             )
             let ivfConfig = IVFSearchConfiguration(
                 numCentroids: nlist,

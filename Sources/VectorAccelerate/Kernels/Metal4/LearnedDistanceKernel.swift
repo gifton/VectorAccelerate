@@ -9,7 +9,8 @@
 // - Learned metric spaces for domain-specific similarity
 // - Efficient approximate nearest neighbor search
 
-import Metal
+import Foundation
+@preconcurrency import Metal
 import QuartzCore
 import VectorCore
 
@@ -24,7 +25,7 @@ import VectorCore
 ///
 /// ## Usage
 /// ```swift
-/// let kernel = try LearnedDistanceKernel(device: device)
+/// let kernel = try await LearnedDistanceKernel(context: context)
 ///
 /// // Load projection weights
 /// let projection = try await kernel.loadProjection(
@@ -44,11 +45,10 @@ import VectorCore
 /// ## Fallback Behavior
 /// When projection weights are unavailable or ML features are disabled,
 /// use the standard `L2DistanceKernel` for unprojected distance computation.
-public final class LearnedDistanceKernel: @unchecked Sendable {
+public final class LearnedDistanceKernel: @unchecked Sendable, Metal4Kernel {
     // MARK: - Properties
 
-    private let device: any MTLDevice
-    private let kernelContext: KernelContext
+    public let context: Metal4Context
 
     // Generic learned distance pipeline
     private let learnedL2Pipeline: any MTLComputePipelineState
@@ -64,6 +64,14 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
 
     // Tensor manager for weight storage
     private let tensorManager: TensorManager
+
+    // MARK: - Metal4Kernel Protocol
+
+    public var name: String { "LearnedDistanceKernel" }
+
+    public func warmUp() async throws {
+        // Pipelines are already compiled during init
+    }
 
     // MARK: - Parameters
 
@@ -127,35 +135,19 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
 
     /// Initialize the learned distance kernel
     ///
-    /// - Parameter device: Metal device to use for computation
+    /// - Parameter context: Metal4Context to use for computation
     /// - Throws: `VectorError` if shader compilation fails
-    public init(device: any MTLDevice) throws {
-        self.device = device
-        self.kernelContext = try KernelContext.shared(for: device)
-        self.tensorManager = TensorManager(device: device)
+    public init(context: Metal4Context) async throws {
+        self.context = context
+        self.tensorManager = TensorManager(device: context.device.rawDevice)
 
-        // Load shader library
-        let library = try KernelContext.getSharedLibrary(for: device)
-
-        // Load kernel functions
-        guard let learnedL2Func = library.makeFunction(name: "learned_l2_distance_kernel"),
-              let learnedCosineFunc = library.makeFunction(name: "learned_cosine_similarity_kernel"),
-              let learned768to128Func = library.makeFunction(name: "learned_l2_768_to_128_kernel"),
-              let learned384to64Func = library.makeFunction(name: "learned_l2_384_to_64_kernel"),
-              let batchProjectFunc = library.makeFunction(name: "batch_projection_kernel"),
-              let batchNormalizeFunc = library.makeFunction(name: "batch_normalize_kernel") else {
-            throw VectorError.shaderNotFound(
-                name: "Learned distance kernels not found. Ensure LearnedDistance.metal is compiled."
-            )
-        }
-
-        // Create pipeline states
-        self.learnedL2Pipeline = try device.makeComputePipelineState(function: learnedL2Func)
-        self.learnedCosinePipeline = try device.makeComputePipelineState(function: learnedCosineFunc)
-        self.learned768to128Pipeline = try device.makeComputePipelineState(function: learned768to128Func)
-        self.learned384to64Pipeline = try device.makeComputePipelineState(function: learned384to64Func)
-        self.batchProjectionPipeline = try device.makeComputePipelineState(function: batchProjectFunc)
-        self.batchNormalizePipeline = try device.makeComputePipelineState(function: batchNormalizeFunc)
+        // Load pipelines using Metal4 shader compiler
+        self.learnedL2Pipeline = try await context.getPipeline(functionName: "learned_l2_distance_kernel")
+        self.learnedCosinePipeline = try await context.getPipeline(functionName: "learned_cosine_similarity_kernel")
+        self.learned768to128Pipeline = try await context.getPipeline(functionName: "learned_l2_768_to_128_kernel")
+        self.learned384to64Pipeline = try await context.getPipeline(functionName: "learned_l2_384_to_64_kernel")
+        self.batchProjectionPipeline = try await context.getPipeline(functionName: "batch_projection_kernel")
+        self.batchNormalizePipeline = try await context.getPipeline(functionName: "batch_normalize_kernel")
     }
 
     // MARK: - Weight Loading
@@ -235,6 +227,19 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
     /// Get a previously loaded projection by name
     public func getProjection(name: String) async -> TensorBuffer? {
         await tensorManager.getTensor(name: name)
+    }
+
+    // MARK: - Pipeline Selection
+
+    /// Select the optimal pipeline for given parameters
+    private func selectPipeline(for parameters: Parameters) -> any MTLComputePipelineState {
+        if parameters.inputDimension == 768 && parameters.projectedDimension == 128 {
+            return learned768to128Pipeline
+        } else if parameters.inputDimension == 384 && parameters.projectedDimension == 64 {
+            return learned384to64Pipeline
+        } else {
+            return learnedL2Pipeline
+        }
     }
 
     // MARK: - Distance Computation
@@ -387,20 +392,17 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
         // Create buffers
         let flatQueries = queries.flatMap { $0 }
         let flatDatabase = database.flatMap { $0 }
+        let device = context.device.rawDevice
 
-        guard let queryBuffer = kernelContext.createAlignedBuffer(
-            from: flatQueries,
-            options: .storageModeShared,
-            alignment: 16
-        ) else {
+        guard let queryBuffer = flatQueries.withUnsafeBytes({ bytes in
+            device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
+        }) else {
             throw VectorError.bufferCreationFailed("Failed to create query buffer")
         }
 
-        guard let databaseBuffer = kernelContext.createAlignedBuffer(
-            from: flatDatabase,
-            options: .storageModeShared,
-            alignment: 16
-        ) else {
+        guard let databaseBuffer = flatDatabase.withUnsafeBytes({ bytes in
+            device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
+        }) else {
             throw VectorError.bufferCreationFailed("Failed to create database buffer")
         }
 
@@ -420,26 +422,36 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
             normalizeProjected: normalizeProjected
         )
 
-        // Execute computation
-        guard let commandBuffer = kernelContext.commandQueue.makeCommandBuffer() else {
-            throw VectorError.invalidOperation("Failed to create command buffer")
-        }
+        // Capture pipeline and buffers for closure
+        let pipeline = selectPipeline(for: parameters)
+        let projectionBuffer = projection.buffer
 
-        try computeL2(
-            queryVectors: queryBuffer,
-            databaseVectors: databaseBuffer,
-            projectionWeights: projection.buffer,
-            distances: distanceBuffer,
-            parameters: parameters,
-            commandBuffer: commandBuffer
-        )
+        // Execute computation using Metal4 pattern
+        try await context.executeAndWait { [parameters] commandBuffer, encoder in
+            encoder.setComputePipelineState(pipeline)
+            encoder.label = "LearnedL2Distance"
 
-        // Wait for completion using continuation (handler must be added before commit)
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            commandBuffer.addCompletedHandler { _ in
-                continuation.resume()
-            }
-            commandBuffer.commit()
+            encoder.setBuffer(queryBuffer, offset: 0, index: 0)
+            encoder.setBuffer(databaseBuffer, offset: 0, index: 1)
+            encoder.setBuffer(projectionBuffer, offset: 0, index: 2)
+            encoder.setBuffer(distanceBuffer, offset: 0, index: 3)
+
+            var params = parameters
+            encoder.setBytes(&params, length: MemoryLayout<Parameters>.size, index: 4)
+
+            // 2D dispatch: one thread per (query, database) pair
+            let maxThreads = pipeline.maxTotalThreadsPerThreadgroup
+            let threadWidth = min(Int(parameters.numQueries), 16)
+            let threadHeight = min(maxThreads / threadWidth, Int(parameters.numDatabase))
+
+            let threadsPerGroup = MTLSize(width: threadWidth, height: threadHeight, depth: 1)
+            let groups = MTLSize(
+                width: (Int(parameters.numQueries) + threadWidth - 1) / threadWidth,
+                height: (Int(parameters.numDatabase) + threadHeight - 1) / threadHeight,
+                depth: 1
+            )
+
+            encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: threadsPerGroup)
         }
 
         // Extract results
@@ -490,21 +502,38 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
         let outputDim = projection.shape.dimensions[0]
         let numQueries = queries.count
         let numDatabase = database.count
+        let device = context.device.rawDevice
 
-        // Zero-copy buffer creation
-        guard let queryBuffer = kernelContext.createAlignedBufferFromVectors(
-            queries,
-            options: .storageModeShared,
-            alignment: 16
-        ) else {
+        // Create buffers from VectorProtocol arrays
+        let queryData = queries.flatMap { vector -> [Float] in
+            var result = [Float](repeating: 0, count: vector.count)
+            vector.withUnsafeBufferPointer { ptr in
+                for i in 0..<vector.count {
+                    result[i] = ptr[i]
+                }
+            }
+            return result
+        }
+
+        let databaseData = database.flatMap { vector -> [Float] in
+            var result = [Float](repeating: 0, count: vector.count)
+            vector.withUnsafeBufferPointer { ptr in
+                for i in 0..<vector.count {
+                    result[i] = ptr[i]
+                }
+            }
+            return result
+        }
+
+        guard let queryBuffer = queryData.withUnsafeBytes({ bytes in
+            device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
+        }) else {
             throw VectorError.bufferCreationFailed("Failed to create query buffer")
         }
 
-        guard let databaseBuffer = kernelContext.createAlignedBufferFromVectors(
-            database,
-            options: .storageModeShared,
-            alignment: 16
-        ) else {
+        guard let databaseBuffer = databaseData.withUnsafeBytes({ bytes in
+            device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
+        }) else {
             throw VectorError.bufferCreationFailed("Failed to create database buffer")
         }
 
@@ -524,25 +553,35 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
             normalizeProjected: normalizeProjected
         )
 
-        guard let commandBuffer = kernelContext.commandQueue.makeCommandBuffer() else {
-            throw VectorError.invalidOperation("Failed to create command buffer")
-        }
+        // Capture pipeline and buffers for closure
+        let pipeline = selectPipeline(for: parameters)
+        let projectionBuffer = projection.buffer
 
-        try computeL2(
-            queryVectors: queryBuffer,
-            databaseVectors: databaseBuffer,
-            projectionWeights: projection.buffer,
-            distances: distanceBuffer,
-            parameters: parameters,
-            commandBuffer: commandBuffer
-        )
+        // Execute computation using Metal4 pattern
+        try await context.executeAndWait { [parameters] _, encoder in
+            encoder.setComputePipelineState(pipeline)
+            encoder.label = "LearnedL2Distance"
 
-        // Wait for completion using continuation
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            commandBuffer.addCompletedHandler { _ in
-                continuation.resume()
-            }
-            commandBuffer.commit()
+            encoder.setBuffer(queryBuffer, offset: 0, index: 0)
+            encoder.setBuffer(databaseBuffer, offset: 0, index: 1)
+            encoder.setBuffer(projectionBuffer, offset: 0, index: 2)
+            encoder.setBuffer(distanceBuffer, offset: 0, index: 3)
+
+            var params = parameters
+            encoder.setBytes(&params, length: MemoryLayout<Parameters>.size, index: 4)
+
+            let maxThreads = pipeline.maxTotalThreadsPerThreadgroup
+            let threadWidth = min(Int(parameters.numQueries), 16)
+            let threadHeight = min(maxThreads / threadWidth, Int(parameters.numDatabase))
+
+            let threadsPerGroup = MTLSize(width: threadWidth, height: threadHeight, depth: 1)
+            let groups = MTLSize(
+                width: (Int(parameters.numQueries) + threadWidth - 1) / threadWidth,
+                height: (Int(parameters.numDatabase) + threadHeight - 1) / threadHeight,
+                depth: 1
+            )
+
+            encoder.dispatchThreadgroups(groups, threadsPerThreadgroup: threadsPerGroup)
         }
 
         let distancePointer = distanceBuffer.contents().bindMemory(
@@ -596,14 +635,13 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
 
         let outputDim = projection.shape.dimensions[0]
         let numVectors = vectors.count
+        let device = context.device.rawDevice
 
         let flatVectors = vectors.flatMap { $0 }
 
-        guard let inputBuffer = kernelContext.createAlignedBuffer(
-            from: flatVectors,
-            options: .storageModeShared,
-            alignment: 16
-        ) else {
+        guard let inputBuffer = flatVectors.withUnsafeBytes({ bytes in
+            device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
+        }) else {
             throw VectorError.bufferCreationFailed("Failed to create input buffer")
         }
 
@@ -614,7 +652,7 @@ public final class LearnedDistanceKernel: @unchecked Sendable {
             throw VectorError.bufferCreationFailed("Failed to create output buffer")
         }
 
-        guard let commandBuffer = kernelContext.commandQueue.makeCommandBuffer() else {
+        guard let commandBuffer = context.makeCommandBufferUnsafe() else {
             throw VectorError.invalidOperation("Failed to create command buffer")
         }
 

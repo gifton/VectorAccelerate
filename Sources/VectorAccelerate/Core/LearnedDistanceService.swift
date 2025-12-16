@@ -98,7 +98,7 @@ public actor LearnedDistanceService {
         // Create learned kernel only if ML is enabled and supported
         if configuration.enableExperimentalML && capabilities.supportsMLTensor {
             do {
-                self.learnedKernel = try LearnedDistanceKernel(device: context.device.rawDevice)
+                self.learnedKernel = try await LearnedDistanceKernel(context: context)
             } catch {
                 // Log but don't fail - fallback will be used
                 print("Warning: Failed to initialize learned distance kernel: \(error)")

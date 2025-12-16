@@ -282,7 +282,15 @@ public actor MemoryMapManager {
         if cache[pageIndex] != nil || prefetchTasks[pageIndex] != nil {
             return
         }
-        
+
+        // Check if page is within dataset bounds (include 16-byte header)
+        let totalFileSize = dataset.totalByteSize + 16
+        let pageStartOffset = pageIndex * configuration.pageSize
+        if pageStartOffset >= totalFileSize {
+            // Page is beyond dataset - nothing to prefetch
+            return
+        }
+
         // Start prefetch task
         let task = Task {
             do {

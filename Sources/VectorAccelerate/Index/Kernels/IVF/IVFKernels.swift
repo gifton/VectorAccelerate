@@ -41,18 +41,27 @@ public struct IVFSearchConfiguration: Sendable {
     /// Enable profiling for performance analysis
     public let enableProfiling: Bool
 
+    /// Use GPU-accelerated candidate list building.
+    ///
+    /// When enabled (default), candidate lists are built entirely on GPU,
+    /// eliminating CPU-GPU synchronization during the search pipeline.
+    /// Falls back to CPU candidate building if GPU kernels are unavailable.
+    public let useGPUCandidateBuilder: Bool
+
     public init(
         numCentroids: Int,
         nprobe: Int = 8,
         dimension: Int,
         metric: SupportedDistanceMetric = .euclidean,
-        enableProfiling: Bool = false
+        enableProfiling: Bool = false,
+        useGPUCandidateBuilder: Bool = true
     ) {
         self.numCentroids = numCentroids
         self.nprobe = min(nprobe, numCentroids)
         self.dimension = dimension
         self.metric = metric
         self.enableProfiling = enableProfiling
+        self.useGPUCandidateBuilder = useGPUCandidateBuilder
     }
 
     /// Validate configuration parameters.
@@ -74,23 +83,23 @@ public struct IVFSearchConfiguration: Sendable {
     // MARK: - Presets
 
     /// Small index preset (256 centroids, probe 8)
-    public static func small(dimension: Int, metric: SupportedDistanceMetric = .euclidean) -> IVFSearchConfiguration {
-        IVFSearchConfiguration(numCentroids: 256, nprobe: 8, dimension: dimension, metric: metric)
+    public static func small(dimension: Int, metric: SupportedDistanceMetric = .euclidean, useGPUCandidateBuilder: Bool = true) -> IVFSearchConfiguration {
+        IVFSearchConfiguration(numCentroids: 256, nprobe: 8, dimension: dimension, metric: metric, useGPUCandidateBuilder: useGPUCandidateBuilder)
     }
 
     /// Standard preset (1024 centroids, probe 16)
-    public static func standard(dimension: Int, metric: SupportedDistanceMetric = .euclidean) -> IVFSearchConfiguration {
-        IVFSearchConfiguration(numCentroids: 1024, nprobe: 16, dimension: dimension, metric: metric)
+    public static func standard(dimension: Int, metric: SupportedDistanceMetric = .euclidean, useGPUCandidateBuilder: Bool = true) -> IVFSearchConfiguration {
+        IVFSearchConfiguration(numCentroids: 1024, nprobe: 16, dimension: dimension, metric: metric, useGPUCandidateBuilder: useGPUCandidateBuilder)
     }
 
     /// Large index preset (4096 centroids, probe 32)
-    public static func large(dimension: Int, metric: SupportedDistanceMetric = .euclidean) -> IVFSearchConfiguration {
-        IVFSearchConfiguration(numCentroids: 4096, nprobe: 32, dimension: dimension, metric: metric)
+    public static func large(dimension: Int, metric: SupportedDistanceMetric = .euclidean, useGPUCandidateBuilder: Bool = true) -> IVFSearchConfiguration {
+        IVFSearchConfiguration(numCentroids: 4096, nprobe: 32, dimension: dimension, metric: metric, useGPUCandidateBuilder: useGPUCandidateBuilder)
     }
 
     /// High recall preset - probes more lists
-    public static func highRecall(numCentroids: Int, dimension: Int, metric: SupportedDistanceMetric = .euclidean) -> IVFSearchConfiguration {
-        IVFSearchConfiguration(numCentroids: numCentroids, nprobe: max(numCentroids / 8, 16), dimension: dimension, metric: metric)
+    public static func highRecall(numCentroids: Int, dimension: Int, metric: SupportedDistanceMetric = .euclidean, useGPUCandidateBuilder: Bool = true) -> IVFSearchConfiguration {
+        IVFSearchConfiguration(numCentroids: numCentroids, nprobe: max(numCentroids / 8, 16), dimension: dimension, metric: metric, useGPUCandidateBuilder: useGPUCandidateBuilder)
     }
 }
 

@@ -125,12 +125,12 @@ final class QuantizationEngineEnhancedTests: XCTestCase {
         }
     }
     
-    func testInitializationWithMetalContext() async throws {
+    func testInitializationWithMetal4Context() async throws {
         guard MetalDevice.isAvailable else {
             throw XCTSkip("Metal not available")
         }
         
-        let context = try await MetalContext()
+        let context = try await Metal4Context()
         let config = QuantizationConfiguration(useGPU: true)
         let testEngine = await QuantizationEngine(configuration: config, context: context)
         

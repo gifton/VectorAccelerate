@@ -28,6 +28,16 @@ public struct Metal4CompilerConfiguration: Sendable {
     /// Maximum concurrent compilations
     public let maxConcurrentCompilations: Int
 
+    /// Whether runtime shader compilation is allowed.
+    ///
+    /// When `false`, only precompiled metallibs can be used. Attempting to call
+    /// `makeLibrary(source:)` will throw an error. This ensures predictable,
+    /// jank-free performance in production builds.
+    ///
+    /// - `true`: Development mode, shaders can be compiled from source
+    /// - `false`: Production mode, requires precompiled metallib
+    public let allowRuntimeCompilation: Bool
+
     public enum OptimizationLevel: Sendable {
         case none
         case `default`
@@ -40,13 +50,15 @@ public struct Metal4CompilerConfiguration: Sendable {
         fastMathEnabled: Bool = true,
         languageVersion: MTLLanguageVersion = .version3_1,  // Use highest available
         optimizationLevel: OptimizationLevel = .performance,
-        maxConcurrentCompilations: Int = 4
+        maxConcurrentCompilations: Int = 4,
+        allowRuntimeCompilation: Bool = true
     ) {
         self.qualityOfService = qualityOfService
         self.fastMathEnabled = fastMathEnabled
         self.languageVersion = languageVersion
         self.optimizationLevel = optimizationLevel
         self.maxConcurrentCompilations = maxConcurrentCompilations
+        self.allowRuntimeCompilation = allowRuntimeCompilation
     }
 
     public static let `default` = Metal4CompilerConfiguration()
@@ -56,7 +68,8 @@ public struct Metal4CompilerConfiguration: Sendable {
         qualityOfService: .utility,
         fastMathEnabled: true,
         optimizationLevel: .performance,
-        maxConcurrentCompilations: 8
+        maxConcurrentCompilations: 8,
+        allowRuntimeCompilation: true
     )
 
     /// Configuration for real-time compilation
@@ -64,7 +77,20 @@ public struct Metal4CompilerConfiguration: Sendable {
         qualityOfService: .userInteractive,
         fastMathEnabled: true,
         optimizationLevel: .default,
-        maxConcurrentCompilations: 2
+        maxConcurrentCompilations: 2,
+        allowRuntimeCompilation: true
+    )
+
+    /// Production configuration that disables runtime compilation.
+    ///
+    /// Use this in production builds where all shaders should be precompiled
+    /// in a metallib file for predictable performance.
+    public static let production = Metal4CompilerConfiguration(
+        qualityOfService: .userInitiated,
+        fastMathEnabled: true,
+        optimizationLevel: .performance,
+        maxConcurrentCompilations: 4,
+        allowRuntimeCompilation: false
     )
 }
 
@@ -174,7 +200,18 @@ public actor Metal4ShaderCompiler {
     ///   - source: Metal shader source code
     ///   - label: Optional label for debugging
     /// - Returns: Compiled Metal library
+    /// - Throws: `VectorError.shaderCompilationFailed` if runtime compilation is disabled
+    ///
+    /// - Note: In production mode (when `allowRuntimeCompilation` is `false`),
+    ///   this method throws an error. Use precompiled metallibs via `loadLibrary(url:)` instead.
     public func makeLibrary(source: String, label: String? = nil) async throws -> any MTLLibrary {
+        // Check if runtime compilation is allowed
+        guard configuration.allowRuntimeCompilation else {
+            throw VectorError.shaderCompilationFailed(
+                "Runtime compilation disabled in production mode. Use precompiled metallib via loadLibrary(url:)."
+            )
+        }
+
         let cacheKey = "src_\(source.hashValue)"
 
         // Check cache

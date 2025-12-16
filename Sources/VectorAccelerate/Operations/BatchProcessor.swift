@@ -67,25 +67,25 @@ public protocol BatchOperation: Sendable {
     var estimatedMemoryPerItem: Int { get }
 }
 
-/// Main batch processor
+/// Main batch processor using Metal 4
 public actor BatchProcessor {
-    private let context: MetalContext?
+    private let context: Metal4Context?
     private let simdFallback: SIMDFallback
     private let configuration: BatchConfiguration
     private let logger: Logger
-    
+
     // Resource monitoring
     private var currentMemoryUsage: Int = 0
     private var activeOperations: Int = 0
-    
+
     // Performance metrics
     private var totalBatchesProcessed: Int = 0
     private var totalProcessingTime: TimeInterval = 0
-    
+
     // MARK: - Initialization
-    
+
     public init(
-        context: MetalContext? = nil,
+        context: Metal4Context? = nil,
         configuration: BatchConfiguration = .default
     ) async {
         self.context = context
@@ -363,7 +363,7 @@ public actor BatchProcessor {
 struct SimilarityOperation: BatchOperation {
     let references: [[Float]]
     let metric: SupportedDistanceMetric
-    let context: MetalContext?
+    let context: Metal4Context?
     let simdFallback: SIMDFallback
     
     var estimatedMemoryPerItem: Int {

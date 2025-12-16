@@ -79,6 +79,14 @@ final class IVFStructure: @unchecked Sendable {
     /// Minimum vectors before training
     let minTrainingVectors: Int
 
+    /// Vector quantization type (for memory reduction)
+    let quantization: VectorQuantization
+
+    // MARK: - Quantized Storage
+
+    /// Quantized vector storage (only used when quantization != .none)
+    private var quantizedStorage: IVFQuantizedStorage?
+
     // MARK: - State
 
     /// Current training state
@@ -139,6 +147,16 @@ final class IVFStructure: @unchecked Sendable {
         return sqrt(variance)
     }
 
+    /// Whether quantization is enabled for this index.
+    var isQuantized: Bool {
+        quantization != .none
+    }
+
+    /// Bytes used by quantized storage (0 if not quantized).
+    var quantizedStorageBytes: Int {
+        quantizedStorage?.usedBytes ?? 0
+    }
+
     // MARK: - Initialization
 
     /// Create an IVF structure.
@@ -148,11 +166,19 @@ final class IVFStructure: @unchecked Sendable {
     ///   - nprobe: Number of clusters to probe during search
     ///   - dimension: Vector dimension
     ///   - minTrainingVectors: Minimum vectors before training (default: 10 * numClusters)
-    init(numClusters: Int, nprobe: Int, dimension: Int, minTrainingVectors: Int? = nil) {
+    ///   - quantization: Vector quantization type (default: none)
+    init(
+        numClusters: Int,
+        nprobe: Int,
+        dimension: Int,
+        minTrainingVectors: Int? = nil,
+        quantization: VectorQuantization = .none
+    ) {
         self.numClusters = numClusters
         self.nprobe = nprobe
         self.dimension = dimension
         self.minTrainingVectors = minTrainingVectors ?? max(numClusters * 10, 1000)
+        self.quantization = quantization
 
         // Pre-allocate inverted lists
         self.invertedLists = Array(repeating: [], count: numClusters)
@@ -203,6 +229,17 @@ final class IVFStructure: @unchecked Sendable {
                     let entry = IVFListEntry(slotIndex: stagingSlots[i])
                     invertedLists[clusterIdx].append(entry)
                 }
+            }
+
+            // Initialize quantized storage if quantization is enabled
+            if quantization != .none {
+                quantizedStorage = IVFQuantizedStorage(
+                    quantizationType: quantization,
+                    dimension: dimension,
+                    context: context
+                )
+                // Quantize training vectors
+                try quantizedStorage?.quantize(vectors: vectors)
             }
 
             stagingSlots.removeAll()
@@ -434,6 +471,20 @@ final class IVFStructure: @unchecked Sendable {
         stagingSlots = []
         gpuStructure = nil
         gpuStructureDirty = true
+        quantizedStorage?.reset()
+        quantizedStorage = nil
+    }
+
+    // MARK: - Quantization Access
+
+    /// Get the quantized storage for search operations.
+    func getQuantizedStorage() -> IVFQuantizedStorage? {
+        return quantizedStorage
+    }
+
+    /// Check if vectors are stored in quantized format.
+    var hasQuantizedVectors: Bool {
+        quantizedStorage != nil && (quantizedStorage?.vectorCount ?? 0) > 0
     }
 
     // MARK: - Statistics

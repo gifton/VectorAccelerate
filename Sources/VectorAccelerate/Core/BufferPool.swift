@@ -376,7 +376,82 @@ public actor BufferPool: BufferProvider {
         missCount = 0
         allocationCount = 0
     }
-    
+
+    // MARK: - Pre-allocation
+
+    /// Common buffer sizes for pre-allocation (matches SmartBufferPool)
+    private static let commonPreallocationSizes: [Int] = [
+        4096,       // 4KB - small vectors
+        16384,      // 16KB - medium vectors
+        65536,      // 64KB - large vectors
+        262144,     // 256KB - embeddings
+        1048576,    // 1MB - matrices
+        4194304,    // 4MB - large batches
+    ]
+
+    /// Pre-allocate buffers for common sizes to reduce initial allocation overhead
+    /// Call this after initialization to warm up the pool
+    public func preallocateCommonSizes(buffersPerSize: Int = 2, maxSizes: Int = 3) {
+        for size in Self.commonPreallocationSizes.prefix(maxSizes) {
+            let bucketSize = selectBucketSize(for: size)
+
+            // Skip if would exceed memory limit
+            guard currentMemoryUsage + (bucketSize * buffersPerSize) <= maxTotalMemory else {
+                continue
+            }
+
+            for _ in 0..<buffersPerSize {
+                if let buffer = factory.createBuffer(length: bucketSize) {
+                    buffer.label = "VectorAccelerate.BufferPool.Prealloc.\(bucketSize)"
+
+                    var bucket = buckets[bucketSize] ?? BufferBucket(size: bucketSize)
+                    bucket.available.append(buffer)
+                    buckets[bucketSize] = bucket
+
+                    currentMemoryUsage += bucketSize
+                    allocationCount += 1
+                }
+            }
+        }
+    }
+
+    // MARK: - Typed Convenience Methods
+
+    /// Get a buffer for a specific type and count
+    public func getBuffer<T>(for type: T.Type, count: Int) async throws -> BufferToken {
+        let byteSize = count * MemoryLayout<T>.stride
+        return try await getBuffer(size: byteSize)
+    }
+
+    /// Get a buffer initialized with data (convenience for common pattern)
+    public func getBuffer<T>(with data: [T]) async throws -> BufferToken {
+        let token = try await getBuffer(for: T.self, count: data.count)
+        token.write(data: data)
+        return token
+    }
+
+    /// Acquire a MetalBuffer directly (for compatibility with SmartBufferPool API)
+    /// Note: Prefer getBuffer() with BufferToken for automatic memory management
+    public func acquireBuffer(byteSize: Int) async throws -> MetalBuffer {
+        let token = try await getBuffer(size: byteSize)
+        // Store token in activeHandles to keep it alive (using UUID as key)
+        activeHandles[UUID()] = token
+        return MetalBuffer(buffer: token.buffer, count: byteSize / MemoryLayout<Float>.stride)
+    }
+
+    /// Release a MetalBuffer back to the pool (for compatibility with SmartBufferPool API)
+    public func releaseBuffer(_ metalBuffer: MetalBuffer) {
+        // Find and remove matching token from activeHandles
+        // The token's deinit will return the buffer to the pool
+        for (id, token) in activeHandles {
+            if ObjectIdentifier(token.buffer) == ObjectIdentifier(metalBuffer.buffer) {
+                activeHandles.removeValue(forKey: id)
+                token.returnToPool()
+                return
+            }
+        }
+    }
+
     // MARK: - Utilities
 
     /// Select appropriate bucket size for requested size

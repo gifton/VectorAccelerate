@@ -138,11 +138,19 @@ public final class KMeansPipeline: @unchecked Sendable {
             }
             centroids = initial
         } else {
-            // Use K-means++ initialization from VectorIndex
-            centroids = try initializeCentroidsKMeansPlusPlus(
-                vectors: vectors,
-                k: configuration.numClusters
-            )
+            // Use configured initialization method
+            switch configuration.initialization {
+            case .kMeansPlusPlus:
+                centroids = try initializeCentroidsKMeansPlusPlus(
+                    vectors: vectors,
+                    k: configuration.numClusters
+                )
+            case .random:
+                centroids = try initializeCentroidsRandom(
+                    vectors: vectors,
+                    k: configuration.numClusters
+                )
+            }
         }
 
         // Create centroid buffer
@@ -295,7 +303,7 @@ public final class KMeansPipeline: @unchecked Sendable {
         if let initial = initialCentroids {
             centroidBuffer = initial
         } else {
-            // Extract vectors and use K-means++
+            // Extract vectors for initialization
             let vectorPtr = vectors.contents().bindMemory(to: Float.self, capacity: numVectors * dimension)
             var vectorsArray: [[Float]] = []
             vectorsArray.reserveCapacity(numVectors)
@@ -308,7 +316,15 @@ public final class KMeansPipeline: @unchecked Sendable {
                 vectorsArray.append(vec)
             }
 
-            let centroids = try initializeCentroidsKMeansPlusPlus(vectors: vectorsArray, k: numClusters)
+            // Use configured initialization method
+            let centroids: [[Float]]
+            switch configuration.initialization {
+            case .kMeansPlusPlus:
+                centroids = try initializeCentroidsKMeansPlusPlus(vectors: vectorsArray, k: numClusters)
+            case .random:
+                centroids = try initializeCentroidsRandom(vectors: vectorsArray, k: numClusters)
+            }
+
             let flatCentroids = centroids.flatMap { $0 }
 
             guard let buffer = device.makeBuffer(
@@ -526,5 +542,37 @@ public final class KMeansPipeline: @unchecked Sendable {
             sum += diff * diff
         }
         return sum
+    }
+
+    /// Initialize centroids using random selection.
+    ///
+    /// Selects k unique points uniformly at random from the dataset.
+    /// This is faster than K-Means++ but may produce clustered initial centroids.
+    ///
+    /// - Parameters:
+    ///   - vectors: Input vectors to select from
+    ///   - k: Number of centroids to select
+    /// - Returns: Array of k centroid vectors
+    private func initializeCentroidsRandom(
+        vectors: [[Float]],
+        k: Int
+    ) throws -> [[Float]] {
+        let n = vectors.count
+
+        guard n >= k else {
+            throw IndexError.invalidInput(
+                message: "Not enough vectors (\(n)) for \(k) clusters"
+            )
+        }
+
+        // Select k unique random indices
+        var selectedIndices = Set<Int>()
+        while selectedIndices.count < k {
+            let idx = Int.random(in: 0..<n)
+            selectedIndices.insert(idx)
+        }
+
+        // Extract vectors at selected indices
+        return selectedIndices.sorted().map { vectors[$0] }
     }
 }
