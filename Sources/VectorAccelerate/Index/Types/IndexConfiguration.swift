@@ -64,11 +64,13 @@ public struct IndexConfiguration: Sendable, Equatable {
         /// - Parameters:
         ///   - nlist: Number of clusters (centroids)
         ///   - nprobe: Number of clusters to search at query time
+        ///   - minTrainingVectors: Minimum vectors before auto-training triggers
+        ///     (nil uses default: max(nlist * 10, 1000))
         ///
         /// Recommended settings:
         /// - nlist: sqrt(n) to 4*sqrt(n) where n = expected vector count
         /// - nprobe: 1-20% of nlist for good recall/speed tradeoff
-        case ivf(nlist: Int, nprobe: Int)
+        case ivf(nlist: Int, nprobe: Int, minTrainingVectors: Int? = nil)
     }
 
     // MARK: - Initialization
@@ -119,19 +121,22 @@ public struct IndexConfiguration: Sendable, Equatable {
     ///   - nprobe: Number of clusters to search
     ///   - metric: Distance metric (default: euclidean)
     ///   - capacity: Initial capacity (default: 100,000)
+    ///   - minTrainingVectors: Minimum vectors before auto-training triggers
+    ///     (nil uses default: max(nlist * 10, 1000))
     /// - Returns: Configuration for an IVF index
     public static func ivf(
         dimension: Int,
         nlist: Int,
         nprobe: Int,
         metric: SupportedDistanceMetric = .euclidean,
-        capacity: Int = 100_000
+        capacity: Int = 100_000,
+        minTrainingVectors: Int? = nil
     ) -> IndexConfiguration {
         IndexConfiguration(
             dimension: dimension,
             metric: metric,
             capacity: capacity,
-            indexType: .ivf(nlist: nlist, nprobe: nprobe)
+            indexType: .ivf(nlist: nlist, nprobe: nprobe, minTrainingVectors: minTrainingVectors)
         )
     }
 
@@ -158,7 +163,7 @@ public struct IndexConfiguration: Sendable, Equatable {
         case .flat:
             break // No additional validation needed
 
-        case .ivf(let nlist, let nprobe):
+        case .ivf(let nlist, let nprobe, let minTrainingVectors):
             guard nlist > 0 else {
                 throw IndexError.invalidConfiguration(
                     parameter: "nlist",
@@ -177,6 +182,12 @@ public struct IndexConfiguration: Sendable, Equatable {
                     reason: "must be <= nlist (\(nlist)), got \(nprobe)"
                 )
             }
+            if let minVecs = minTrainingVectors, minVecs < nlist {
+                throw IndexError.invalidConfiguration(
+                    parameter: "minTrainingVectors",
+                    reason: "must be >= nlist (\(nlist)), got \(minVecs)"
+                )
+            }
         }
     }
 
@@ -190,7 +201,7 @@ public struct IndexConfiguration: Sendable, Equatable {
 
     /// Whether this is an IVF index.
     public var isIVF: Bool {
-        if case .ivf = indexType { return true }
+        if case .ivf(_, _, _) = indexType { return true }
         return false
     }
 
@@ -212,8 +223,13 @@ extension IndexConfiguration: CustomStringConvertible {
         switch indexType {
         case .flat:
             return "IndexConfiguration(flat, dim=\(dimension), metric=\(metric), capacity=\(capacity))"
-        case .ivf(let nlist, let nprobe):
-            return "IndexConfiguration(ivf, dim=\(dimension), metric=\(metric), capacity=\(capacity), nlist=\(nlist), nprobe=\(nprobe))"
+        case .ivf(let nlist, let nprobe, let minTrainingVectors):
+            var desc = "IndexConfiguration(ivf, dim=\(dimension), metric=\(metric), capacity=\(capacity), nlist=\(nlist), nprobe=\(nprobe)"
+            if let minVecs = minTrainingVectors {
+                desc += ", minTrainingVectors=\(minVecs)"
+            }
+            desc += ")"
+            return desc
         }
     }
 }

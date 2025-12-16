@@ -144,9 +144,17 @@ struct BenchmarkRunner {
 
 // Top-level async entry point
 let semaphore = DispatchSemaphore(value: 0)
+let args = CommandLine.arguments
+
 Task {
     do {
-        try await BenchmarkRunner.main()
+        if args.contains("--index") || args.contains("-i") {
+            // Run the new index benchmark harness
+            try await IndexBenchmarkRunner.run()
+        } else {
+            // Run the original kernel benchmarks
+            try await BenchmarkRunner.main()
+        }
     } catch {
         print("❌ Fatal error: \(error)")
     }

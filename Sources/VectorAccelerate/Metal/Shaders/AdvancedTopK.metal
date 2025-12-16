@@ -646,6 +646,22 @@ kernel void warp_select_small_k_descending(
 }
 
 // MARK: - Kernel 4: Streaming L2 Top-K Update (Fused Distance + Update)
+//
+// ⚠️ EXPERIMENTAL - KNOWN CORRECTNESS ISSUE ⚠️
+//
+// This kernel has a fundamental correctness bug: each thread maintains its own
+// private heap, but only thread 0 writes back results. This means results from
+// other threads are DISCARDED, leading to incorrect top-k selection.
+//
+// The kernel only processes chunk elements that happen to map to thread 0's
+// loop iterations. For production use, threads would need to cooperatively
+// merge their heaps using threadgroup reduction.
+//
+// Recommendation: Use the chunked two-pass fallback path in FusedL2TopKKernel
+// instead, which correctly handles large datasets via GPU merge.
+//
+// See: QUALITY_IMPROVEMENT_ROADMAP.md P0.9 for details.
+//
 
 /// Parameters for streaming L2 top-k update
 struct StreamingL2Params {

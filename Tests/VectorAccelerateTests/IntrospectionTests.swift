@@ -211,7 +211,7 @@ final class IntrospectionTests: XCTestCase {
 
         let stats = await index.statistics()
 
-        if case .ivf(let nlist, let nprobe) = stats.indexType {
+        if case .ivf(let nlist, let nprobe, _) = stats.indexType {
             XCTAssertEqual(nlist, 16)
             XCTAssertEqual(nprobe, 4)
         } else {

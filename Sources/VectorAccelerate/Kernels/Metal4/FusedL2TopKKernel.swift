@@ -44,20 +44,44 @@ public struct FusedL2TopKParameters: Sendable {
     /// Create parameters for fused L2 + Top-K.
     ///
     /// - Parameters:
-    ///   - numQueries: Number of query vectors
-    ///   - numDataset: Number of dataset vectors
-    ///   - dimension: Vector dimension (must be <= 512)
-    ///   - k: Number of nearest neighbors to find
+    ///   - numQueries: Number of query vectors (must be > 0)
+    ///   - numDataset: Number of dataset vectors (must be > 0)
+    ///   - dimension: Vector dimension (must be > 0 and <= maxDimension)
+    ///   - k: Number of nearest neighbors to find (must be > 0 and <= maxK)
+    /// - Throws: `IndexError.invalidInput` if any parameter is invalid
     public init(
         numQueries: Int,
         numDataset: Int,
         dimension: Int,
         k: Int
-    ) {
+    ) throws {
+        guard numQueries > 0 else {
+            throw IndexError.invalidInput(message: "numQueries must be positive, got \(numQueries)")
+        }
+        guard numDataset > 0 else {
+            throw IndexError.invalidInput(message: "numDataset must be positive, got \(numDataset)")
+        }
+        guard dimension > 0 else {
+            throw IndexError.invalidInput(message: "dimension must be positive, got \(dimension)")
+        }
+        guard dimension <= Self.maxDimension else {
+            throw IndexError.invalidInput(
+                message: "dimension \(dimension) exceeds maximum supported dimension \(Self.maxDimension)"
+            )
+        }
+        guard k > 0 else {
+            throw IndexError.invalidInput(message: "k must be positive, got \(k)")
+        }
+        guard k <= Self.maxK else {
+            throw IndexError.invalidInput(
+                message: "k \(k) exceeds maximum supported k \(Self.maxK)"
+            )
+        }
+
         self.numQueries = UInt32(numQueries)
         self.numDataset = UInt32(numDataset)
-        self.dimension = UInt32(min(dimension, Self.maxDimension))
-        self.k = UInt32(min(k, Self.maxK))
+        self.dimension = UInt32(dimension)
+        self.k = UInt32(k)
     }
 }
 
@@ -71,9 +95,40 @@ public struct Metal4FusedL2Config: Sendable {
     /// Threadgroup size for kernel dispatch
     public let threadgroupSize: Int
 
-    public init(includeDistances: Bool = true, threadgroupSize: Int = 256) {
+    /// Maximum number of bytes allowed for a materialized distance matrix.
+    ///
+    /// This limit is only relevant for the **two-pass fallback** strategies
+    /// (L2Distance -> TopKSelection). The fused kernel (K ≤ 8) does not
+    /// materialize a distance matrix.
+    public let maxDistanceMatrixBytes: Int
+
+    /// Enable chunked processing when the full distance matrix would exceed
+    /// `maxDistanceMatrixBytes`.
+    public let enableChunkedFallback: Bool
+
+    /// Prefer GPU-side merge for the chunked fallback path.
+    ///
+    /// When enabled (default), `FusedL2TopKKernel` will maintain a running top-k
+    /// on the GPU during chunked processing and merge each chunk's top-k results
+    /// with a dedicated merge kernel. This avoids repeated CPU readback and
+    /// sorting work for large datasets.
+    ///
+    /// If the merge shader is unavailable (e.g. older precompiled metallib),
+    /// the kernel will automatically fall back to the CPU merge implementation.
+    public let preferGPUMergeInChunkedFallback: Bool
+
+    public init(
+        includeDistances: Bool = true,
+        threadgroupSize: Int = 256,
+        maxDistanceMatrixBytes: Int = 64 * 1024 * 1024,
+        enableChunkedFallback: Bool = true,
+        preferGPUMergeInChunkedFallback: Bool = true
+    ) {
         self.includeDistances = includeDistances
         self.threadgroupSize = min(threadgroupSize, 256)
+        self.maxDistanceMatrixBytes = maxDistanceMatrixBytes
+        self.enableChunkedFallback = enableChunkedFallback
+        self.preferGPUMergeInChunkedFallback = preferGPUMergeInChunkedFallback
     }
 
     /// Default configuration with distances included
@@ -125,6 +180,10 @@ public struct Metal4FusedL2TopKResult: Sendable {
 // MARK: - Streaming Update Parameters
 
 /// Parameters for streaming update kernel.
+///
+/// - Warning: **EXPERIMENTAL** - The underlying `streaming_l2_topk_update` shader
+///   has known correctness issues. Use the chunked two-pass fallback instead.
+@available(*, deprecated, message: "Experimental: streaming_l2_topk_update has correctness issues. Use execute() which automatically uses chunked fallback.")
 public struct Metal4StreamingL2Params: Sendable {
     var Q: UInt32
     var chunkSize: UInt32
@@ -173,6 +232,26 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
     /// Streaming update pipeline for chunked processing
     private let streamingUpdatePipeline: any MTLComputePipelineState
 
+    // MARK: - Fallback Kernels
+
+    /// Two-pass fallback (distance matrix materialization)
+    private let l2DistanceKernel: L2DistanceKernel
+    private let topKSelectionKernel: TopKSelectionKernel
+    private let warpSelectionKernel: WarpOptimizedSelectionKernel
+
+    /// GPU merge kernel for chunked fallback (optional).
+    ///
+    /// If unavailable (e.g. older metallib), chunked fallback will use CPU merge.
+    private let topKMergeKernel: TopKMergeKernel?
+
+    // MARK: - Strategy Constants
+
+    /// Hard limit of the current fused shader implementation (K_PRIVATE)
+    private static let fusedMaxK: Int = 8
+
+    /// Selection threshold for warp-optimized top-k
+    private static let warpOptimizedMaxK: Int = 32
+
     // MARK: - Initialization
 
     /// Create a Metal 4 Fused L2 Top-K kernel.
@@ -196,6 +275,15 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         let device = context.device.rawDevice
         self.fusedPipeline = try await device.makeComputePipelineState(function: fusedFunc)
         self.streamingUpdatePipeline = try await device.makeComputePipelineState(function: streamingFunc)
+
+        // Fallback kernels (used automatically for K > 8)
+        self.l2DistanceKernel = try await L2DistanceKernel(context: context)
+        self.topKSelectionKernel = try await TopKSelectionKernel(context: context)
+        self.warpSelectionKernel = try await WarpOptimizedSelectionKernel(context: context)
+
+        // Optional GPU merge kernel for chunked fallback (K > 8).
+        // If unavailable (e.g. older precompiled metallib), we fall back to CPU merge.
+        self.topKMergeKernel = try? await TopKMergeKernel(context: context)
     }
 
     // MARK: - Warm Up
@@ -225,6 +313,11 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         outputDistances: (any MTLBuffer)?,
         parameters: FusedL2TopKParameters
     ) -> Metal4EncodingResult {
+        assert(
+            Int(parameters.k) <= Self.fusedMaxK,
+            "fused_l2_topk shader is only guaranteed correct for K <= \(Self.fusedMaxK). Use execute() for K > \(Self.fusedMaxK) (two-pass fallback)."
+        )
+
         encoder.setComputePipelineState(fusedPipeline)
         encoder.label = "FusedL2TopK (K=\(parameters.k))"
 
@@ -259,7 +352,12 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
 
     /// Encode streaming update for chunk processing.
     ///
+    /// - Warning: **EXPERIMENTAL** - The underlying `streaming_l2_topk_update` shader
+    ///   has known correctness issues where only thread 0's results are preserved.
+    ///   Use `execute()` instead, which automatically uses the correct chunked fallback.
+    ///
     /// Used when processing dataset in chunks to update running top-k.
+    @available(*, deprecated, message: "Experimental: has correctness issues. Use execute() which automatically uses chunked fallback.")
     @discardableResult
     public func encodeStreamingUpdate(
         into encoder: any MTLComputeCommandEncoder,
@@ -296,6 +394,11 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
 
     /// Execute fused L2 + Top-K as standalone operation.
     ///
+    /// Automatically selects the optimal strategy based on K:
+    /// - K ≤ 8: Fused single-pass kernel (fastest, no distance matrix)
+    /// - 8 < K ≤ 32: Two-pass with warp-optimized selection
+    /// - K > 32: Two-pass with standard selection
+    ///
     /// - Parameters:
     ///   - queries: Query vectors buffer
     ///   - dataset: Dataset vectors buffer
@@ -308,52 +411,59 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         parameters: FusedL2TopKParameters,
         config: Metal4FusedL2Config = .default
     ) async throws -> Metal4FusedL2TopKResult {
-        let device = context.device.rawDevice
         let numQueries = Int(parameters.numQueries)
+        let numDataset = Int(parameters.numDataset)
+        let dimension = Int(parameters.dimension)
         let k = Int(parameters.k)
 
-        // Validate parameters
-        guard parameters.dimension <= FusedL2TopKParameters.maxDimension else {
-            throw VectorError.invalidInput(
-                "Dimension \(parameters.dimension) exceeds maximum \(FusedL2TopKParameters.maxDimension)"
-            )
-        }
-
-        // Allocate output buffers
-        let indicesSize = numQueries * k * MemoryLayout<UInt32>.size
-        guard let indicesBuffer = device.makeBuffer(length: indicesSize, options: .storageModeShared) else {
-            throw VectorError.bufferAllocationFailed(size: indicesSize)
-        }
-        indicesBuffer.label = "FusedL2TopK.indices"
-
-        let distancesBuffer: (any MTLBuffer)?
-        if config.includeDistances {
-            let distancesSize = numQueries * k * MemoryLayout<Float>.size
-            guard let buffer = device.makeBuffer(length: distancesSize, options: .storageModeShared) else {
-                throw VectorError.bufferAllocationFailed(size: distancesSize)
-            }
-            buffer.label = "FusedL2TopK.distances"
-            distancesBuffer = buffer
-        } else {
-            distancesBuffer = nil
-        }
-
-        try await context.executeAndWait { [self] _, encoder in
-            self.encode(
-                into: encoder,
+        // Strategy selection
+        if k <= Self.fusedMaxK {
+            // Fused shader path (fastest, no distance matrix)
+            return try await executeFusedDirect(
                 queries: queries,
                 dataset: dataset,
-                outputIndices: indicesBuffer,
-                outputDistances: distancesBuffer,
-                parameters: parameters
+                parameters: parameters,
+                config: config
             )
         }
 
-        return Metal4FusedL2TopKResult(
-            indices: indicesBuffer,
-            distances: distancesBuffer,
+        // Two-pass fallback paths
+        let distanceMatrixBytes = numQueries * numDataset * MemoryLayout<Float>.size
+        let shouldChunk = config.enableChunkedFallback && distanceMatrixBytes > config.maxDistanceMatrixBytes
+
+        if shouldChunk {
+            return try await executeChunkedTwoPass(
+                queries: queries,
+                dataset: dataset,
+                numQueries: numQueries,
+                numDataset: numDataset,
+                dimension: dimension,
+                k: k,
+                maxDistanceMatrixBytes: config.maxDistanceMatrixBytes,
+                config: config
+            )
+        }
+
+        if k <= Self.warpOptimizedMaxK {
+            return try await executeTwoPassWarp(
+                queries: queries,
+                dataset: dataset,
+                numQueries: numQueries,
+                numDataset: numDataset,
+                dimension: dimension,
+                k: k,
+                config: config
+            )
+        }
+
+        return try await executeTwoPassStandard(
+            queries: queries,
+            dataset: dataset,
             numQueries: numQueries,
-            k: k
+            numDataset: numDataset,
+            dimension: dimension,
+            k: k,
+            config: config
         )
     }
 
@@ -383,12 +493,6 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
             throw VectorError.invalidInput("Dimension mismatch in input vectors")
         }
 
-        guard dimension <= FusedL2TopKParameters.maxDimension else {
-            throw VectorError.invalidInput(
-                "Dimension \(dimension) exceeds maximum \(FusedL2TopKParameters.maxDimension)"
-            )
-        }
-
         let device = context.device.rawDevice
         let flatQueries = queries.flatMap { $0 }
         let flatDataset = dataset.flatMap { $0 }
@@ -411,7 +515,7 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         }
         datasetBuffer.label = "FusedL2TopK.dataset"
 
-        let parameters = FusedL2TopKParameters(
+        let parameters = try FusedL2TopKParameters(
             numQueries: queries.count,
             numDataset: dataset.count,
             dimension: dimension,
@@ -449,7 +553,7 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         let queryBuffer = try createBuffer(from: queries, device: device, label: "FusedL2TopK.queries")
         let datasetBuffer = try createBuffer(from: dataset, device: device, label: "FusedL2TopK.dataset")
 
-        let parameters = FusedL2TopKParameters(
+        let parameters = try FusedL2TopKParameters(
             numQueries: queries.count,
             numDataset: dataset.count,
             dimension: dimension,
@@ -487,72 +591,566 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         k: Int,
         chunkSize: Int = 100_000
     ) async throws -> Metal4FusedL2TopKResult {
+        // NOTE:
+        // The original implementation used the `streaming_l2_topk_update` shader.
+        // That shader is intentionally marked as experimental in the roadmap.
+        //
+        // This method now delegates to the robust chunked two-pass fallback:
+        //   L2Distance (per chunk) -> Selection (per chunk) -> CPU merge.
+        let params = try FusedL2TopKParameters(
+            numQueries: queryCount,
+            numDataset: datasetCount,
+            dimension: dimension,
+            k: k
+        )
+
+        // Convert chunkSize into a byte limit for the distance matrix:
+        // distanceBytesPerChunk = Q * chunkSize * sizeof(Float)
+        let maxBytes = max(1, queryCount * chunkSize * MemoryLayout<Float>.size)
+
+        return try await execute(
+            queries: queries,
+            dataset: dataset,
+            parameters: params,
+            config: Metal4FusedL2Config(
+                includeDistances: true,
+                threadgroupSize: 256,
+                maxDistanceMatrixBytes: maxBytes,
+                enableChunkedFallback: true
+            )
+        )
+    }
+
+    // MARK: - Strategy Implementations
+
+    private func executeFusedDirect(
+        queries: any MTLBuffer,
+        dataset: any MTLBuffer,
+        parameters: FusedL2TopKParameters,
+        config: Metal4FusedL2Config
+    ) async throws -> Metal4FusedL2TopKResult {
+        let device = context.device.rawDevice
+        let numQueries = Int(parameters.numQueries)
+        let k = Int(parameters.k)
+
+        // Allocate outputs
+        let indicesSize = numQueries * k * MemoryLayout<UInt32>.size
+        guard let indicesBuffer = device.makeBuffer(length: indicesSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: indicesSize)
+        }
+        indicesBuffer.label = "FusedL2TopK.indices"
+
+        let distancesBuffer: (any MTLBuffer)?
+        if config.includeDistances {
+            let distancesSize = numQueries * k * MemoryLayout<Float>.size
+            guard let buffer = device.makeBuffer(length: distancesSize, options: .storageModeShared) else {
+                throw VectorError.bufferAllocationFailed(size: distancesSize)
+            }
+            buffer.label = "FusedL2TopK.distances"
+            distancesBuffer = buffer
+        } else {
+            distancesBuffer = nil
+        }
+
+        try await context.executeAndWait { [self] _, encoder in
+            self.encode(
+                into: encoder,
+                queries: queries,
+                dataset: dataset,
+                outputIndices: indicesBuffer,
+                outputDistances: distancesBuffer,
+                parameters: parameters
+            )
+        }
+
+        return Metal4FusedL2TopKResult(
+            indices: indicesBuffer,
+            distances: distancesBuffer,
+            numQueries: numQueries,
+            k: k
+        )
+    }
+
+    private func executeTwoPassWarp(
+        queries: any MTLBuffer,
+        dataset: any MTLBuffer,
+        numQueries: Int,
+        numDataset: Int,
+        dimension: Int,
+        k: Int,
+        config: Metal4FusedL2Config
+    ) async throws -> Metal4FusedL2TopKResult {
+        try await executeTwoPass(
+            queries: queries,
+            dataset: dataset,
+            numQueries: numQueries,
+            numDataset: numDataset,
+            dimension: dimension,
+            k: k,
+            selection: .warp,
+            config: config
+        )
+    }
+
+    private func executeTwoPassStandard(
+        queries: any MTLBuffer,
+        dataset: any MTLBuffer,
+        numQueries: Int,
+        numDataset: Int,
+        dimension: Int,
+        k: Int,
+        config: Metal4FusedL2Config
+    ) async throws -> Metal4FusedL2TopKResult {
+        try await executeTwoPass(
+            queries: queries,
+            dataset: dataset,
+            numQueries: numQueries,
+            numDataset: numDataset,
+            dimension: dimension,
+            k: k,
+            selection: .standard,
+            config: config
+        )
+    }
+
+    private enum TwoPassSelectionKind {
+        case warp
+        case standard
+    }
+
+    private func executeTwoPass(
+        queries: any MTLBuffer,
+        dataset: any MTLBuffer,
+        numQueries: Int,
+        numDataset: Int,
+        dimension: Int,
+        k: Int,
+        selection: TwoPassSelectionKind,
+        config: Metal4FusedL2Config
+    ) async throws -> Metal4FusedL2TopKResult {
         let device = context.device.rawDevice
         let actualK = min(k, FusedL2TopKParameters.maxK)
 
-        // Process first chunk to initialize results
-        let firstChunkSize = min(chunkSize, datasetCount)
-        let firstParams = FusedL2TopKParameters(
-            numQueries: queryCount,
-            numDataset: firstChunkSize,
-            dimension: dimension,
-            k: actualK
-        )
-
-        let result = try await execute(
-            queries: queries,
-            dataset: dataset,
-            parameters: firstParams
-        )
-
-        // Capture buffers for use in closures
-        let resultIndices = result.indices
-        guard let resultDistances = result.distances else {
-            throw VectorError.invalidOperation("Chunked processing requires distances buffer")
+        // Allocate full distance matrix (guarded by strategy selector)
+        let distancesSize = numQueries * numDataset * MemoryLayout<Float>.size
+        guard let distanceMatrix = device.makeBuffer(length: distancesSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: distancesSize)
         }
+        distanceMatrix.label = "FusedL2TopK.fallback.distances"
 
-        // Process remaining chunks
-        var processedCount = firstChunkSize
-        while processedCount < datasetCount {
-            let remainingCount = datasetCount - processedCount
-            let currentChunkSize = min(chunkSize, remainingCount)
+        // Allocate top-k outputs
+        let outIndicesSize = numQueries * actualK * MemoryLayout<UInt32>.size
+        let outValuesSize = numQueries * actualK * MemoryLayout<Float>.size
+        guard let outIndices = device.makeBuffer(length: outIndicesSize, options: .storageModeShared),
+              let outValues = device.makeBuffer(length: outValuesSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: outIndicesSize + outValuesSize)
+        }
+        outIndices.label = "FusedL2TopK.fallback.indices"
+        outValues.label = "FusedL2TopK.fallback.values"
 
-            // Create view into dataset at current offset
-            let offset = processedCount * dimension * MemoryLayout<Float>.size
-            let chunkLength = currentChunkSize * dimension * MemoryLayout<Float>.size
-            let chunkPointer = dataset.contents().advanced(by: offset)
+        let l2Params = L2DistanceParameters(
+            numQueries: numQueries,
+            numDatabase: numDataset,
+            dimension: dimension,
+            computeSqrt: false // match fused kernel: squared L2
+        )
 
-            guard let chunkBuffer = device.makeBuffer(
-                bytes: chunkPointer,
-                length: chunkLength,
-                options: .storageModeShared
-            ) else {
-                throw VectorError.bufferAllocationFailed(size: chunkLength)
-            }
-
-            let streamingParams = Metal4StreamingL2Params(
-                Q: UInt32(queryCount),
-                chunkSize: UInt32(currentChunkSize),
-                D: UInt32(dimension),
-                K: UInt32(actualK),
-                offset: UInt32(processedCount)
+        try await context.executeAndWait { [self] _, encoder in
+            // 1) Distance matrix
+            self.l2DistanceKernel.encode(
+                into: encoder,
+                queries: queries,
+                database: dataset,
+                distances: distanceMatrix,
+                parameters: l2Params
             )
 
-            try await context.executeAndWait { [self] _, encoder in
-                self.encodeStreamingUpdate(
+            // 2) Barrier before selection
+            encoder.memoryBarrier(scope: .buffers)
+
+            // 3) Select top-k per query
+            switch selection {
+            case .warp:
+                self.warpSelectionKernel.encode(
                     into: encoder,
-                    queries: queries,
-                    chunk: chunkBuffer,
-                    runningIndices: resultIndices,
-                    runningDistances: resultDistances,
-                    parameters: streamingParams
+                    distances: distanceMatrix,
+                    outputIndices: outIndices,
+                    outputValues: outValues,
+                    queryCount: numQueries,
+                    candidateCount: numDataset,
+                    k: actualK,
+                    mode: .ascending
+                )
+            case .standard:
+                let topKParams = TopKParameters(
+                    batchSize: numQueries,
+                    numElements: numDataset,
+                    k: actualK,
+                    mode: .minimum,
+                    sorted: true
+                )
+                self.topKSelectionKernel.encode(
+                    into: encoder,
+                    input: distanceMatrix,
+                    outputValues: outValues,
+                    outputIndices: outIndices,
+                    parameters: topKParams
                 )
             }
-
-            processedCount += currentChunkSize
         }
 
-        return result
+        return Metal4FusedL2TopKResult(
+            indices: outIndices,
+            distances: config.includeDistances ? outValues : nil,
+            numQueries: numQueries,
+            k: actualK
+        )
+    }
+
+    private struct TopKPair {
+        var index: UInt32
+        var distance: Float
+    }
+
+    private func executeChunkedTwoPass(
+        queries: any MTLBuffer,
+        dataset: any MTLBuffer,
+        numQueries: Int,
+        numDataset: Int,
+        dimension: Int,
+        k: Int,
+        maxDistanceMatrixBytes: Int,
+        config: Metal4FusedL2Config
+    ) async throws -> Metal4FusedL2TopKResult {
+        let device = context.device.rawDevice
+        let actualK = min(k, FusedL2TopKParameters.maxK)
+
+        // Compute chunk size from guardrail: Q * chunkSize * sizeof(Float) <= maxDistanceMatrixBytes
+        let bytesPerCandidate = max(1, numQueries * MemoryLayout<Float>.size)
+        let maxCandidatesPerChunk = max(1, maxDistanceMatrixBytes / bytesPerCandidate)
+        let chunkSize = min(numDataset, maxCandidatesPerChunk)
+
+        let selectionKind: TwoPassSelectionKind = (actualK <= Self.warpOptimizedMaxK) ? .warp : .standard
+        let sentinel: UInt32 = 0xFFFF_FFFF
+
+        // =====================================================================
+        // GPU Merge Path: Maintain running top-k on GPU, merge without CPU readback
+        // =====================================================================
+        if config.preferGPUMergeInChunkedFallback, let mergeKernel = self.topKMergeKernel {
+            let runningIdxBytes = numQueries * actualK * MemoryLayout<UInt32>.size
+            let runningDistBytes = numQueries * actualK * MemoryLayout<Float>.size
+
+            guard let indicesA = device.makeBuffer(length: runningIdxBytes, options: .storageModeShared),
+                  let distancesA = device.makeBuffer(length: runningDistBytes, options: .storageModeShared),
+                  let indicesB = device.makeBuffer(length: runningIdxBytes, options: .storageModeShared),
+                  let distancesB = device.makeBuffer(length: runningDistBytes, options: .storageModeShared) else {
+                throw VectorError.bufferAllocationFailed(size: runningIdxBytes + runningDistBytes)
+            }
+            indicesA.label = "FusedL2TopK.chunked.running.indices[A]"
+            distancesA.label = "FusedL2TopK.chunked.running.distances[A]"
+            indicesB.label = "FusedL2TopK.chunked.running.indices[B]"
+            distancesB.label = "FusedL2TopK.chunked.running.distances[B]"
+
+            // Initialize running buffers to sentinel/+infinity so the first merge works
+            let initCount = numQueries * actualK
+            let initIdxA = indicesA.contents().bindMemory(to: UInt32.self, capacity: initCount)
+            let initDistA = distancesA.contents().bindMemory(to: Float.self, capacity: initCount)
+            let initIdxB = indicesB.contents().bindMemory(to: UInt32.self, capacity: initCount)
+            let initDistB = distancesB.contents().bindMemory(to: Float.self, capacity: initCount)
+            for i in 0..<initCount {
+                initIdxA[i] = sentinel
+                initDistA[i] = .infinity
+                initIdxB[i] = sentinel
+                initDistB[i] = .infinity
+            }
+
+            var runningIndices: any MTLBuffer = indicesA
+            var runningDistances: any MTLBuffer = distancesA
+            var scratchIndices: any MTLBuffer = indicesB
+            var scratchDistances: any MTLBuffer = distancesB
+
+            var chunkStart = 0
+            while chunkStart < numDataset {
+                let thisChunkSize = min(chunkSize, numDataset - chunkStart)
+                let chunkK = min(actualK, thisChunkSize)
+
+                // Per-chunk distance matrix
+                let distanceBytes = numQueries * thisChunkSize * MemoryLayout<Float>.size
+                guard let distanceMatrix = device.makeBuffer(length: distanceBytes, options: .storageModeShared) else {
+                    throw VectorError.bufferAllocationFailed(size: distanceBytes)
+                }
+                distanceMatrix.label = "FusedL2TopK.chunked.distances[\(chunkStart)..<\(chunkStart + thisChunkSize)]"
+
+                // Per-chunk top-k outputs (chunk-local indices)
+                let outIndicesBytes = numQueries * chunkK * MemoryLayout<UInt32>.size
+                let outValuesBytes = numQueries * chunkK * MemoryLayout<Float>.size
+                guard let chunkIndices = device.makeBuffer(length: outIndicesBytes, options: .storageModeShared),
+                      let chunkValues = device.makeBuffer(length: outValuesBytes, options: .storageModeShared) else {
+                    throw VectorError.bufferAllocationFailed(size: outIndicesBytes + outValuesBytes)
+                }
+                chunkIndices.label = "FusedL2TopK.chunked.chunkIndices"
+                chunkValues.label = "FusedL2TopK.chunked.chunkValues"
+
+                let l2Params = L2DistanceParameters(
+                    numQueries: numQueries,
+                    numDatabase: thisChunkSize,
+                    dimension: dimension,
+                    computeSqrt: false
+                )
+
+                let databaseOffsetBytes = chunkStart * dimension * MemoryLayout<Float>.size
+                let mergeParams = TopKMergeParameters(
+                    numQueries: numQueries,
+                    k: actualK,
+                    chunkK: chunkK,
+                    chunkBase: chunkStart
+                )
+
+                // Capture current buffer references for the closure (they'll be swapped after)
+                let currentRunningIndices = runningIndices
+                let currentRunningDistances = runningDistances
+                let currentScratchIndices = scratchIndices
+                let currentScratchDistances = scratchDistances
+
+                try await context.executeAndWait { [self] _, encoder in
+                    // 1) Distances for this chunk (database offset avoids copy)
+                    self.l2DistanceKernel.encode(
+                        into: encoder,
+                        queries: queries,
+                        queryOffset: 0,
+                        database: dataset,
+                        databaseOffset: databaseOffsetBytes,
+                        distances: distanceMatrix,
+                        distancesOffset: 0,
+                        parameters: l2Params
+                    )
+
+                    encoder.memoryBarrier(scope: .buffers)
+
+                    // 2) Top-k within this chunk
+                    switch selectionKind {
+                    case .warp:
+                        self.warpSelectionKernel.encode(
+                            into: encoder,
+                            distances: distanceMatrix,
+                            outputIndices: chunkIndices,
+                            outputValues: chunkValues,
+                            queryCount: numQueries,
+                            candidateCount: thisChunkSize,
+                            k: chunkK,
+                            mode: .ascending
+                        )
+                    case .standard:
+                        let topKParams = TopKParameters(
+                            batchSize: numQueries,
+                            numElements: thisChunkSize,
+                            k: chunkK,
+                            mode: .minimum,
+                            sorted: true
+                        )
+                        self.topKSelectionKernel.encode(
+                            into: encoder,
+                            input: distanceMatrix,
+                            outputValues: chunkValues,
+                            outputIndices: chunkIndices,
+                            parameters: topKParams
+                        )
+                    }
+
+                    encoder.memoryBarrier(scope: .buffers)
+
+                    // 3) Merge running top-k with this chunk's top-k (GPU)
+                    mergeKernel.encode(
+                        into: encoder,
+                        runningIndices: currentRunningIndices,
+                        runningDistances: currentRunningDistances,
+                        chunkIndices: chunkIndices,
+                        chunkDistances: chunkValues,
+                        outputIndices: currentScratchIndices,
+                        outputDistances: currentScratchDistances,
+                        parameters: mergeParams
+                    )
+                }
+
+                // Swap running and scratch for the next iteration
+                swap(&runningIndices, &scratchIndices)
+                swap(&runningDistances, &scratchDistances)
+
+                chunkStart += thisChunkSize
+            }
+
+            return Metal4FusedL2TopKResult(
+                indices: runningIndices,
+                distances: config.includeDistances ? runningDistances : nil,
+                numQueries: numQueries,
+                k: actualK
+            )
+        }
+
+        // =====================================================================
+        // CPU Merge Path: Fallback when GPU merge is unavailable or disabled
+        // =====================================================================
+
+        // CPU-side running top-k per query (k ≤ 128)
+        var best: [[TopKPair]] = Array(repeating: [], count: numQueries)
+        for q in 0..<numQueries {
+            best[q].reserveCapacity(actualK)
+        }
+
+        var chunkStart = 0
+        while chunkStart < numDataset {
+            let thisChunkSize = min(chunkSize, numDataset - chunkStart)
+            let chunkK = min(actualK, thisChunkSize)
+
+            // Per-chunk distance matrix
+            let distanceBytes = numQueries * thisChunkSize * MemoryLayout<Float>.size
+            guard let distanceMatrix = device.makeBuffer(length: distanceBytes, options: .storageModeShared) else {
+                throw VectorError.bufferAllocationFailed(size: distanceBytes)
+            }
+            distanceMatrix.label = "FusedL2TopK.chunked.distances[\(chunkStart)..<\(chunkStart + thisChunkSize)]"
+
+            // Per-chunk top-k outputs
+            let outIndicesBytes = numQueries * chunkK * MemoryLayout<UInt32>.size
+            let outValuesBytes = numQueries * chunkK * MemoryLayout<Float>.size
+            guard let outIndices = device.makeBuffer(length: outIndicesBytes, options: .storageModeShared),
+                  let outValues = device.makeBuffer(length: outValuesBytes, options: .storageModeShared) else {
+                throw VectorError.bufferAllocationFailed(size: outIndicesBytes + outValuesBytes)
+            }
+            outIndices.label = "FusedL2TopK.chunked.indices"
+            outValues.label = "FusedL2TopK.chunked.values"
+
+            let l2Params = L2DistanceParameters(
+                numQueries: numQueries,
+                numDatabase: thisChunkSize,
+                dimension: dimension,
+                computeSqrt: false
+            )
+
+            let databaseOffsetBytes = chunkStart * dimension * MemoryLayout<Float>.size
+
+            try await context.executeAndWait { [self] _, encoder in
+                // 1) Distance matrix for this chunk (database offset avoids copy)
+                self.l2DistanceKernel.encode(
+                    into: encoder,
+                    queries: queries,
+                    queryOffset: 0,
+                    database: dataset,
+                    databaseOffset: databaseOffsetBytes,
+                    distances: distanceMatrix,
+                    distancesOffset: 0,
+                    parameters: l2Params
+                )
+
+                encoder.memoryBarrier(scope: .buffers)
+
+                // 2) Top-k within this chunk
+                switch selectionKind {
+                case .warp:
+                    self.warpSelectionKernel.encode(
+                        into: encoder,
+                        distances: distanceMatrix,
+                        outputIndices: outIndices,
+                        outputValues: outValues,
+                        queryCount: numQueries,
+                        candidateCount: thisChunkSize,
+                        k: chunkK,
+                        mode: .ascending
+                    )
+                case .standard:
+                    let topKParams = TopKParameters(
+                        batchSize: numQueries,
+                        numElements: thisChunkSize,
+                        k: chunkK,
+                        mode: .minimum,
+                        sorted: true
+                    )
+                    self.topKSelectionKernel.encode(
+                        into: encoder,
+                        input: distanceMatrix,
+                        outputValues: outValues,
+                        outputIndices: outIndices,
+                        parameters: topKParams
+                    )
+                }
+            }
+
+            // CPU merge: best-so-far (≤ k) with chunk top-k (≤ k)
+            let idxPtr = outIndices.contents().bindMemory(to: UInt32.self, capacity: numQueries * chunkK)
+            let valPtr = outValues.contents().bindMemory(to: Float.self, capacity: numQueries * chunkK)
+            let chunkBase = UInt32(chunkStart)
+
+            for q in 0..<numQueries {
+                var merged = best[q]
+                merged.reserveCapacity(merged.count + chunkK)
+
+                let rowOffset = q * chunkK
+                for i in 0..<chunkK {
+                    let localIdx = idxPtr[rowOffset + i]
+                    if localIdx == sentinel { continue }
+                    let globalIdx = localIdx &+ chunkBase
+                    merged.append(TopKPair(index: globalIdx, distance: valPtr[rowOffset + i]))
+                }
+
+                // Sort and truncate to k
+                merged.sort {
+                    if $0.distance == $1.distance { return $0.index < $1.index }
+                    return $0.distance < $1.distance
+                }
+                if merged.count > actualK {
+                    merged.removeLast(merged.count - actualK)
+                }
+                best[q] = merged
+            }
+
+            chunkStart += thisChunkSize
+        }
+
+        // Materialize final outputs
+        let finalIndicesBytes = numQueries * actualK * MemoryLayout<UInt32>.size
+        guard let finalIndices = device.makeBuffer(length: finalIndicesBytes, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: finalIndicesBytes)
+        }
+        finalIndices.label = "FusedL2TopK.chunked.final.indices"
+
+        let finalDistances: (any MTLBuffer)?
+        if config.includeDistances {
+            let finalDistancesBytes = numQueries * actualK * MemoryLayout<Float>.size
+            guard let buf = device.makeBuffer(length: finalDistancesBytes, options: .storageModeShared) else {
+                throw VectorError.bufferAllocationFailed(size: finalDistancesBytes)
+            }
+            buf.label = "FusedL2TopK.chunked.final.distances"
+            finalDistances = buf
+        } else {
+            finalDistances = nil
+        }
+
+        let outIdx = finalIndices.contents().bindMemory(to: UInt32.self, capacity: numQueries * actualK)
+        let outDist = finalDistances?.contents().bindMemory(to: Float.self, capacity: numQueries * actualK)
+
+        for q in 0..<numQueries {
+            let rowBase = q * actualK
+            let row = best[q]
+            for i in 0..<actualK {
+                if i < row.count {
+                    outIdx[rowBase + i] = row[i].index
+                    if let outDist {
+                        outDist[rowBase + i] = row[i].distance
+                    }
+                } else {
+                    outIdx[rowBase + i] = sentinel
+                    if let outDist {
+                        outDist[rowBase + i] = .infinity
+                    }
+                }
+            }
+        }
+
+        return Metal4FusedL2TopKResult(
+            indices: finalIndices,
+            distances: finalDistances,
+            numQueries: numQueries,
+            k: actualK
+        )
     }
 
     // MARK: - Private Helpers
