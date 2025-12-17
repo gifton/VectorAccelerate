@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 //
 // ============================================================================
@@ -25,10 +25,10 @@ let package = Package(
     platforms: [
         // PLACEHOLDER VALUES - Actual requirement is macOS 26.0+ / iOS 26.0+
         // These will be updated to .macOS(.v26), .iOS(.v26), etc. when SPM supports them
-        .macOS(.v15),
-        .iOS(.v18),
-        .tvOS(.v18),
-        .visionOS(.v2)
+        .macOS(.v26),
+        .iOS(.v26),
+        .tvOS(.v26),
+        .visionOS(.v26)
         // watchOS removed - no Metal 4 support (no GPU)
         // Linux not supported - Metal dependency
     ],
