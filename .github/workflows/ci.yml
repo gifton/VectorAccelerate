@@ -53,8 +53,8 @@ jobs:
             if xcrun metal -c "$shader" \
                 -o ".build/metal-validation/${name%.metal}.air" \
                 -I "$SHADER_DIR" \
-                -std=metal3.0 \
-                -mmacosx-version-min=14.0 \
+                -std=metal4.0 \
+                -mmacosx-version-min=26.0 \
                 2>&1 | tee -a metal-compile.log; then
               echo "- ✅ $name" >> $GITHUB_STEP_SUMMARY
               ((PASSED++))
