@@ -43,7 +43,7 @@ public struct Metal4Configuration: Sendable {
 /// Metal 4 compute context with explicit residency management
 ///
 /// This actor provides the primary interface for Metal 4 GPU compute operations.
-/// Key differences from legacy MetalContext (Metal 3):
+/// Key features:
 /// - Explicit residency management via ResidencyManager
 /// - Command buffers created from device (not queue)
 /// - Event-based synchronization via MTLSharedEvent
@@ -123,7 +123,7 @@ public actor Metal4Context: AccelerationProvider {
     // MARK: - Shader Management
 
     private var defaultLibrary: (any MTLLibrary)?
-    private var legacyPipelineCache: [String: any MTLComputePipelineState] = [:]
+    private var memoryPipelineCache: [String: any MTLComputePipelineState] = [:]
 
     /// Archive-aware pipeline cache (injected by MetalSubsystem when archive is configured)
     private var archivePipelineCache: ArchivePipelineCache?
@@ -430,7 +430,7 @@ public actor Metal4Context: AccelerationProvider {
     @preconcurrency
     public func compileShader(source: String, functionName: String) async throws -> any MTLComputePipelineState {
         let cacheKey = "\(functionName)_\(source.hashValue)"
-        if let cached = legacyPipelineCache[cacheKey] {
+        if let cached = memoryPipelineCache[cacheKey] {
             return cached
         }
 
@@ -441,7 +441,7 @@ public actor Metal4Context: AccelerationProvider {
         }
 
         let pipelineState = try await device.makeComputePipelineState(function: function)
-        legacyPipelineCache[cacheKey] = pipelineState
+        memoryPipelineCache[cacheKey] = pipelineState
 
         return pipelineState
     }
@@ -449,7 +449,7 @@ public actor Metal4Context: AccelerationProvider {
     /// Load shader from default library
     @preconcurrency
     public func loadShader(functionName: String) async throws -> any MTLComputePipelineState {
-        if let cached = legacyPipelineCache[functionName] {
+        if let cached = memoryPipelineCache[functionName] {
             return cached
         }
 
@@ -466,7 +466,7 @@ public actor Metal4Context: AccelerationProvider {
         }
 
         let pipelineState = try await device.makeComputePipelineState(function: function)
-        legacyPipelineCache[functionName] = pipelineState
+        memoryPipelineCache[functionName] = pipelineState
 
         return pipelineState
     }
@@ -594,7 +594,7 @@ public actor Metal4Context: AccelerationProvider {
         await bufferPool.reset()
         await residencyManager.clear()
         await pipelineCache.clear()
-        legacyPipelineCache.removeAll()
+        memoryPipelineCache.removeAll()
     }
 
     // MARK: - Device Information
