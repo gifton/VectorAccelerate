@@ -9,7 +9,7 @@
 // - MLTensor is not supported on the device
 // - Projection weights are not loaded
 
-import Metal
+@preconcurrency import Metal
 import VectorCore
 
 /// Unified distance computation service with learned projection support.

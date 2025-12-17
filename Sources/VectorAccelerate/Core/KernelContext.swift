@@ -5,7 +5,7 @@
 // by Metal4ShaderCompiler for loading Metal libraries in SPM environments.
 // Prefer using Metal4Context for all new kernel development.
 
-import Metal
+@preconcurrency import Metal
 import Foundation
 import VectorCore
 

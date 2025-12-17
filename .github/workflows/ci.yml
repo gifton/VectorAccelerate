@@ -7,23 +7,27 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# ============================================================================
+# REQUIRES macOS 26 / Xcode 26 / iOS 26 SDK
+# ============================================================================
+# VectorAccelerate 0.3.0+ is Metal 4 ONLY and requires the macOS 26 runner
+# which provides Xcode 26 with iOS 26, macOS 26, tvOS 26, and visionOS 3 SDKs.
+# ============================================================================
+
 env:
   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
 
 jobs:
   metal-shaders:
     name: Metal Shaders
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 'latest-stable'
+      # macOS 26 runner has Xcode 26 as default - no setup needed
 
       - name: Validate Metal Shaders
         run: |
@@ -85,17 +89,12 @@ jobs:
 
   build:
     name: Build
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 'latest-stable'
 
       - name: System Info
         run: |
@@ -135,18 +134,13 @@ jobs:
 
   test:
     name: Test
-    runs-on: macos-latest
+    runs-on: macos-26
     needs: build
     timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 'latest-stable'
 
       - name: Restore SPM Cache
         uses: actions/cache@v4
@@ -178,17 +172,12 @@ jobs:
 
   build-ios:
     name: Build (iOS)
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 'latest-stable'
 
       - name: Cache SPM
         uses: actions/cache@v4
@@ -220,18 +209,13 @@ jobs:
 
   build-release:
     name: Build (Release)
-    runs-on: macos-latest
+    runs-on: macos-26
     needs: build
     timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 'latest-stable'
 
       - name: Restore SPM Cache
         uses: actions/cache@v4
@@ -260,7 +244,7 @@ jobs:
 
   lint:
     name: SwiftLint
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 10
 
     steps:

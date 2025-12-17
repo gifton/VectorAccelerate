@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Metal
+@preconcurrency import Metal
 import VectorCore
 
 /// Batch processing strategy
