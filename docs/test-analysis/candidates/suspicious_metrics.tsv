@@ -1,0 +1,8 @@
+-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoRecallMeetsTarget]	IVF Auto recall: 100.0%
+-[VectorAccelerateTests.IVFQuantizationTests testIVFWithSQ8Recall]	IVF+SQ8 recall: 100.0%
+-[VectorAccelerateTests.IVFTests testIVFRecallWithFullNprobe]	IVF Full Recall: 100.0% (nprobe=8/nlist=8)
+-[VectorAccelerateTests.IndexBenchmarkHarnessTests testBenchmarkHarnessFlatIndex]	Recall@K:    100.0%
+-[VectorAccelerateTests.IndexBenchmarkHarnessTests testBenchmarkHarnessIVFIndex]	Recall@K:    100.0%
+-[VectorAccelerateTests.IndexBenchmarkRecallValidationTests testBatchSearchRecall]	Single vs Batch consistency: 100.0%
+-[VectorAccelerateTests.IndexBenchmarkRecallValidationTests testIVFRecallWithPartialProbe]	nprobe=16/16 (100%): Recall = 100.0%
+-[VectorAccelerateTests.IndexBenchmarkRecallValidationTests testRecallCalculationCorrectness]	Recall: 100.0%

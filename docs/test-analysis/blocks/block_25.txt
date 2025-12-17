@@ -1,0 +1,80 @@
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testArchiveSavesAfterWarmup]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testBinaryArchiveErrorDescriptions]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testBinaryArchiveErrorDescriptions]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testBufferPoolMemoryBounded]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testBufferPoolMemoryBounded]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCancellationStopsWarmupImmediately]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCancellationStopsWarmupImmediately]' passed (0.057 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testColdStartFullLifecycle]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testColdStartFullLifecycle]' passed (0.618 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testContextAvailableAtCriticalReady]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testContextAvailableAtCriticalReady]' passed (0.055 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCorruptedArchiveRecovery]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCorruptedArchiveRecovery]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCPUBatchDistanceComputation]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCPUBatchDistanceComputation]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCPUCosineSimilarityCorrect]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCPUCosineSimilarityCorrect]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCPUDistanceMetrics]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCPUDistanceMetrics]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCPUL2DistanceCorrect]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCPUL2DistanceCorrect]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCPUNormalizationCorrect]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCPUNormalizationCorrect]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCPUTopKSelectionCorrect]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testCPUTopKSelectionCorrect]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testErrorDescriptionsPresent]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testErrorDescriptionsPresent]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testFallbackAlwaysAvailable]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testFallbackAlwaysAvailable]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testInitCompletesInUnder10ms]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testInitCompletesInUnder10ms]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testInitDoesNoMetalWork]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testInitDoesNoMetalWork]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testManualPauseResume]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testManualPauseResume]' passed (0.359 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testMinimalRegistry]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testMinimalRegistry]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testMissingManifestRecovery]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testMissingManifestRecovery]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testMultipleObserverRegistrationsRemovals]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testMultipleObserverRegistrationsRemovals]' passed (0.102 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testMultipleWarmupCycles]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testMultipleWarmupCycles]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testNoMainThreadBlocking]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testNoMainThreadBlocking]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testNonisolatedChecksThreadSafety]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testNonisolatedChecksThreadSafety]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testPipelineCacheRespectsMaxSize]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testPipelineCacheRespectsMaxSize]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testPipelineRegistryKeyEnumeration]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testPipelineRegistryKeyEnumeration]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testPipelineRegistryTierLookup]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testPipelineRegistryTierLookup]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testProductionModeWithoutMetallibThrows]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testProductionModeWithoutMetallibThrows]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testProgressReportingAccurate]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testProgressReportingAccurate]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testRapidPauseResumeCycles]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testRapidPauseResumeCycles]' passed (0.506 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testShouldThrottleBehavior]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testShouldThrottleBehavior]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testStateObserverCallbacksAtEachTransition]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testStateObserverCallbacksAtEachTransition]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testStatisticsTrackSourceDistribution]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testStatisticsTrackSourceDistribution]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testThermalMonitorInitialState]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testThermalMonitorInitialState]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testThermalMonitorObserverPattern]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testThermalMonitorObserverPattern]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testThermalStateDescription]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testThermalStateDescription]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testTimeToCriticalReadyColdStart]' started.
+Time to criticalReady (cold): 55.06002902984619ms
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testTimeToCriticalReadyColdStart]' passed (0.057 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testTimeToDeviceReady]' started.
+Time to deviceReady: 55.0459623336792ms
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testTimeToDeviceReady]' passed (0.057 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testWarmStartWithContext]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testWarmStartWithContext]' passed (0.057 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testWarmupPausesOnUserActivity]' started.

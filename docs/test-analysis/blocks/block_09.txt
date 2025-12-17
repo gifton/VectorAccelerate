@@ -1,0 +1,80 @@
+Test Case '-[VectorAccelerateTests.HistogramKernelTests testStatisticsComputation]' started.
+Test Case '-[VectorAccelerateTests.HistogramKernelTests testStatisticsComputation]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.HistogramKernelTests testSummary]' started.
+Test Case '-[VectorAccelerateTests.HistogramKernelTests testSummary]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.HistogramKernelTests testUniformBinning]' started.
+Test Case '-[VectorAccelerateTests.HistogramKernelTests testUniformBinning]' passed (0.001 seconds).
+Test Suite 'HistogramKernelTests' passed at 2025-12-16 23:17:41.499.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.045 (0.071) seconds
+Test Suite 'IVFCoarseQuantizerKernelTests' started at 2025-12-16 23:17:41.499.
+Test Case '-[VectorAccelerateTests.IVFCoarseQuantizerKernelTests testFindNearestCentroidsMatchesCPU]' started.
+Test Case '-[VectorAccelerateTests.IVFCoarseQuantizerKernelTests testFindNearestCentroidsMatchesCPU]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.IVFCoarseQuantizerKernelTests testFindNearestCentroidsMultipleQueries]' started.
+Test Case '-[VectorAccelerateTests.IVFCoarseQuantizerKernelTests testFindNearestCentroidsMultipleQueries]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.IVFCoarseQuantizerKernelTests testFindNearestCentroidsSingleQuery]' started.
+Test Case '-[VectorAccelerateTests.IVFCoarseQuantizerKernelTests testFindNearestCentroidsSingleQuery]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFCoarseQuantizerKernelTests testFindNearestCentroidsWithNprobeEqualsCentroids]' started.
+Test Case '-[VectorAccelerateTests.IVFCoarseQuantizerKernelTests testFindNearestCentroidsWithNprobeEqualsCentroids]' passed (0.003 seconds).
+Test Suite 'IVFCoarseQuantizerKernelTests' passed at 2025-12-16 23:17:41.514.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.014 (0.015) seconds
+Test Suite 'IVFQualityAssessmentTests' started at 2025-12-16 23:17:41.588.
+Test Case '-[VectorAccelerateTests.IVFQualityAssessmentTests testIVFQualityVsFAISSBenchmarks]' started.
+
+======================================================================
+IVF Quality Assessment vs Industry Benchmarks
+======================================================================
+Dataset: N=2000, D=128, nlist=32, K=10
+----------------------------------------------------------------------
+
+| nprobe | % clusters | Expected | Actual | Status |
+|--------|------------|----------|--------|--------|
+|      3 | ~10%       |    70%    | 100.0%  | ✓ OK |
+|      6 | ~20%       |    80%    | 100.0%  | ✓ OK |
+|     16 | 50%        |    92%    | 100.0%  | ✓ OK |
+|     32 | 100%       |    99%    | 100.0%  | ✓ OK |
+----------------------------------------------------------------------
+✓ IVF recall is within acceptable range of industry benchmarks
+Test Case '-[VectorAccelerateTests.IVFQualityAssessmentTests testIVFQualityVsFAISSBenchmarks]' passed (49.016 seconds).
+Test Case '-[VectorAccelerateTests.IVFQualityAssessmentTests testIVFThroughputVsFlat]' started.
+
+======================================================================
+IVF vs Flat Throughput Comparison
+======================================================================
+
+| N | Flat (q/s) | IVF (q/s) | Speedup | IVF Recall |
+|------|------------|-----------|---------|------------|
+| 1000 |       1746 |       962 |   0.55x |      99.4% |
+| 2000 |       1525 |       870 |   0.57x |      99.6% |
+| 5000 |       1348 |       755 |   0.56x |     100.0% |
+
+Note: IVF benefits increase with larger datasets (N > 10K)
+Test Case '-[VectorAccelerateTests.IVFQualityAssessmentTests testIVFThroughputVsFlat]' passed (174.663 seconds).
+Test Case '-[VectorAccelerateTests.IVFQualityAssessmentTests testRecallWithDifferentDataDistributions]' started.
+
+======================================================================
+Recall vs Data Distribution (nprobe=50%, N=1000)
+======================================================================
+
+| Distribution | Recall | Notes |
+|--------------|--------|-------|
+| Uniform Rand |  84.6% | Acceptable |
+| Gaussian Clu | 100.0% | Good |
+| Sparse Clust | 100.0% | Good |
+Test Case '-[VectorAccelerateTests.IVFQualityAssessmentTests testRecallWithDifferentDataDistributions]' passed (2.701 seconds).
+Test Suite 'IVFQualityAssessmentTests' passed at 2025-12-16 23:21:27.968.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 226.379 (226.380) seconds
+Test Suite 'IVFQuantizationTests' started at 2025-12-16 23:21:27.968.
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testIndexConfigurationBytesPerVector]' started.
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testIndexConfigurationBytesPerVector]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testIsQuantizedProperty]' started.
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testIsQuantizedProperty]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testIvfAutoWithQuantization]' started.
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testIvfAutoWithQuantization]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testIVFStructureQuantizationProperty]' started.
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testIVFStructureQuantizationProperty]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testIVFWithSQ8Recall]' started.
+IVF+SQ8 recall: 100.0%
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testIVFWithSQ8Recall]' passed (0.487 seconds).
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testQuantizationMemorySavings]' started.
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testQuantizationMemorySavings]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testQuantizationParameterComputation]' started.

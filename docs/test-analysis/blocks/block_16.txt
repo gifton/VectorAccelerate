@@ -1,0 +1,80 @@
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testBatchProjection768to128]' passed (4.115 seconds).
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testLearnedL2Distance384to64]' started.
+Learned L2 (384->64): 14.47211503982544ms avg, 6909840.042372009 pairs/sec
+/Users/goftin/dev/gsuite/VSK/future/VectorAccelerate/Tests/VectorAccelerateTests/MLIntegrationBenchmarkTests.swift:221: Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testLearnedL2Distance384to64]' measured [Time, seconds] average: 0.105, relative standard deviation: 1.370%, values: [0.103026, 0.104741, 0.105359, 0.106096, 0.105682, 0.105302, 0.101619, 0.106233, 0.106151, 0.105763], performanceMetricID:com.apple.XCTPerformanceMetric_WallClockTime, baselineName: "", baselineAverage: , polarity: prefers smaller, maxPercentRegression: 10.000%, maxPercentRelativeStandardDeviation: 10.000%, maxRegression: 0.100, maxStandardDeviation: 0.100
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testLearnedL2Distance384to64]' passed (2.088 seconds).
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testLearnedL2Distance768to128]' started.
+Learned L2 (768->128): 44.07339096069336ms avg, 2268942.7298476878 pairs/sec
+/Users/goftin/dev/gsuite/VSK/future/VectorAccelerate/Tests/VectorAccelerateTests/MLIntegrationBenchmarkTests.swift:160: Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testLearnedL2Distance768to128]' measured [Time, seconds] average: 0.105, relative standard deviation: 0.953%, values: [0.102199, 0.105378, 0.105525, 0.105360, 0.105316, 0.105292, 0.105436, 0.105361, 0.105380, 0.106084], performanceMetricID:com.apple.XCTPerformanceMetric_WallClockTime, baselineName: "", baselineAverage: , polarity: prefers smaller, maxPercentRegression: 10.000%, maxPercentRelativeStandardDeviation: 10.000%, maxRegression: 0.100, maxStandardDeviation: 0.100
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testLearnedL2Distance768to128]' passed (1.967 seconds).
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testScalingComparison]' started.
+
+Scaling comparison (768D, 100 queries):
+DB Size | Standard (ms) | Learned (ms) | Speedup
+--------|---------------|--------------|--------
+    100 |          2.13 |        13.05 |    0.16x
+    500 |          6.11 |        25.23 |    0.24x
+   1000 |         11.75 |        45.56 |    0.26x
+   5000 |         55.82 |       177.31 |    0.31x
+  10000 |        109.20 |       350.46 |    0.31x
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testScalingComparison]' passed (7.958 seconds).
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testServiceFallbackBehavior]' started.
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testServiceFallbackBehavior]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testServiceWithLearnedKernel]' started.
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testServiceWithLearnedKernel]' passed (0.025 seconds).
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testStandardL2Distance768]' started.
+Standard L2 (768D): 11.7293119430542ms avg, 8525649.286633344 pairs/sec
+/Users/goftin/dev/gsuite/VSK/future/VectorAccelerate/Tests/VectorAccelerateTests/MLIntegrationBenchmarkTests.swift:99: Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testStandardL2Distance768]' measured [Time, seconds] average: 0.105, relative standard deviation: 1.531%, values: [0.105346, 0.105390, 0.105622, 0.105812, 0.102640, 0.106150, 0.101780, 0.102215, 0.104686, 0.106035], performanceMetricID:com.apple.XCTPerformanceMetric_WallClockTime, baselineName: "", baselineAverage: , polarity: prefers smaller, maxPercentRegression: 10.000%, maxPercentRelativeStandardDeviation: 10.000%, maxRegression: 0.100, maxStandardDeviation: 0.100
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testStandardL2Distance768]' passed (1.483 seconds).
+Test Suite 'MLIntegrationBenchmarkTests' passed at 2025-12-16 23:22:24.613.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 17.644 (17.646) seconds
+Test Suite 'MatrixEngineEnhancedTests' started at 2025-12-16 23:22:24.613.
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testAsyncExecution]' started.
+Async batch execution: 0.2919435501098633ms
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.276ms batchSize=5 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.283ms batchSize=5 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testAsyncExecution]' passed (0.008 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBasicMatrixMultiplication]' started.
+Result:
+  [  29.000   32.000   35.000   38.000]
+  [  65.000   72.000   79.000   86.000]
+  [ 101.000  112.000  123.000  134.000]
+Expected:
+  [  29.000   32.000   35.000   38.000]
+ℹ️ [Performance] Performance: matrixMultiply took 0.010ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+  [  65.000   72.000   79.000   86.000]
+  [ 101.000  112.000  123.000  134.000]
+ℹ️ [Performance] Performance: matrixMultiply took 0.014ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBasicMatrixMultiplication]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBasicTranspose]' started.
+Original:
+  [   1.000    2.000]
+  [   3.000    4.000]
+  [   5.000    6.000]
+Transposed:
+  [   1.000    3.000    5.000]
+ℹ️ [Performance] Performance: matrixTranspose took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+  [   2.000    4.000    6.000]
+ℹ️ [Performance] Performance: matrixTranspose took 0.008ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBasicTranspose]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchMatrixVectorCountMismatch]' started.
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchMatrixVectorCountMismatch]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchMatrixVectorDimensionMismatch]' started.
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.043ms batchSize=1 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.047ms batchSize=1 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchMatrixVectorDimensionMismatch]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchMatrixVectorMultiply]' started.
+Batch matrix-vector multiply (5 operations): 0.04398822784423828ms
+Average per operation: 0.008797645568847656ms
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.038ms batchSize=5 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.041ms batchSize=5 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchMatrixVectorMultiply]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchOperationPerformanceComparison]' started.
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.010ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190

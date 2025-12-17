@@ -1,0 +1,79 @@
+Test Case '-[VectorAccelerateTests.Priority2IntegrationTests testBufferPoolReuse]' started.
+Test Case '-[VectorAccelerateTests.Priority2IntegrationTests testBufferPoolReuse]' passed (0.017 seconds).
+Test Case '-[VectorAccelerateTests.Priority2IntegrationTests testFullPipelineIntegration]' started.
+Integration test - Buffer pool utilization: 0.00391387939453125
+Test Case '-[VectorAccelerateTests.Priority2IntegrationTests testFullPipelineIntegration]' passed (0.071 seconds).
+Test Case '-[VectorAccelerateTests.Priority2IntegrationTests testGPUvsCPURouting]' started.
+GPU Speedup: 1.0x
+Test Case '-[VectorAccelerateTests.Priority2IntegrationTests testGPUvsCPURouting]' passed (0.093 seconds).
+Test Case '-[VectorAccelerateTests.Priority2IntegrationTests testKNearestNeighbors]' started.
+Test Case '-[VectorAccelerateTests.Priority2IntegrationTests testKNearestNeighbors]' passed (0.002 seconds).
+Test Suite 'Priority2IntegrationTests' passed at 2025-12-16 23:22:56.329.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.199 (0.201) seconds
+Test Suite 'ProductQuantizationKernelTests' started at 2025-12-16 23:22:56.329.
+Test Case '-[VectorAccelerateTests.ProductQuantizationKernelTests testBasicTraining]' started.
+Test Case '-[VectorAccelerateTests.ProductQuantizationKernelTests testBasicTraining]' passed (0.010 seconds).
+Test Case '-[VectorAccelerateTests.ProductQuantizationKernelTests testCentroidDecoding]' started.
+Test Case '-[VectorAccelerateTests.ProductQuantizationKernelTests testCentroidDecoding]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.ProductQuantizationKernelTests testEncoding]' started.
+Test Case '-[VectorAccelerateTests.ProductQuantizationKernelTests testEncoding]' passed (0.009 seconds).
+Test Case '-[VectorAccelerateTests.ProductQuantizationKernelTests testModelCompressionRatio]' started.
+Test Case '-[VectorAccelerateTests.ProductQuantizationKernelTests testModelCompressionRatio]' passed (0.015 seconds).
+Test Case '-[VectorAccelerateTests.ProductQuantizationKernelTests testNearestNeighborSearch]' started.
+Test Case '-[VectorAccelerateTests.ProductQuantizationKernelTests testNearestNeighborSearch]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.ProductQuantizationKernelTests testPQConfigInit]' started.
+Test Case '-[VectorAccelerateTests.ProductQuantizationKernelTests testPQConfigInit]' passed (0.001 seconds).
+Test Suite 'ProductQuantizationKernelTests' passed at 2025-12-16 23:22:56.379.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.049 (0.050) seconds
+Test Suite 'QuantizationEngineEnhancedTests' started at 2025-12-16 23:22:56.379.
+Test Case '-[VectorAccelerateTests.QuantizationEngineEnhancedTests testBatchQuantizationPerformance]' started.
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+ℹ️ [Performance] Performance: scalarQuantize took 0.072ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.077ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.070ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.072ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.060ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.061ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.068ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.070ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.064ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.066ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.139ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.143ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.075ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.076ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.093ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.100ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.078ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.080ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.073ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.075ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Batch size 10 (dim=256):
+  Quantize: 50.02999305725098ms (199.88009969453063 vectors/sec)
+  Dequantize: 0.34105777740478516ms (29320.545263893742 vectors/sec)
+ℹ️ [Performance] Performance: scalarQuantize took 0.056ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.058ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.053ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.056ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.059ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.062ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.070ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.072ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.068ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.072ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.069ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.071ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.077ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.078ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.071ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.072ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.075ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.077ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.082ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.084ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.076ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.077ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.075ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.078ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.071ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.072ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190

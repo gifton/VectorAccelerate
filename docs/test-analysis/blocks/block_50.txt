@@ -1,0 +1,79 @@
+Test Case '-[VectorAccelerateTests.SharedMetalConfigurationTests testWaitForContextReturnsImmediatelyWhenAvailable]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.SharedMetalConfigurationTests testWaitForContextReturnsNilAfterTimeout]' started.
+Test Case '-[VectorAccelerateTests.SharedMetalConfigurationTests testWaitForContextReturnsNilAfterTimeout]' passed (0.101 seconds).
+Test Case '-[VectorAccelerateTests.SharedMetalConfigurationTests testWaitForContextWithZeroTimeout]' started.
+Test Case '-[VectorAccelerateTests.SharedMetalConfigurationTests testWaitForContextWithZeroTimeout]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.SharedMetalConfigurationTests testWeakReferenceDoesNotPreventDeallocation]' started.
+Test Case '-[VectorAccelerateTests.SharedMetalConfigurationTests testWeakReferenceDoesNotPreventDeallocation]' passed (0.210 seconds).
+Test Suite 'SharedMetalConfigurationTests' passed at 2025-12-16 23:23:30.229.
+	 Executed 31 tests, with 0 failures (0 unexpected) in 21.115 (21.124) seconds
+Test Suite 'StatisticsKernelTests' started at 2025-12-16 23:23:30.229.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testBasicConfig]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testBasicConfig]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testBasicStatistics]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testBasicStatistics]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testBatchStatistics]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testBatchStatistics]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testComprehensiveStatistics]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testComprehensiveStatistics]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testCorrelation]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testCorrelation]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testDefaultConfig]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testDefaultConfig]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testEmptyInputThrows]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testEmptyInputThrows]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testFullConfig]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testFullConfig]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testHigherMoments]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testHigherMoments]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testNaNInputThrows]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testNaNInputThrows]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testQuantiles]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testQuantiles]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testSingleElement]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testSingleElement]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testVariance]' started.
+Test Case '-[VectorAccelerateTests.StatisticsKernelTests testVariance]' passed (0.002 seconds).
+Test Suite 'StatisticsKernelTests' passed at 2025-12-16 23:23:30.329.
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.035 (0.100) seconds
+Test Suite 'StreamingTopKKernelTests' started at 2025-12-16 23:23:30.329.
+Test Case '-[VectorAccelerateTests.StreamingTopKKernelTests testFullStreamingPipeline]' started.
+Test Case '-[VectorAccelerateTests.StreamingTopKKernelTests testFullStreamingPipeline]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.StreamingTopKKernelTests testKClamping]' started.
+Test Case '-[VectorAccelerateTests.StreamingTopKKernelTests testKClamping]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.StreamingTopKKernelTests testStreamingConfigInit]' started.
+Test Case '-[VectorAccelerateTests.StreamingTopKKernelTests testStreamingConfigInit]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.StreamingTopKKernelTests testStreamingStateInit]' started.
+Test Case '-[VectorAccelerateTests.StreamingTopKKernelTests testStreamingStateInit]' passed (0.078 seconds).
+Test Case '-[VectorAccelerateTests.StreamingTopKKernelTests testStreamingTopKHighLevel]' started.
+Test Case '-[VectorAccelerateTests.StreamingTopKKernelTests testStreamingTopKHighLevel]' passed (0.008 seconds).
+Test Suite 'StreamingTopKKernelTests' passed at 2025-12-16 23:23:30.424.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.094 (0.095) seconds
+Test Suite 'ThermalStateMonitorTests' started at 2025-12-16 23:23:30.424.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testAddObserver]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testAddObserver]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testCurrentStateIsReadable]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testCurrentStateIsReadable]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testCurrentStateThreadSafety]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testCurrentStateThreadSafety]' passed (0.048 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testInitialState]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testInitialState]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testMonitorDoesNotRetainObserverClosure]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testMonitorDoesNotRetainObserverClosure]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testMultipleObservers]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testMultipleObservers]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testObserverConcurrentAddRemove]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testObserverConcurrentAddRemove]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testRemoveNonexistentObserver]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testRemoveNonexistentObserver]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testRemoveObserver]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testRemoveObserver]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testRemoveObserverMultipleTimes]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testRemoveObserverMultipleTimes]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testSharedSingleton]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testSharedSingleton]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testShouldThrottleForNominalState]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testShouldThrottleForNominalState]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testShouldThrottleThreadSafety]' started.
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testShouldThrottleThreadSafety]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.ThermalStateMonitorTests testThermalStateDescriptionCritical]' started.

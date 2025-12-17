@@ -435,4 +435,191 @@ final class IVFTests: XCTestCase {
             XCTAssertLessThanOrEqual(results[i].distance, results[i+1].distance)
         }
     }
+
+    // MARK: - IVF to Flat Routing Tests
+
+    /// IVF index should report routing to flat for small datasets.
+    func testIVFRoutingThresholdDetection() async throws {
+        let config = IndexConfiguration.ivf(
+            dimension: 8,
+            nlist: 4,
+            nprobe: 2,
+            routingThreshold: 100  // Route to flat when < 100 vectors
+        )
+
+        let index = try await AcceleratedVectorIndex(configuration: config)
+
+        // Verify initial state
+        let isIVF = await index.isIVF
+        XCTAssertTrue(isIVF, "Should be configured as IVF")
+
+        let threshold = await index.routingThreshold
+        XCTAssertEqual(threshold, 100)
+
+        let willRouteEmpty = await index.willRouteToFlat
+        XCTAssertTrue(willRouteEmpty, "Should route to flat when empty")
+
+        // Insert 50 vectors (below threshold)
+        for i in 0..<50 {
+            let vector = [Float](repeating: Float(i) / 50.0, count: 8)
+            _ = try await index.insert(vector)
+        }
+
+        let willRoute50 = await index.willRouteToFlat
+        XCTAssertTrue(willRoute50, "Should route to flat with 50 vectors")
+
+        // Insert more to exceed threshold
+        for i in 50..<150 {
+            let vector = [Float](repeating: Float(i) / 150.0, count: 8)
+            _ = try await index.insert(vector)
+        }
+
+        let willRoute150 = await index.willRouteToFlat
+        XCTAssertFalse(willRoute150, "Should use IVF with 150 vectors")
+    }
+
+    /// Routing threshold of 0 should disable automatic routing.
+    func testIVFRoutingDisabled() async throws {
+        let config = IndexConfiguration.ivf(
+            dimension: 8,
+            nlist: 4,
+            nprobe: 2,
+            routingThreshold: 0  // Disable routing
+        )
+
+        let index = try await AcceleratedVectorIndex(configuration: config)
+
+        // Insert a few vectors
+        for i in 0..<10 {
+            let vector = [Float](repeating: Float(i), count: 8)
+            _ = try await index.insert(vector)
+        }
+
+        // Should NOT route to flat even with few vectors
+        let willRoute = await index.willRouteToFlat
+        XCTAssertFalse(willRoute, "Should not route to flat when threshold is disabled")
+    }
+
+    /// Search results should be consistent regardless of routing.
+    func testIVFRoutingSearchConsistency() async throws {
+        let dimension = 8
+        let vectors: [[Float]] = [
+            [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ]
+
+        // Create IVF index with routing enabled (threshold = 100)
+        let routedConfig = IndexConfiguration.ivf(
+            dimension: dimension,
+            nlist: 2,
+            nprobe: 2,
+            routingThreshold: 100  // Will route to flat for this small dataset
+        )
+
+        // Create flat index for comparison
+        let flatConfig = IndexConfiguration.flat(dimension: dimension)
+
+        let routedIndex = try await AcceleratedVectorIndex(configuration: routedConfig)
+        let flatIndex = try await AcceleratedVectorIndex(configuration: flatConfig)
+
+        // Insert same vectors
+        for vector in vectors {
+            _ = try await routedIndex.insert(vector)
+            _ = try await flatIndex.insert(vector)
+        }
+
+        // Verify routing is happening
+        let willRoute = await routedIndex.willRouteToFlat
+        XCTAssertTrue(willRoute, "Routed index should use flat search")
+
+        // Search both with same query
+        let query: [Float] = [0.95, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+        let routedResults = try await routedIndex.search(query: query, k: 3)
+        let flatResults = try await flatIndex.search(query: query, k: 3)
+
+        // Results should be identical
+        XCTAssertEqual(routedResults.count, flatResults.count)
+
+        for i in 0..<min(routedResults.count, flatResults.count) {
+            XCTAssertEqual(routedResults[i].distance, flatResults[i].distance, accuracy: 0.0001,
+                           "Distance at position \(i) should match")
+        }
+    }
+
+    /// Batch search should also respect routing threshold.
+    func testIVFRoutingBatchSearch() async throws {
+        let config = IndexConfiguration.ivf(
+            dimension: 8,
+            nlist: 4,
+            nprobe: 2,
+            routingThreshold: 50
+        )
+
+        let index = try await AcceleratedVectorIndex(configuration: config)
+
+        // Insert 30 vectors (below threshold)
+        for i in 0..<30 {
+            let vector = [Float](repeating: Float(i) / 30.0, count: 8)
+            _ = try await index.insert(vector)
+        }
+
+        let willRoute = await index.willRouteToFlat
+        XCTAssertTrue(willRoute, "Should route to flat")
+
+        // Batch search should work
+        let queries: [[Float]] = [
+            [0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.5, 0.5, 0.0, 0.0, 0.0, 0.0],
+        ]
+
+        let results = try await index.search(queries: queries, k: 3)
+
+        XCTAssertEqual(results.count, 2)
+        XCTAssertGreaterThan(results[0].count, 0)
+        XCTAssertGreaterThan(results[1].count, 0)
+    }
+
+    /// Default routing threshold should be 10,000.
+    func testIVFDefaultRoutingThreshold() async throws {
+        let config = IndexConfiguration.ivf(
+            dimension: 8,
+            nlist: 4,
+            nprobe: 2
+            // Using default routingThreshold
+        )
+
+        XCTAssertEqual(config.routingThreshold, 10_000,
+                       "Default routing threshold should be 10,000")
+
+        let index = try await AcceleratedVectorIndex(configuration: config)
+        let threshold = await index.routingThreshold
+        XCTAssertEqual(threshold, 10_000)
+    }
+
+    /// Flat index should not have routing behavior.
+    func testFlatIndexNoRouting() async throws {
+        let config = IndexConfiguration.flat(dimension: 8)
+
+        // Flat config should have routingThreshold = 0
+        XCTAssertEqual(config.routingThreshold, 0,
+                       "Flat index should have routing threshold of 0")
+
+        let index = try await AcceleratedVectorIndex(configuration: config)
+
+        // Insert some vectors
+        for i in 0..<10 {
+            let vector = [Float](repeating: Float(i), count: 8)
+            _ = try await index.insert(vector)
+        }
+
+        // willRouteToFlat should be false (already flat)
+        let willRoute = await index.willRouteToFlat
+        XCTAssertFalse(willRoute, "Flat index should not report routing to flat")
+
+        let isIVF = await index.isIVF
+        XCTAssertFalse(isIVF)
+    }
 }

@@ -256,6 +256,25 @@ public actor AcceleratedVectorIndex {
         ivfStructure?.isTrained ?? true
     }
 
+    /// Whether search will route to flat search due to the routing threshold.
+    ///
+    /// Returns `true` when:
+    /// - The index is configured as IVF
+    /// - Routing threshold is enabled (> 0)
+    /// - Current vector count is below the threshold
+    ///
+    /// Useful for testing and debugging routing behavior.
+    public var willRouteToFlat: Bool {
+        guard ivfStructure != nil else { return false }  // Already flat
+        guard configuration.routingThreshold > 0 else { return false }  // Routing disabled
+        return handleAllocator.occupiedCount < configuration.routingThreshold
+    }
+
+    /// The routing threshold configuration.
+    public var routingThreshold: Int {
+        configuration.routingThreshold
+    }
+
     // MARK: - Statistics
 
     /// Get statistics about the index.
@@ -639,9 +658,21 @@ public actor AcceleratedVectorIndex {
             return []
         }
 
-        // Use IVF search if available and trained
+        // Use IVF search if available and trained, unless below routing threshold
         if let ivf = ivfStructure, ivf.isTrained {
-            return try await searchIVF(query: query, k: k, filter: filter)
+            let vectorCount = handleAllocator.occupiedCount
+            let threshold = configuration.routingThreshold
+
+            // Route to flat search for small datasets if threshold is enabled
+            if threshold > 0 && vectorCount < threshold {
+                VectorLogDebug(
+                    "Routing to flat search: \(vectorCount) vectors < threshold \(threshold)",
+                    category: "Search"
+                )
+                // Fall through to flat search
+            } else {
+                return try await searchIVF(query: query, k: k, filter: filter)
+            }
         }
 
         // Fall back to flat search
@@ -683,9 +714,21 @@ public actor AcceleratedVectorIndex {
             return queries.map { _ in [] }
         }
 
-        // Use IVF batch search if available and trained
+        // Use IVF batch search if available and trained, unless below routing threshold
         if let ivf = ivfStructure, ivf.isTrained, filter == nil {
-            return try await searchIVFBatch(queries: queries, k: k)
+            let vectorCount = handleAllocator.occupiedCount
+            let threshold = configuration.routingThreshold
+
+            // Route to flat search for small datasets if threshold is enabled
+            if threshold > 0 && vectorCount < threshold {
+                VectorLogDebug(
+                    "Routing batch to flat search: \(vectorCount) vectors < threshold \(threshold)",
+                    category: "Search"
+                )
+                // Fall through to sequential flat search
+            } else {
+                return try await searchIVFBatch(queries: queries, k: k)
+            }
         }
 
         // Fall back to sequential search

@@ -1,0 +1,80 @@
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testDefaultConfiguration]' started.
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testDefaultConfiguration]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testLargeDatasetConfiguration]' started.
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testLargeDatasetConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testMapDataset]' started.
+ℹ️ [MemoryMap] Mapped dataset: 100 vectors of dimension 3 - mapDataset(at:) @ MemoryMapManager.swift:143
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testMapDataset]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testMapNonExistentFile]' started.
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testMapNonExistentFile]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testReadAllVectors]' started.
+ℹ️ [MemoryMap] Mapped dataset: 3 vectors of dimension 3 - mapDataset(at:) @ MemoryMapManager.swift:143
+ℹ️ [Performance] Performance: memoryMappedRead took 0.019ms count=3 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testReadAllVectors]' passed (0.001 seconds).
+ℹ️ [Performance] Performance: memoryMappedRead took 0.022ms count=3 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testReadVectors]' started.
+ℹ️ [MemoryMap] Mapped dataset: 10 vectors of dimension 3 - mapDataset(at:) @ MemoryMapManager.swift:143
+ℹ️ [Performance] Performance: memoryMappedRead took 0.023ms count=3 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.026ms count=3 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testReadVectors]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testStreamProcessing]' started.
+ℹ️ [MemoryMap] Mapped dataset: 100 vectors of dimension 3 - mapDataset(at:) @ MemoryMapManager.swift:143
+ℹ️ [Performance] Performance: memoryMappedRead took 0.026ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.028ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.017ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.019ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.014ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.016ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.016ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.018ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.013ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.014ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.014ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.015ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.012ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.014ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.012ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.013ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.013ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.015ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testStreamProcessing]' passed (0.003 seconds).
+ℹ️ [Performance] Performance: memoryMappedRead took 0.012ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.013ms count=10 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testUInt8Normalization]' started.
+ℹ️ [MemoryMap] Mapped dataset: 2 vectors of dimension 3 - mapDataset(at:) @ MemoryMapManager.swift:143
+ℹ️ [Performance] Performance: memoryMappedRead took 0.014ms count=2 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: memoryMappedRead took 0.016ms count=2 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MemoryMapManagerTests testUInt8Normalization]' passed (0.001 seconds).
+Test Suite 'MemoryMapManagerTests' passed at 2025-12-16 23:22:25.236.
+	 Executed 18 tests, with 0 failures (0 unexpected) in 0.057 (0.138) seconds
+Test Suite 'Metal4CompilerConfigurationTests' started at 2025-12-16 23:22:25.236.
+Test Case '-[VectorAccelerateTests.Metal4CompilerConfigurationTests testBatchConfiguration]' started.
+Test Case '-[VectorAccelerateTests.Metal4CompilerConfigurationTests testBatchConfiguration]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.Metal4CompilerConfigurationTests testCustomConfiguration]' started.
+Test Case '-[VectorAccelerateTests.Metal4CompilerConfigurationTests testCustomConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.Metal4CompilerConfigurationTests testDefaultConfiguration]' started.
+Test Case '-[VectorAccelerateTests.Metal4CompilerConfigurationTests testDefaultConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.Metal4CompilerConfigurationTests testRealTimeConfiguration]' started.
+Test Case '-[VectorAccelerateTests.Metal4CompilerConfigurationTests testRealTimeConfiguration]' passed (0.000 seconds).
+Test Suite 'Metal4CompilerConfigurationTests' passed at 2025-12-16 23:22:25.240.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.003 (0.004) seconds
+Test Suite 'Metal4DistanceTopKFusionTests' started at 2025-12-16 23:22:25.240.
+Test Case '-[VectorAccelerateTests.Metal4DistanceTopKFusionTests testCosineSimilarityTopKFusion]' started.
+Test Case '-[VectorAccelerateTests.Metal4DistanceTopKFusionTests testCosineSimilarityTopKFusion]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.Metal4DistanceTopKFusionTests testL2DistanceTopKFusion]' started.
+Test Case '-[VectorAccelerateTests.Metal4DistanceTopKFusionTests testL2DistanceTopKFusion]' passed (0.005 seconds).
+Test Suite 'Metal4DistanceTopKFusionTests' passed at 2025-12-16 23:22:25.251.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.011 (0.012) seconds
+Test Suite 'Metal4KernelFusionTests' started at 2025-12-16 23:22:25.252.
+Test Case '-[VectorAccelerateTests.Metal4KernelFusionTests testEncodeAPI]' started.
+Test Case '-[VectorAccelerateTests.Metal4KernelFusionTests testEncodeAPI]' passed (0.006 seconds).
+Test Suite 'Metal4KernelFusionTests' passed at 2025-12-16 23:22:25.257.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.006 (0.006) seconds
+Test Suite 'Metal4LifecycleIntegrationTests' started at 2025-12-16 23:22:25.257.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testArchiveInvalidationOnDeviceChange]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testArchiveInvalidationOnDeviceChange]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testArchiveInvalidationOnShaderChange]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testArchiveInvalidationOnShaderChange]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testArchiveManifestTracksShaderHash]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testArchiveManifestTracksShaderHash]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testArchiveSavesAfterWarmup]' started.

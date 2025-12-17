@@ -1,0 +1,79 @@
+ℹ️ [Performance] Performance: scalarQuantize took 0.079ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.082ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testQuantizationWithExtremeValues]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testQuantizationWithInfinity]' started.
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+⚠️ [QuantizationEngine] Vector contains non-finite or extreme values; sanitized for quantization - scalarQuantize(vector:bits:) @ QuantizationEngine.swift:153
+ℹ️ [Performance] Performance: scalarQuantize took 0.078ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.080ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testQuantizationWithInfinity]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testQuantizationWithNaN]' started.
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+⚠️ [QuantizationEngine] Vector contains non-finite or extreme values; sanitized for quantization - scalarQuantize(vector:bits:) @ QuantizationEngine.swift:153
+ℹ️ [Performance] Performance: scalarQuantize took 0.112ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.116ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testQuantizationWithNaN]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testScalarDequantization4Bit]' started.
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+ℹ️ [Performance] Performance: scalarQuantize took 0.051ms bits=4 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.053ms bits=4 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testScalarDequantization4Bit]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testScalarDequantization8Bit]' started.
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+ℹ️ [Performance] Performance: scalarQuantize took 0.049ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.055ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testScalarDequantization8Bit]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testScalarQuantization16Bit]' started.
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+ℹ️ [Performance] Performance: scalarQuantize took 0.042ms bits=16 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.044ms bits=16 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testScalarQuantization16Bit]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testScalarQuantization4Bit]' started.
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+ℹ️ [Performance] Performance: scalarQuantize took 0.046ms bits=4 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.047ms bits=4 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testScalarQuantization4Bit]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testScalarQuantization8Bit]' started.
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+ℹ️ [Performance] Performance: scalarQuantize took 0.057ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.060ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testScalarQuantization8Bit]' passed (0.008 seconds).
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testScalarQuantizationInvalidBits]' started.
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+ℹ️ [Performance] Performance: scalarQuantize took 0.014ms bits=7 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.016ms bits=7 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testScalarQuantizationInvalidBits]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testSingleElementVector]' started.
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+ℹ️ [Performance] Performance: scalarQuantize took 0.020ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.023ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testSingleElementVector]' passed (0.008 seconds).
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testSymmetricVsAsymmetricQuantization]' started.
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+ℹ️ [Performance] Performance: scalarQuantize took 0.052ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [QuantizationEngine] Initialized QuantizationEngine with method: scalar(bits: 8) - init(configuration:context:) @ QuantizationEngine.swift:92
+ℹ️ [Performance] Performance: scalarQuantize took 0.054ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.036ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: scalarQuantize took 0.038ms bits=8 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.QuantizationEngineTests testSymmetricVsAsymmetricQuantization]' passed (0.008 seconds).
+Test Suite 'QuantizationEngineTests' passed at 2025-12-16 23:23:07.281.
+	 Executed 36 tests, with 0 failures (0 unexpected) in 8.505 (8.512) seconds
+Test Suite 'SIMDFallbackTests' started at 2025-12-16 23:23:07.281.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testConcurrentOperations]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testConcurrentOperations]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testCustomConfiguration]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testCustomConfiguration]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDefaultConfiguration]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDefaultConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductCorrectness]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductCorrectness]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductDimensionMismatch]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductDimensionMismatch]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductLargeVectors]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductLargeVectors]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductPerformanceLarge]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductPerformanceLarge]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductPerformanceSmall]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductPerformanceSmall]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductWithNegatives]' started.

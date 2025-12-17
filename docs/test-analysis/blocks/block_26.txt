@@ -1,0 +1,80 @@
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testWarmupPausesOnUserActivity]' passed (0.056 seconds).
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testWarmupResumesAfterIdleTimeout]' started.
+Test Case '-[VectorAccelerateTests.Metal4LifecycleIntegrationTests testWarmupResumesAfterIdleTimeout]' passed (0.457 seconds).
+Test Suite 'Metal4LifecycleIntegrationTests' passed at 2025-12-16 23:22:27.695.
+	 Executed 44 tests, with 0 failures (0 unexpected) in 2.414 (2.437) seconds
+Test Suite 'Metal4ShaderCompilerTests' started at 2025-12-16 23:22:27.695.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testCacheInfo]' started.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testCacheInfo]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testClearCache]' started.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testClearCache]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testCompileMultiple]' started.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testCompileMultiple]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testGetPipelineState]' started.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testGetPipelineState]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testInitialization]' started.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testInitialization]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testInitializationWithConfiguration]' started.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testInitializationWithConfiguration]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testLibraryCaching]' started.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testLibraryCaching]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testMakeFunctionNotFound]' started.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testMakeFunctionNotFound]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testMakeFunction]' started.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testMakeFunction]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testMakeLibraryFailure]' started.
+Compiler failed to build request
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testMakeLibraryFailure]' passed (0.011 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testMakeLibraryFromSource]' started.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testMakeLibraryFromSource]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testResetStatistics]' started.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testResetStatistics]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testStatistics]' started.
+Test Case '-[VectorAccelerateTests.Metal4ShaderCompilerTests testStatistics]' passed (0.001 seconds).
+Test Suite 'Metal4ShaderCompilerTests' passed at 2025-12-16 23:22:27.722.
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.025 (0.027) seconds
+Test Suite 'Metal4ThreadConfigurationTests' started at 2025-12-16 23:22:27.722.
+Test Case '-[VectorAccelerateTests.Metal4ThreadConfigurationTests testAsymmetricWorkload]' started.
+Test Case '-[VectorAccelerateTests.Metal4ThreadConfigurationTests testAsymmetricWorkload]' passed (0.016 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ThreadConfigurationTests testLargeWorkload]' started.
+Test Case '-[VectorAccelerateTests.Metal4ThreadConfigurationTests testLargeWorkload]' passed (0.108 seconds).
+Test Case '-[VectorAccelerateTests.Metal4ThreadConfigurationTests testSmallWorkload]' started.
+Test Case '-[VectorAccelerateTests.Metal4ThreadConfigurationTests testSmallWorkload]' passed (0.002 seconds).
+Test Suite 'Metal4ThreadConfigurationTests' passed at 2025-12-16 23:22:27.848.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.125 (0.126) seconds
+Test Suite 'MetalSubsystemTests' started at 2025-12-16 23:22:27.848.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testAreCriticalPipelinesReadyInitially]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testAreCriticalPipelinesReadyInitially]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testBeginBackgroundInitializationIdempotent]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testBeginBackgroundInitializationIdempotent]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testBeginBackgroundInitialization]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testBeginBackgroundInitialization]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testConfigurationIsValid]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testConfigurationIsValid]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testConfigurationValidation]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testConfigurationValidation]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testContextAvailableAfterInit]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testContextAvailableAfterInit]' passed (0.052 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testContextNilBeforeInit]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testContextNilBeforeInit]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testDefaultConfiguration]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testDefaultConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testDevelopmentConfiguration]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testDevelopmentConfiguration]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testFallbackAlwaysAvailable]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testFallbackAlwaysAvailable]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testFullLifecycle]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testFullLifecycle]' passed (0.218 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testInitialStateIsDormant]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testInitialStateIsDormant]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testInitIsInstant]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testInitIsInstant]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testInitWithConfiguration]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testInitWithConfiguration]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testIsMetalAvailableInitially]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testIsMetalAvailableInitially]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testMetalSubsystemError]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testMetalSubsystemError]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testNonisolatedChecksAfterInit]' started.
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testNonisolatedChecksAfterInit]' passed (0.057 seconds).
+Test Case '-[VectorAccelerateTests.MetalSubsystemTests testObserverCalledImmediately]' started.

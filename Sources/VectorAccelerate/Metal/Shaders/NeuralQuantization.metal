@@ -479,3 +479,349 @@ kernel void neural_encode_384_to_64_kernel(
         output[i] = (char)clamp(round(latent[i] * invScale), -127.0f, 127.0f);
     }
 }
+
+// MARK: - Optimized 2D Decode Kernel
+
+/// Optimized dequantize + decode kernel using 2D grid dispatch and threadgroup caching.
+///
+/// This kernel addresses the performance bottleneck in the original 1D dispatch:
+/// - Original: 1 thread per vector → all 768 outputs computed sequentially → ~9.5k vec/s
+/// - Optimized: 2D grid parallelizes across output dimensions → target >50k vec/s
+///
+/// Key optimizations:
+/// 1. **Threadgroup-cached latent**: INT8→Float32 dequantization done once per output tile,
+///    not once per output element. Reduces redundant work by ~32×.
+/// 2. **2D parallelism**: Each thread computes one output element, maximizing GPU occupancy.
+/// 3. **Vectorized dot products**: Uses float4 operations for weight × latent computation.
+///
+/// Grid dispatch: threadgroups = (numVectors, ceil(inputDim/32), 1)
+///                threadsPerThreadgroup = (1, 32, 1)
+///
+/// Buffer layout (same as original):
+/// - buffer(0): INT8 latent codes [N, latentDim]
+/// - buffer(1): scales [N]
+/// - buffer(2): decoder weights [inputDim, latentDim] row-major
+/// - buffer(3): output [N, inputDim]
+/// - buffer(4): decoder bias [inputDim] or null
+/// - buffer(5): NeuralQuantParams
+kernel void neural_dequantize_decode_2d_tg_kernel(
+    device const char*  latentCodes    [[buffer(0)]],  // [N, latentDim] int8
+    device const float* scales         [[buffer(1)]],  // [N]
+    device const float* decoderWeights [[buffer(2)]],  // [inputDim, latentDim] row-major
+    device float*       outputVectors  [[buffer(3)]],  // [N, inputDim] row-major
+    device const float* decoderBias    [[buffer(4)]],  // [inputDim] or null
+    constant NeuralQuantParams& params [[buffer(5)]],
+    uint3 tptg [[thread_position_in_threadgroup]],
+    uint3 tgp  [[threadgroup_position_in_grid]],
+    uint3 tgs  [[threads_per_threadgroup]]
+) {
+    // One vector per threadgroup in X dimension
+    const uint vectorIdx = tgp.x;
+    if (vectorIdx >= params.numVectors) {
+        return;  // Uniform early exit - safe before barriers
+    }
+
+    const uint inputDim  = params.inputDimension;
+    const uint latentDim = params.latentDimension;
+
+    // Threadgroup cache for dequantized latent packed as float4 (max 128 dims → 32 float4s)
+    threadgroup float4 tgLatent4[32];
+
+    // Load scale once per threadgroup (cooperative load, thread 0,0 writes)
+    // Initialize to 0 to silence uninitialized warning (barrier ensures correct value is read)
+    threadgroup float tgScale = 0.0f;
+    if (tptg.x == 0 && tptg.y == 0) {
+        tgScale = scales[vectorIdx];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const float scale = tgScale;
+
+    // Convert latent INT8 → Float32 * scale, once per output tile.
+    // Cooperative load: threads in Y dimension share this work.
+    // Requires latentDim % 4 == 0 (true for 64, 128).
+    const uint latentDim4 = latentDim >> 2;
+
+    // Safety check for unsupported configurations (latentDim > 128)
+    if (latentDim4 > 32) {
+        return;
+    }
+
+    for (uint i4 = tptg.y; i4 < latentDim4; i4 += tgs.y) {
+        const uint codeOffset = vectorIdx * latentDim + i4 * 4;
+
+        // Load 4 INT8 codes and dequantize to float4
+        // Safe because latentDim is multiple of 4
+        const char4 c = *((device const char4*)(latentCodes + codeOffset));
+        tgLatent4[i4] = float4(c) * scale;
+    }
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Compute output index this thread is responsible for.
+    // Tiled across threadgroups in Y, threads in threadgroup.y handle different outputs.
+    const uint outIdx = tgp.y * tgs.y + tptg.y;
+
+    // IMPORTANT: Only early-return after all barriers are complete
+    if (outIdx >= inputDim) {
+        return;
+    }
+
+    // Weight row for this output element: [latentDim] floats, cast to float4 for vectorized dot
+    device const float4* w4 = (device const float4*)(decoderWeights + outIdx * latentDim);
+
+    // Initialize with bias if present
+    float sum = decoderBias ? decoderBias[outIdx] : 0.0f;
+
+    // Fast paths for common latent dimensions with unrolled loops
+    if (latentDim == 128) {
+        #pragma unroll
+        for (uint i4 = 0; i4 < 32; ++i4) {
+            sum += dot(tgLatent4[i4], w4[i4]);
+        }
+    } else if (latentDim == 64) {
+        #pragma unroll
+        for (uint i4 = 0; i4 < 16; ++i4) {
+            sum += dot(tgLatent4[i4], w4[i4]);
+        }
+    } else {
+        // Generic path for other latent dimensions
+        for (uint i4 = 0; i4 < latentDim4; ++i4) {
+            sum += dot(tgLatent4[i4], w4[i4]);
+        }
+    }
+
+    outputVectors[vectorIdx * inputDim + outIdx] = sum;
+}
+
+// MARK: - Threadgroup Size Variants
+
+/// 64-thread variant: processes 64 output dimensions per threadgroup.
+/// Better for larger output dimensions (768) where more parallelism helps.
+///
+/// Grid dispatch: threadgroups = (numVectors, ceil(inputDim/64), 1)
+///                threadsPerThreadgroup = (1, 64, 1)
+kernel void neural_dequantize_decode_2d_tg64_kernel(
+    device const char*  latentCodes    [[buffer(0)]],
+    device const float* scales         [[buffer(1)]],
+    device const float* decoderWeights [[buffer(2)]],
+    device float*       outputVectors  [[buffer(3)]],
+    device const float* decoderBias    [[buffer(4)]],
+    constant NeuralQuantParams& params [[buffer(5)]],
+    uint3 tptg [[thread_position_in_threadgroup]],
+    uint3 tgp  [[threadgroup_position_in_grid]],
+    uint3 tgs  [[threads_per_threadgroup]]
+) {
+    const uint vectorIdx = tgp.x;
+    if (vectorIdx >= params.numVectors) {
+        return;
+    }
+
+    const uint inputDim  = params.inputDimension;
+    const uint latentDim = params.latentDimension;
+
+    threadgroup float4 tgLatent4[32];
+    threadgroup float tgScale = 0.0f;
+
+    if (tptg.x == 0 && tptg.y == 0) {
+        tgScale = scales[vectorIdx];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const float scale = tgScale;
+    const uint latentDim4 = latentDim >> 2;
+
+    if (latentDim4 > 32) {
+        return;
+    }
+
+    // With 64 threads, we can load the full 128-dim latent in 2 iterations (32 float4s / 64 threads)
+    // or the 64-dim latent in 1 iteration
+    for (uint i4 = tptg.y; i4 < latentDim4; i4 += 64) {
+        const uint codeOffset = vectorIdx * latentDim + i4 * 4;
+        const char4 c = *((device const char4*)(latentCodes + codeOffset));
+        tgLatent4[i4] = float4(c) * scale;
+    }
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const uint outIdx = tgp.y * 64 + tptg.y;
+
+    if (outIdx >= inputDim) {
+        return;
+    }
+
+    device const float4* w4 = (device const float4*)(decoderWeights + outIdx * latentDim);
+    float sum = decoderBias ? decoderBias[outIdx] : 0.0f;
+
+    if (latentDim == 128) {
+        #pragma unroll
+        for (uint i4 = 0; i4 < 32; ++i4) {
+            sum += dot(tgLatent4[i4], w4[i4]);
+        }
+    } else if (latentDim == 64) {
+        #pragma unroll
+        for (uint i4 = 0; i4 < 16; ++i4) {
+            sum += dot(tgLatent4[i4], w4[i4]);
+        }
+    } else {
+        for (uint i4 = 0; i4 < latentDim4; ++i4) {
+            sum += dot(tgLatent4[i4], w4[i4]);
+        }
+    }
+
+    outputVectors[vectorIdx * inputDim + outIdx] = sum;
+}
+
+/// 128-thread variant: processes 128 output dimensions per threadgroup.
+/// Maximum parallelism for large output dimensions.
+///
+/// Grid dispatch: threadgroups = (numVectors, ceil(inputDim/128), 1)
+///                threadsPerThreadgroup = (1, 128, 1)
+kernel void neural_dequantize_decode_2d_tg128_kernel(
+    device const char*  latentCodes    [[buffer(0)]],
+    device const float* scales         [[buffer(1)]],
+    device const float* decoderWeights [[buffer(2)]],
+    device float*       outputVectors  [[buffer(3)]],
+    device const float* decoderBias    [[buffer(4)]],
+    constant NeuralQuantParams& params [[buffer(5)]],
+    uint3 tptg [[thread_position_in_threadgroup]],
+    uint3 tgp  [[threadgroup_position_in_grid]],
+    uint3 tgs  [[threads_per_threadgroup]]
+) {
+    const uint vectorIdx = tgp.x;
+    if (vectorIdx >= params.numVectors) {
+        return;
+    }
+
+    const uint inputDim  = params.inputDimension;
+    const uint latentDim = params.latentDimension;
+
+    threadgroup float4 tgLatent4[32];
+    threadgroup float tgScale = 0.0f;
+
+    if (tptg.x == 0 && tptg.y == 0) {
+        tgScale = scales[vectorIdx];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const float scale = tgScale;
+    const uint latentDim4 = latentDim >> 2;
+
+    if (latentDim4 > 32) {
+        return;
+    }
+
+    // With 128 threads, we can load the full 128-dim latent (32 float4s) in one go
+    // Each of first 32 threads loads one float4
+    if (tptg.y < latentDim4) {
+        const uint codeOffset = vectorIdx * latentDim + tptg.y * 4;
+        const char4 c = *((device const char4*)(latentCodes + codeOffset));
+        tgLatent4[tptg.y] = float4(c) * scale;
+    }
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const uint outIdx = tgp.y * 128 + tptg.y;
+
+    if (outIdx >= inputDim) {
+        return;
+    }
+
+    device const float4* w4 = (device const float4*)(decoderWeights + outIdx * latentDim);
+    float sum = decoderBias ? decoderBias[outIdx] : 0.0f;
+
+    if (latentDim == 128) {
+        #pragma unroll
+        for (uint i4 = 0; i4 < 32; ++i4) {
+            sum += dot(tgLatent4[i4], w4[i4]);
+        }
+    } else if (latentDim == 64) {
+        #pragma unroll
+        for (uint i4 = 0; i4 < 16; ++i4) {
+            sum += dot(tgLatent4[i4], w4[i4]);
+        }
+    } else {
+        for (uint i4 = 0; i4 < latentDim4; ++i4) {
+            sum += dot(tgLatent4[i4], w4[i4]);
+        }
+    }
+
+    outputVectors[vectorIdx * inputDim + outIdx] = sum;
+}
+
+/// 256-thread variant: processes 256 output dimensions per threadgroup.
+/// Reduces threadgroup count for very large batches.
+///
+/// Grid dispatch: threadgroups = (numVectors, ceil(inputDim/256), 1)
+///                threadsPerThreadgroup = (1, 256, 1)
+kernel void neural_dequantize_decode_2d_tg256_kernel(
+    device const char*  latentCodes    [[buffer(0)]],
+    device const float* scales         [[buffer(1)]],
+    device const float* decoderWeights [[buffer(2)]],
+    device float*       outputVectors  [[buffer(3)]],
+    device const float* decoderBias    [[buffer(4)]],
+    constant NeuralQuantParams& params [[buffer(5)]],
+    uint3 tptg [[thread_position_in_threadgroup]],
+    uint3 tgp  [[threadgroup_position_in_grid]],
+    uint3 tgs  [[threads_per_threadgroup]]
+) {
+    const uint vectorIdx = tgp.x;
+    if (vectorIdx >= params.numVectors) {
+        return;
+    }
+
+    const uint inputDim  = params.inputDimension;
+    const uint latentDim = params.latentDimension;
+
+    threadgroup float4 tgLatent4[32];
+    threadgroup float tgScale = 0.0f;
+
+    if (tptg.x == 0 && tptg.y == 0) {
+        tgScale = scales[vectorIdx];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const float scale = tgScale;
+    const uint latentDim4 = latentDim >> 2;
+
+    if (latentDim4 > 32) {
+        return;
+    }
+
+    // With 256 threads, first 32 threads load the latent
+    if (tptg.y < latentDim4) {
+        const uint codeOffset = vectorIdx * latentDim + tptg.y * 4;
+        const char4 c = *((device const char4*)(latentCodes + codeOffset));
+        tgLatent4[tptg.y] = float4(c) * scale;
+    }
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const uint outIdx = tgp.y * 256 + tptg.y;
+
+    if (outIdx >= inputDim) {
+        return;
+    }
+
+    device const float4* w4 = (device const float4*)(decoderWeights + outIdx * latentDim);
+    float sum = decoderBias ? decoderBias[outIdx] : 0.0f;
+
+    if (latentDim == 128) {
+        #pragma unroll
+        for (uint i4 = 0; i4 < 32; ++i4) {
+            sum += dot(tgLatent4[i4], w4[i4]);
+        }
+    } else if (latentDim == 64) {
+        #pragma unroll
+        for (uint i4 = 0; i4 < 16; ++i4) {
+            sum += dot(tgLatent4[i4], w4[i4]);
+        }
+    } else {
+        for (uint i4 = 0; i4 < latentDim4; ++i4) {
+            sum += dot(tgLatent4[i4], w4[i4]);
+        }
+    }
+
+    outputVectors[vectorIdx * inputDim + outIdx] = sum;
+}

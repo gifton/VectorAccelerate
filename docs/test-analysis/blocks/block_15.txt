@@ -1,0 +1,80 @@
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_BatchDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_OppositeVectors]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_OppositeVectors]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_OrthogonalVectors]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_OrthogonalVectors]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_SingleDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_SingleDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testDotProductKernelDistanceProvider_BatchDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testDotProductKernelDistanceProvider_BatchDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testDotProductKernelDistanceProvider_SingleDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testDotProductKernelDistanceProvider_SingleDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testJaccardKernelDistanceProvider_SameVector]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testJaccardKernelDistanceProvider_SameVector]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testJaccardKernelDistanceProvider_SingleDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testJaccardKernelDistanceProvider_SingleDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_BatchDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_BatchDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_RejectsWrongMetric]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_RejectsWrongMetric]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_SameVector]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_SameVector]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_SingleDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_SingleDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testMinkowskiKernelDistanceProvider_BatchDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testMinkowskiKernelDistanceProvider_BatchDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testMinkowskiKernelDistanceProvider_EuclideanDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testMinkowskiKernelDistanceProvider_EuclideanDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testMinkowskiKernelDistanceProvider_ManhattanDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testMinkowskiKernelDistanceProvider_ManhattanDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testUniversalKernelDistanceProvider_AllMetrics]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testUniversalKernelDistanceProvider_AllMetrics]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testUniversalKernelDistanceProvider_BatchDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testUniversalKernelDistanceProvider_BatchDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testUniversalKernelDistanceProvider_KernelCaching]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testUniversalKernelDistanceProvider_KernelCaching]' passed (0.006 seconds).
+Test Suite 'KernelDistanceProviderTests' passed at 2025-12-16 23:22:06.793.
+	 Executed 20 tests, with 0 failures (0 unexpected) in 0.049 (0.053) seconds
+Test Suite 'L2DistanceKernelTests' started at 2025-12-16 23:22:06.793.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testDimension1536]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testDimension1536]' passed (0.009 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testDimension384]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testDimension384]' passed (0.010 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testDimension768]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testDimension768]' passed (0.009 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testFusibleWith]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testFusibleWith]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testOptimizedDimensions]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testOptimizedDimensions]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSingleDatabase]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSingleDatabase]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSingleQuery]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSingleQuery]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSmallVectors]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSmallVectors]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSquaredDistance]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSquaredDistance]' passed (0.003 seconds).
+Test Suite 'L2DistanceKernelTests' passed at 2025-12-16 23:22:06.845.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.051 (0.052) seconds
+Test Suite 'L2NormalizationKernelTests' started at 2025-12-16 23:22:06.845.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testBasicNormalization]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testBasicNormalization]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testDimension1536]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testDimension1536]' passed (0.056 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testDimension512]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testDimension512]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testDimension768]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testDimension768]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testFusibleWith]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testFusibleWith]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testLargeValues]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testLargeValues]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testSingleVectorNormalization]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testSingleVectorNormalization]' passed (0.047 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testZeroVector]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testZeroVector]' passed (0.002 seconds).
+Test Suite 'L2NormalizationKernelTests' passed at 2025-12-16 23:22:06.967.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.120 (0.122) seconds
+Test Suite 'MLIntegrationBenchmarkTests' started at 2025-12-16 23:22:06.967.
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testBatchProjection768to128]' started.
+Batch projection (768->128): 134.79892015457153ms avg, 74184.57053315543 vectors/sec

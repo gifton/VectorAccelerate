@@ -1,0 +1,80 @@
+Test Case '-[VectorAccelerateTests.IntrospectionTests testGPUVectorMemoryScaling]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IntrospectionTests testIVFClusterStats]' started.
+Test Case '-[VectorAccelerateTests.IntrospectionTests testIVFClusterStats]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IntrospectionTests testIVFIndexType]' started.
+Test Case '-[VectorAccelerateTests.IntrospectionTests testIVFIndexType]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IntrospectionTests testMetricReporting]' started.
+Test Case '-[VectorAccelerateTests.IntrospectionTests testMetricReporting]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IntrospectionTests testShouldCompactHighFragmentation]' started.
+Test Case '-[VectorAccelerateTests.IntrospectionTests testShouldCompactHighFragmentation]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IntrospectionTests testShouldCompactLowFragmentation]' started.
+Test Case '-[VectorAccelerateTests.IntrospectionTests testShouldCompactLowFragmentation]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IntrospectionTests testStatisticsAfterCompaction]' started.
+Test Case '-[VectorAccelerateTests.IntrospectionTests testStatisticsAfterCompaction]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IntrospectionTests testStatisticsAfterDeletions]' started.
+Test Case '-[VectorAccelerateTests.IntrospectionTests testStatisticsAfterDeletions]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IntrospectionTests testStatisticsAfterInserts]' started.
+Test Case '-[VectorAccelerateTests.IntrospectionTests testStatisticsAfterInserts]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IntrospectionTests testUtilizationRatio]' started.
+Test Case '-[VectorAccelerateTests.IntrospectionTests testUtilizationRatio]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IntrospectionTests testVectorCountAccuracy]' started.
+Test Case '-[VectorAccelerateTests.IntrospectionTests testVectorCountAccuracy]' passed (0.001 seconds).
+Test Suite 'IntrospectionTests' passed at 2025-12-16 23:22:05.092.
+	 Executed 20 tests, with 0 failures (0 unexpected) in 0.023 (0.027) seconds
+Test Suite 'JaccardDistanceKernelTests' started at 2025-12-16 23:22:05.092.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testCompletelyDisjointSets]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testCompletelyDisjointSets]' passed (0.010 seconds).
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testDistanceMatrix]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testDistanceMatrix]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testFindMostSimilar]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testFindMostSimilar]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testFusibleWith]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testFusibleWith]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testIdenticalSets]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testIdenticalSets]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testPartialOverlap]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testPartialOverlap]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testSimilarity]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testSimilarity]' passed (0.001 seconds).
+Test Suite 'JaccardDistanceKernelTests' passed at 2025-12-16 23:22:05.116.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.023 (0.024) seconds
+Test Suite 'KMeansAssignKernelTests' started at 2025-12-16 23:22:05.116.
+Test Case '-[VectorAccelerateTests.KMeansAssignKernelTests testAssignMatchesCPU]' started.
+Test Case '-[VectorAccelerateTests.KMeansAssignKernelTests testAssignMatchesCPU]' passed (0.040 seconds).
+Test Case '-[VectorAccelerateTests.KMeansAssignKernelTests testAssignSimple]' started.
+Test Case '-[VectorAccelerateTests.KMeansAssignKernelTests testAssignSimple]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KMeansAssignKernelTests testComputeClusterCounts]' started.
+Test Case '-[VectorAccelerateTests.KMeansAssignKernelTests testComputeClusterCounts]' passed (0.006 seconds).
+Test Suite 'KMeansAssignKernelTests' passed at 2025-12-16 23:22:05.165.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.048 (0.048) seconds
+Test Suite 'KMeansConfigurationTests' started at 2025-12-16 23:22:05.165.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testDefaultInitialization]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testDefaultInitialization]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testFastPreset]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testFastPreset]' passed (0.043 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testHighQualityPreset]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testHighQualityPreset]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testSmallPreset]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testSmallPreset]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testStandardPreset]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testStandardPreset]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForExcessiveClusters]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForExcessiveClusters]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForZeroClusters]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForZeroClusters]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForZeroDimension]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForZeroDimension]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForZeroIterations]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForZeroIterations]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationSuccess]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationSuccess]' passed (0.000 seconds).
+Test Suite 'KMeansConfigurationTests' passed at 2025-12-16 23:22:05.216.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.047 (0.051) seconds
+Test Suite 'KMeansConvergenceKernelTests' started at 2025-12-16 23:22:05.217.
+Test Case '-[VectorAccelerateTests.KMeansConvergenceKernelTests testConvergenceWhenIdentical]' started.
+Test Case '-[VectorAccelerateTests.KMeansConvergenceKernelTests testConvergenceWhenIdentical]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConvergenceKernelTests testConvergenceWithSmallMovement]' started.
+Test Case '-[VectorAccelerateTests.KMeansConvergenceKernelTests testConvergenceWithSmallMovement]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConvergenceKernelTests testNoConvergenceWhenMoved]' started.
+Test Case '-[VectorAccelerateTests.KMeansConvergenceKernelTests testNoConvergenceWhenMoved]' passed (0.002 seconds).
+Test Suite 'KMeansConvergenceKernelTests' passed at 2025-12-16 23:22:05.226.

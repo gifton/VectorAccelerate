@@ -1,0 +1,80 @@
+Test Case '-[VectorAccelerateTests.FallbackProviderTests testTopKByDistance]' started.
+Test Case '-[VectorAccelerateTests.FallbackProviderTests testTopKByDistance]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.FallbackProviderTests testTopKBySimilarity]' started.
+Test Case '-[VectorAccelerateTests.FallbackProviderTests testTopKBySimilarity]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.FallbackProviderTests testTopKLargerThanArray]' started.
+Test Case '-[VectorAccelerateTests.FallbackProviderTests testTopKLargerThanArray]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.FallbackProviderTests testTopKZero]' started.
+Test Case '-[VectorAccelerateTests.FallbackProviderTests testTopKZero]' passed (0.000 seconds).
+Test Suite 'FallbackProviderTests' passed at 2025-12-16 23:16:24.809.
+	 Executed 38 tests, with 0 failures (0 unexpected) in 0.111 (0.160) seconds
+Test Suite 'FlatIndexSearchTests' started at 2025-12-16 23:16:24.809.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testBatchSearchEmptyQueries]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testBatchSearchEmptyQueries]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testBatchSearchMatchesSequential]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testBatchSearchMatchesSequential]' passed (0.008 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testBatchSearchPerformanceAdvantage]' started.
+Batch search (20 queries): 4.312992095947266ms
+Sequential search (20 queries): 9.396076202392578ms
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testBatchSearchPerformanceAdvantage]' passed (0.028 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testBatchSearch]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testBatchSearch]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testBatchSearchWithDeletedVectors]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testBatchSearchWithDeletedVectors]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testBatchSearchWithVaryingK]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testBatchSearchWithVaryingK]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testDistanceExactMatch]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testDistanceExactMatch]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testDistanceIsL2Squared]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testDistanceIsL2Squared]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testDistanceL2SquaredBetweenPoints]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testDistanceL2SquaredBetweenPoints]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testDistanceL2SquaredMultiDimensional]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testDistanceL2SquaredMultiDimensional]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testEmptyIndexBatchSearch]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testEmptyIndexBatchSearch]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testEmptyIndexSearch]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testEmptyIndexSearch]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testEuclideanDistanceProperty]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testEuclideanDistanceProperty]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testFilteredSearchBasic]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testFilteredSearchBasic]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testFilteredSearchHighlySelective]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testFilteredSearchHighlySelective]' passed (0.012 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testFilteredSearchNoMatches]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testFilteredSearchNoMatches]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testFilteredSearchUsingHandle]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testFilteredSearchUsingHandle]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testFilteredSearchWithNilMetadata]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testFilteredSearchWithNilMetadata]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testLargeDimension768]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testLargeDimension768]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testLargeDimensionPerformance]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testLargeDimensionPerformance]' passed (0.058 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testSearchAfterDeletingAll]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testSearchAfterDeletingAll]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testSearchExcludesDeletedVectors]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testSearchExcludesDeletedVectors]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testSearchKEqualsCount]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testSearchKEqualsCount]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testSearchKGreaterThanCount]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testSearchKGreaterThanCount]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testSearchResultsAreOrdered]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testSearchResultsAreOrdered]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testSearchResultsOrderingWithNegativeValues]' started.
+Test Case '-[VectorAccelerateTests.FlatIndexSearchTests testSearchResultsOrderingWithNegativeValues]' passed (0.006 seconds).
+Test Suite 'FlatIndexSearchTests' passed at 2025-12-16 23:16:25.034.
+	 Executed 26 tests, with 0 failures (0 unexpected) in 0.219 (0.225) seconds
+Test Suite 'FusedL2TopKKernelTests' started at 2025-12-16 23:16:25.034.
+Test Case '-[VectorAccelerateTests.FusedL2TopKKernelTests testAgainstCPUReference]' started.
+Test Case '-[VectorAccelerateTests.FusedL2TopKKernelTests testAgainstCPUReference]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.FusedL2TopKKernelTests testBasicNearestNeighbors]' started.
+Test Case '-[VectorAccelerateTests.FusedL2TopKKernelTests testBasicNearestNeighbors]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.FusedL2TopKKernelTests testChunkedFallbackGuardrailMatchesCPUReference]' started.
+Test Case '-[VectorAccelerateTests.FusedL2TopKKernelTests testChunkedFallbackGuardrailMatchesCPUReference]' passed (0.011 seconds).
+Test Case '-[VectorAccelerateTests.FusedL2TopKKernelTests testGPUMergeMatchesCPUMerge]' started.
+Test Case '-[VectorAccelerateTests.FusedL2TopKKernelTests testGPUMergeMatchesCPUMerge]' passed (0.021 seconds).
+Test Case '-[VectorAccelerateTests.FusedL2TopKKernelTests testGPUMergeWithLargerK]' started.
+Test Case '-[VectorAccelerateTests.FusedL2TopKKernelTests testGPUMergeWithLargerK]' passed (0.015 seconds).
+Test Case '-[VectorAccelerateTests.FusedL2TopKKernelTests testKEquals100VerifyCPU]' started.
+Test Case '-[VectorAccelerateTests.FusedL2TopKKernelTests testKEquals100VerifyCPU]' passed (0.015 seconds).

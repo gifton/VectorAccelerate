@@ -1,0 +1,80 @@
+Test Suite 'All tests' started at 2025-12-16 23:16:07.579.
+Test Suite 'VectorAccelerateTests.xctest' started at 2025-12-16 23:16:07.580.
+Test Suite 'AcceleratedVectorIndexTests' started at 2025-12-16 23:16:07.580.
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testBatchInsert]' started.
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testBatchInsert]' passed (0.184 seconds).
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testCompaction]' started.
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testCompaction]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testDimensionValidation]' started.
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testDimensionValidation]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testFlatIndexCreation]' started.
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testFlatIndexCreation]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testHandleCount]' started.
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testHandleCount]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testInsertAndRetrieve]' started.
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testInsertAndRetrieve]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testInsertWithMetadata]' started.
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testInsertWithMetadata]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testIVFIndexCreation]' started.
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testIVFIndexCreation]' passed (0.029 seconds).
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testRemoveVector]' started.
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testRemoveVector]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testSearchFlat]' started.
+Test Case '-[VectorAccelerateTests.AcceleratedVectorIndexTests testSearchFlat]' passed (0.006 seconds).
+Test Suite 'AcceleratedVectorIndexTests' passed at 2025-12-16 23:16:07.812.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.230 (0.232) seconds
+Test Suite 'AdaptiveNlistTests' started at 2025-12-16 23:16:07.812.
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoCreatesValidConfiguration]' started.
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoCreatesValidConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoRecallMeetsTarget]' started.
+IVF Auto recall: 100.0%
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoRecallMeetsTarget]' passed (6.200 seconds).
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoRecallTargets]' started.
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoRecallTargets]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoVariousDatasetSizes]' started.
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoVariousDatasetSizes]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoWithDifferentMetrics]' started.
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoWithDifferentMetrics]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoWithRealIndex]' started.
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testIvfAutoWithRealIndex]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testRecommendedNlistEdgeCases]' started.
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testRecommendedNlistEdgeCases]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testRecommendedNlistScalesWithSize]' started.
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testRecommendedNlistScalesWithSize]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testRecommendedNprobeEdgeCases]' started.
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testRecommendedNprobeEdgeCases]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testRecommendedNprobeForRecallTargets]' started.
+Test Case '-[VectorAccelerateTests.AdaptiveNlistTests testRecommendedNprobeForRecallTargets]' passed (0.000 seconds).
+Test Suite 'AdaptiveNlistTests' passed at 2025-12-16 23:16:14.019.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 6.206 (6.207) seconds
+Test Suite 'ArchivePipelineCacheTests' started at 2025-12-16 23:16:14.019.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testCachedKeysEmpty]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testCachedKeysEmpty]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testClearMemory]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testClearMemory]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testClear]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testClear]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testFactoryCreate]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testFactoryCreate]' passed (0.106 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testHitRate100PercentArchive]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testHitRate100PercentArchive]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testHitRate100PercentMemory]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testHitRate100PercentMemory]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testHitRateZeroWhenNoRequests]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testHitRateZeroWhenNoRequests]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testInitialization]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testInitialization]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testInitialStatistics]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testInitialStatistics]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testIsCachedFalseInitially]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testIsCachedFalseInitially]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testMemoryCacheSizeLimit]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testMemoryCacheSizeLimit]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testSaveToArchiveWithNoPending]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testSaveToArchiveWithNoPending]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testStatisticsHitRate]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testStatisticsHitRate]' passed (0.005 seconds).
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testStatisticsResetStatistics]' started.
+Test Case '-[VectorAccelerateTests.ArchivePipelineCacheTests testStatisticsResetStatistics]' passed (0.001 seconds).
+Test Suite 'ArchivePipelineCacheTests' passed at 2025-12-16 23:16:14.150.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 0.128 (0.130) seconds

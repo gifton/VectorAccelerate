@@ -1,0 +1,80 @@
+Test Case '-[VectorAccelerateTests.IVFTests testIVFIndexCreation]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFIndexCreation]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFInsertSingle]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFInsertSingle]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFLargeScale]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFLargeScale]' passed (0.009 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFManualTraining]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFManualTraining]' passed (0.012 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFMetadataPreservation]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFMetadataPreservation]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFNprobeEffect]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFNprobeEffect]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFRecallVsBruteForce]' started.
+IVF Recall: 98.0% (nprobe=4/nlist=8)
+Test Case '-[VectorAccelerateTests.IVFTests testIVFRecallVsBruteForce]' passed (0.032 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFRecallWithFullNprobe]' started.
+IVF Full Recall: 100.0% (nprobe=8/nlist=8)
+Test Case '-[VectorAccelerateTests.IVFTests testIVFRecallWithFullNprobe]' passed (0.028 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFSearchAfterCompaction]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFSearchAfterCompaction]' passed (0.014 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFSearchAfterTraining]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFSearchAfterTraining]' passed (0.011 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFSearchExcludesDeleted]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFSearchExcludesDeleted]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFSearchWithMetadata]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFSearchWithMetadata]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFStatsUpdate]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFStatsUpdate]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFTrainingActuallyTriggers]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFTrainingActuallyTriggers]' passed (0.010 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFvsFlatConsistency]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFvsFlatConsistency]' passed (0.002 seconds).
+Test Suite 'IVFTests' passed at 2025-12-16 23:21:28.820.
+	 Executed 22 tests, with 0 failures (0 unexpected) in 0.178 (0.182) seconds
+Test Suite 'IndexBenchmarkHarnessTests' started at 2025-12-16 23:21:28.820.
+Test Case '-[VectorAccelerateTests.IndexBenchmarkHarnessTests testBenchmarkHarnessBatchWorkload]' started.
+
+=== Batch vs Single Query Comparison ===
+
+Single query:
+  Throughput:  3786 queries/sec
+  Latency p50: 0.259 ms
+
+Batch query (batch=10):
+  Throughput:  32882 queries/sec
+  Latency p50: 0.030 ms
+
+Speedup from batching: 8.54x
+Test Case '-[VectorAccelerateTests.IndexBenchmarkHarnessTests testBenchmarkHarnessBatchWorkload]' passed (0.033 seconds).
+Test Case '-[VectorAccelerateTests.IndexBenchmarkHarnessTests testBenchmarkHarnessFlatIndex]' started.
+
+=== Flat Index Benchmark Results ===
+Name:        Flat-D64-N200-K5
+Recall@K:    100.0%
+Throughput:  3194 queries/sec
+Latency p50: 0.273 ms
+Latency p95: 0.652 ms
+Latency p99: 0.681 ms
+Build time:  0.005 sec
+Memory:      50.00 KB
+Test Case '-[VectorAccelerateTests.IndexBenchmarkHarnessTests testBenchmarkHarnessFlatIndex]' passed (0.056 seconds).
+Test Case '-[VectorAccelerateTests.IndexBenchmarkHarnessTests testBenchmarkHarnessIVFIndex]' started.
+
+=== IVF Index Benchmark Results ===
+Name:        IVF4p4-D64-N200-K5
+Recall@K:    100.0%
+Throughput:  1058 queries/sec
+Latency p50: 0.875 ms
+Latency p95: 1.479 ms
+Latency p99: 1.507 ms
+Build time:  0.033 sec
+Memory:      50.00 KB
+Test Case '-[VectorAccelerateTests.IndexBenchmarkHarnessTests testBenchmarkHarnessIVFIndex]' passed (0.114 seconds).
+Test Case '-[VectorAccelerateTests.IndexBenchmarkHarnessTests testBenchmarkHarnessLatencyStats]' started.
+
+=== LatencyStats Test ===
+Samples: 1.000, 2.000, 3.000, 4.000, 5.000, 6.000, 7.000, 8.000, 9.000, 10.000 ms
+Min:     1.000 ms
+Max:     10.000 ms
+Mean:    5.500 ms

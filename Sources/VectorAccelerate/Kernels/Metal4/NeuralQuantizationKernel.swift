@@ -212,6 +212,18 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     private let encodeQuantizePipeline: any MTLComputePipelineState
     private let dequantizeDecodePipeline: any MTLComputePipelineState
 
+    /// Optimized 2D decode pipelines for different threadgroup sizes
+    private var optimizedDecodePipeline32: (any MTLComputePipelineState)?
+    private var optimizedDecodePipeline64: (any MTLComputePipelineState)?
+    private var optimizedDecodePipeline128: (any MTLComputePipelineState)?
+    private var optimizedDecodePipeline256: (any MTLComputePipelineState)?
+
+    /// Best threadgroup size determined during initialization
+    private let bestThreadgroupSize: Int
+
+    /// Whether any optimized 2D decode kernel is available
+    private let useOptimizedDecode: Bool
+
     // MARK: - Weight Management
 
     private let tensorManager: TensorManager
@@ -247,6 +259,70 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         self.decodePipeline = try await device.makeComputePipelineState(function: decodeFunc)
         self.encodeQuantizePipeline = try await device.makeComputePipelineState(function: encodeQuantizeFunc)
         self.dequantizeDecodePipeline = try await device.makeComputePipelineState(function: dequantizeDecodeFunc)
+
+        // Try to load optimized 2D decode kernel variants
+        var loadedAny = false
+
+        // Load 32-thread variant
+        if let func32 = library.makeFunction(name: "neural_dequantize_decode_2d_tg_kernel") {
+            do {
+                self.optimizedDecodePipeline32 = try await device.makeComputePipelineState(function: func32)
+                loadedAny = true
+            } catch {
+                VectorLogDebug("Failed to compile 32-thread decode kernel: \(error)", category: "NeuralQuantization")
+            }
+        }
+
+        // Load 64-thread variant
+        if let func64 = library.makeFunction(name: "neural_dequantize_decode_2d_tg64_kernel") {
+            do {
+                self.optimizedDecodePipeline64 = try await device.makeComputePipelineState(function: func64)
+                loadedAny = true
+            } catch {
+                VectorLogDebug("Failed to compile 64-thread decode kernel: \(error)", category: "NeuralQuantization")
+            }
+        }
+
+        // Load 128-thread variant (empirically best performer)
+        if let func128 = library.makeFunction(name: "neural_dequantize_decode_2d_tg128_kernel") {
+            do {
+                self.optimizedDecodePipeline128 = try await device.makeComputePipelineState(function: func128)
+                loadedAny = true
+            } catch {
+                VectorLogDebug("Failed to compile 128-thread decode kernel: \(error)", category: "NeuralQuantization")
+            }
+        }
+
+        // Load 256-thread variant
+        if let func256 = library.makeFunction(name: "neural_dequantize_decode_2d_tg256_kernel") {
+            do {
+                self.optimizedDecodePipeline256 = try await device.makeComputePipelineState(function: func256)
+                loadedAny = true
+            } catch {
+                VectorLogDebug("Failed to compile 256-thread decode kernel: \(error)", category: "NeuralQuantization")
+            }
+        }
+
+        self.useOptimizedDecode = loadedAny
+
+        // Select best threadgroup size based on benchmark results:
+        // 128 threads provides best throughput (~2.57x vs 32)
+        // Fall back to smaller sizes if 128 isn't available
+        if optimizedDecodePipeline128 != nil {
+            self.bestThreadgroupSize = 128
+        } else if optimizedDecodePipeline64 != nil {
+            self.bestThreadgroupSize = 64
+        } else if optimizedDecodePipeline256 != nil {
+            self.bestThreadgroupSize = 256
+        } else if optimizedDecodePipeline32 != nil {
+            self.bestThreadgroupSize = 32
+        } else {
+            self.bestThreadgroupSize = 0  // Will use fallback 1D kernel
+        }
+
+        if loadedAny {
+            VectorLogDebug("Loaded optimized 2D neural decode kernels (best: \(bestThreadgroupSize) threads)", category: "NeuralQuantization")
+        }
     }
 
     // MARK: - Warm Up
@@ -525,6 +601,9 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     }
 
     /// Dequantize and decode in one pass.
+    ///
+    /// Uses optimized 2D dispatch when available (~5x+ speedup over 1D).
+    /// Automatically selects the best threadgroup size based on initialization.
     @discardableResult
     public func encodeDequantizeDecode(
         into encoder: any MTLComputeCommandEncoder,
@@ -533,10 +612,93 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         output: any MTLBuffer,
         parameters: NeuralQuantizationParameters
     ) throws -> Metal4EncodingResult {
+        // Use specified threadgroup size or default to best
+        return try encodeDequantizeDecodeWithThreadgroupSize(
+            into: encoder,
+            input: input,
+            scale: scale,
+            output: output,
+            parameters: parameters,
+            threadgroupSize: bestThreadgroupSize
+        )
+    }
+
+    /// Dequantize and decode with explicit threadgroup size selection.
+    ///
+    /// - Parameters:
+    ///   - threadgroupSize: Number of outputs per threadgroup (32, 64, 128, or 256)
+    @discardableResult
+    public func encodeDequantizeDecodeWithThreadgroupSize(
+        into encoder: any MTLComputeCommandEncoder,
+        input: any MTLBuffer,
+        scale: any MTLBuffer,
+        output: any MTLBuffer,
+        parameters: NeuralQuantizationParameters,
+        threadgroupSize: Int
+    ) throws -> Metal4EncodingResult {
         guard let decoderWeights = decoderWeights else {
             throw VectorError.invalidOperation("Decoder weights not loaded")
         }
 
+        let numVectors = Int(parameters.numVectors)
+        let outputDim = Int(parameters.inputDimension)
+
+        // Select the appropriate pipeline based on threadgroup size
+        let pipeline: (any MTLComputePipelineState)?
+        let kernelName: String
+
+        switch threadgroupSize {
+        case 256:
+            pipeline = optimizedDecodePipeline256
+            kernelName = "neural_dequantize_decode_2d_tg256_kernel"
+        case 128:
+            pipeline = optimizedDecodePipeline128
+            kernelName = "neural_dequantize_decode_2d_tg128_kernel"
+        case 64:
+            pipeline = optimizedDecodePipeline64
+            kernelName = "neural_dequantize_decode_2d_tg64_kernel"
+        case 32:
+            pipeline = optimizedDecodePipeline32
+            kernelName = "neural_dequantize_decode_2d_tg_kernel"
+        default:
+            pipeline = nil
+            kernelName = "neural_dequantize_decode_kernel"
+        }
+
+        // Use optimized 2D kernel if available
+        if let optimizedPipeline = pipeline {
+            encoder.setComputePipelineState(optimizedPipeline)
+            encoder.label = "NeuralDequantizeDecode2D_\(threadgroupSize)"
+
+            encoder.setBuffer(input, offset: 0, index: 0)
+            encoder.setBuffer(scale, offset: 0, index: 1)
+            encoder.setBuffer(decoderWeights.buffer, offset: 0, index: 2)
+            encoder.setBuffer(output, offset: 0, index: 3)
+            encoder.setBuffer(decoderBias?.buffer, offset: 0, index: 4)
+
+            var params = parameters
+            encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
+
+            // Optimized 2D dispatch:
+            // - threadgroup x = 1 vector
+            // - threadgroup y = threadgroupSize output dims
+            let threadsPerThreadgroup = MTLSize(width: 1, height: threadgroupSize, depth: 1)
+            let threadgroups = MTLSize(
+                width: numVectors,
+                height: (outputDim + threadgroupSize - 1) / threadgroupSize,
+                depth: 1
+            )
+
+            encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
+
+            return Metal4EncodingResult(
+                pipelineName: kernelName,
+                threadgroups: threadgroups,
+                threadsPerThreadgroup: threadsPerThreadgroup
+            )
+        }
+
+        // Fallback: Original 1D dispatch (one thread per vector)
         encoder.setComputePipelineState(dequantizeDecodePipeline)
         encoder.label = "NeuralDequantizeDecode"
 
@@ -549,7 +711,6 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         var params = parameters
         encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
 
-        let numVectors = Int(parameters.numVectors)
         let config = Metal4ThreadConfiguration.linear(count: numVectors, pipeline: dequantizeDecodePipeline)
         encoder.dispatchThreadgroups(config.threadgroups, threadsPerThreadgroup: config.threadsPerThreadgroup)
 

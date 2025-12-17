@@ -593,6 +593,113 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
         XCTAssertLessThanOrEqual(metrics.cosineSimilarity, 1.0)
     }
 
+    /// Benchmark: Compare decode throughput with different threadgroup sizes
+    func testDecodeThreadgroupSizeComparison() async throws {
+        let kernel = try await NeuralQuantizationKernel(context: context)
+        let config = Metal4NeuralQuantizationConfig.balanced(inputDim: 768)
+
+        try await kernel.createRandomWeights(config: config)
+
+        let device = context.device.rawDevice
+        let numVectors = 1000
+        let inputDim = config.inputDimension
+
+        // Create encoded data
+        let vectors = generateRandomVectors(count: numVectors, dimension: inputDim)
+        let encoded = try await kernel.encode(vectors)
+
+        // Prepare buffers for direct kernel calls
+        guard let inputBuffer = device.makeBuffer(
+            bytes: [UInt8](encoded.latentCodes),
+            length: encoded.latentCodes.count,
+            options: .storageModeShared
+        ) else {
+            XCTFail("Failed to create input buffer")
+            return
+        }
+
+        guard let scaleBuffer = device.makeBuffer(
+            length: numVectors * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            XCTFail("Failed to create scale buffer")
+            return
+        }
+        let scalePtr = scaleBuffer.contents().bindMemory(to: Float.self, capacity: numVectors)
+        for i in 0..<numVectors {
+            scalePtr[i] = encoded.scale
+        }
+
+        guard let outputBuffer = device.makeBuffer(
+            length: numVectors * inputDim * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            XCTFail("Failed to create output buffer")
+            return
+        }
+
+        let params = NeuralQuantizationParameters(numVectors: numVectors, config: config)
+
+        let threadgroupSizes = [32, 64, 128, 256]
+
+        print("\n=== Decode Threadgroup Size Comparison (768→128, \(numVectors) vectors) ===")
+        print("TG Size | Time (ms)  | Throughput (vec/s) | vs Baseline")
+        print("--------|------------|--------------------|-----------")
+
+        var baselineThroughput: Double = 0
+
+        // Use nonisolated(unsafe) to bypass Sendable checks for MTLBuffer
+        nonisolated(unsafe) let unsafeInputBuffer = inputBuffer
+        nonisolated(unsafe) let unsafeScaleBuffer = scaleBuffer
+        nonisolated(unsafe) let unsafeOutputBuffer = outputBuffer
+
+        for tgSize in threadgroupSizes {
+            var times: [TimeInterval] = []
+
+            // Warmup
+            for _ in 0..<3 {
+                try await context.executeAndWait { [kernel] _, encoder in
+                    try kernel.encodeDequantizeDecodeWithThreadgroupSize(
+                        into: encoder,
+                        input: unsafeInputBuffer,
+                        scale: unsafeScaleBuffer,
+                        output: unsafeOutputBuffer,
+                        parameters: params,
+                        threadgroupSize: tgSize
+                    )
+                }
+            }
+
+            // Measure
+            for _ in 0..<10 {
+                let start = CFAbsoluteTimeGetCurrent()
+                try await context.executeAndWait { [kernel] _, encoder in
+                    try kernel.encodeDequantizeDecodeWithThreadgroupSize(
+                        into: encoder,
+                        input: unsafeInputBuffer,
+                        scale: unsafeScaleBuffer,
+                        output: unsafeOutputBuffer,
+                        parameters: params,
+                        threadgroupSize: tgSize
+                    )
+                }
+                let elapsed = CFAbsoluteTimeGetCurrent() - start
+                times.append(elapsed)
+            }
+
+            let avgTime = times.reduce(0, +) / Double(times.count)
+            let throughput = Double(numVectors) / avgTime
+
+            if tgSize == 32 {
+                baselineThroughput = throughput
+                print(String(format: "%7d | %10.2f | %18.0f | baseline", tgSize, avgTime * 1000, throughput))
+            } else {
+                let speedup = throughput / baselineThroughput
+                print(String(format: "%7d | %10.2f | %18.0f | %.2fx", tgSize, avgTime * 1000, throughput, speedup))
+            }
+        }
+    }
+
     // MARK: - Scaling Benchmarks
 
     /// Benchmark: How encoding throughput scales with vector count

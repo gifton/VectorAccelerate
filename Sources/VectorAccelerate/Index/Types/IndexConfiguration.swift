@@ -52,6 +52,17 @@ public struct IndexConfiguration: Sendable, Equatable {
     /// Index type and parameters.
     public let indexType: IndexType
 
+    /// Routing threshold for automatic IVF-to-Flat fallback.
+    ///
+    /// When the index contains fewer vectors than this threshold, search operations
+    /// will automatically use flat (brute-force) search even if the index is
+    /// configured as IVF. This optimizes performance for small datasets where
+    /// IVF clustering overhead exceeds its benefits.
+    ///
+    /// Set to 0 to disable automatic routing (always use configured index type).
+    /// Default: 10,000 vectors.
+    public let routingThreshold: Int
+
     // MARK: - Index Type
 
     /// Type of index structure.
@@ -79,16 +90,19 @@ public struct IndexConfiguration: Sendable, Equatable {
     ///   - metric: Distance metric (default: euclidean)
     ///   - capacity: Initial capacity (default: 10,000)
     ///   - indexType: Index type (default: flat)
+    ///   - routingThreshold: Vector count below which IVF falls back to flat search (default: 10,000)
     public init(
         dimension: Int,
         metric: SupportedDistanceMetric = .euclidean,
         capacity: Int = 10_000,
-        indexType: IndexType = .flat
+        indexType: IndexType = .flat,
+        routingThreshold: Int = 10_000
     ) {
         self.dimension = dimension
         self.metric = metric
         self.capacity = capacity
         self.indexType = indexType
+        self.routingThreshold = routingThreshold
     }
 
     // MARK: - Factory Methods
@@ -108,7 +122,8 @@ public struct IndexConfiguration: Sendable, Equatable {
             dimension: dimension,
             metric: metric,
             capacity: capacity,
-            indexType: .flat
+            indexType: .flat,
+            routingThreshold: 0  // Flat index doesn't need routing
         )
     }
 
@@ -119,19 +134,22 @@ public struct IndexConfiguration: Sendable, Equatable {
     ///   - nprobe: Number of clusters to search
     ///   - metric: Distance metric (default: euclidean)
     ///   - capacity: Initial capacity (default: 100,000)
+    ///   - routingThreshold: Vector count below which search falls back to flat (default: 10,000)
     /// - Returns: Configuration for an IVF index
     public static func ivf(
         dimension: Int,
         nlist: Int,
         nprobe: Int,
         metric: SupportedDistanceMetric = .euclidean,
-        capacity: Int = 100_000
+        capacity: Int = 100_000,
+        routingThreshold: Int = 10_000
     ) -> IndexConfiguration {
         IndexConfiguration(
             dimension: dimension,
             metric: metric,
             capacity: capacity,
-            indexType: .ivf(nlist: nlist, nprobe: nprobe)
+            indexType: .ivf(nlist: nlist, nprobe: nprobe),
+            routingThreshold: routingThreshold
         )
     }
 
@@ -213,7 +231,8 @@ extension IndexConfiguration: CustomStringConvertible {
         case .flat:
             return "IndexConfiguration(flat, dim=\(dimension), metric=\(metric), capacity=\(capacity))"
         case .ivf(let nlist, let nprobe):
-            return "IndexConfiguration(ivf, dim=\(dimension), metric=\(metric), capacity=\(capacity), nlist=\(nlist), nprobe=\(nprobe))"
+            let routingStr = routingThreshold > 0 ? ", routingThreshold=\(routingThreshold)" : ""
+            return "IndexConfiguration(ivf, dim=\(dimension), metric=\(metric), capacity=\(capacity), nlist=\(nlist), nprobe=\(nprobe)\(routingStr))"
         }
     }
 }

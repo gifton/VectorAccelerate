@@ -1,0 +1,79 @@
+Test Suite 'VectorAccelerateTests' started at 2025-12-16 23:23:30.686.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testAggressiveConfiguration]' started.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testAggressiveConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testBenchmarkingConfiguration]' started.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testBenchmarkingConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testConservativeConfiguration]' started.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testConservativeConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testDefaultConfiguration]' started.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testDefaultConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testErrorDescriptions]' started.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testErrorDescriptions]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testFlatIndexConfiguration]' started.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testFlatIndexConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testGPUIndexStats]' started.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testGPUIndexStats]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testGPUIndexStatsCompactionRecommendation]' started.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testGPUIndexStatsCompactionRecommendation]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testIVFIndexConfiguration]' started.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testIVFIndexConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testKMeansAssignShaderArgs]' started.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testKMeansAssignShaderArgs]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testVectorHandleComparison]' started.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testVectorHandleComparison]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testVectorHandleInvalid]' started.
+Test Case '-[VectorAccelerateTests.VectorAccelerateTests testVectorHandleInvalid]' passed (0.000 seconds).
+Test Suite 'VectorAccelerateTests' passed at 2025-12-16 23:23:30.693.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.005 (0.007) seconds
+Test Suite 'WarmupManagerTests' started at 2025-12-16 23:23:30.693.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testActivityDelegateReceivesPauseCallback]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testActivityDelegateReceivesPauseCallback]' passed (0.163 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testActivityDelegateSetAndClear]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testActivityDelegateSetAndClear]' passed (0.315 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testCancelFromIdleState]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testCancelFromIdleState]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testCancelFromPausedState]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testCancelFromPausedState]' passed (0.057 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testCancelStopsWarmup]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testCancelStopsWarmup]' passed (0.057 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testEmptyKeysCompletesImmediately]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testEmptyKeysCompletesImmediately]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testEmptyKeysProgressIsOne]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testEmptyKeysProgressIsOne]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testIdleTimeoutResumesWarmup]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testIdleTimeoutResumesWarmup]' passed (0.481 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testInitialProgressIsOne]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testInitialProgressIsOne]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testInitialStateIsIdle]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testInitialStateIsIdle]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testIsPausedAfterUserActivity]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testIsPausedAfterUserActivity]' passed (0.107 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testIsPausedInitiallyFalse]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testIsPausedInitiallyFalse]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testIsWarmingInitiallyFalse]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testIsWarmingInitiallyFalse]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testManualPause]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testManualPause]' passed (0.057 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testMultipleObservers]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testMultipleObservers]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testMultipleWarmupCycles]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testMultipleWarmupCycles]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testNonisolatedChecksAreThreadSafe]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testNonisolatedChecksAreThreadSafe]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testObserverIsCalledOnStateChange]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testObserverIsCalledOnStateChange]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testObserverRemoval]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testObserverRemoval]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testPauseBeforeWarmupIsNoOp]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testPauseBeforeWarmupIsNoOp]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testPauseReasonDescription]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testPauseReasonDescription]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testPauseReasonEquatable]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testPauseReasonEquatable]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testProgressCountsMatch]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testProgressCountsMatch]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testProgressIsOneWhenCompleted]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testProgressIsOneWhenCompleted]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testRemoveAllObservers]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testRemoveAllObservers]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testReportUserActivityBeforeWarmupIsNoOp]' started.

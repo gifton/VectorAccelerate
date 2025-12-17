@@ -1,0 +1,79 @@
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testReportUserActivityBeforeWarmupIsNoOp]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testReportUserActivityPausesWarmup]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testReportUserActivityPausesWarmup]' passed (0.057 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testResumeAfterManualPause]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testResumeAfterManualPause]' passed (0.264 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testResumeBeforeWarmupIsNoOp]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testResumeBeforeWarmupIsNoOp]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testStateTransitionsToCompleted]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testStateTransitionsToCompleted]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testStatisticsAfterWarmup]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testStatisticsAfterWarmup]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testStatisticsAreResetOnNewWarmup]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testStatisticsAreResetOnNewWarmup]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testStatisticsInitialState]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testStatisticsInitialState]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testWarmupCompletesAllKeys]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testWarmupCompletesAllKeys]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testWarmupStateEquatable]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testWarmupStateEquatable]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testWarmupStateIsActive]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testWarmupStateIsActive]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testWarmupStatisticsHitRates]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testWarmupStatisticsHitRates]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testWarmupStatisticsZeroDivision]' started.
+Test Case '-[VectorAccelerateTests.WarmupManagerTests testWarmupStatisticsZeroDivision]' passed (0.001 seconds).
+Test Suite 'WarmupManagerTests' passed at 2025-12-16 23:23:32.292.
+	 Executed 38 tests, with 0 failures (0 unexpected) in 1.592 (1.599) seconds
+Test Suite 'WarpOptimizedSelectionKernelTests' started at 2025-12-16 23:23:32.292.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testBatchProcess]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testBatchProcess]' passed (0.009 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testCorrectnessAscending]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testCorrectnessAscending]' passed (0.005 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testCorrectnessDescending]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testCorrectnessDescending]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testEmptyInputReturnsEmpty]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testEmptyInputReturnsEmpty]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testFusibleWith]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testFusibleWith]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testIdenticalValues]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testIdenticalValues]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testInvalidKThrows]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testInvalidKThrows]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testKEqualsArraySize]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testKEqualsArraySize]' passed (0.019 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testKernelName]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testKernelName]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testLargeK]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testLargeK]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testMaxBatchK]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testMaxBatchK]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testMixedSignValues]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testMixedSignValues]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testMultipleQueries]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testMultipleQueries]' passed (0.063 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testNegativeValues]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testNegativeValues]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testPerformance]' started.
+Metal4WarpOptimizedSelection performance: 0.0009263992309570312s per run (100 queries, 1000 candidates, k=10)
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testPerformance]' passed (0.038 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testResultExtraction]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testResultExtraction]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testSingleCandidate]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testSingleCandidate]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testValueAccuracy]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testValueAccuracy]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testWarpSelectLargestK]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testWarpSelectLargestK]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testWarpSelectMaxK]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testWarpSelectMaxK]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testWarpSelectSingleElement]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testWarpSelectSingleElement]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testWarpSelectSmallestK]' started.
+Test Case '-[VectorAccelerateTests.WarpOptimizedSelectionKernelTests testWarpSelectSmallestK]' passed (0.002 seconds).
+Test Suite 'WarpOptimizedSelectionKernelTests' passed at 2025-12-16 23:23:32.499.
+	 Executed 22 tests, with 0 failures (0 unexpected) in 0.176 (0.208) seconds
+Test Suite 'VectorAccelerateTests.xctest' passed at 2025-12-16 23:23:32.499.
+	 Executed 1077 tests, with 0 failures (0 unexpected) in 444.158 (444.920) seconds
+Test Suite 'All tests' passed at 2025-12-16 23:23:32.500.
+	 Executed 1077 tests, with 0 failures (0 unexpected) in 444.158 (444.921) seconds

@@ -1,0 +1,80 @@
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testQuantizationParameterComputation]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testQuantizeDequantizeRoundtrip]' started.
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testQuantizeDequantizeRoundtrip]' passed (0.005 seconds).
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testSQ4QuantizationError]' started.
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testSQ4QuantizationError]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testVectorQuantizationBytesPerElement]' started.
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testVectorQuantizationBytesPerElement]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testVectorQuantizationCompressionRatios]' started.
+Test Case '-[VectorAccelerateTests.IVFQuantizationTests testVectorQuantizationCompressionRatios]' passed (0.000 seconds).
+Test Suite 'IVFQuantizationTests' passed at 2025-12-16 23:21:28.470.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.500 (0.502) seconds
+Test Suite 'IVFResultTypesTests' started at 2025-12-16 23:21:28.470.
+Test Case '-[VectorAccelerateTests.IVFResultTypesTests testIVFListMetadata]' started.
+Test Case '-[VectorAccelerateTests.IVFResultTypesTests testIVFListMetadata]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.IVFResultTypesTests testIVFPhaseTimings]' started.
+Test Case '-[VectorAccelerateTests.IVFResultTypesTests testIVFPhaseTimings]' passed (0.000 seconds).
+Test Suite 'IVFResultTypesTests' passed at 2025-12-16 23:21:28.472.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'IVFSearchConfigurationTests' started at 2025-12-16 23:21:28.472.
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testDefaultInitialization]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testDefaultInitialization]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testHighRecallPreset]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testHighRecallPreset]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testLargePreset]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testLargePreset]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testNprobeClampedToNumCentroids]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testNprobeClampedToNumCentroids]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testSmallPreset]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testSmallPreset]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testStandardPreset]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testStandardPreset]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testValidationFailsForExcessiveDimension]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testValidationFailsForExcessiveDimension]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testValidationFailsForZeroCentroids]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testValidationFailsForZeroCentroids]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testValidationFailsForZeroDimension]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testValidationFailsForZeroDimension]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testValidationSuccess]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchConfigurationTests testValidationSuccess]' passed (0.001 seconds).
+Test Suite 'IVFSearchConfigurationTests' passed at 2025-12-16 23:21:28.480.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.006 (0.008) seconds
+Test Suite 'IVFSearchPipelineTests' started at 2025-12-16 23:21:28.480.
+Test Case '-[VectorAccelerateTests.IVFSearchPipelineTests testEstimatedMemoryBytes]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchPipelineTests testEstimatedMemoryBytes]' passed (0.138 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchPipelineTests testPrepareIndexStructure]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchPipelineTests testPrepareIndexStructure]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchPipelineTests testPrepareIndexStructureWithEmptyLists]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchPipelineTests testPrepareIndexStructureWithEmptyLists]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchPipelineTests testSearchBatch]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchPipelineTests testSearchBatch]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchPipelineTests testSearchSimple]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchPipelineTests testSearchSimple]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.IVFSearchPipelineTests testSearchWithProfiling]' started.
+Test Case '-[VectorAccelerateTests.IVFSearchPipelineTests testSearchWithProfiling]' passed (0.005 seconds).
+Test Suite 'IVFSearchPipelineTests' passed at 2025-12-16 23:21:28.636.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.155 (0.156) seconds
+Test Suite 'IVFShaderArgsTests' started at 2025-12-16 23:21:28.636.
+Test Case '-[VectorAccelerateTests.IVFShaderArgsTests testIVFCoarseQuantizerShaderArgs]' started.
+Test Case '-[VectorAccelerateTests.IVFShaderArgsTests testIVFCoarseQuantizerShaderArgs]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.IVFShaderArgsTests testIVFListSearchShaderArgs]' started.
+Test Case '-[VectorAccelerateTests.IVFShaderArgsTests testIVFListSearchShaderArgs]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.IVFShaderArgsTests testIVFMergeShaderArgs]' started.
+Test Case '-[VectorAccelerateTests.IVFShaderArgsTests testIVFMergeShaderArgs]' passed (0.000 seconds).
+Test Suite 'IVFShaderArgsTests' passed at 2025-12-16 23:21:28.638.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'IVFTests' started at 2025-12-16 23:21:28.638.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFBasicSearch]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFBasicSearch]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFBatchInsert]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFBatchInsert]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFBatchSearchNoCrossQueryContamination]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFBatchSearchNoCrossQueryContamination]' passed (0.015 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFCompaction]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFCompaction]' passed (0.013 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFDefaultMinTrainingVectors]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFDefaultMinTrainingVectors]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFDelete]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFDelete]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.IVFTests testIVFDifferentNlistSizes]' started.
+Test Case '-[VectorAccelerateTests.IVFTests testIVFDifferentNlistSizes]' passed (0.007 seconds).

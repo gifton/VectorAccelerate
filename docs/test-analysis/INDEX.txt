@@ -1,0 +1,31 @@
+Artifacts generated on Wed Dec 17 00:05:31 PST 2025
+
+Top-level:
+  - blocks
+  - candidates
+  - INDEX.txt
+  - slowest_top50.tsv
+  - testcases.tsv
+  - tools
+  - VectorAccelerate-output.txt
+
+Blocks (54 files):
+      54
+  - block_00.txt
+  - block_01.txt
+  - block_02.txt
+  - block_03.txt
+  - block_04.txt
+  - ...
+
+Candidates:
+  - overview.txt
+  - slow_over_1s.tsv
+  - slow_top50.tsv
+  - suspicious_metrics.tsv
+  - zero_duration.tsv
+
+Tools:
+  - parse.awk
+  - parse.pl
+  - suspicious_metrics.pl

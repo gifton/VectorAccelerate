@@ -1,0 +1,80 @@
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.010ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.008ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.010ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.009ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Performance comparison (20 operations):
+  Sequential: 2.7189254760742188ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+  Batch: 0.13196468353271484ms
+  Speedup: 20.603432700993675x
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Batch processing utilized
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.009ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.082ms batchSize=20 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchOperationPerformanceComparison]' passed (0.006 seconds).
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.085ms batchSize=20 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testConcurrentMatrixOperations]' started.
+ℹ️ [Performance] Performance: matrixMultiply took 1.088ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.050ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.091ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.052ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.528ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.530ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.492ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.493ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.390ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.394ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.465ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.470ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.348ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.349ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.680ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.684ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.422ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.423ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.381ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.382ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.406ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.407ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.700ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.702ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.283ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.287ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.276ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.279ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.285ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.286ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.741ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.744ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.769ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.772ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.776ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.777ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.755ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.759ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.775ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190

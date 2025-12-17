@@ -1,0 +1,79 @@
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductWithNegatives]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductWithZeros]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testDotProductWithZeros]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testEmptyVectors]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testEmptyVectors]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testEuclideanDistanceIdenticalVectors]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testEuclideanDistanceIdenticalVectors]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testEuclideanDistanceKnownValues]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testEuclideanDistanceKnownValues]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testEuclideanDistanceOrthogonal]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testEuclideanDistanceOrthogonal]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testNormalizeSingleElement]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testNormalizeSingleElement]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testNormalizeVector]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testNormalizeVector]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testNormalizeZeroVector]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testNormalizeZeroVector]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testPerformanceConfiguration]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testPerformanceConfiguration]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testSingleElementVectors]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testSingleElementVectors]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testVectorWidthVariations]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testVectorWidthVariations]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testVeryLargeValues]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testVeryLargeValues]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testVerySmallValues]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testVerySmallValues]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testWithAccelerateDisabled]' started.
+Test Case '-[VectorAccelerateTests.SIMDFallbackTests testWithAccelerateDisabled]' passed (0.001 seconds).
+Test Suite 'SIMDFallbackTests' passed at 2025-12-16 23:23:07.300.
+	 Executed 23 tests, with 0 failures (0 unexpected) in 0.013 (0.019) seconds
+Test Suite 'SIMDOptimizerTests' started at 2025-12-16 23:23:07.300.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testAdaptiveDotProductCorrectness]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testAdaptiveDotProductCorrectness]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testAdaptiveDotProductLargeVectors]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testAdaptiveDotProductLargeVectors]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testAdaptiveDotProductNegativeValues]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testAdaptiveDotProductNegativeValues]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testAdaptiveDotProductVaryingSizes]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testAdaptiveDotProductVaryingSizes]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testAdaptiveDotProductZeroVectors]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testAdaptiveDotProductZeroVectors]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testBenchmarkAndOptimize]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testBenchmarkAndOptimize]' passed (0.044 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testBenchmarkLargeData]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testBenchmarkLargeData]' passed (0.445 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testBenchmarkSmallData]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testBenchmarkSmallData]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testCapabilityDetection]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testCapabilityDetection]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testConcurrentBenchmarking]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testConcurrentBenchmarking]' passed (0.024 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testDotProductPerformanceLarge]' started.
+/Users/goftin/dev/gsuite/VSK/future/VectorAccelerate/Tests/VectorAccelerateTests/SIMDOptimizerTests.swift:211: Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testDotProductPerformanceLarge]' measured [Time, seconds] average: 0.017, relative standard deviation: 1.332%, values: [0.017081, 0.017390, 0.017175, 0.017358, 0.017217, 0.016911, 0.017071, 0.016844, 0.016817, 0.016669], performanceMetricID:com.apple.XCTPerformanceMetric_WallClockTime, baselineName: "", baselineAverage: , polarity: prefers smaller, maxPercentRegression: 10.000%, maxPercentRelativeStandardDeviation: 10.000%, maxRegression: 0.100, maxStandardDeviation: 0.100
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testDotProductPerformanceLarge]' passed (0.430 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testDotProductPerformanceMedium]' started.
+/Users/goftin/dev/gsuite/VSK/future/VectorAccelerate/Tests/VectorAccelerateTests/SIMDOptimizerTests.swift:200: Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testDotProductPerformanceMedium]' measured [Time, seconds] average: 0.015, relative standard deviation: 13.832%, values: [0.020247, 0.016951, 0.015112, 0.014186, 0.013791, 0.013678, 0.013688, 0.013605, 0.013669, 0.013667], performanceMetricID:com.apple.XCTPerformanceMetric_WallClockTime, baselineName: "", baselineAverage: , polarity: prefers smaller, maxPercentRegression: 10.000%, maxPercentRelativeStandardDeviation: 10.000%, maxRegression: 0.100, maxStandardDeviation: 0.100
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testDotProductPerformanceMedium]' passed (0.406 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testDotProductPerformanceSmall]' started.
+/Users/goftin/dev/gsuite/VSK/future/VectorAccelerate/Tests/VectorAccelerateTests/SIMDOptimizerTests.swift:189: Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testDotProductPerformanceSmall]' measured [Time, seconds] average: 0.016, relative standard deviation: 17.195%, values: [0.022723, 0.018325, 0.016221, 0.014925, 0.014215, 0.014172, 0.014051, 0.014029, 0.014041, 0.014040], performanceMetricID:com.apple.XCTPerformanceMetric_WallClockTime, baselineName: "", baselineAverage: , polarity: prefers smaller, maxPercentRegression: 10.000%, maxPercentRelativeStandardDeviation: 10.000%, maxRegression: 0.100, maxStandardDeviation: 0.100
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testDotProductPerformanceSmall]' passed (0.413 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testEmptyVectors]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testEmptyVectors]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testGetPerformanceStats]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testGetPerformanceStats]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testSelectOptimalWidthEdgeCases]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testSelectOptimalWidthEdgeCases]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testSelectOptimalWidthLargeData]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testSelectOptimalWidthLargeData]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testSelectOptimalWidthMediumData]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testSelectOptimalWidthMediumData]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testSelectOptimalWidthSmallData]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testSelectOptimalWidthSmallData]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testSingleElementVectors]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testSingleElementVectors]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testStaticDetection]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testStaticDetection]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testVeryLargeValues]' started.
+Test Case '-[VectorAccelerateTests.SIMDOptimizerTests testVeryLargeValues]' passed (0.000 seconds).

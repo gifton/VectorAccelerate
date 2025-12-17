@@ -1,0 +1,80 @@
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testMemoryPressureHandling]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testMemoryUtilization]' started.
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testMemoryUtilization]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testPageAlignedBuffers]' started.
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testPageAlignedBuffers]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testPoolReset]' started.
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testPoolReset]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testReusePerformance]' started.
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testReusePerformance]' passed (0.083 seconds).
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testStatisticsAccuracy]' started.
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testStatisticsAccuracy]' passed (0.013 seconds).
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testTypedBufferFloat]' started.
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testTypedBufferFloat]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testTypedBufferInt32]' started.
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testTypedBufferInt32]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testVeryLargeBuffer]' started.
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testVeryLargeBuffer]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testZeroSizeBuffer]' started.
+Test Case '-[VectorAccelerateTests.BufferPoolEnhancedTests testZeroSizeBuffer]' passed (0.001 seconds).
+Test Suite 'BufferPoolEnhancedTests' passed at 2025-12-16 23:16:24.240.
+	 Executed 20 tests, with 0 failures (0 unexpected) in 0.155 (0.195) seconds
+Test Suite 'ClusteringShaderArgsTests' started at 2025-12-16 23:16:24.240.
+Test Case '-[VectorAccelerateTests.ClusteringShaderArgsTests testKMeansAssignShaderArgs]' started.
+Test Case '-[VectorAccelerateTests.ClusteringShaderArgsTests testKMeansAssignShaderArgs]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.ClusteringShaderArgsTests testKMeansConvergenceShaderArgs]' started.
+Test Case '-[VectorAccelerateTests.ClusteringShaderArgsTests testKMeansConvergenceShaderArgs]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.ClusteringShaderArgsTests testKMeansUpdateShaderArgs]' started.
+Test Case '-[VectorAccelerateTests.ClusteringShaderArgsTests testKMeansUpdateShaderArgs]' passed (0.000 seconds).
+Test Suite 'ClusteringShaderArgsTests' passed at 2025-12-16 23:16:24.242.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'CosineSimilarityKernelTests' started at 2025-12-16 23:16:24.242.
+Test Case '-[VectorAccelerateTests.CosineSimilarityKernelTests testCosineDistance]' started.
+Test Case '-[VectorAccelerateTests.CosineSimilarityKernelTests testCosineDistance]' passed (0.066 seconds).
+Test Case '-[VectorAccelerateTests.CosineSimilarityKernelTests testDimension768]' started.
+Test Case '-[VectorAccelerateTests.CosineSimilarityKernelTests testDimension768]' passed (0.013 seconds).
+Test Case '-[VectorAccelerateTests.CosineSimilarityKernelTests testNormalizedInputs]' started.
+Test Case '-[VectorAccelerateTests.CosineSimilarityKernelTests testNormalizedInputs]' passed (0.009 seconds).
+Test Case '-[VectorAccelerateTests.CosineSimilarityKernelTests testSimilarityRange]' started.
+Test Case '-[VectorAccelerateTests.CosineSimilarityKernelTests testSimilarityRange]' passed (0.008 seconds).
+Test Case '-[VectorAccelerateTests.CosineSimilarityKernelTests testSmallVectors]' started.
+Test Case '-[VectorAccelerateTests.CosineSimilarityKernelTests testSmallVectors]' passed (0.006 seconds).
+Test Suite 'CosineSimilarityKernelTests' passed at 2025-12-16 23:16:24.344.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.101 (0.102) seconds
+Test Suite 'DotProductKernelTests' started at 2025-12-16 23:16:24.344.
+Test Case '-[VectorAccelerateTests.DotProductKernelTests testAbsoluteValue]' started.
+Test Case '-[VectorAccelerateTests.DotProductKernelTests testAbsoluteValue]' passed (0.050 seconds).
+Test Case '-[VectorAccelerateTests.DotProductKernelTests testDimension768]' started.
+Test Case '-[VectorAccelerateTests.DotProductKernelTests testDimension768]' passed (0.013 seconds).
+Test Case '-[VectorAccelerateTests.DotProductKernelTests testNormalizedVectorsDotProduct]' started.
+Test Case '-[VectorAccelerateTests.DotProductKernelTests testNormalizedVectorsDotProduct]' passed (0.008 seconds).
+Test Case '-[VectorAccelerateTests.DotProductKernelTests testSingleQueryGEMV]' started.
+Test Case '-[VectorAccelerateTests.DotProductKernelTests testSingleQueryGEMV]' passed (0.016 seconds).
+Test Case '-[VectorAccelerateTests.DotProductKernelTests testSmallVectors]' started.
+Test Case '-[VectorAccelerateTests.DotProductKernelTests testSmallVectors]' passed (0.009 seconds).
+Test Suite 'DotProductKernelTests' passed at 2025-12-16 23:16:24.440.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.095 (0.096) seconds
+Test Suite 'ElementwiseKernelTests' started at 2025-12-16 23:16:24.440.
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testAbs]' started.
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testAbs]' passed (0.021 seconds).
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testAddScalar]' started.
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testAddScalar]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testAdd]' started.
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testAdd]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testClamp]' started.
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testClamp]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testDivide]' started.
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testDivide]' passed (0.008 seconds).
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testExp]' started.
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testExp]' passed (0.008 seconds).
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testFusibleWith]' started.
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testFusibleWith]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testLargeArrays]' started.
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testLargeArrays]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testLog]' started.
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testLog]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testMultiply]' started.
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testMultiply]' passed (0.008 seconds).
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testNegate]' started.
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testNegate]' passed (0.008 seconds).
+Test Case '-[VectorAccelerateTests.ElementwiseKernelTests testReciprocal]' started.
