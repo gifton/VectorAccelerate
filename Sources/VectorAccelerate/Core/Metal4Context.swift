@@ -176,6 +176,11 @@ public actor Metal4Context: AccelerationProvider {
             configuration: .default
         )
 
+        // Initialize shader compiler's default library eagerly
+        // This triggers fallback to KernelContext.getSharedLibrary() for SPM/test environments
+        // where device.makeDefaultLibrary() returns nil (no .metallib in bundle)
+        _ = try? await shaderCompiler.getDefaultLibrary()
+
         // Create pipeline cache
         self.pipelineCache = PipelineCacheFactory.createMemoryOnly(
             compiler: shaderCompiler,
