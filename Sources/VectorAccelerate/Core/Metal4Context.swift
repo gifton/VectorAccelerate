@@ -236,7 +236,7 @@ public actor Metal4Context: AccelerationProvider {
     /// Use this when you need to create command buffers from non-actor code.
     /// Note: The commandQueue access is safe because it's immutable after init.
     public nonisolated func makeCommandBufferUnsafe() -> (any MTLCommandBuffer)? {
-        nonisolated(unsafe) let queue = commandQueue
+        let queue = self.commandQueue
         return queue.makeCommandBuffer()
     }
 

@@ -226,6 +226,7 @@ public actor Metal4ShaderCompiler {
             // Configure compile options
             let options = MTLCompileOptions()
             options.fastMathEnabled = configuration.fastMathEnabled
+            options.mathMode = configuration.fastMathEnabled ? .fast : .safe
             options.languageVersion = configuration.languageVersion
 
             // Compile library

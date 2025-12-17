@@ -479,7 +479,7 @@ public actor Metal4ComputeEngine {
 
         // For small batches, use CPU
         if candidateCount <= 10 && dimension <= 16 {
-            return try candidates.map { candidate in
+            return candidates.map { candidate in
                 var dotProd: Float = 0
                 var normA: Float = 0
                 var normB: Float = 0
