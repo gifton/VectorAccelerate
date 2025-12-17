@@ -825,3 +825,104 @@ kernel void neural_dequantize_decode_2d_tg256_kernel(
 
     outputVectors[vectorIdx * inputDim + outIdx] = sum;
 }
+
+// MARK: - Transposed Weight Variants
+//
+// These kernels use transposed decoder weights for coalesced memory access.
+// Original weights: [inputDim, latentDim] - adjacent threads read non-adjacent memory
+// Transposed weights: [latentDim, inputDim] - adjacent threads read adjacent memory (coalesced!)
+//
+// Memory access pattern comparison:
+// - Original:   w[outIdx * latentDim + i] - stride by 1 across latentDim (non-coalesced across threads)
+// - Transposed: w[i * inputDim + outIdx]  - stride by 1 across inputDim (coalesced across threads!)
+
+/// 128-thread transposed weight variant: best performer with coalesced memory access.
+///
+/// Key optimization: Decoder weights pre-transposed to [latentDim, inputDim] layout.
+/// For each latent dimension i, all threads read adjacent memory locations.
+///
+/// Weight access pattern (transposed):
+///   weight[i * inputDim + outIdx] where adjacent threads have adjacent outIdx
+///   → Adjacent threads access adjacent memory = coalesced reads!
+///
+/// Grid dispatch: threadgroups = (numVectors, ceil(inputDim/128), 1)
+///                threadsPerThreadgroup = (1, 128, 1)
+kernel void neural_dequantize_decode_2d_transposed_kernel(
+    device const char*  latentCodes     [[buffer(0)]],  // [N, latentDim] int8
+    device const float* scales          [[buffer(1)]],  // [N]
+    device const float* decoderWeightsT [[buffer(2)]],  // [latentDim, inputDim] TRANSPOSED
+    device float*       outputVectors   [[buffer(3)]],  // [N, inputDim]
+    device const float* decoderBias     [[buffer(4)]],  // [inputDim] or null
+    constant NeuralQuantParams& params  [[buffer(5)]],
+    uint3 tptg [[thread_position_in_threadgroup]],
+    uint3 tgp  [[threadgroup_position_in_grid]],
+    uint3 tgs  [[threads_per_threadgroup]]
+) {
+    const uint vectorIdx = tgp.x;
+    if (vectorIdx >= params.numVectors) {
+        return;
+    }
+
+    const uint inputDim  = params.inputDimension;
+    const uint latentDim = params.latentDimension;
+
+    // Threadgroup cache for dequantized latent (max 128 dims)
+    threadgroup float tgLatent[128];
+    threadgroup float tgScale = 0.0f;
+
+    // Load scale cooperatively
+    if (tptg.x == 0 && tptg.y == 0) {
+        tgScale = scales[vectorIdx];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const float scale = tgScale;
+
+    // Dequantize latent codes to threadgroup memory
+    // With 128 threads, each thread loads one latent value (for latentDim <= 128)
+    if (tptg.y < latentDim) {
+        const char code = latentCodes[vectorIdx * latentDim + tptg.y];
+        tgLatent[tptg.y] = float(code) * scale;
+    }
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Compute output index
+    const uint outIdx = tgp.y * 128 + tptg.y;
+
+    if (outIdx >= inputDim) {
+        return;
+    }
+
+    // Initialize with bias if present
+    float sum = decoderBias ? decoderBias[outIdx] : 0.0f;
+
+    // KEY OPTIMIZATION: Transposed weight access pattern
+    // For transposed layout [latentDim, inputDim]:
+    // Weight for (latentIdx, outputIdx) at: latentIdx * inputDim + outputIdx
+    // Adjacent threads (adjacent outIdx) read adjacent memory = coalesced!
+
+    if (latentDim == 128) {
+        // Fully unrolled for 128-dim latent
+        #pragma unroll
+        for (uint i = 0; i < 128; ++i) {
+            float w = decoderWeightsT[i * inputDim + outIdx];  // Coalesced read!
+            sum += tgLatent[i] * w;
+        }
+    } else if (latentDim == 64) {
+        // Fully unrolled for 64-dim latent
+        #pragma unroll
+        for (uint i = 0; i < 64; ++i) {
+            float w = decoderWeightsT[i * inputDim + outIdx];  // Coalesced read!
+            sum += tgLatent[i] * w;
+        }
+    } else {
+        // Generic path
+        for (uint i = 0; i < latentDim; ++i) {
+            float w = decoderWeightsT[i * inputDim + outIdx];  // Coalesced read!
+            sum += tgLatent[i] * w;
+        }
+    }
+
+    outputVectors[vectorIdx * inputDim + outIdx] = sum;
+}

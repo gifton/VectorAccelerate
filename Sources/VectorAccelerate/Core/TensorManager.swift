@@ -8,6 +8,7 @@
 //  All features are gated behind Metal4Capabilities.supportsMLTensor.
 //
 
+import Accelerate
 import Foundation
 @preconcurrency import Metal
 import VectorCore
@@ -403,6 +404,62 @@ public actor TensorManager {
             name: name,
             shape: TensorShape.projection(inputDim: inputDim, outputDim: outputDim)
         )
+    }
+
+    // MARK: - Tensor Transformations
+
+    /// Create a transposed copy of a 2D tensor.
+    ///
+    /// Uses vDSP_mtrans from the Accelerate framework for efficient CPU transpose.
+    /// The transposed tensor has swapped dimensions: [rows, cols] → [cols, rows].
+    ///
+    /// This is useful for optimizing memory access patterns in GPU kernels where
+    /// the weight matrix layout affects coalesced memory reads.
+    ///
+    /// - Parameters:
+    ///   - source: Source 2D tensor to transpose
+    ///   - name: Name for the new transposed tensor
+    /// - Returns: New TensorBuffer with transposed data and shape
+    /// - Throws: `VectorError` if tensor is not 2D or not float32
+    public func createTransposedTensor(
+        from source: TensorBuffer,
+        name: String
+    ) throws -> TensorBuffer {
+        guard source.shape.rank == 2 else {
+            throw VectorError.invalidDimension(
+                source.shape.rank,
+                reason: "Transpose requires 2D tensor, got \(source.shape.rank)D"
+            )
+        }
+
+        guard source.dataType == .float32 else {
+            throw VectorError.invalidOperation(
+                "Transpose currently supports float32 only, got \(source.dataType)"
+            )
+        }
+
+        let rows = source.shape.dimensions[0]
+        let cols = source.shape.dimensions[1]
+        let elementCount = rows * cols
+
+        // Transpose using vDSP: input [rows, cols] → output [cols, rows]
+        let sourcePtr = source.buffer.contents().bindMemory(to: Float.self, capacity: elementCount)
+        var transposed = [Float](repeating: 0, count: elementCount)
+
+        // vDSP_mtrans(A, strideA, C, strideC, N, M)
+        // Transposes an M×N matrix A to an N×M matrix C
+        // For row-major: A is [rows][cols], we want C as [cols][rows]
+        // Parameters: M = cols (columns of input), N = rows (rows of input)
+        vDSP_mtrans(
+            sourcePtr, 1,
+            &transposed, 1,
+            vDSP_Length(cols),  // N: number of columns in source = rows in output
+            vDSP_Length(rows)   // M: number of rows in source = columns in output
+        )
+
+        // Create new tensor with transposed shape
+        let transposedShape = TensorShape([cols, rows])
+        return try createTensor(from: transposed, name: name, shape: transposedShape)
     }
 
     // MARK: - Retrieval

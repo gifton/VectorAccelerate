@@ -50,7 +50,7 @@ final class NeuralQuantizationKernelTests: XCTestCase {
         XCTAssertTrue(kernel.hasWeights)
 
         let stats = await kernel.getTensorStatistics()
-        XCTAssertEqual(stats.loadedTensors, 2) // encoder + decoder
+        XCTAssertEqual(stats.loadedTensors, 3) // encoder + decoder + transposed decoder
     }
 
     // MARK: - Encoding Tests
@@ -206,7 +206,7 @@ final class NeuralQuantizationKernelTests: XCTestCase {
         XCTAssertTrue(kernel.hasWeights)
 
         var stats = await kernel.getTensorStatistics()
-        XCTAssertEqual(stats.loadedTensors, 2)
+        XCTAssertEqual(stats.loadedTensors, 3) // encoder + decoder + transposed decoder
 
         await kernel.unloadWeights()
         XCTAssertFalse(kernel.hasWeights)

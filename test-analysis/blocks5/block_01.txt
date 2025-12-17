@@ -1,0 +1,768 @@
+Test Case '-[VectorAccelerateTests.IntrospectionTests testVectorCountAccuracy]' started.
+Test Case '-[VectorAccelerateTests.IntrospectionTests testVectorCountAccuracy]' passed (0.002 seconds).
+Test Suite 'IntrospectionTests' passed at 2025-12-17 15:00:49.488.
+	 Executed 20 tests, with 0 failures (0 unexpected) in 0.032 (0.036) seconds
+Test Suite 'JaccardDistanceKernelTests' started at 2025-12-17 15:00:49.488.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testCompletelyDisjointSets]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testCompletelyDisjointSets]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testDistanceMatrix]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testDistanceMatrix]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testFindMostSimilar]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testFindMostSimilar]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testFusibleWith]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testFusibleWith]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testIdenticalSets]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testIdenticalSets]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testPartialOverlap]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testPartialOverlap]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testSimilarity]' started.
+Test Case '-[VectorAccelerateTests.JaccardDistanceKernelTests testSimilarity]' passed (0.002 seconds).
+Test Suite 'JaccardDistanceKernelTests' passed at 2025-12-17 15:00:49.505.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.016 (0.017) seconds
+Test Suite 'KMeansAssignKernelTests' started at 2025-12-17 15:00:49.505.
+Test Case '-[VectorAccelerateTests.KMeansAssignKernelTests testAssignMatchesCPU]' started.
+Test Case '-[VectorAccelerateTests.KMeansAssignKernelTests testAssignMatchesCPU]' passed (0.022 seconds).
+Test Case '-[VectorAccelerateTests.KMeansAssignKernelTests testAssignSimple]' started.
+Test Case '-[VectorAccelerateTests.KMeansAssignKernelTests testAssignSimple]' passed (0.005 seconds).
+Test Case '-[VectorAccelerateTests.KMeansAssignKernelTests testComputeClusterCounts]' started.
+Test Case '-[VectorAccelerateTests.KMeansAssignKernelTests testComputeClusterCounts]' passed (0.003 seconds).
+Test Suite 'KMeansAssignKernelTests' passed at 2025-12-17 15:00:49.536.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.030 (0.030) seconds
+Test Suite 'KMeansConfigurationTests' started at 2025-12-17 15:00:49.536.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testDefaultInitialization]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testDefaultInitialization]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testFastPreset]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testFastPreset]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testHighQualityPreset]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testHighQualityPreset]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testSmallPreset]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testSmallPreset]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testStandardPreset]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testStandardPreset]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForExcessiveClusters]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForExcessiveClusters]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForZeroClusters]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForZeroClusters]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForZeroDimension]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForZeroDimension]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForZeroIterations]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationFailsForZeroIterations]' passed (0.000 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationSuccess]' started.
+Test Case '-[VectorAccelerateTests.KMeansConfigurationTests testValidationSuccess]' passed (0.000 seconds).
+Test Suite 'KMeansConfigurationTests' passed at 2025-12-17 15:00:49.542.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.004 (0.006) seconds
+Test Suite 'KMeansConvergenceKernelTests' started at 2025-12-17 15:00:49.542.
+Test Case '-[VectorAccelerateTests.KMeansConvergenceKernelTests testConvergenceWhenIdentical]' started.
+Test Case '-[VectorAccelerateTests.KMeansConvergenceKernelTests testConvergenceWhenIdentical]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConvergenceKernelTests testConvergenceWithSmallMovement]' started.
+Test Case '-[VectorAccelerateTests.KMeansConvergenceKernelTests testConvergenceWithSmallMovement]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.KMeansConvergenceKernelTests testNoConvergenceWhenMoved]' started.
+Test Case '-[VectorAccelerateTests.KMeansConvergenceKernelTests testNoConvergenceWhenMoved]' passed (0.002 seconds).
+Test Suite 'KMeansConvergenceKernelTests' passed at 2025-12-17 15:00:49.549.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.005 (0.007) seconds
+Test Suite 'KMeansPipelineTests' started at 2025-12-17 15:00:49.549.
+Test Case '-[VectorAccelerateTests.KMeansPipelineTests testFitSimpleClusters]' started.
+Test Case '-[VectorAccelerateTests.KMeansPipelineTests testFitSimpleClusters]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KMeansPipelineTests testFitWithProfiling]' started.
+Test Case '-[VectorAccelerateTests.KMeansPipelineTests testFitWithProfiling]' passed (0.005 seconds).
+Test Case '-[VectorAccelerateTests.KMeansPipelineTests testResultExtraction]' started.
+Test Case '-[VectorAccelerateTests.KMeansPipelineTests testResultExtraction]' passed (0.005 seconds).
+Test Suite 'KMeansPipelineTests' passed at 2025-12-17 15:00:49.563.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.013 (0.013) seconds
+Test Suite 'KMeansUpdateKernelTests' started at 2025-12-17 15:00:49.563.
+Test Case '-[VectorAccelerateTests.KMeansUpdateKernelTests testUpdateSimple]' started.
+Test Case '-[VectorAccelerateTests.KMeansUpdateKernelTests testUpdateSimple]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.KMeansUpdateKernelTests testUpdateWithEmptyCluster]' started.
+Test Case '-[VectorAccelerateTests.KMeansUpdateKernelTests testUpdateWithEmptyCluster]' passed (0.002 seconds).
+Test Suite 'KMeansUpdateKernelTests' passed at 2025-12-17 15:00:49.566.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'KernelConsumerTests' started at 2025-12-17 15:00:49.566.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testBinaryQuantization]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testBinaryQuantization]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testContextTypeAliases]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testContextTypeAliases]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testCosineSimilarityComputation]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testCosineSimilarityComputation]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testDistanceKernelDispatch]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testDistanceKernelDispatch]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testDistanceKernelInstantiation]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testDistanceKernelInstantiation]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testElementwiseOperations]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testElementwiseOperations]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testFusedL2TopK]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testFusedL2TopK]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testKernelTypeAliases]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testKernelTypeAliases]' passed (0.012 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testKernelWithDynamicVector]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testKernelWithDynamicVector]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testL2DistanceComputation]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testL2DistanceComputation]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testL2KernelDimensionOptimizations]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testL2KernelDimensionOptimizations]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testL2Normalization]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testL2Normalization]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testMatrixKernelInstantiation]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testMatrixKernelInstantiation]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testQuantizationKernelInstantiation]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testQuantizationKernelInstantiation]' passed (0.037 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testSelectionKernelInstantiation]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testSelectionKernelInstantiation]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testStatisticsComputation]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testStatisticsComputation]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testTopKSelection]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testTopKSelection]' passed (0.005 seconds).
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testUtilityKernelInstantiation]' started.
+Test Case '-[VectorAccelerateTests.KernelConsumerTests testUtilityKernelInstantiation]' passed (0.002 seconds).
+Test Suite 'KernelConsumerTests' passed at 2025-12-17 15:00:49.649.
+	 Executed 18 tests, with 0 failures (0 unexpected) in 0.079 (0.083) seconds
+Test Suite 'KernelDistanceProviderTests' started at 2025-12-17 15:00:49.649.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testBatchDistanceWithEmptyCandidates]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testBatchDistanceWithEmptyCandidates]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testContextUniversalDistanceProvider]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testContextUniversalDistanceProvider]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_BatchDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_BatchDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_OppositeVectors]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_OppositeVectors]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_OrthogonalVectors]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_OrthogonalVectors]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_SingleDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testCosineKernelDistanceProvider_SingleDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testDotProductKernelDistanceProvider_BatchDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testDotProductKernelDistanceProvider_BatchDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testDotProductKernelDistanceProvider_SingleDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testDotProductKernelDistanceProvider_SingleDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testJaccardKernelDistanceProvider_SameVector]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testJaccardKernelDistanceProvider_SameVector]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testJaccardKernelDistanceProvider_SingleDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testJaccardKernelDistanceProvider_SingleDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_BatchDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_BatchDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_RejectsWrongMetric]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_RejectsWrongMetric]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_SameVector]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_SameVector]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_SingleDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testL2KernelDistanceProvider_SingleDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testMinkowskiKernelDistanceProvider_BatchDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testMinkowskiKernelDistanceProvider_BatchDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testMinkowskiKernelDistanceProvider_EuclideanDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testMinkowskiKernelDistanceProvider_EuclideanDistance]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testMinkowskiKernelDistanceProvider_ManhattanDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testMinkowskiKernelDistanceProvider_ManhattanDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testUniversalKernelDistanceProvider_AllMetrics]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testUniversalKernelDistanceProvider_AllMetrics]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testUniversalKernelDistanceProvider_BatchDistance]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testUniversalKernelDistanceProvider_BatchDistance]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testUniversalKernelDistanceProvider_KernelCaching]' started.
+Test Case '-[VectorAccelerateTests.KernelDistanceProviderTests testUniversalKernelDistanceProvider_KernelCaching]' passed (0.005 seconds).
+Test Suite 'KernelDistanceProviderTests' passed at 2025-12-17 15:00:49.698.
+	 Executed 20 tests, with 0 failures (0 unexpected) in 0.045 (0.049) seconds
+Test Suite 'L2DistanceKernelTests' started at 2025-12-17 15:00:49.698.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testDimension1536]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testDimension1536]' passed (0.009 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testDimension384]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testDimension384]' passed (0.009 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testDimension768]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testDimension768]' passed (0.008 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testFusibleWith]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testFusibleWith]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testOptimizedDimensions]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testOptimizedDimensions]' passed (0.005 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSingleDatabase]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSingleDatabase]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSingleQuery]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSingleQuery]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSmallVectors]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSmallVectors]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSquaredDistance]' started.
+Test Case '-[VectorAccelerateTests.L2DistanceKernelTests testSquaredDistance]' passed (0.002 seconds).
+Test Suite 'L2DistanceKernelTests' passed at 2025-12-17 15:00:49.751.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.051 (0.053) seconds
+Test Suite 'L2NormalizationKernelTests' started at 2025-12-17 15:00:49.752.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testBasicNormalization]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testBasicNormalization]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testDimension1536]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testDimension1536]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testDimension512]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testDimension512]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testDimension768]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testDimension768]' passed (0.010 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testFusibleWith]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testFusibleWith]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testLargeValues]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testLargeValues]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testSingleVectorNormalization]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testSingleVectorNormalization]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testZeroVector]' started.
+Test Case '-[VectorAccelerateTests.L2NormalizationKernelTests testZeroVector]' passed (0.006 seconds).
+Test Suite 'L2NormalizationKernelTests' passed at 2025-12-17 15:00:49.792.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.039 (0.041) seconds
+Test Suite 'MLIntegrationBenchmarkTests' started at 2025-12-17 15:00:49.792.
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testBatchProjection768to128]' started.
+Batch projection (768->128): 165.0562882423401ms avg, 60585.39245301415 vectors/sec
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testBatchProjection768to128]' passed (4.771 seconds).
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testLearnedL2Distance384to64]' started.
+Learned L2 (384->64): 14.402520656585693ms avg, 6943229.062773398 pairs/sec
+/Users/goftin/dev/gsuite/VSK/future/VectorAccelerate/Tests/VectorAccelerateTests/MLIntegrationBenchmarkTests.swift:221: Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testLearnedL2Distance384to64]' measured [Time, seconds] average: 0.104, relative standard deviation: 1.774%, values: [0.105453, 0.105663, 0.100990, 0.105574, 0.106029, 0.105371, 0.106126, 0.101724, 0.105421, 0.102416], performanceMetricID:com.apple.XCTPerformanceMetric_WallClockTime, baselineName: "", baselineAverage: , polarity: prefers smaller, maxPercentRegression: 10.000%, maxPercentRelativeStandardDeviation: 10.000%, maxRegression: 0.100, maxStandardDeviation: 0.100
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testLearnedL2Distance384to64]' passed (2.097 seconds).
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testLearnedL2Distance768to128]' started.
+Learned L2 (768->128): 38.681793212890625ms avg, 2585195.5582730123 pairs/sec
+/Users/goftin/dev/gsuite/VSK/future/VectorAccelerate/Tests/VectorAccelerateTests/MLIntegrationBenchmarkTests.swift:160: Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testLearnedL2Distance768to128]' measured [Time, seconds] average: 0.105, relative standard deviation: 0.472%, values: [0.105356, 0.105036, 0.103677, 0.105292, 0.105329, 0.104721, 0.105296, 0.105297, 0.105298, 0.105283], performanceMetricID:com.apple.XCTPerformanceMetric_WallClockTime, baselineName: "", baselineAverage: , polarity: prefers smaller, maxPercentRegression: 10.000%, maxPercentRelativeStandardDeviation: 10.000%, maxRegression: 0.100, maxStandardDeviation: 0.100
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testLearnedL2Distance768to128]' passed (1.885 seconds).
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testScalingComparison]' started.
+
+Scaling comparison (768D, 100 queries):
+DB Size | Standard (ms) | Learned (ms) | Speedup
+--------|---------------|--------------|--------
+    100 |          1.99 |         5.42 |    0.37x
+    500 |          6.48 |        19.16 |    0.34x
+   1000 |         11.43 |        38.67 |    0.30x
+   5000 |         58.10 |       182.07 |    0.32x
+  10000 |        108.88 |       351.25 |    0.31x
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testScalingComparison]' passed (7.990 seconds).
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testServiceFallbackBehavior]' started.
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testServiceFallbackBehavior]' passed (0.009 seconds).
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testServiceWithLearnedKernel]' started.
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testServiceWithLearnedKernel]' passed (0.019 seconds).
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testStandardL2Distance768]' started.
+Standard L2 (768D): 11.616814136505127ms avg, 8608212.098853862 pairs/sec
+/Users/goftin/dev/gsuite/VSK/future/VectorAccelerate/Tests/VectorAccelerateTests/MLIntegrationBenchmarkTests.swift:99: Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testStandardL2Distance768]' measured [Time, seconds] average: 0.105, relative standard deviation: 1.337%, values: [0.105339, 0.105482, 0.103930, 0.105360, 0.105831, 0.104003, 0.105529, 0.101322, 0.105708, 0.103016], performanceMetricID:com.apple.XCTPerformanceMetric_WallClockTime, baselineName: "", baselineAverage: , polarity: prefers smaller, maxPercentRegression: 10.000%, maxPercentRelativeStandardDeviation: 10.000%, maxRegression: 0.100, maxStandardDeviation: 0.100
+Test Case '-[VectorAccelerateTests.MLIntegrationBenchmarkTests testStandardL2Distance768]' passed (1.496 seconds).
+Test Suite 'MLIntegrationBenchmarkTests' passed at 2025-12-17 15:01:08.063.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 18.268 (18.270) seconds
+Test Suite 'MatrixEngineEnhancedTests' started at 2025-12-17 15:01:08.063.
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testAsyncExecution]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Async batch execution: 0.2630949020385742ms
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.218ms batchSize=5 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.224ms batchSize=5 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testAsyncExecution]' passed (0.009 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBasicMatrixMultiplication]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Result:
+  [  29.000   32.000   35.000   38.000]
+  [  65.000   72.000   79.000   86.000]
+  [ 101.000  112.000  123.000  134.000]
+Expected:
+  [  29.000   32.000   35.000   38.000]
+ℹ️ [Performance] Performance: matrixMultiply took 0.009ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+  [  65.000   72.000   79.000   86.000]
+  [ 101.000  112.000  123.000  134.000]
+ℹ️ [Performance] Performance: matrixMultiply took 0.013ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBasicMatrixMultiplication]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBasicTranspose]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Original:
+  [   1.000    2.000]
+  [   3.000    4.000]
+  [   5.000    6.000]
+Transposed:
+  [   1.000    3.000    5.000]
+  [   2.000    4.000    6.000]
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.007ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBasicTranspose]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchMatrixVectorCountMismatch]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchMatrixVectorCountMismatch]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchMatrixVectorDimensionMismatch]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.043ms batchSize=1 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.046ms batchSize=1 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchMatrixVectorDimensionMismatch]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchMatrixVectorMultiply]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Batch matrix-vector multiply (5 operations): 0.054001808166503906ms
+Average per operation: 0.010800361633300781ms
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.047ms batchSize=5 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.051ms batchSize=5 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchMatrixVectorMultiply]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchOperationPerformanceComparison]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.008ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.007ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Performance comparison (20 operations):
+  Sequential: 1.9559860229492188ms
+  Batch: 0.12993812561035156ms
+  Speedup: 15.053211009174312x
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Batch processing utilized
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testBatchOperationPerformanceComparison]' passed (0.005 seconds).
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.080ms batchSize=20 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.083ms batchSize=20 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testConcurrentMatrixOperations]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 1.778ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.779ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.690ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.691ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.669ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.669ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.710ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.710ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.703ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.704ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.768ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.769ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.552ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.555ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.559ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.560ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.753ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.754ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.618ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.619ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.680ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.681ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.582ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.583ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.655ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.656ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.560ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.561ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.566ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.567ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.512ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.513ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.514ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.515ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.537ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.538ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testConcurrentMatrixOperations]' passed (0.011 seconds).
+ℹ️ [Performance] Performance: matrixTranspose took 0.544ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.544ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.549ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.549ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testCreateDefaultEngine]' started.
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testCreateDefaultEngine]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testEmptyMatrixOperations]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testEmptyMatrixOperations]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testIdentityMatrixMultiplication]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testIdentityMatrixMultiplication]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testInitializationWithDifferentConfigurations]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.008ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testInitializationWithDifferentConfigurations]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testMatrixMultiplicationDifferentSizes]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Matrix multiplication 2x3 * 3x4: 0.0059604644775390625ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Matrix multiplication 1x5 * 5x1: 0.02491474151611328ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Matrix multiplication 8x8 * 8x8: 0.01800060272216797ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Matrix multiplication 10x7 * 7x15: 0.0050067901611328125ms
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testMatrixMultiplicationDifferentSizes]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testMatrixMultiplicationDimensionMismatch]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testMatrixMultiplicationDimensionMismatch]' passed (0.005 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testMatrixMultiplicationGPUvsCPUThreshold]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Large matrix (64x64) multiplication time: 0.8440017700195312ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.841ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.842ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testMatrixMultiplicationGPUvsCPUThreshold]' passed (0.034 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testMemoryUsageMonitoring]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Operation 1: 1.0939836502075195ms
+ℹ️ [Performance] Performance: matrixMultiply took 1.089ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.089ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Operation 2: 0.6389617919921875ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.576ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.577ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Operation 3: 0.6210803985595703ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.587ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Operation 4: 0.6499290466308594ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.587ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.647ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.648ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Operation 5: 1.1619329452514648ms
+ℹ️ [Performance] Performance: matrixMultiply took 1.151ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 1.152ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Operation 6: 0.6721019744873047ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.616ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.617ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Operation 7: 0.722050666809082ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.675ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.676ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Operation 8: 0.6821155548095703ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.680ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.680ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Operation 9: 0.6749629974365234ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.638ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.639ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Operation 10: 0.3069639205932617ms
+Engine metrics: 10 operations, avg time: 0.695502758026123ms
+ℹ️ [Performance] Performance: matrixMultiply took 0.303ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.304ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testMemoryUsageMonitoring]' passed (0.023 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testNumericalAccuracy]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.009ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.000ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.000ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.000ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testNumericalAccuracy]' passed (0.002 seconds).
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testPerformanceScaling]' started.
+ℹ️ [Performance] Performance: matrixTranspose took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.750ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.751ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.502ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.503ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Performance for 16x16 matrices:
+  Multiplication: 0.5059242248535156ms (8.09607407351555 MFLOPS)
+  Transpose: 0.2740621566772461ms
+ℹ️ [Performance] Performance: matrixTranspose took 0.272ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.273ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.242ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.243ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Performance for 32x32 matrices:
+  Multiplication: 0.24497509002685547ms (133.7605386588808 MFLOPS)
+  Transpose: 0.1881122589111328ms
+ℹ️ [Performance] Performance: matrixTranspose took 0.186ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.186ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.553ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.554ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Performance for 64x64 matrices:
+  Multiplication: 0.5589723587036133ms (468.9748892198763 MFLOPS)
+  Transpose: 0.24199485778808594ms
+ℹ️ [Performance] Performance: matrixTranspose took 0.239ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.240ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.720ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.720ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Performance for 128x128 matrices:
+  Multiplication: 0.7240772247314453ms (2896.3098525544942 MFLOPS)
+  Transpose: 0.22900104522705078ms
+ℹ️ [Performance] Performance: matrixTranspose took 0.226ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.227ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testPerformanceScaling]' passed (0.028 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testPrecisionWithLargeNumbers]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.009ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testPrecisionWithLargeNumbers]' passed (0.104 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testSingleElementMatrix]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.007ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.010ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testSingleElementMatrix]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testSpecialValues]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.008ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.007ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testSpecialValues]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testSquareMatrixTranspose]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testSquareMatrixTranspose]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testTiledMultiplication]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.834ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.839ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.341ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.342ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testTiledMultiplication]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testTransposeDifferentSizes]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Transpose 1x10: 0.008106231689453125ms
+ℹ️ [Performance] Performance: matrixTranspose took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Transpose 10x1: 0.03898143768310547ms
+ℹ️ [Performance] Performance: matrixTranspose took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Transpose 5x3: 0.012993812561035156ms
+ℹ️ [Performance] Performance: matrixTranspose took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.698ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.699ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Transpose 16x16: 1.1249780654907227ms
+ℹ️ [Performance] Performance: matrixTranspose took 0.578ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.579ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Transpose 100x50: 0.5810260772705078ms
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testTransposeDifferentSizes]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testTransposeSpecialMatrices]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testTransposeSpecialMatrices]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testVectorOperations]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineEnhancedTests testVectorOperations]' passed (0.002 seconds).
+Test Suite 'MatrixEngineEnhancedTests' passed at 2025-12-17 15:01:08.340.
+	 Executed 26 tests, with 0 failures (0 unexpected) in 0.271 (0.277) seconds
+Test Suite 'MatrixEngineTests' started at 2025-12-17 15:01:08.340.
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testBasicMatrixMultiplication]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.008ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testBasicMatrixMultiplication]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testBasicTranspose]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.008ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testBasicTranspose]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testBatchMatrixVectorMultiplication]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.027ms batchSize=5 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.029ms batchSize=5 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testBatchMatrixVectorMultiplication]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testBatchOperationDimensionMismatch]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testBatchOperationDimensionMismatch]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testBatchOperationWithMismatchedVectorDimensions]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.025ms batchSize=1 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.023ms batchSize=1 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testBatchOperationWithMismatchedVectorDimensions]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testComplexMatrixWorkflow]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.007ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.007ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testComplexMatrixWorkflow]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testConcurrentAccessToMetrics]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.009ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.010ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.012ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.012ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testConcurrentAccessToMetrics]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testConcurrentMatrixOperations]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixTranspose took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.008ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.010ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.013ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.015ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.020ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.022ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testConcurrentMatrixOperations]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testConfigurationPresets]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testConfigurationPresets]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testCreateDefaultEngineFactory]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testCreateDefaultEngineFactory]' passed (0.005 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testDiagonalMatrixProperties]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testDiagonalMatrixProperties]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testDifferentConfigurationBehaviors]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixTranspose took 0.423ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.424ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.545ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.546ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testDifferentConfigurationBehaviors]' passed (0.006 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testEmptyBatchOperation]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.009ms batchSize=0 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: batchMatrixVectorMultiply took 0.012ms batchSize=0 - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testEmptyBatchOperation]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testEmptyMatrix]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixTranspose took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testEmptyMatrix]' passed (0.005 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testIdentityMatrixMultiplication]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.007ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.005ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testIdentityMatrixMultiplication]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testInitializationWithCustomConfig]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testInitializationWithCustomConfig]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testInitializationWithDefaultConfig]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testInitializationWithDefaultConfig]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testLargeMatrixMultiplication]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.792ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.792ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testLargeMatrixMultiplication]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testLargeMatrixStressTest]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Large matrix (200x200) transpose time: 0.0005499124526977539s
+ℹ️ [Performance] Performance: matrixTranspose took 0.545ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.546ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testLargeMatrixStressTest]' passed (0.016 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testLargeMatrixTranspose]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixTranspose took 0.828ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.829ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testLargeMatrixTranspose]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixDescriptor]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixDescriptor]' passed (0.004 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixDescriptorWithCustomLayout]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixDescriptorWithCustomLayout]' passed (0.007 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixMultiplicationAssociativity]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.011ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixMultiplicationAssociativity]' passed (0.002 seconds).
+ℹ️ [Performance] Performance: matrixMultiply took 0.007ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixMultiplicationBenchmark]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Matrix multiplication 10x10: 6.079673767089844e-06s
+ℹ️ [Performance] Performance: matrixMultiply took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Matrix multiplication 50x50: 0.0009319782257080078s
+ℹ️ [Performance] Performance: matrixMultiply took 0.926ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.927ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Matrix multiplication 100x100: 0.0007109642028808594s
+ℹ️ [Performance] Performance: matrixMultiply took 0.705ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.706ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Matrix multiplication 200x200: 0.0008939504623413086s
+ℹ️ [Performance] Performance: matrixMultiply took 0.886ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.888ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixMultiplicationBenchmark]' passed (0.041 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixMultiplicationDimensionMismatch]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixMultiplicationDimensionMismatch]' passed (0.002 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixMultiplicationWithZeros]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixMultiply took 0.006ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixMultiply took 0.010ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixMultiplicationWithZeros]' passed (0.003 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixWithInfinityValues]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixTranspose took 0.002ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.004ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixWithInfinityValues]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixWithNaNValues]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
+ℹ️ [Performance] Performance: matrixTranspose took 0.001ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+ℹ️ [Performance] Performance: matrixTranspose took 0.003ms  - logPerformance(_:duration:metadata:) @ Logger.swift:190
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMatrixWithNaNValues]' passed (0.001 seconds).
+Test Case '-[VectorAccelerateTests.MatrixEngineTests testMemoryIntensiveOperations]' started.
+⚠️ Failed to precompile legacy matrix shaders: VectorError.operationFailed: Shader compilation failed: Failed to load default library [at VectorAccelerate/MetalDevice.swift:321 in getDefaultLibrary()] - precompileShaders() @ MatrixEngine.swift:113
