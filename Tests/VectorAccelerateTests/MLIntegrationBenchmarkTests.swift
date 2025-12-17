@@ -28,7 +28,7 @@ final class MLIntegrationBenchmarkTests: XCTestCase {
         self.context = try await Metal4Context()
 
         standardKernel = try await L2DistanceKernel(context: context)
-        learnedKernel = try LearnedDistanceKernel(device: device)
+        learnedKernel = try await LearnedDistanceKernel(context: context)
     }
 
     override func tearDown() async throws {

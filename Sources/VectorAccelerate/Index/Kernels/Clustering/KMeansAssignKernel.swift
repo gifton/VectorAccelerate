@@ -87,7 +87,7 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
         }
 
         // Use fused L2 + Top-K with k=1 to find nearest centroid
-        let params = FusedL2TopKParameters(
+        let params = try FusedL2TopKParameters(
             numQueries: numVectors,
             numDataset: numCentroids,
             dimension: dimension,

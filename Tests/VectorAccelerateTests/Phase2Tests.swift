@@ -10,11 +10,11 @@ import XCTest
 import Foundation
 
 final class Phase2Tests: XCTestCase {
-    var context: MetalContext!
+    var context: Metal4Context!
     
     override func setUp() async throws {
         try await super.setUp()
-        context = try await MetalContext()
+        context = try await Metal4Context()
     }
     
     override func tearDown() async throws {

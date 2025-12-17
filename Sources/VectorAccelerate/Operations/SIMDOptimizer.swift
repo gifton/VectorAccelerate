@@ -109,22 +109,21 @@ public struct SIMDCapabilities: Sendable {
         sysctlbyname("hw.l2cachesize", &l2Size, &size, nil, 0)
         
         // Check for AMX on Apple Silicon
+        // Note: macOS 26+ is required (see Package.swift platform requirements)
         var hasAMX = false
         #if os(macOS)
-        if #available(macOS 11.0, *) {
-            // Apple Silicon M1 and later have AMX
-            var cpuFamily: Int32 = 0
-            size = MemoryLayout<Int32>.size
-            sysctlbyname("hw.cpufamily", &cpuFamily, &size, nil, 0)
-            
-            // Apple Silicon CPU families (using UInt32 to avoid overflow)
-            let appleSiliconFamilies: Set<UInt32> = [
-                0x1b588bb3,  // M1
-                0xda33d83d,  // M2
-                0xfa33415e,  // M3
-            ]
-            hasAMX = appleSiliconFamilies.contains(UInt32(bitPattern: cpuFamily))
-        }
+        // Apple Silicon M1 and later have AMX
+        var cpuFamily: Int32 = 0
+        size = MemoryLayout<Int32>.size
+        sysctlbyname("hw.cpufamily", &cpuFamily, &size, nil, 0)
+
+        // Apple Silicon CPU families (using UInt32 to avoid overflow)
+        let appleSiliconFamilies: Set<UInt32> = [
+            0x1b588bb3,  // M1
+            0xda33d83d,  // M2
+            0xfa33415e,  // M3
+        ]
+        hasAMX = appleSiliconFamilies.contains(UInt32(bitPattern: cpuFamily))
         #endif
         
         return SIMDCapabilities(

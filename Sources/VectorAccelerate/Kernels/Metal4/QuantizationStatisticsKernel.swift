@@ -1,20 +1,27 @@
 // Quantization Statistics Kernel
 // GPU-accelerated quantization quality metrics with comprehensive statistical analysis
 
-import Metal
 import Foundation
-import VectorCore
+@preconcurrency import Metal
 import QuartzCore
+import VectorCore
 import Accelerate
 
 // MARK: - Quantization Statistics Kernel
 
 /// GPU-accelerated quantization statistics computation
 /// Optimized for batch processing with comprehensive quality metrics
-public final class QuantizationStatisticsKernel: @unchecked Sendable {
-    private let device: any MTLDevice
-    private let commandQueue: any MTLCommandQueue
+public final class QuantizationStatisticsKernel: @unchecked Sendable, Metal4Kernel {
+    public let context: Metal4Context
     private let pipelineState: any MTLComputePipelineState
+
+    // MARK: - Metal4Kernel Protocol
+
+    public var name: String { "QuantizationStatisticsKernel" }
+
+    public func warmUp() async throws {
+        // Pipeline is already compiled during init
+    }
     
     // MARK: - Result Types
     
@@ -244,28 +251,13 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
     }
     
     // MARK: - Initialization
-    
-    public init(device: any MTLDevice) throws {
-        self.device = device
-        
-        guard let queue = device.makeCommandQueue() else {
-            throw VectorError.deviceInitializationFailed("Failed to create command queue")
-        }
-        self.commandQueue = queue
-        
-        // Load the shader library using shared loader with fallback support
-        let library = try KernelContext.getSharedLibrary(for: device)
-        
-        guard let function = library.makeFunction(name: "computeQuantizationStats") else {
-            throw VectorError.shaderNotFound(name: "computeQuantizationStats")
-        }
-        
-        do {
-            self.pipelineState = try device.makeComputePipelineState(function: function)
-        } catch {
-            throw VectorError.computeFailed(reason: "Failed to create pipeline state: \(error)")
-        }
-        
+
+    public init(context: Metal4Context) async throws {
+        self.context = context
+
+        // Load pipeline using Metal4 shader compiler
+        self.pipelineState = try await context.getPipeline(functionName: "computeQuantizationStats")
+
         // Validate hardware support
         let maxThreadsPerThreadgroup = pipelineState.maxTotalThreadsPerThreadgroup
         if maxThreadsPerThreadgroup < 64 {
@@ -323,7 +315,8 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         // Prepare input data
         let flatOriginal = original.flatMap { $0 }
         let flatQuantized = quantized.flatMap { $0 }
-        
+        let device = context.device.rawDevice
+
         // Create buffers
         let originalSize = flatOriginal.count * MemoryLayout<Float>.stride
         guard let originalBuffer = device.makeBuffer(
@@ -333,7 +326,7 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         ) else {
             throw VectorError.bufferAllocationFailed(size: originalSize)
         }
-        
+
         let quantizedSize = flatQuantized.count * MemoryLayout<Float>.stride
         guard let quantizedBuffer = device.makeBuffer(
             bytes: flatQuantized,
@@ -342,15 +335,15 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable {
         ) else {
             throw VectorError.bufferAllocationFailed(size: quantizedSize)
         }
-        
+
         let resultSize = numVectors * MemoryLayout<Float>.stride
         guard let mseBuffer = device.makeBuffer(length: resultSize, options: MTLResourceOptions.storageModeShared),
               let psnrBuffer = device.makeBuffer(length: resultSize, options: MTLResourceOptions.storageModeShared) else {
             throw VectorError.bufferAllocationFailed(size: resultSize * 2)
         }
-        
+
         // Create command buffer
-        guard let commandBuffer = commandQueue.makeCommandBuffer(),
+        guard let commandBuffer = context.makeCommandBufferUnsafe(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
             throw VectorError.computeFailed(reason: "Failed to create command encoder")
         }

@@ -6,7 +6,16 @@
 //
 //  Phase 5: Kernel Migrations - Batch 2, Priority 2
 //
-//  Features:
+//  ⚠️ EXPERIMENTAL - KNOWN CORRECTNESS ISSUES ⚠️
+//
+//  The underlying Metal shader (streaming_topk_process_chunk) has a fundamental
+//  bug where each thread maintains its own private heap but only thread 0
+//  writes back results. This leads to INCORRECT top-k selection.
+//
+//  Recommendation: Use FusedL2TopKKernel with chunked fallback instead.
+//  See QUALITY_IMPROVEMENT_ROADMAP.md P0.9 for details.
+//
+//  Features (when correctness issues are resolved):
 //  - Supports datasets > 4 billion vectors
 //  - Incremental chunk processing with running heap
 //  - Three-phase: init → process chunks → finalize
@@ -20,6 +29,10 @@ import VectorCore
 // MARK: - Configuration
 
 /// Configuration for streaming top-k operations.
+///
+/// - Warning: **EXPERIMENTAL** - Part of the streaming top-k API which has known
+///   correctness issues. Use `FusedL2TopKKernel` with chunked fallback instead.
+@available(*, deprecated, message: "Experimental: StreamingTopKKernel has correctness issues. Use FusedL2TopKKernel instead.")
 public struct Metal4StreamingConfig: Sendable {
     /// Number of query vectors
     public let queryCount: Int
@@ -59,6 +72,10 @@ public struct Metal4StreamingConfig: Sendable {
 /// Mutable state for streaming top-k operation.
 ///
 /// Tracks progress and holds running buffers during chunk processing.
+///
+/// - Warning: **EXPERIMENTAL** - Part of the streaming top-k API which has known
+///   correctness issues. Use `FusedL2TopKKernel` with chunked fallback instead.
+@available(*, deprecated, message: "Experimental: StreamingTopKKernel has correctness issues. Use FusedL2TopKKernel instead.")
 public final class Metal4StreamingState: @unchecked Sendable {
     /// Running top-k distances [queryCount × k]
     public let runningDistances: any MTLBuffer
@@ -106,6 +123,10 @@ public final class Metal4StreamingState: @unchecked Sendable {
 // MARK: - Result Type
 
 /// Final result after streaming completes.
+///
+/// - Warning: **EXPERIMENTAL** - Part of the streaming top-k API which has known
+///   correctness issues. Use `FusedL2TopKKernel` with chunked fallback instead.
+@available(*, deprecated, message: "Experimental: StreamingTopKKernel has correctness issues. Use FusedL2TopKKernel instead.")
 public struct Metal4StreamingResult: Sendable {
     /// Final sorted indices [queryCount × k]
     public let indices: any MTLBuffer
@@ -166,6 +187,10 @@ internal struct StreamingProcessParams: Sendable {
 
 /// Metal 4 Streaming Top-K kernel for massive datasets.
 ///
+/// - Warning: **EXPERIMENTAL** - This kernel has known correctness issues.
+///   The underlying Metal shader only writes results from thread 0, discarding
+///   work from other threads. Use `FusedL2TopKKernel` with chunked fallback instead.
+///
 /// Designed to handle datasets exceeding GPU memory or even system memory
 /// by processing vectors in chunks and maintaining a running top-k heap.
 ///
@@ -197,6 +222,7 @@ internal struct StreamingProcessParams: Sendable {
 /// // Finalize and get results
 /// let result = try await kernel.finalizeStreaming(state: state)
 /// ```
+@available(*, deprecated, message: "Experimental: has known correctness issues. Use FusedL2TopKKernel with chunked fallback instead.")
 public final class StreamingTopKKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties

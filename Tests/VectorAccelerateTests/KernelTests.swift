@@ -868,6 +868,487 @@ final class FusedL2TopKKernelTests: XCTestCase {
         XCTAssertEqual(results.count, 2)
         XCTAssertEqual(results[0].count, 5)
     }
+
+    // MARK: - Parameter Validation Tests
+
+    func testParametersValidationSuccess() throws {
+        // Valid parameters should succeed
+        XCTAssertNoThrow(try FusedL2TopKParameters(
+            numQueries: 1,
+            numDataset: 100,
+            dimension: 768,
+            k: 8
+        ))
+
+        XCTAssertNoThrow(try FusedL2TopKParameters(
+            numQueries: 10,
+            numDataset: 10_000,
+            dimension: FusedL2TopKParameters.maxDimension,
+            k: FusedL2TopKParameters.maxK
+        ))
+    }
+
+    func testParametersValidationDimensionTooLarge() {
+        // Dimension exceeding max should throw
+        XCTAssertThrowsError(try FusedL2TopKParameters(
+            numQueries: 1,
+            numDataset: 100,
+            dimension: FusedL2TopKParameters.maxDimension + 1,
+            k: 8
+        )) { error in
+            guard case IndexError.invalidInput(let message) = error else {
+                XCTFail("Expected IndexError.invalidInput, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("dimension"), "Error message should mention dimension")
+            XCTAssertTrue(message.contains("\(FusedL2TopKParameters.maxDimension)"), "Error message should include max value")
+        }
+    }
+
+    func testParametersValidationKTooLarge() {
+        // K exceeding max should throw
+        XCTAssertThrowsError(try FusedL2TopKParameters(
+            numQueries: 1,
+            numDataset: 100,
+            dimension: 768,
+            k: FusedL2TopKParameters.maxK + 1
+        )) { error in
+            guard case IndexError.invalidInput(let message) = error else {
+                XCTFail("Expected IndexError.invalidInput, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("k"), "Error message should mention k")
+            XCTAssertTrue(message.contains("\(FusedL2TopKParameters.maxK)"), "Error message should include max value")
+        }
+    }
+
+    func testParametersValidationZeroValues() {
+        // Zero numQueries should throw
+        XCTAssertThrowsError(try FusedL2TopKParameters(
+            numQueries: 0,
+            numDataset: 100,
+            dimension: 768,
+            k: 8
+        )) { error in
+            guard case IndexError.invalidInput(let message) = error else {
+                XCTFail("Expected IndexError.invalidInput, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("numQueries"), "Error message should mention numQueries")
+        }
+
+        // Zero numDataset should throw
+        XCTAssertThrowsError(try FusedL2TopKParameters(
+            numQueries: 1,
+            numDataset: 0,
+            dimension: 768,
+            k: 8
+        )) { error in
+            guard case IndexError.invalidInput(let message) = error else {
+                XCTFail("Expected IndexError.invalidInput, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("numDataset"), "Error message should mention numDataset")
+        }
+
+        // Zero dimension should throw
+        XCTAssertThrowsError(try FusedL2TopKParameters(
+            numQueries: 1,
+            numDataset: 100,
+            dimension: 0,
+            k: 8
+        )) { error in
+            guard case IndexError.invalidInput(let message) = error else {
+                XCTFail("Expected IndexError.invalidInput, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("dimension"), "Error message should mention dimension")
+        }
+
+        // Zero k should throw
+        XCTAssertThrowsError(try FusedL2TopKParameters(
+            numQueries: 1,
+            numDataset: 100,
+            dimension: 768,
+            k: 0
+        )) { error in
+            guard case IndexError.invalidInput(let message) = error else {
+                XCTFail("Expected IndexError.invalidInput, got \(error)")
+                return
+            }
+            XCTAssertTrue(message.contains("k"), "Error message should mention k")
+        }
+    }
+
+    // MARK: - K > 8 Fallback Tests (P0.5)
+
+    func testKGreaterThan8MatchesCPUReference() async throws {
+        let queries = Metal4KernelTestHelpers.randomVectors(count: 2, dimension: 32)
+        let dataset = Metal4KernelTestHelpers.randomVectors(count: 100, dimension: 32)
+        let k = 16
+
+        let results = try await kernel.findNearestNeighbors(
+            queries: queries,
+            dataset: dataset,
+            k: k
+        )
+
+        // Verify against CPU for the first query
+        var cpuDistances: [(index: Int, distance: Float)] = []
+        cpuDistances.reserveCapacity(dataset.count)
+        for (j, db) in dataset.enumerated() {
+            let dist = Metal4KernelTestHelpers.cpuL2DistanceSquared(queries[0], db)
+            cpuDistances.append((index: j, distance: dist))
+        }
+        cpuDistances.sort { $0.distance < $1.distance }
+
+        XCTAssertEqual(results[0].count, k)
+        for i in 0..<k {
+            XCTAssertEqual(results[0][i].index, cpuDistances[i].index)
+            XCTAssertEqual(results[0][i].distance, cpuDistances[i].distance, accuracy: 1e-3)
+        }
+    }
+
+    func testKEquals32WarpOptimized() async throws {
+        let queries = Metal4KernelTestHelpers.randomVectors(count: 3, dimension: 64)
+        let dataset = Metal4KernelTestHelpers.randomVectors(count: 200, dimension: 64)
+        let k = 32
+
+        let results = try await kernel.findNearestNeighbors(
+            queries: queries,
+            dataset: dataset,
+            k: k
+        )
+
+        XCTAssertEqual(results.count, 3)
+        for queryResults in results {
+            XCTAssertEqual(queryResults.count, k)
+            // Verify sorted ascending
+            for i in 1..<queryResults.count {
+                XCTAssertGreaterThanOrEqual(queryResults[i].distance, queryResults[i-1].distance)
+            }
+        }
+    }
+
+    func testKEquals50StandardFallback() async throws {
+        let queries = Metal4KernelTestHelpers.randomVectors(count: 2, dimension: 64)
+        let dataset = Metal4KernelTestHelpers.randomVectors(count: 200, dimension: 64)
+        let k = 50
+
+        let results = try await kernel.findNearestNeighbors(
+            queries: queries,
+            dataset: dataset,
+            k: k
+        )
+
+        XCTAssertEqual(results.count, 2)
+        for queryResults in results {
+            XCTAssertEqual(queryResults.count, k)
+            // Verify sorted ascending
+            for i in 1..<queryResults.count {
+                XCTAssertGreaterThanOrEqual(queryResults[i].distance, queryResults[i-1].distance)
+            }
+        }
+    }
+
+    func testKEquals100VerifyCPU() async throws {
+        let queries = Metal4KernelTestHelpers.randomVectors(count: 2, dimension: 32)
+        let dataset = Metal4KernelTestHelpers.randomVectors(count: 300, dimension: 32)
+        let k = 100
+
+        let results = try await kernel.findNearestNeighbors(
+            queries: queries,
+            dataset: dataset,
+            k: k
+        )
+
+        // Verify against CPU for the first query
+        var cpuDistances: [(index: Int, distance: Float)] = []
+        for (j, db) in dataset.enumerated() {
+            let dist = Metal4KernelTestHelpers.cpuL2DistanceSquared(queries[0], db)
+            cpuDistances.append((index: j, distance: dist))
+        }
+        cpuDistances.sort { $0.distance < $1.distance }
+
+        XCTAssertEqual(results[0].count, k)
+        for i in 0..<k {
+            XCTAssertEqual(results[0][i].index, cpuDistances[i].index)
+            XCTAssertEqual(results[0][i].distance, cpuDistances[i].distance, accuracy: 1e-3)
+        }
+    }
+
+    // MARK: - Chunked Fallback Tests (P0.5)
+
+    func testChunkedFallbackGuardrailMatchesCPUReference() async throws {
+        let numQueries = 2
+        let numDataset = 100
+        let dimension = 32
+        let k = 16
+
+        let queries = Metal4KernelTestHelpers.randomVectors(count: numQueries, dimension: dimension)
+        let dataset = Metal4KernelTestHelpers.randomVectors(count: numDataset, dimension: dimension)
+
+        let device = context.device.rawDevice
+        let flatQueries = queries.flatMap { $0 }
+        let flatDataset = dataset.flatMap { $0 }
+
+        guard let queryBuffer = device.makeBuffer(
+            bytes: flatQueries,
+            length: flatQueries.count * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            throw XCTSkip("Failed to allocate query buffer")
+        }
+
+        guard let datasetBuffer = device.makeBuffer(
+            bytes: flatDataset,
+            length: flatDataset.count * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            throw XCTSkip("Failed to allocate dataset buffer")
+        }
+
+        let params = try FusedL2TopKParameters(
+            numQueries: numQueries,
+            numDataset: numDataset,
+            dimension: dimension,
+            k: k
+        )
+
+        // Force chunked fallback by setting a small guardrail.
+        // Full distance matrix bytes = Q * N * sizeof(Float) = 2 * 100 * 4 = 800.
+        let config = Metal4FusedL2Config(
+            includeDistances: true,
+            threadgroupSize: 256,
+            maxDistanceMatrixBytes: 256,
+            enableChunkedFallback: true
+        )
+
+        let result = try await kernel.execute(
+            queries: queryBuffer,
+            dataset: datasetBuffer,
+            parameters: params,
+            config: config
+        )
+        let gpu = result.allResults()
+
+        // CPU reference for first query
+        var cpuDistances: [(index: Int, distance: Float)] = []
+        cpuDistances.reserveCapacity(dataset.count)
+        for (j, db) in dataset.enumerated() {
+            let dist = Metal4KernelTestHelpers.cpuL2DistanceSquared(queries[0], db)
+            cpuDistances.append((index: j, distance: dist))
+        }
+        cpuDistances.sort { $0.distance < $1.distance }
+
+        XCTAssertEqual(gpu[0].count, k)
+        for i in 0..<k {
+            XCTAssertEqual(gpu[0][i].index, cpuDistances[i].index)
+            XCTAssertEqual(gpu[0][i].distance, cpuDistances[i].distance, accuracy: 1e-3)
+        }
+    }
+
+    func testWithoutDistancesK16() async throws {
+        let queries = Metal4KernelTestHelpers.randomVectors(count: 5, dimension: 64)
+        let dataset = Metal4KernelTestHelpers.randomVectors(count: 100, dimension: 64)
+
+        // Use K > 8 to exercise the two-pass fallback path.
+        let results = try await kernel.findNearestNeighbors(
+            queries: queries,
+            dataset: dataset,
+            k: 16,
+            includeDistances: false
+        )
+
+        XCTAssertEqual(results.count, 5)
+        // Results should still have indices (distances will be 0)
+        for queryResults in results {
+            XCTAssertEqual(queryResults.count, 16)
+        }
+    }
+
+    // MARK: - GPU Merge vs CPU Merge Tests (P0.5 Enhancement)
+
+    func testGPUMergeMatchesCPUMerge() async throws {
+        let numQueries = 3
+        let numDataset = 200
+        let dimension = 32
+        let k = 20
+
+        let queries = Metal4KernelTestHelpers.randomVectors(count: numQueries, dimension: dimension)
+        let dataset = Metal4KernelTestHelpers.randomVectors(count: numDataset, dimension: dimension)
+
+        let device = context.device.rawDevice
+        let flatQueries = queries.flatMap { $0 }
+        let flatDataset = dataset.flatMap { $0 }
+
+        guard let queryBuffer = device.makeBuffer(
+            bytes: flatQueries,
+            length: flatQueries.count * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            throw XCTSkip("Failed to allocate query buffer")
+        }
+
+        guard let datasetBuffer = device.makeBuffer(
+            bytes: flatDataset,
+            length: flatDataset.count * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            throw XCTSkip("Failed to allocate dataset buffer")
+        }
+
+        let params = try FusedL2TopKParameters(
+            numQueries: numQueries,
+            numDataset: numDataset,
+            dimension: dimension,
+            k: k
+        )
+
+        // Force chunked fallback by setting a small guardrail.
+        // Full distance matrix bytes = 3 * 200 * 4 = 2400.
+        // Setting guardrail to 512 forces chunking.
+
+        // Test with GPU merge enabled (default)
+        let gpuMergeConfig = Metal4FusedL2Config(
+            includeDistances: true,
+            threadgroupSize: 256,
+            maxDistanceMatrixBytes: 512,
+            enableChunkedFallback: true,
+            preferGPUMergeInChunkedFallback: true
+        )
+
+        let gpuMergeResult = try await kernel.execute(
+            queries: queryBuffer,
+            dataset: datasetBuffer,
+            parameters: params,
+            config: gpuMergeConfig
+        )
+        let gpuMerge = gpuMergeResult.allResults()
+
+        // Test with CPU merge (GPU merge disabled)
+        let cpuMergeConfig = Metal4FusedL2Config(
+            includeDistances: true,
+            threadgroupSize: 256,
+            maxDistanceMatrixBytes: 512,
+            enableChunkedFallback: true,
+            preferGPUMergeInChunkedFallback: false
+        )
+
+        let cpuMergeResult = try await kernel.execute(
+            queries: queryBuffer,
+            dataset: datasetBuffer,
+            parameters: params,
+            config: cpuMergeConfig
+        )
+        let cpuMerge = cpuMergeResult.allResults()
+
+        // Verify GPU merge and CPU merge produce identical results
+        XCTAssertEqual(gpuMerge.count, cpuMerge.count, "Query count mismatch")
+
+        for q in 0..<numQueries {
+            XCTAssertEqual(gpuMerge[q].count, cpuMerge[q].count, "Result count mismatch for query \(q)")
+            for i in 0..<min(gpuMerge[q].count, cpuMerge[q].count) {
+                XCTAssertEqual(
+                    gpuMerge[q][i].index,
+                    cpuMerge[q][i].index,
+                    "Index mismatch at query \(q), position \(i): GPU=\(gpuMerge[q][i].index), CPU=\(cpuMerge[q][i].index)"
+                )
+                XCTAssertEqual(
+                    gpuMerge[q][i].distance,
+                    cpuMerge[q][i].distance,
+                    accuracy: 1e-5,
+                    "Distance mismatch at query \(q), position \(i)"
+                )
+            }
+        }
+
+        // Also verify against CPU reference (brute-force)
+        for q in 0..<numQueries {
+            var cpuDistances: [(index: Int, distance: Float)] = []
+            cpuDistances.reserveCapacity(dataset.count)
+            for (j, db) in dataset.enumerated() {
+                let dist = Metal4KernelTestHelpers.cpuL2DistanceSquared(queries[q], db)
+                cpuDistances.append((index: j, distance: dist))
+            }
+            cpuDistances.sort { $0.distance < $1.distance }
+
+            for i in 0..<k {
+                XCTAssertEqual(gpuMerge[q][i].index, cpuDistances[i].index, "GPU merge mismatch vs CPU reference at query \(q), position \(i)")
+            }
+        }
+    }
+
+    func testGPUMergeWithLargerK() async throws {
+        let numQueries = 2
+        let numDataset = 150
+        let dimension = 48
+        let k = 50  // K > 32 triggers standard selection instead of warp
+
+        let queries = Metal4KernelTestHelpers.randomVectors(count: numQueries, dimension: dimension)
+        let dataset = Metal4KernelTestHelpers.randomVectors(count: numDataset, dimension: dimension)
+
+        let device = context.device.rawDevice
+        let flatQueries = queries.flatMap { $0 }
+        let flatDataset = dataset.flatMap { $0 }
+
+        guard let queryBuffer = device.makeBuffer(
+            bytes: flatQueries,
+            length: flatQueries.count * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            throw XCTSkip("Failed to allocate query buffer")
+        }
+
+        guard let datasetBuffer = device.makeBuffer(
+            bytes: flatDataset,
+            length: flatDataset.count * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            throw XCTSkip("Failed to allocate dataset buffer")
+        }
+
+        let params = try FusedL2TopKParameters(
+            numQueries: numQueries,
+            numDataset: numDataset,
+            dimension: dimension,
+            k: k
+        )
+
+        // Force chunked fallback
+        let config = Metal4FusedL2Config(
+            includeDistances: true,
+            threadgroupSize: 256,
+            maxDistanceMatrixBytes: 1024,  // Force chunking
+            enableChunkedFallback: true,
+            preferGPUMergeInChunkedFallback: true
+        )
+
+        let result = try await kernel.execute(
+            queries: queryBuffer,
+            dataset: datasetBuffer,
+            parameters: params,
+            config: config
+        )
+        let gpu = result.allResults()
+
+        // Verify against CPU reference
+        for q in 0..<numQueries {
+            var cpuDistances: [(index: Int, distance: Float)] = []
+            cpuDistances.reserveCapacity(dataset.count)
+            for (j, db) in dataset.enumerated() {
+                let dist = Metal4KernelTestHelpers.cpuL2DistanceSquared(queries[q], db)
+                cpuDistances.append((index: j, distance: dist))
+            }
+            cpuDistances.sort { $0.distance < $1.distance }
+
+            XCTAssertEqual(gpu[q].count, k, "Expected \(k) results for query \(q)")
+            for i in 0..<k {
+                XCTAssertEqual(gpu[q][i].index, cpuDistances[i].index, "GPU mismatch vs CPU reference at query \(q), position \(i)")
+                XCTAssertEqual(gpu[q][i].distance, cpuDistances[i].distance, accuracy: 1e-3)
+            }
+        }
+    }
 }
 
 // MARK: - StreamingTopKKernel Tests

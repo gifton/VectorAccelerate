@@ -2,335 +2,222 @@
 //  HandleAllocator.swift
 //  VectorAccelerate
 //
-//  Handle allocation and lifecycle management with generation-based stale detection.
+//  Stable handle allocator with indirection.
 //
-//  Manages VectorHandle creation and validation:
-//  - Monotonic slot allocation
-//  - Generation counters for stale handle detection
-//  - Slot recycling after compaction
+//  - User-facing handles are stable IDs (never change for the lifetime of a vector)
+//  - Internally, vectors live in GPU storage slots which may be compacted/moved
+//  - Two arrays provide O(1) mapping in both directions:
+//      stableID -> currentSlot
+//      currentSlot -> stableID
 //
 
 import Foundation
 
-// MARK: - Slot Info
-
-/// Internal state for a single slot.
-struct SlotInfo: Sendable {
-    /// Generation counter, incremented when slot is reused.
-    var generation: UInt16 = 0
-
-    /// Whether the slot is currently occupied by an active vector.
-    var isOccupied: Bool = false
-}
-
-// MARK: - Handle Allocator
-
-/// Manages handle allocation and validation.
+/// Manages `VectorHandle` creation, lookup, and deletion.
 ///
-/// Provides:
-/// - Monotonic slot allocation for new vectors
-/// - Generation-based stale handle detection
-/// - Slot state tracking (occupied/deleted)
-/// - Compaction with generation increment for reused slots
+/// This allocator implements stable handles (P0.8): handles remain valid across
+/// `compact()` by updating an internal indirection table.
 ///
-/// ## Generation-Based Stability
-/// Each slot has a generation counter that increments when the slot is reused
-/// after deletion and compaction. This allows detection of stale handles:
-///
-/// ```swift
-/// let handle = allocator.allocate()  // generation = 0
-/// allocator.markDeleted(handle)
-/// allocator.compact(...)             // slot may be reused
-/// allocator.validate(handle)         // false - generation mismatch
-/// ```
-///
-/// ## Thread Safety
-/// This class is not thread-safe. Access should be synchronized by the owning actor.
+/// Important invariants:
+/// - Stable IDs are monotonically increasing and never reused.
+/// - Slots are allocated sequentially and may be renumbered during compaction.
+/// - Deleted handles are tombstoned and will never become valid again.
 final class HandleAllocator: @unchecked Sendable {
 
-    // MARK: - Properties
+    // MARK: - Sentinel
 
-    /// Slot information array.
-    private var slots: [SlotInfo] = []
+    /// Tombstone value used for both `stableIDToSlot` and `slotToStableID`.
+    @usableFromInline
+    static let tombstone: UInt32 = 0xFFFF_FFFF
 
-    /// Next slot to allocate (monotonically increasing until compaction).
-    private var nextSlot: UInt32 = 0
+    // MARK: - State
 
-    /// Number of currently occupied slots.
-    private(set) var occupiedCount: Int = 0
+    /// Mapping: stableID -> current slot.
+    ///
+    /// Index into this array is the stable ID.
+    @usableFromInline
+    var stableIDToSlot: [UInt32]
 
-    /// Total slots ever allocated (including deleted).
-    var totalSlots: Int {
+    /// Mapping: current slot -> stableID.
+    ///
+    /// Index into this array is the current slot.
+    @usableFromInline
+    var slotToStableID: [UInt32]
+
+    /// Next slot index to allocate (sequential append-only allocation).
+    @usableFromInline
+    var nextSlot: UInt32
+
+    /// Number of active (non-deleted) handles.
+    @usableFromInline
+    private(set) var occupiedCount: Int
+
+    // MARK: - Init
+
+    init(initialSlotCapacity: Int = 1024) {
+        self.stableIDToSlot = []
+        self.slotToStableID = Array(repeating: Self.tombstone, count: max(0, initialSlotCapacity))
+        self.nextSlot = 0
+        self.occupiedCount = 0
+    }
+
+    // MARK: - Capacity
+
+    /// Total slots that have been allocated historically (including deleted).
+    ///
+    /// This is primarily useful for diagnostics.
+    var totalSlotsAllocated: Int {
         Int(nextSlot)
     }
 
-    /// Number of slots currently tracked.
+    /// Current slot capacity of the reverse map.
     var slotCapacity: Int {
-        slots.count
+        slotToStableID.count
     }
 
-    // MARK: - Initialization
-
-    /// Create a handle allocator.
-    ///
-    /// - Parameter initialCapacity: Initial slot array capacity (optimization hint)
-    init(initialCapacity: Int = 1000) {
-        slots.reserveCapacity(initialCapacity)
+    private func ensureSlotCapacity(_ required: Int) {
+        guard required > slotToStableID.count else { return }
+        slotToStableID.append(contentsOf: repeatElement(Self.tombstone, count: required - slotToStableID.count))
     }
 
     // MARK: - Allocation
 
-    /// Allocate a new handle.
-    ///
-    /// - Returns: A new valid handle for the allocated slot
+    /// Allocate a new handle and slot.
     func allocate() -> VectorHandle {
-        let slotIndex = nextSlot
-        nextSlot += 1
+        let slot = nextSlot
+        nextSlot &+= 1
+        ensureSlotCapacity(Int(nextSlot))
 
-        // Ensure slot array is large enough
-        ensureCapacity(for: Int(slotIndex))
+        let stableID = UInt32(stableIDToSlot.count)
+        stableIDToSlot.append(slot)
+        slotToStableID[Int(slot)] = stableID
 
-        // Get or create slot info
-        let generation = slots[Int(slotIndex)].generation
-        slots[Int(slotIndex)].isOccupied = true
         occupiedCount += 1
-
-        return VectorHandle(index: slotIndex, generation: generation)
+        return VectorHandle(stableID: stableID)
     }
 
-    /// Allocate multiple handles.
-    ///
-    /// - Parameter count: Number of handles to allocate
-    /// - Returns: Array of new valid handles
+    /// Allocate multiple handles in a contiguous slot range.
     func allocate(count: Int) -> [VectorHandle] {
         guard count > 0 else { return [] }
 
         let startSlot = nextSlot
-        nextSlot += UInt32(count)
+        nextSlot &+= UInt32(count)
+        ensureSlotCapacity(Int(nextSlot))
 
-        // Ensure capacity
-        ensureCapacity(for: Int(nextSlot) - 1)
+        let startStableID = UInt32(stableIDToSlot.count)
+        stableIDToSlot.reserveCapacity(stableIDToSlot.count + count)
 
         var handles: [VectorHandle] = []
         handles.reserveCapacity(count)
 
         for i in 0..<count {
-            let slotIndex = startSlot + UInt32(i)
-            let generation = slots[Int(slotIndex)].generation
-            slots[Int(slotIndex)].isOccupied = true
-            handles.append(VectorHandle(index: slotIndex, generation: generation))
+            let stableID = startStableID &+ UInt32(i)
+            let slot = startSlot &+ UInt32(i)
+
+            stableIDToSlot.append(slot)
+            slotToStableID[Int(slot)] = stableID
+            handles.append(VectorHandle(stableID: stableID))
         }
 
         occupiedCount += count
         return handles
     }
 
-    // MARK: - Validation
+    // MARK: - Lookup
 
-    /// Validate a handle.
-    ///
-    /// A handle is valid if:
-    /// 1. It's not the invalid sentinel
-    /// 2. Its slot index is within bounds
-    /// 3. Its generation matches the current slot generation
-    /// 4. The slot is currently occupied
-    ///
-    /// - Parameter handle: Handle to validate
-    /// - Returns: true if handle is valid
+    /// Validate that the handle exists and has not been deleted.
+    @inlinable
     func validate(_ handle: VectorHandle) -> Bool {
         guard handle.isValid else { return false }
-        guard handle.index < slots.count else { return false }
-
-        let slot = slots[Int(handle.index)]
-        return slot.isOccupied && slot.generation == handle.generation
+        let id = handle.stableID
+        guard id < stableIDToSlot.count else { return false }
+        let slot = stableIDToSlot[Int(id)]
+        if slot == Self.tombstone { return false }
+        guard Int(slot) < slotToStableID.count else { return false }
+        return slotToStableID[Int(slot)] == id
     }
 
-    /// Get the current generation for a slot.
+    /// Resolve a handle to the current storage slot.
     ///
-    /// - Parameter slotIndex: Slot index
-    /// - Returns: Current generation, or nil if slot doesn't exist
-    func generation(for slotIndex: UInt32) -> UInt16? {
-        guard slotIndex < slots.count else { return nil }
-        return slots[Int(slotIndex)].generation
+    /// - Returns: Slot index if the handle exists and is active.
+    @inlinable
+    func slot(for handle: VectorHandle) -> UInt32? {
+        guard handle.isValid else { return nil }
+        let id = handle.stableID
+        guard id < stableIDToSlot.count else { return nil }
+        let slot = stableIDToSlot[Int(id)]
+        if slot == Self.tombstone { return nil }
+        return slot
     }
 
-    /// Check if a slot is occupied.
+    /// Get the handle corresponding to a storage slot.
     ///
-    /// - Parameter slotIndex: Slot index
-    /// - Returns: true if slot is occupied
-    func isOccupied(_ slotIndex: UInt32) -> Bool {
-        guard slotIndex < slots.count else { return false }
-        return slots[Int(slotIndex)].isOccupied
+    /// Used when mapping GPU search results (slot indices) back to user handles.
+    @inlinable
+    func handle(for slotIndex: UInt32) -> VectorHandle? {
+        guard Int(slotIndex) < slotToStableID.count else { return nil }
+        let id = slotToStableID[Int(slotIndex)]
+        guard id != Self.tombstone else { return nil }
+        return VectorHandle(stableID: id)
     }
 
     // MARK: - Deletion
 
-    /// Mark a handle as deleted.
+    /// Mark a handle as deleted (tombstone it) and return its last-known slot.
     ///
-    /// The slot remains allocated but is marked as unoccupied.
-    /// The generation is NOT incremented until compaction reuses the slot.
-    ///
-    /// - Parameter handle: Handle to mark as deleted
-    /// - Returns: true if successfully deleted, false if handle was invalid
+    /// - Returns: The slot that was freed, or nil if the handle was already invalid.
     @discardableResult
-    func markDeleted(_ handle: VectorHandle) -> Bool {
-        guard validate(handle) else { return false }
+    func markDeleted(_ handle: VectorHandle) -> UInt32? {
+        guard handle.isValid else { return nil }
+        let id = handle.stableID
+        guard id < stableIDToSlot.count else { return nil }
+        let slot = stableIDToSlot[Int(id)]
+        guard slot != Self.tombstone else { return nil }
 
-        slots[Int(handle.index)].isOccupied = false
-        occupiedCount -= 1
-        return true
-    }
+        stableIDToSlot[Int(id)] = Self.tombstone
+        if Int(slot) < slotToStableID.count {
+            slotToStableID[Int(slot)] = Self.tombstone
+        }
 
-    /// Mark a slot as deleted by index.
-    ///
-    /// - Parameter slotIndex: Slot index to mark as deleted
-    /// - Returns: true if successfully deleted
-    @discardableResult
-    func markDeleted(slotIndex: UInt32) -> Bool {
-        guard slotIndex < slots.count else { return false }
-        guard slots[Int(slotIndex)].isOccupied else { return false }
-
-        slots[Int(slotIndex)].isOccupied = false
-        occupiedCount -= 1
-        return true
+        occupiedCount = max(0, occupiedCount - 1)
+        return slot
     }
 
     // MARK: - Compaction
 
-    /// Result of a compaction operation.
-    struct CompactionResult: Sendable {
-        /// Mapping from old slot indices to new slot indices.
-        let indexMapping: [UInt32: UInt32]
-
-        /// New handles for the compacted slots (in new index order).
-        let newHandles: [VectorHandle]
-
-        /// Number of slots after compaction.
-        let newSlotCount: Int
-    }
-
-    /// Compact the allocator, removing unoccupied slots.
+    /// Apply a slot renumbering produced by `GPUVectorStorage.compact`.
     ///
-    /// This operation:
-    /// 1. Creates a new slot array with only occupied slots
-    /// 2. Increments generation for all reused slot positions
-    /// 3. Returns mapping from old to new indices
-    ///
-    /// After compaction, old handles are invalid (generation mismatch).
-    ///
-    /// - Returns: Compaction result with index mapping and new handles
-    func compact() -> CompactionResult {
-        var indexMapping: [UInt32: UInt32] = [:]
-        var newSlots: [SlotInfo] = []
-        var newHandles: [VectorHandle] = []
+    /// Stable IDs remain unchanged; only the indirection tables are updated.
+    func applyCompaction(slotMapping: [UInt32: UInt32], newSlotCount: Int) {
+        // Build new reverse map
+        var newSlotToStableID = Array(repeating: Self.tombstone, count: max(0, newSlotCount))
 
-        var newIndex: UInt32 = 0
-        for oldIndex in 0..<Int(nextSlot) {
-            guard oldIndex < slots.count else { break }
+        for (oldSlot, newSlot) in slotMapping {
+            guard Int(oldSlot) < slotToStableID.count else { continue }
+            let id = slotToStableID[Int(oldSlot)]
+            guard id != Self.tombstone else { continue }
 
-            if slots[oldIndex].isOccupied {
-                // Increment generation for the new slot position
-                let newGeneration = slots[oldIndex].generation &+ 1
-                newSlots.append(SlotInfo(generation: newGeneration, isOccupied: true))
-                newHandles.append(VectorHandle(index: newIndex, generation: newGeneration))
-                indexMapping[UInt32(oldIndex)] = newIndex
-                newIndex += 1
+            if Int(newSlot) < newSlotToStableID.count {
+                newSlotToStableID[Int(newSlot)] = id
+            }
+
+            // Update forward map
+            if Int(id) < stableIDToSlot.count {
+                stableIDToSlot[Int(id)] = newSlot
             }
         }
 
-        // Update state
-        slots = newSlots
-        nextSlot = newIndex
-        // occupiedCount stays the same (we only removed unoccupied)
-
-        return CompactionResult(
-            indexMapping: indexMapping,
-            newHandles: newHandles,
-            newSlotCount: Int(newIndex)
-        )
-    }
-
-    /// Rebuild allocator state from a keep mask.
-    ///
-    /// Alternative to compact() when you need to specify which slots to keep.
-    ///
-    /// - Parameter keepMask: Boolean array where true means keep the slot
-    /// - Returns: Compaction result
-    func compact(keepMask: [Bool]) -> CompactionResult {
-        var indexMapping: [UInt32: UInt32] = [:]
-        var newSlots: [SlotInfo] = []
-        var newHandles: [VectorHandle] = []
-
-        var newIndex: UInt32 = 0
-        for oldIndex in 0..<min(Int(nextSlot), keepMask.count) {
-            if keepMask[oldIndex] && oldIndex < slots.count && slots[oldIndex].isOccupied {
-                let newGeneration = slots[oldIndex].generation &+ 1
-                newSlots.append(SlotInfo(generation: newGeneration, isOccupied: true))
-                newHandles.append(VectorHandle(index: newIndex, generation: newGeneration))
-                indexMapping[UInt32(oldIndex)] = newIndex
-                newIndex += 1
-            }
-        }
-
-        slots = newSlots
-        nextSlot = newIndex
-        occupiedCount = Int(newIndex)
-
-        return CompactionResult(
-            indexMapping: indexMapping,
-            newHandles: newHandles,
-            newSlotCount: Int(newIndex)
-        )
-    }
-
-    // MARK: - Iteration
-
-    /// Iterate over all occupied slot indices.
-    ///
-    /// - Parameter body: Closure called for each occupied slot index
-    func forEachOccupied(_ body: (UInt32) -> Void) {
-        for i in 0..<min(Int(nextSlot), slots.count) {
-            if slots[i].isOccupied {
-                body(UInt32(i))
-            }
-        }
-    }
-
-    /// Get all occupied slot indices.
-    ///
-    /// - Returns: Array of occupied slot indices
-    func occupiedSlotIndices() -> [UInt32] {
-        var indices: [UInt32] = []
-        indices.reserveCapacity(occupiedCount)
-        forEachOccupied { indices.append($0) }
-        return indices
-    }
-
-    /// Create a handle for a slot (for internal use after compaction).
-    ///
-    /// - Parameter slotIndex: Slot index
-    /// - Returns: Handle with current generation, or nil if slot doesn't exist
-    func handle(for slotIndex: UInt32) -> VectorHandle? {
-        guard slotIndex < slots.count else { return nil }
-        guard slots[Int(slotIndex)].isOccupied else { return nil }
-        return VectorHandle(index: slotIndex, generation: slots[Int(slotIndex)].generation)
+        slotToStableID = newSlotToStableID
+        nextSlot = UInt32(newSlotCount)
+        occupiedCount = newSlotCount
     }
 
     // MARK: - Reset
 
-    /// Reset to empty state.
     func reset() {
-        slots.removeAll(keepingCapacity: true)
+        stableIDToSlot.removeAll(keepingCapacity: true)
+        slotToStableID.removeAll(keepingCapacity: true)
         nextSlot = 0
         occupiedCount = 0
-    }
-
-    // MARK: - Private Helpers
-
-    private func ensureCapacity(for index: Int) {
-        if index >= slots.count {
-            let growth = max(1000, index - slots.count + 1)
-            slots.append(contentsOf: repeatElement(SlotInfo(), count: growth))
-        }
     }
 }

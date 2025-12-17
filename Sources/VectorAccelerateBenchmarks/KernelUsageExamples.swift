@@ -21,7 +21,6 @@ import VectorCore
 // MARK: - Example Runner
 
 /// Runner for kernel usage examples.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public struct KernelUsageExamples {
 
     /// Run all kernel examples.
@@ -49,7 +48,6 @@ public struct KernelUsageExamples {
 
 // MARK: - Distance Kernel Examples
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension KernelUsageExamples {
 
     /// Examples for distance computation kernels.
@@ -150,7 +148,6 @@ extension KernelUsageExamples {
 
 // MARK: - Selection Kernel Examples
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension KernelUsageExamples {
 
     /// Examples for top-k selection kernels.
@@ -218,7 +215,6 @@ extension KernelUsageExamples {
 
 // MARK: - Quantization Kernel Examples
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension KernelUsageExamples {
 
     /// Examples for quantization kernels.
@@ -284,7 +280,6 @@ extension KernelUsageExamples {
 
 // MARK: - Statistics Kernel Examples
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension KernelUsageExamples {
 
     /// Examples for statistics and utility kernels.
@@ -382,7 +377,6 @@ extension KernelUsageExamples {
 
 // MARK: - Pipeline Composition Examples
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension KernelUsageExamples {
 
     /// Examples for composing multiple kernels in a single command buffer.
@@ -576,7 +570,6 @@ extension KernelUsageExamples {
 
 // MARK: - VectorCore Integration Examples
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 extension KernelUsageExamples {
 
     /// Run VectorCore integration examples.

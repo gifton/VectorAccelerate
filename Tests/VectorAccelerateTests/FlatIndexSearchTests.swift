@@ -278,22 +278,22 @@ final class FlatIndexSearchTests: XCTestCase {
 
         let query: [Float] = [0.0, 0.0, 0.0, 0.0]
 
-        // Only accept even-indexed handles (by checking handle.index directly)
-        // Even indices 0-18 = 10 vectors (0, 2, 4, 6, 8, 10, 12, 14, 16, 18)
-        // Ask for k=3, should find 3 even-indexed vectors
+        // Only accept even-stableID handles (by checking handle.stableID directly)
+        // Even stableIDs 0-18 = 10 vectors (0, 2, 4, 6, 8, 10, 12, 14, 16, 18)
+        // Ask for k=3, should find 3 even-stableID vectors
         let results = try await index.search(query: query, k: 3) { handle, _ in
-            handle.index % 2 == 0
+            handle.stableID % 2 == 0
         }
 
-        XCTAssertEqual(results.count, 3, "Should find 3 even-indexed vectors")
+        XCTAssertEqual(results.count, 3, "Should find 3 even-stableID vectors")
 
-        // Verify all returned handles are even
+        // Verify all returned handles have even stableIDs
         for result in results {
-            XCTAssertEqual(result.handle.index % 2, 0, "Handle \(result.handle.index) should be even")
+            XCTAssertEqual(result.handle.stableID % 2, 0, "Handle \(result.handle.stableID) should be even")
         }
 
         // Verify results are ordered by distance (closest first)
-        // Even indices by distance: 0 (d=0), 2 (d=4), 4 (d=16), ...
+        // Even stableIDs by distance: 0 (d=0), 2 (d=4), 4 (d=16), ...
         for i in 1..<results.count {
             XCTAssertLessThanOrEqual(results[i-1].distance, results[i].distance)
         }
@@ -367,6 +367,149 @@ final class FlatIndexSearchTests: XCTestCase {
         let results = try await index.search(queries: queries, k: 5)
 
         XCTAssertEqual(results.count, 0, "Empty queries should return empty results")
+    }
+
+    /// Batch search results must match sequential search results.
+    func testBatchSearchMatchesSequential() async throws {
+        let config = IndexConfiguration.flat(dimension: 8, capacity: 200)
+        let index = try await AcceleratedVectorIndex(configuration: config)
+
+        // Insert 50 vectors
+        var vectors: [[Float]] = []
+        for i in 0..<50 {
+            var vec = [Float](repeating: 0.0, count: 8)
+            vec[0] = Float(i)
+            vec[1] = Float(i % 5)
+            vectors.append(vec)
+        }
+        _ = try await index.insert(vectors)
+
+        // Create 5 test queries
+        let queries: [[Float]] = [
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [10.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [25.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [49.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [30.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        ]
+
+        // Run batch search
+        let batchResults = try await index.search(queries: queries, k: 5)
+
+        // Run sequential search for each query
+        var sequentialResults: [[IndexSearchResult]] = []
+        for query in queries {
+            let result = try await index.search(query: query, k: 5)
+            sequentialResults.append(result)
+        }
+
+        // Verify batch matches sequential
+        XCTAssertEqual(batchResults.count, sequentialResults.count)
+
+        for i in 0..<queries.count {
+            XCTAssertEqual(batchResults[i].count, sequentialResults[i].count,
+                           "Query \(i): result count should match")
+
+            for j in 0..<batchResults[i].count {
+                XCTAssertEqual(batchResults[i][j].handle, sequentialResults[i][j].handle,
+                               "Query \(i) result \(j): handle should match")
+                XCTAssertEqual(batchResults[i][j].distance, sequentialResults[i][j].distance,
+                               accuracy: 0.0001,
+                               "Query \(i) result \(j): distance should match")
+            }
+        }
+    }
+
+    /// Batch search with deleted vectors should work correctly.
+    func testBatchSearchWithDeletedVectors() async throws {
+        let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
+        let index = try await AcceleratedVectorIndex(configuration: config)
+
+        // Insert 10 vectors
+        var handles: [VectorHandle] = []
+        for i in 0..<10 {
+            let h = try await index.insert([Float(i), 0.0, 0.0, 0.0])
+            handles.append(h)
+        }
+
+        // Delete some vectors
+        try await index.remove(handles[2])
+        try await index.remove(handles[5])
+        try await index.remove(handles[8])
+
+        let queries: [[Float]] = [
+            [2.0, 0.0, 0.0, 0.0],  // Deleted - should find neighbors
+            [5.0, 0.0, 0.0, 0.0],  // Deleted - should find neighbors
+            [0.0, 0.0, 0.0, 0.0]   // Not deleted
+        ]
+
+        let results = try await index.search(queries: queries, k: 3)
+
+        XCTAssertEqual(results.count, 3)
+
+        // Verify deleted vectors don't appear in any result
+        let deletedHandles = Set([handles[2], handles[5], handles[8]])
+        for queryResults in results {
+            for result in queryResults {
+                XCTAssertFalse(deletedHandles.contains(result.handle),
+                               "Deleted handle should not appear in batch search results")
+            }
+        }
+    }
+
+    /// Benchmark: Batch search should be faster than sequential for multiple queries.
+    func testBatchSearchPerformanceAdvantage() async throws {
+        let dimension = 64
+        let vectorCount = 500
+        let queryCount = 20
+        let k = 5
+
+        let config = IndexConfiguration.flat(dimension: dimension, capacity: vectorCount + 100)
+        let index = try await AcceleratedVectorIndex(configuration: config)
+
+        // Insert vectors
+        var vectors: [[Float]] = []
+        for _ in 0..<vectorCount {
+            let vec = (0..<dimension).map { _ in Float.random(in: -1...1) }
+            vectors.append(vec)
+        }
+        _ = try await index.insert(vectors)
+
+        // Create queries
+        var queries: [[Float]] = []
+        for _ in 0..<queryCount {
+            let query = (0..<dimension).map { _ in Float.random(in: -1...1) }
+            queries.append(query)
+        }
+
+        // Time batch search
+        let batchStart = CFAbsoluteTimeGetCurrent()
+        let batchResults = try await index.search(queries: queries, k: k)
+        let batchTime = CFAbsoluteTimeGetCurrent() - batchStart
+
+        // Time sequential search (simulated by calling search for each query)
+        let sequentialStart = CFAbsoluteTimeGetCurrent()
+        var sequentialResults: [[IndexSearchResult]] = []
+        for query in queries {
+            let result = try await index.search(query: query, k: k)
+            sequentialResults.append(result)
+        }
+        let sequentialTime = CFAbsoluteTimeGetCurrent() - sequentialStart
+
+        // Verify results are equivalent
+        XCTAssertEqual(batchResults.count, sequentialResults.count)
+        for i in 0..<queryCount {
+            XCTAssertEqual(batchResults[i].count, sequentialResults[i].count)
+        }
+
+        // Note: We don't assert batch is faster since both use GPU,
+        // but batch should have less overhead. Just verify both complete.
+        XCTAssertLessThan(batchTime, 2.0, "Batch search should complete quickly")
+        XCTAssertLessThan(sequentialTime, 5.0, "Sequential search should complete in reasonable time")
+
+        // Print performance comparison for debugging (not an assertion)
+        print("Batch search (\(queryCount) queries): \(batchTime * 1000)ms")
+        print("Sequential search (\(queryCount) queries): \(sequentialTime * 1000)ms")
     }
 
     // MARK: - Large Dimension Tests (768 - BERT)
@@ -500,6 +643,33 @@ final class FlatIndexSearchTests: XCTestCase {
 
         XCTAssertEqual(results[0].distance, 0.0, accuracy: 0.0001,
                        "Exact match should have distance 0")
+    }
+
+    /// Verify euclideanDistance computed property returns sqrt(distance).
+    func testEuclideanDistanceProperty() async throws {
+        let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
+        let index = try await AcceleratedVectorIndex(configuration: config)
+
+        // Insert vector at known distance from origin
+        // [3, 4, 0, 0] has L2 = 5.0, L2² = 25.0
+        let vector: [Float] = [3.0, 4.0, 0.0, 0.0]
+        _ = try await index.insert(vector)
+
+        let query: [Float] = [0.0, 0.0, 0.0, 0.0]
+        let results = try await index.search(query: query, k: 1)
+
+        XCTAssertEqual(results.count, 1)
+
+        // distance is L2² = 25.0
+        XCTAssertEqual(results[0].distance, 25.0, accuracy: 0.001)
+
+        // euclideanDistance is sqrt(L2²) = 5.0
+        XCTAssertEqual(results[0].euclideanDistance, 5.0, accuracy: 0.001,
+                       "euclideanDistance should be sqrt(distance)")
+
+        // Verify the relationship
+        XCTAssertEqual(results[0].euclideanDistance, sqrt(results[0].distance), accuracy: 0.0001,
+                       "euclideanDistance must equal sqrt(distance)")
     }
 
     // MARK: - Search After Delete Tests

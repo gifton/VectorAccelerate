@@ -20,7 +20,6 @@ public struct MetalDeviceCapabilities: Sendable {
     public let supportsBFloat16: Bool
     public let supportsSimdgroupMatrix: Bool
     public let supportsRaytracing: Bool
-    public let supportsMetal3: Bool
     public let recommendedMaxWorkingSetSize: Int
     public let registryID: UInt64
     
@@ -44,53 +43,32 @@ public struct MetalDeviceCapabilities: Sendable {
         #endif
         
         // Feature detection
+        // Note: iOS 26+ / macOS 26+ is required (see Package.swift platform requirements)
+        // All availability checks below are always true on supported platforms
         #if os(macOS)
-        if #available(macOS 13.0, *) {
-            self.supportsMetal3 = device.supportsFamily(.apple7)
-        } else {
-            self.supportsMetal3 = false
-        }
-        
         // Float16 support
         self.supportsFloat16 = device.supports32BitFloatFiltering
-        
-        // BFloat16 (Metal 3+)
-        if #available(macOS 14.0, *) {
-            self.supportsBFloat16 = device.supportsFamily(.apple8)
-        } else {
-            self.supportsBFloat16 = false
-        }
-        
+
+        // BFloat16 (Apple Silicon with apple8+ family)
+        self.supportsBFloat16 = device.supportsFamily(.apple8)
+
         // Simdgroup matrix (Apple Silicon)
-        if #available(macOS 13.0, *) {
-            self.supportsSimdgroupMatrix = device.supportsFamily(.apple7) || 
-                                          device.supportsFamily(.apple8) ||
-                                          device.supportsFamily(.apple9)
-        } else {
-            self.supportsSimdgroupMatrix = false
-        }
-        
+        self.supportsSimdgroupMatrix = device.supportsFamily(.apple7) ||
+                                      device.supportsFamily(.apple8) ||
+                                      device.supportsFamily(.apple9)
+
         // Raytracing (M1+ and some AMD GPUs)
-        if #available(macOS 11.0, *) {
-            self.supportsRaytracing = device.supportsRaytracing
-        } else {
-            self.supportsRaytracing = false
-        }
-        
+        self.supportsRaytracing = device.supportsRaytracing
+
         #else // iOS, tvOS, visionOS
-        
-        self.supportsMetal3 = false
+
         self.supportsFloat16 = device.supports32BitFloatFiltering
         self.supportsBFloat16 = false
-        
-        if #available(iOS 16.0, tvOS 16.0, *) {
-            self.supportsSimdgroupMatrix = device.supportsFamily(.apple7) ||
-                                          device.supportsFamily(.apple8) ||
-                                          device.supportsFamily(.apple9)
-        } else {
-            self.supportsSimdgroupMatrix = false
-        }
-        
+
+        self.supportsSimdgroupMatrix = device.supportsFamily(.apple7) ||
+                                      device.supportsFamily(.apple8) ||
+                                      device.supportsFamily(.apple9)
+
         self.supportsRaytracing = false
         #endif
     }
