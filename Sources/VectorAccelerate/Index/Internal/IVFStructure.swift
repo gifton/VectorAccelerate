@@ -192,15 +192,11 @@ final class IVFStructure: @unchecked Sendable {
             // Extract centroids
             centroids = result.extractCentroids()
 
-            // Assign staged vectors to clusters
-            let assignments = result.extractAssignments()
-            for (i, clusterIdx) in assignments.enumerated() {
-                if i < stagingSlots.count {
-                    let entry = IVFListEntry(slotIndex: stagingSlots[i], generation: 0)
-                    invertedLists[clusterIdx].append(entry)
-                }
-            }
-
+            // Do not assign staged vectors here.
+            // AcceleratedVectorIndex.train() will perform a single, authoritative
+            // reassignment of all active vectors to clusters to avoid duplicates.
+            // Ensure inverted lists are cleared before reassignment.
+            invertedLists = Array(repeating: [], count: numClusters)
             stagingSlots.removeAll()
             gpuStructureDirty = true
             trainingState = .trained
@@ -376,15 +372,42 @@ final class IVFStructure: @unchecked Sendable {
         }
         indexBuffer.label = "IVFStructure.vectorIndices"
 
-        // Use the main vector storage buffer
-        guard let vectorBuffer = storage.buffer else {
-            throw IndexError.gpuNotInitialized(operation: "prepareGPUStructure")
+        // Create flattened list vectors in CSR order to match vectorIndices/listOffsets
+        // This ensures that candidate indices gathered during IVF search map to the
+        // correct vector data.
+        let bytesPerVector = storage.bytesPerSlot
+        let listVectorsLength = max(totalVecs * bytesPerVector, 4)
+        guard let listVectorsBuffer = device.makeBuffer(length: listVectorsLength, options: .storageModeShared) else {
+            throw IndexError.bufferError(
+                operation: "prepareGPUStructure",
+                reason: "Failed to create listVectors buffer"
+            )
+        }
+        listVectorsBuffer.label = "IVFStructure.listVectors"
+
+        if totalVecs > 0 {
+            guard let srcBuffer = storage.buffer else {
+                throw IndexError.gpuNotInitialized(operation: "prepareGPUStructure")
+            }
+            let srcBase = srcBuffer.contents()
+            let dstBase = listVectorsBuffer.contents()
+
+            // Copy vectors from main storage into CSR-ordered buffer
+            for (i, slot) in vectorIndices.enumerated() {
+                let slotIndex = Int(slot)
+                // Safety check: skip if out of bounds (shouldn't happen in normal flow)
+                if slotIndex < 0 || slotIndex >= storage.allocatedSlots { continue }
+
+                let srcOffset = slotIndex * bytesPerVector
+                let dstOffset = i * bytesPerVector
+                memcpy(dstBase.advanced(by: dstOffset), srcBase.advanced(by: srcOffset), bytesPerVector)
+            }
         }
 
         let structure = IVFGPUIndexStructure(
             centroids: centroidBuffer,
             numCentroids: numClusters,
-            listVectors: vectorBuffer,
+            listVectors: listVectorsBuffer,
             vectorIndices: indexBuffer,
             listOffsets: offsetBuffer,
             totalVectors: totalVecs,

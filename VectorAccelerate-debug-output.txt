@@ -1,0 +1,1881 @@
+[0/1] Planning build
+Building for debugging...
+[0/4] Write swift-version--58304C5D6DBC2206.txt
+Build complete! (0.71s)
+Test Suite 'Selected tests' started at 2025-12-18 18:42:12.349.
+Test Suite 'VectorAcceleratePackageTests.xctest' started at 2025-12-18 18:42:12.350.
+Test Suite 'IVFQualityAssessmentTests' started at 2025-12-18 18:42:12.350.
+Test Case '-[VectorAccelerateTests.IVFQualityAssessmentTests testIVFQualityWithLargerK]' started.
+
+======================================================================
+Large-K IVF Quality Probe (K=32)
+routingThreshold: 0 (IVF search forced)
+======================================================================
+Data distribution: UNIFORM RANDOM
+Dataset: 2000 vectors, D=128
+Norms: mean=6.529, std=0.258, range=[5.607, 7.246]
+Values: mean=0.000, std=0.575
+----------------------------------------------------------------------
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c3(d=41.14,n=105), c28(d=43.35,n=92), c22(d=44.00,n=81), c8(d=44.11,n=64), c4(d=44.40,n=75), c25(d=44.98,n=56), c18(d=45.13,n=89), c21(d=45.69,n=104), c13(d=45.86,n=82), c29(d=45.99,n=63), c11(d=46.03,n=26), c27(d=46.56,n=49), c10(d=46.72,n=39), c9(d=46.88,n=85), c14(d=47.34,n=56), c12(d=47.43,n=78), c19(d=47.66,n=78), c23(d=47.70,n=60), c24(d=47.78,n=87), c16(d=47.96,n=56), c1(d=48.13,n=63), c7(d=48.14,n=48), c5(d=48.22,n=37), c26(d=48.25,n=93), c15(d=48.28,n=78), c30(d=48.58,n=67), c20(d=48.80,n=41), c2(d=49.22,n=53), c6(d=50.21,n=15), c17(d=50.37,n=42), c31(d=51.61,n=16), c0(d=52.54,n=22)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [138, 139, 140, 141, 142, 143, 144, 145, 146, 147]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g184(d=0.338), g1298(d=61.598), g170(d=62.721), g206(d=64.078), g1854(d=64.233)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o832(d=0.338), o1282(d=61.598), o667(d=62.721), o1364(d=64.078), o32(d=64.233)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx832(d=0.338), idx1282(d=61.598), idx667(d=62.721), idx1364(d=64.078), idx32(d=64.233)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c27(d=36.95,n=49), c16(d=38.65,n=56), c21(d=39.68,n=104), c18(d=39.78,n=89), c20(d=39.81,n=41), c9(d=40.09,n=85), c25(d=40.35,n=56), c22(d=41.24,n=81), c1(d=41.43,n=63), c29(d=41.50,n=63), c30(d=41.68,n=67), c7(d=41.73,n=48), c14(d=41.98,n=56), c26(d=41.99,n=93), c28(d=41.99,n=92), c3(d=42.26,n=105), c13(d=42.34,n=82), c2(d=42.60,n=53), c8(d=42.62,n=64), c23(d=42.77,n=60), c15(d=42.85,n=78), c12(d=42.86,n=78), c11(d=43.29,n=26), c19(d=43.32,n=78), c17(d=43.77,n=42), c0(d=43.91,n=22), c24(d=44.63,n=87), c6(d=44.75,n=15), c5(d=44.79,n=37), c4(d=44.93,n=75), c10(d=45.86,n=39), c31(d=47.10,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1713, 1714, 1715, 1716, 1717, 1718, 1719, 1720, 1721, 1722]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1755(d=0.363), g816(d=54.117), g979(d=55.540), g729(d=58.277), g942(d=58.761)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1725(d=0.363), o710(d=54.117), o1949(d=55.540), o539(d=58.277), o537(d=58.761)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1725(d=0.363), idx710(d=54.117), idx1949(d=55.540), idx539(d=58.277), idx537(d=58.761)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c27(d=41.77,n=49), c22(d=43.47,n=81), c21(d=43.98,n=104), c3(d=44.11,n=105), c16(d=44.23,n=56), c23(d=45.18,n=60), c18(d=45.25,n=89), c12(d=45.39,n=78), c25(d=45.52,n=56), c14(d=45.58,n=56), c24(d=45.77,n=87), c20(d=46.43,n=41), c15(d=46.49,n=78), c8(d=46.54,n=64), c30(d=46.62,n=67), c29(d=46.67,n=63), c9(d=46.68,n=85), c13(d=46.90,n=82), c1(d=47.25,n=63), c19(d=47.44,n=78), c17(d=47.51,n=42), c6(d=47.64,n=15), c7(d=48.05,n=48), c4(d=48.09,n=75), c31(d=48.33,n=16), c10(d=48.38,n=39), c26(d=48.42,n=93), c11(d=48.52,n=26), c2(d=49.05,n=53), c5(d=49.54,n=37), c28(d=50.72,n=92), c0(d=56.59,n=22)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1713, 1714, 1715, 1716, 1717, 1718, 1719, 1720, 1721, 1722]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1722(d=0.282), g466(d=58.039), g1310(d=60.304), g1412(d=60.928), g1405(d=60.948)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o454(d=0.282), o1394(d=58.039), o1553(d=60.304), o1809(d=60.928), o1558(d=60.948)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx454(d=0.282), idx1394(d=58.039), idx1553(d=60.304), idx1809(d=60.928), idx1558(d=60.948)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c5(d=37.70,n=37), c26(d=38.94,n=93), c20(d=39.71,n=41), c1(d=39.78,n=63), c29(d=39.79,n=63), c24(d=41.57,n=87), c3(d=42.02,n=105), c25(d=42.18,n=56), c21(d=42.35,n=104), c23(d=42.52,n=60), c18(d=42.72,n=89), c9(d=42.92,n=85), c15(d=42.93,n=78), c13(d=43.36,n=82), c30(d=43.79,n=67), c28(d=43.96,n=92), c27(d=43.97,n=49), c12(d=44.14,n=78), c10(d=44.55,n=39), c22(d=44.78,n=81), c19(d=45.12,n=78), c14(d=45.40,n=56), c8(d=45.41,n=64), c4(d=46.16,n=75), c2(d=46.25,n=53), c11(d=46.42,n=26), c16(d=46.53,n=56), c17(d=46.57,n=42), c0(d=46.98,n=22), c7(d=47.42,n=48), c6(d=49.14,n=15), c31(d=50.49,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [318, 319, 320, 321, 322, 323, 324, 325, 326, 327]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g323(d=0.333), g1965(d=59.112), g525(d=59.170), g1237(d=59.762), g1687(d=60.348)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o315(d=0.333), o1312(d=59.112), o856(d=59.170), o89(d=59.762), o1402(d=60.348)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx315(d=0.333), idx1312(d=59.112), idx856(d=59.170), idx89(d=59.762), idx1402(d=60.348)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c12(d=39.58,n=78), c18(d=42.95,n=89), c25(d=43.13,n=56), c21(d=44.30,n=104), c14(d=44.33,n=56), c28(d=44.38,n=92), c26(d=44.40,n=93), c17(d=44.78,n=42), c9(d=44.94,n=85), c31(d=45.00,n=16), c19(d=45.12,n=78), c30(d=45.16,n=67), c7(d=45.19,n=48), c5(d=45.26,n=37), c22(d=45.39,n=81), c8(d=45.62,n=64), c29(d=45.65,n=63), c3(d=45.65,n=105), c13(d=45.69,n=82), c4(d=45.76,n=75), c1(d=46.14,n=63), c27(d=46.64,n=49), c15(d=46.71,n=78), c2(d=46.74,n=53), c23(d=46.84,n=60), c6(d=46.99,n=15), c20(d=47.33,n=41), c16(d=47.80,n=56), c24(d=48.01,n=87), c11(d=48.53,n=26), c10(d=49.51,n=39), c0(d=50.51,n=22)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [632, 633, 634, 635, 636, 637, 638, 639, 640, 641]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g691(d=0.373), g945(d=60.264), g819(d=61.142), g690(d=62.909), g1948(d=63.392)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1516(d=0.373), o689(d=60.264), o833(d=61.142), o1502(d=62.909), o886(d=63.392)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1516(d=0.373), idx689(d=60.264), idx833(d=61.142), idx1502(d=62.909), idx886(d=63.392)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c1(d=37.95,n=63), c28(d=39.84,n=92), c21(d=40.69,n=104), c20(d=40.92,n=41), c3(d=40.93,n=105), c5(d=41.25,n=37), c18(d=41.41,n=89), c12(d=42.09,n=78), c23(d=42.39,n=60), c8(d=42.50,n=64), c15(d=42.58,n=78), c27(d=42.75,n=49), c17(d=43.03,n=42), c13(d=43.09,n=82), c14(d=43.10,n=56), c29(d=43.14,n=63), c0(d=43.15,n=22), c26(d=43.34,n=93), c19(d=43.57,n=78), c10(d=43.69,n=39), c7(d=43.86,n=48), c6(d=43.90,n=15), c11(d=44.04,n=26), c30(d=44.32,n=67), c4(d=44.71,n=75), c24(d=45.13,n=87), c31(d=45.56,n=16), c9(d=45.57,n=85), c2(d=45.57,n=53), c16(d=45.63,n=56), c22(d=45.87,n=81), c25(d=46.53,n=56)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g24(d=0.328), g876(d=53.509), g1805(d=62.018), g159(d=62.490), g644(d=62.539)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o41(d=0.328), o758(d=53.509), o931(d=62.018), o427(d=62.490), o317(d=62.539)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx41(d=0.328), idx758(d=53.509), idx931(d=62.018), idx427(d=62.490), idx317(d=62.539)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c27(d=38.13,n=49), c3(d=40.02,n=105), c15(d=40.42,n=78), c12(d=40.77,n=78), c8(d=40.97,n=64), c2(d=40.98,n=53), c13(d=41.56,n=82), c17(d=41.69,n=42), c29(d=42.10,n=63), c30(d=42.34,n=67), c22(d=42.35,n=81), c21(d=42.51,n=104), c1(d=42.69,n=63), c5(d=42.69,n=37), c19(d=42.99,n=78), c11(d=43.00,n=26), c25(d=43.37,n=56), c9(d=43.42,n=85), c18(d=43.91,n=89), c23(d=44.44,n=60), c28(d=44.75,n=92), c4(d=44.83,n=75), c7(d=45.05,n=48), c24(d=45.17,n=87), c16(d=45.18,n=56), c20(d=45.60,n=41), c14(d=45.87,n=56), c10(d=46.00,n=39), c26(d=46.93,n=93), c31(d=47.54,n=16), c0(d=48.52,n=22), c6(d=51.77,n=15)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1713, 1714, 1715, 1716, 1717, 1718, 1719, 1720, 1721, 1722]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1732(d=0.389), g1328(d=59.247), g1182(d=61.428), g1439(d=62.108), g1923(d=62.113)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o946(d=0.389), o1831(d=59.247), o1832(d=61.428), o882(d=62.108), o148(d=62.113)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx946(d=0.389), idx1831(d=59.247), idx1832(d=61.428), idx882(d=62.108), idx148(d=62.113)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c18(d=39.49,n=89), c16(d=40.31,n=56), c30(d=40.86,n=67), c23(d=41.67,n=60), c21(d=41.79,n=104), c15(d=42.11,n=78), c22(d=42.62,n=81), c3(d=42.79,n=105), c1(d=43.01,n=63), c20(d=43.40,n=41), c9(d=43.40,n=85), c2(d=43.42,n=53), c4(d=43.46,n=75), c0(d=43.62,n=22), c26(d=43.68,n=93), c29(d=43.89,n=63), c8(d=43.96,n=64), c19(d=44.83,n=78), c13(d=44.93,n=82), c7(d=44.98,n=48), c17(d=44.98,n=42), c28(d=45.02,n=92), c27(d=45.04,n=49), c12(d=45.05,n=78), c14(d=45.48,n=56), c25(d=45.69,n=56), c10(d=45.77,n=39), c24(d=45.88,n=87), c6(d=45.94,n=15), c5(d=47.83,n=37), c11(d=47.89,n=26), c31(d=50.11,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1024, 1025, 1026, 1027, 1028, 1029, 1030, 1031, 1032, 1033]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1046(d=0.347), g1461(d=58.951), g932(d=59.591), g1665(d=59.645), g1081(d=60.950)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o439(d=0.347), o1656(d=58.951), o376(d=59.591), o1015(d=59.645), o1334(d=60.950)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx439(d=0.347), idx1656(d=58.951), idx376(d=59.591), idx1015(d=59.645), idx1334(d=60.950)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c8(d=40.42,n=64), c30(d=41.02,n=67), c15(d=42.45,n=78), c25(d=42.49,n=56), c20(d=43.44,n=41), c18(d=43.69,n=89), c9(d=44.06,n=85), c1(d=44.12,n=63), c28(d=44.38,n=92), c2(d=44.59,n=53), c29(d=44.71,n=63), c12(d=44.71,n=78), c21(d=44.76,n=104), c3(d=44.81,n=105), c17(d=44.82,n=42), c19(d=45.03,n=78), c16(d=45.18,n=56), c7(d=45.24,n=48), c0(d=45.34,n=22), c26(d=45.34,n=93), c13(d=45.44,n=82), c27(d=45.44,n=49), c4(d=45.48,n=75), c22(d=45.83,n=81), c24(d=46.02,n=87), c5(d=46.18,n=37), c14(d=47.95,n=56), c11(d=49.64,n=26), c23(d=50.38,n=60), c10(d=50.90,n=39), c6(d=51.24,n=15), c31(d=52.42,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [418, 419, 420, 421, 422, 423, 424, 425, 426, 427]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g444(d=0.251), g1120(d=53.162), g91(d=59.858), g1028(d=59.917), g110(d=61.360)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o824(d=0.251), o91(d=53.162), o120(d=59.858), o167(d=59.917), o959(d=61.360)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx824(d=0.251), idx91(d=53.162), idx120(d=59.858), idx167(d=59.917), idx959(d=61.360)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c26(d=39.20,n=93), c21(d=41.52,n=104), c19(d=41.69,n=78), c18(d=41.86,n=89), c14(d=41.98,n=56), c4(d=42.41,n=75), c28(d=42.42,n=92), c0(d=42.47,n=22), c24(d=43.10,n=87), c15(d=43.11,n=78), c13(d=43.13,n=82), c9(d=43.16,n=85), c20(d=43.37,n=41), c1(d=43.53,n=63), c27(d=43.57,n=49), c29(d=43.88,n=63), c8(d=44.03,n=64), c7(d=44.14,n=48), c3(d=44.41,n=105), c23(d=44.96,n=60), c12(d=45.06,n=78), c2(d=45.13,n=53), c22(d=45.30,n=81), c17(d=45.37,n=42), c5(d=45.71,n=37), c10(d=46.09,n=39), c30(d=46.27,n=67), c31(d=46.33,n=16), c25(d=46.50,n=56), c16(d=46.99,n=56), c6(d=48.13,n=15), c11(d=48.60,n=26)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1620, 1621, 1622, 1623, 1624, 1625, 1626, 1627, 1628, 1629]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1647(d=0.318), g238(d=59.058), g922(d=59.502), g1800(d=61.158), g1028(d=61.290)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o517(d=0.318), o1974(d=59.058), o1940(d=59.502), o896(d=61.158), o167(d=61.290)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx517(d=0.318), idx1974(d=59.058), idx1940(d=59.502), idx896(d=61.158), idx167(d=61.290)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c18(d=33.87,n=89), c21(d=38.28,n=104), c24(d=39.09,n=87), c0(d=39.11,n=22), c28(d=39.32,n=92), c2(d=39.80,n=53), c16(d=39.99,n=56), c12(d=40.11,n=78), c26(d=40.70,n=93), c13(d=40.70,n=82), c19(d=40.79,n=78), c15(d=40.86,n=78), c20(d=41.16,n=41), c17(d=41.42,n=42), c30(d=41.44,n=67), c27(d=41.58,n=49), c3(d=41.77,n=105), c31(d=41.81,n=16), c4(d=41.84,n=75), c7(d=41.87,n=48), c1(d=41.92,n=63), c9(d=41.98,n=85), c29(d=42.36,n=63), c8(d=42.63,n=64), c22(d=42.72,n=81), c5(d=43.17,n=37), c11(d=43.65,n=26), c10(d=44.01,n=39), c14(d=44.40,n=56), c6(d=44.48,n=15), c23(d=44.54,n=60), c25(d=44.72,n=56)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1024, 1025, 1026, 1027, 1028, 1029, 1030, 1031, 1032, 1033]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1060(d=0.282), g1701(d=53.460), g35(d=57.624), g1538(d=58.262), g1303(d=58.636)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o782(d=0.282), o1719(d=53.460), o373(d=57.624), o1514(d=58.262), o1413(d=58.636)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx782(d=0.282), idx1719(d=53.460), idx373(d=57.624), idx1514(d=58.262), idx1413(d=58.636)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c10(d=45.22,n=39), c8(d=48.00,n=64), c24(d=48.62,n=87), c12(d=48.97,n=78), c9(d=49.32,n=85), c13(d=49.37,n=82), c30(d=49.88,n=67), c5(d=49.88,n=37), c20(d=50.65,n=41), c4(d=50.76,n=75), c19(d=51.01,n=78), c18(d=51.29,n=89), c16(d=51.30,n=56), c22(d=51.68,n=81), c3(d=51.77,n=105), c2(d=52.23,n=53), c28(d=52.25,n=92), c29(d=52.29,n=63), c1(d=52.40,n=63), c15(d=52.64,n=78), c7(d=52.76,n=48), c14(d=53.25,n=56), c6(d=53.64,n=15), c25(d=53.72,n=56), c11(d=53.78,n=26), c27(d=53.91,n=49), c26(d=54.06,n=93), c23(d=54.16,n=60), c21(d=54.29,n=104), c0(d=55.23,n=22), c17(d=55.27,n=42), c31(d=56.49,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [567, 568, 569, 570, 571, 572, 573, 574, 575, 576]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g596(d=0.333), g530(d=64.458), g594(d=68.016), g1138(d=68.187), g153(d=68.878)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1571(d=0.333), o1023(d=64.458), o1434(d=68.016), o573(d=68.187), o297(d=68.878)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1571(d=0.333), idx1023(d=64.458), idx1434(d=68.016), idx573(d=68.187), idx297(d=68.878)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c18(d=41.63,n=89), c7(d=42.53,n=48), c13(d=43.07,n=82), c9(d=43.13,n=85), c28(d=43.15,n=92), c4(d=43.21,n=75), c25(d=43.53,n=56), c19(d=44.42,n=78), c12(d=44.52,n=78), c22(d=45.00,n=81), c17(d=45.03,n=42), c16(d=45.26,n=56), c29(d=45.64,n=63), c27(d=45.64,n=49), c11(d=45.91,n=26), c8(d=45.96,n=64), c21(d=45.97,n=104), c10(d=46.07,n=39), c30(d=46.20,n=67), c20(d=46.67,n=41), c15(d=46.74,n=78), c14(d=46.90,n=56), c3(d=46.90,n=105), c23(d=46.95,n=60), c26(d=47.07,n=93), c1(d=47.10,n=63), c6(d=47.79,n=15), c5(d=48.36,n=37), c24(d=48.65,n=87), c31(d=48.77,n=16), c2(d=48.94,n=53), c0(d=50.49,n=22)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1024, 1025, 1026, 1027, 1028, 1029, 1030, 1031, 1032, 1033]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1110(d=0.296), g989(d=53.507), g347(d=56.165), g729(d=57.960), g1002(d=60.589)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1860(d=0.296), o430(d=53.507), o1762(d=56.165), o539(d=57.960), o1138(d=60.589)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1860(d=0.296), idx430(d=53.507), idx1762(d=56.165), idx539(d=57.960), idx1138(d=60.589)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c29(d=39.18,n=63), c13(d=44.00,n=82), c21(d=45.00,n=104), c9(d=45.13,n=85), c24(d=45.25,n=87), c27(d=45.38,n=49), c22(d=45.86,n=81), c19(d=45.87,n=78), c30(d=46.05,n=67), c5(d=46.07,n=37), c12(d=46.45,n=78), c15(d=46.68,n=78), c23(d=46.79,n=60), c14(d=47.28,n=56), c31(d=47.39,n=16), c18(d=47.54,n=89), c4(d=47.67,n=75), c26(d=47.73,n=93), c2(d=48.06,n=53), c6(d=48.11,n=15), c3(d=48.44,n=105), c25(d=48.70,n=56), c28(d=48.88,n=92), c20(d=49.01,n=41), c10(d=49.07,n=39), c17(d=49.07,n=42), c16(d=49.17,n=56), c1(d=49.67,n=63), c7(d=49.75,n=48), c11(d=49.80,n=26), c0(d=49.82,n=22), c8(d=50.54,n=64)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1854, 1855, 1856, 1857, 1858, 1859, 1860, 1861, 1862, 1863]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1856(d=0.358), g529(d=61.861), g962(d=62.290), g559(d=62.880), g100(d=64.077)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o113(d=0.358), o1018(d=61.861), o1517(d=62.290), o1802(d=62.880), o659(d=64.077)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx113(d=0.358), idx1018(d=61.861), idx1517(d=62.290), idx1802(d=62.880), idx659(d=64.077)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c3(d=35.60,n=105), c22(d=36.68,n=81), c12(d=36.94,n=78), c23(d=36.95,n=60), c21(d=37.77,n=104), c20(d=38.13,n=41), c8(d=38.19,n=64), c19(d=38.39,n=78), c28(d=38.65,n=92), c17(d=38.69,n=42), c9(d=38.73,n=85), c10(d=38.95,n=39), c16(d=39.42,n=56), c26(d=39.42,n=93), c29(d=39.56,n=63), c1(d=39.57,n=63), c18(d=39.67,n=89), c2(d=39.67,n=53), c25(d=39.73,n=56), c15(d=40.29,n=78), c30(d=40.66,n=67), c31(d=40.70,n=16), c24(d=41.76,n=87), c5(d=42.03,n=37), c11(d=42.17,n=26), c27(d=42.31,n=49), c4(d=42.32,n=75), c6(d=42.42,n=15), c14(d=42.68,n=56), c13(d=43.06,n=82), c0(d=43.83,n=22), c7(d=44.30,n=48)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [138, 139, 140, 141, 142, 143, 144, 145, 146, 147]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g192(d=0.351), g1423(d=56.332), g147(d=57.159), g220(d=57.347), g110(d=57.513)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o970(d=0.351), o325(d=56.332), o188(d=57.159), o1630(d=57.347), o959(d=57.513)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx970(d=0.351), idx325(d=56.332), idx188(d=57.159), idx1630(d=57.347), idx959(d=57.513)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c1(d=38.85,n=63), c18(d=41.48,n=89), c3(d=41.88,n=105), c22(d=42.12,n=81), c28(d=42.29,n=92), c14(d=42.33,n=56), c24(d=42.40,n=87), c7(d=42.85,n=48), c29(d=43.01,n=63), c27(d=43.34,n=49), c2(d=43.74,n=53), c15(d=44.19,n=78), c31(d=44.21,n=16), c5(d=44.32,n=37), c9(d=44.38,n=85), c19(d=44.56,n=78), c12(d=44.60,n=78), c20(d=44.60,n=41), c23(d=44.61,n=60), c4(d=44.68,n=75), c17(d=44.74,n=42), c26(d=44.74,n=93), c21(d=44.87,n=104), c10(d=44.91,n=39), c25(d=45.06,n=56), c8(d=45.14,n=64), c13(d=45.58,n=82), c30(d=46.71,n=67), c16(d=47.24,n=56), c11(d=47.50,n=26), c0(d=47.60,n=22), c6(d=47.95,n=15)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g70(d=0.315), g1063(d=58.152), g1640(d=58.480), g1079(d=60.302), g999(d=60.796)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1391(d=0.315), o925(d=58.152), o385(d=58.480), o1281(d=60.302), o923(d=60.796)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1391(d=0.315), idx925(d=58.152), idx385(d=58.480), idx1281(d=60.302), idx923(d=60.796)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c26(d=39.86,n=93), c24(d=42.18,n=87), c19(d=43.05,n=78), c13(d=43.46,n=82), c29(d=43.74,n=63), c5(d=43.98,n=37), c21(d=44.93,n=104), c9(d=45.19,n=85), c28(d=45.29,n=92), c1(d=45.36,n=63), c16(d=45.56,n=56), c22(d=45.66,n=81), c20(d=45.98,n=41), c8(d=46.17,n=64), c2(d=46.64,n=53), c0(d=46.64,n=22), c23(d=46.79,n=60), c4(d=46.80,n=75), c31(d=47.23,n=16), c12(d=47.64,n=78), c18(d=47.85,n=89), c30(d=47.96,n=67), c10(d=48.13,n=39), c25(d=48.17,n=56), c3(d=48.30,n=105), c15(d=48.74,n=78), c7(d=49.45,n=48), c14(d=49.80,n=56), c6(d=50.10,n=15), c17(d=50.16,n=42), c27(d=50.31,n=49), c11(d=50.91,n=26)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1620, 1621, 1622, 1623, 1624, 1625, 1626, 1627, 1628, 1629]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1690(d=0.312), g789(d=57.539), g963(d=58.665), g1479(d=58.794), g1635(d=60.515)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1456(d=0.312), o1977(d=57.539), o1528(d=58.665), o65(d=58.794), o303(d=60.515)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1456(d=0.312), idx1977(d=57.539), idx1528(d=58.665), idx65(d=58.794), idx303(d=60.515)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c23(d=42.95,n=60), c20(d=45.98,n=41), c16(d=47.79,n=56), c14(d=47.81,n=56), c25(d=47.86,n=56), c1(d=47.96,n=63), c18(d=48.47,n=89), c2(d=48.91,n=53), c12(d=49.05,n=78), c26(d=49.14,n=93), c13(d=49.35,n=82), c24(d=49.40,n=87), c3(d=49.48,n=105), c9(d=49.70,n=85), c28(d=49.84,n=92), c22(d=49.87,n=81), c19(d=49.94,n=78), c17(d=50.17,n=42), c30(d=50.19,n=67), c15(d=50.28,n=78), c4(d=50.40,n=75), c7(d=50.84,n=48), c21(d=50.91,n=104), c11(d=50.99,n=26), c27(d=51.38,n=49), c5(d=52.89,n=37), c29(d=53.04,n=63), c10(d=53.58,n=39), c8(d=54.61,n=64), c0(d=54.63,n=22), c31(d=56.24,n=16), c6(d=58.35,n=15)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1417, 1418, 1419, 1420, 1421, 1422, 1423, 1424, 1425, 1426]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1459(d=0.357), g33(d=59.240), g1428(d=65.630), g132(d=66.029), g1365(d=66.477)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1581(d=0.357), o336(d=59.240), o558(d=65.630), o1730(d=66.029), o838(d=66.477)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1581(d=0.357), idx336(d=59.240), idx558(d=65.630), idx1730(d=66.029), idx838(d=66.477)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c28(d=37.28,n=92), c12(d=40.04,n=78), c24(d=40.49,n=87), c3(d=40.76,n=105), c18(d=41.05,n=89), c20(d=42.02,n=41), c19(d=42.38,n=78), c26(d=42.64,n=93), c4(d=42.78,n=75), c1(d=42.89,n=63), c5(d=42.92,n=37), c29(d=43.10,n=63), c21(d=43.22,n=104), c13(d=43.26,n=82), c2(d=43.58,n=53), c8(d=43.63,n=64), c0(d=43.75,n=22), c7(d=43.97,n=48), c31(d=44.11,n=16), c17(d=44.56,n=42), c27(d=44.67,n=49), c25(d=45.04,n=56), c22(d=45.57,n=81), c16(d=45.83,n=56), c11(d=46.15,n=26), c15(d=46.19,n=78), c14(d=46.23,n=56), c9(d=46.31,n=85), c30(d=46.76,n=67), c23(d=46.98,n=60), c10(d=49.34,n=39), c6(d=49.54,n=15)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1762, 1763, 1764, 1765, 1766, 1767, 1768, 1769, 1770, 1771]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1818(d=0.315), g1234(d=55.457), g1198(d=61.014), g1060(d=61.340), g1766(d=61.857)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1158(d=0.315), o56(d=55.457), o404(d=61.014), o782(d=61.340), o164(d=61.857)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1158(d=0.315), idx56(d=55.457), idx404(d=61.014), idx782(d=61.340), idx164(d=61.857)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c13(d=40.24,n=82), c5(d=43.40,n=37), c3(d=43.72,n=105), c21(d=43.88,n=104), c12(d=44.10,n=78), c24(d=44.13,n=87), c2(d=44.31,n=53), c16(d=44.32,n=56), c11(d=44.41,n=26), c6(d=44.49,n=15), c22(d=44.57,n=81), c1(d=44.69,n=63), c10(d=44.85,n=39), c0(d=45.37,n=22), c7(d=45.57,n=48), c19(d=45.63,n=78), c27(d=45.72,n=49), c4(d=46.15,n=75), c8(d=46.28,n=64), c29(d=46.30,n=63), c18(d=46.61,n=89), c31(d=46.81,n=16), c25(d=47.23,n=56), c30(d=47.29,n=67), c20(d=48.35,n=41), c28(d=48.37,n=92), c15(d=48.42,n=78), c26(d=48.51,n=93), c17(d=49.55,n=42), c9(d=49.63,n=85), c14(d=49.89,n=56), c23(d=50.17,n=60)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [710, 711, 712, 713, 714, 715, 716, 717, 718, 719]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g723(d=0.326), g643(d=51.094), g774(d=54.381), g735(d=57.526), g634(d=59.135)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o299(d=0.326), o309(d=51.094), o1689(d=54.381), o688(d=57.526), o161(d=59.135)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx299(d=0.326), idx309(d=51.094), idx1689(d=54.381), idx688(d=57.526), idx161(d=59.135)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c6(d=39.86,n=15), c9(d=43.42,n=85), c13(d=44.11,n=82), c11(d=44.85,n=26), c14(d=45.11,n=56), c23(d=45.52,n=60), c12(d=45.85,n=78), c30(d=45.90,n=67), c21(d=45.90,n=104), c7(d=45.99,n=48), c3(d=46.05,n=105), c22(d=46.17,n=81), c4(d=46.33,n=75), c19(d=46.39,n=78), c10(d=46.47,n=39), c2(d=46.49,n=53), c15(d=46.63,n=78), c29(d=46.89,n=63), c18(d=47.11,n=89), c5(d=47.22,n=37), c24(d=47.26,n=87), c1(d=47.35,n=63), c25(d=47.82,n=56), c16(d=47.91,n=56), c27(d=48.21,n=49), c20(d=48.26,n=41), c26(d=48.45,n=93), c28(d=49.37,n=92), c8(d=49.49,n=64), c17(d=51.23,n=42), c0(d=51.71,n=22), c31(d=52.11,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [355, 356, 357, 358, 359, 360, 361, 362, 363, 364]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g368(d=0.273), g1855(d=61.400), g74(d=62.389), g1142(d=64.167), g542(d=64.167)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1724(d=0.273), o77(d=61.400), o1475(d=62.389), o709(d=64.167), o1424(d=64.167)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1724(d=0.273), idx77(d=61.400), idx1475(d=62.389), idx709(d=64.167), idx1424(d=64.167)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c21(d=38.19,n=104), c24(d=39.91,n=87), c25(d=40.42,n=56), c5(d=40.68,n=37), c20(d=41.25,n=41), c9(d=41.54,n=85), c26(d=41.55,n=93), c0(d=41.66,n=22), c18(d=42.06,n=89), c23(d=42.13,n=60), c19(d=42.14,n=78), c3(d=42.30,n=105), c2(d=42.73,n=53), c27(d=42.94,n=49), c28(d=42.98,n=92), c13(d=43.31,n=82), c29(d=43.41,n=63), c12(d=43.61,n=78), c8(d=43.72,n=64), c16(d=43.84,n=56), c15(d=43.93,n=78), c14(d=43.94,n=56), c22(d=44.01,n=81), c30(d=44.18,n=67), c11(d=44.47,n=26), c4(d=44.49,n=75), c17(d=44.52,n=42), c1(d=44.72,n=63), c31(d=45.06,n=16), c10(d=45.49,n=39), c7(d=46.57,n=48), c6(d=51.72,n=15)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1232, 1233, 1234, 1235, 1236, 1237, 1238, 1239, 1240, 1241]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1304(d=0.384), g6(d=58.126), g1458(d=60.091), g213(d=60.928), g1314(d=61.600)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1417(d=0.384), o624(d=58.126), o1567(d=60.091), o1474(d=60.928), o1626(d=61.600)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1417(d=0.384), idx624(d=58.126), idx1567(d=60.091), idx1474(d=60.928), idx1626(d=61.600)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c2(d=41.76,n=53), c23(d=45.04,n=60), c26(d=45.11,n=93), c24(d=46.15,n=87), c6(d=46.33,n=15), c4(d=46.51,n=75), c9(d=46.62,n=85), c7(d=46.66,n=48), c18(d=46.72,n=89), c22(d=46.93,n=81), c28(d=47.15,n=92), c31(d=47.37,n=16), c30(d=47.59,n=67), c15(d=48.06,n=78), c19(d=48.10,n=78), c5(d=48.18,n=37), c16(d=48.34,n=56), c1(d=48.66,n=63), c12(d=48.94,n=78), c14(d=49.46,n=56), c3(d=49.53,n=105), c13(d=49.59,n=82), c20(d=49.66,n=41), c0(d=49.67,n=22), c21(d=49.78,n=104), c25(d=49.98,n=56), c29(d=51.30,n=63), c8(d=51.60,n=64), c17(d=52.31,n=42), c27(d=52.35,n=49), c10(d=52.38,n=39), c11(d=52.91,n=26)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [85, 86, 87, 88, 89, 90, 91, 92, 93, 94]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g92(d=0.248), g1168(d=61.036), g1475(d=61.382), g300(d=62.793), g1373(d=63.328)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o194(d=0.248), o1451(d=61.036), o1903(d=61.382), o1523(d=62.793), o1025(d=63.328)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx194(d=0.248), idx1451(d=61.036), idx1903(d=61.382), idx1523(d=62.793), idx1025(d=63.328)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c19(d=40.99,n=78), c20(d=43.28,n=41), c9(d=43.67,n=85), c5(d=44.42,n=37), c28(d=45.20,n=92), c29(d=45.34,n=63), c2(d=45.46,n=53), c8(d=45.60,n=64), c24(d=45.67,n=87), c4(d=45.74,n=75), c22(d=45.80,n=81), c10(d=45.92,n=39), c26(d=46.22,n=93), c21(d=46.33,n=104), c13(d=46.52,n=82), c0(d=47.30,n=22), c3(d=47.54,n=105), c18(d=47.70,n=89), c7(d=47.76,n=48), c15(d=48.14,n=78), c17(d=48.20,n=42), c1(d=48.22,n=63), c12(d=48.75,n=78), c6(d=48.83,n=15), c27(d=49.10,n=49), c16(d=49.58,n=56), c14(d=49.73,n=56), c25(d=50.18,n=56), c30(d=50.36,n=67), c23(d=51.57,n=60), c31(d=54.40,n=16), c11(d=55.57,n=26)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1113, 1114, 1115, 1116, 1117, 1118, 1119, 1120, 1121, 1122]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1163(d=0.248), g580(d=61.391), g1834(d=62.358), g506(d=63.510), g105(d=64.122)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1271(d=0.248), o528(d=61.391), o1526(d=62.358), o546(d=63.510), o736(d=64.122)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1271(d=0.248), idx528(d=61.391), idx1526(d=62.358), idx546(d=63.510), idx736(d=64.122)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c9(d=47.76,n=85), c12(d=48.43,n=78), c22(d=49.19,n=81), c18(d=50.26,n=89), c26(d=51.09,n=93), c24(d=51.30,n=87), c2(d=51.49,n=53), c4(d=51.59,n=75), c16(d=52.08,n=56), c15(d=52.31,n=78), c23(d=52.53,n=60), c14(d=52.61,n=56), c21(d=52.91,n=104), c27(d=53.08,n=49), c13(d=53.08,n=82), c10(d=53.09,n=39), c17(d=53.17,n=42), c7(d=53.44,n=48), c3(d=53.57,n=105), c28(d=53.58,n=92), c1(d=53.91,n=63), c30(d=54.13,n=67), c20(d=54.25,n=41), c19(d=54.74,n=78), c25(d=54.86,n=56), c6(d=54.96,n=15), c8(d=55.30,n=64), c5(d=55.72,n=37), c29(d=55.88,n=63), c11(d=58.39,n=26), c0(d=62.96,n=22), c31(d=62.97,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [482, 483, 484, 485, 486, 487, 488, 489, 490, 491]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g565(d=0.365), g825(d=62.938), g907(d=64.529), g1305(d=65.470), g1635(d=67.152)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1992(d=0.365), o1100(d=62.938), o1609(d=64.529), o1446(d=65.470), o303(d=67.152)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1992(d=0.365), idx1100(d=62.938), idx1609(d=64.529), idx1446(d=65.470), idx303(d=67.152)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c30(d=40.14,n=67), c10(d=42.05,n=39), c18(d=42.12,n=89), c16(d=42.55,n=56), c3(d=42.57,n=105), c23(d=42.78,n=60), c13(d=42.93,n=82), c15(d=43.15,n=78), c26(d=43.19,n=93), c29(d=43.50,n=63), c12(d=43.66,n=78), c25(d=43.80,n=56), c9(d=43.84,n=85), c5(d=43.92,n=37), c20(d=43.98,n=41), c8(d=44.19,n=64), c22(d=44.21,n=81), c28(d=44.33,n=92), c14(d=44.48,n=56), c6(d=44.73,n=15), c24(d=44.76,n=87), c21(d=44.84,n=104), c2(d=44.88,n=53), c27(d=45.39,n=49), c0(d=45.75,n=22), c1(d=46.51,n=63), c17(d=46.55,n=42), c19(d=46.56,n=78), c11(d=46.58,n=26), c4(d=46.67,n=75), c31(d=47.02,n=16), c7(d=48.18,n=48)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1917, 1918, 1919, 1920, 1921, 1922, 1923, 1924, 1925, 1926]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1928(d=0.321), g730(d=56.667), g1237(d=59.407), g1880(d=60.354), g110(d=60.864)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o261(d=0.321), o582(d=56.667), o89(d=59.407), o1029(d=60.354), o959(d=60.864)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx261(d=0.321), idx582(d=56.667), idx89(d=59.407), idx1029(d=60.354), idx959(d=60.864)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c30(d=38.45,n=67), c23(d=38.71,n=60), c1(d=38.86,n=63), c26(d=39.36,n=93), c6(d=39.48,n=15), c24(d=39.51,n=87), c21(d=39.71,n=104), c5(d=39.73,n=37), c13(d=40.82,n=82), c16(d=41.00,n=56), c18(d=41.13,n=89), c22(d=41.14,n=81), c14(d=41.69,n=56), c2(d=41.74,n=53), c29(d=41.84,n=63), c3(d=41.89,n=105), c27(d=42.15,n=49), c7(d=42.16,n=48), c15(d=42.52,n=78), c11(d=42.78,n=26), c31(d=42.81,n=16), c20(d=43.53,n=41), c17(d=43.72,n=42), c4(d=43.78,n=75), c9(d=44.32,n=85), c19(d=44.53,n=78), c25(d=44.91,n=56), c10(d=44.98,n=39), c8(d=45.65,n=64), c12(d=46.29,n=78), c28(d=46.44,n=92), c0(d=52.84,n=22)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1917, 1918, 1919, 1920, 1921, 1922, 1923, 1924, 1925, 1926]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1926(d=0.391), g62(d=58.129), g41(d=59.925), g1537(d=60.285), g824(d=60.687)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o254(d=0.391), o999(d=58.129), o469(d=59.925), o1490(d=60.285), o1040(d=60.687)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx254(d=0.391), idx999(d=58.129), idx469(d=59.925), idx1490(d=60.285), idx1040(d=60.687)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c20(d=34.84,n=41), c18(d=38.23,n=89), c3(d=38.55,n=105), c21(d=39.39,n=104), c1(d=39.46,n=63), c13(d=39.67,n=82), c0(d=40.72,n=22), c16(d=40.88,n=56), c15(d=41.33,n=78), c22(d=41.71,n=81), c8(d=41.95,n=64), c19(d=42.08,n=78), c23(d=42.12,n=60), c4(d=42.26,n=75), c24(d=42.31,n=87), c25(d=42.38,n=56), c5(d=42.53,n=37), c29(d=42.67,n=63), c30(d=42.67,n=67), c17(d=42.78,n=42), c10(d=42.82,n=39), c12(d=42.87,n=78), c6(d=42.95,n=15), c2(d=43.16,n=53), c28(d=43.42,n=92), c7(d=43.50,n=48), c26(d=44.01,n=93), c9(d=44.16,n=85), c14(d=44.31,n=56), c27(d=44.78,n=49), c31(d=45.78,n=16), c11(d=47.32,n=26)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1191, 1192, 1193, 1194, 1195, 1196, 1197, 1198, 1199, 1200]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1205(d=0.284), g769(d=57.343), g1227(d=59.501), g1120(d=60.501), g1367(d=61.318)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o883(d=0.284), o1489(d=57.343), o1670(d=59.501), o91(d=60.501), o872(d=61.318)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx883(d=0.284), idx1489(d=57.343), idx1670(d=59.501), idx91(d=60.501), idx872(d=61.318)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c28(d=37.62,n=92), c18(d=38.61,n=89), c11(d=38.65,n=26), c1(d=39.15,n=63), c22(d=39.24,n=81), c4(d=40.01,n=75), c2(d=40.18,n=53), c12(d=40.49,n=78), c7(d=40.58,n=48), c8(d=40.65,n=64), c26(d=40.73,n=93), c29(d=40.83,n=63), c16(d=41.02,n=56), c25(d=41.13,n=56), c0(d=41.56,n=22), c10(d=41.83,n=39), c23(d=41.94,n=60), c17(d=42.01,n=42), c9(d=42.08,n=85), c3(d=42.48,n=105), c30(d=42.50,n=67), c24(d=42.55,n=87), c13(d=43.40,n=82), c21(d=43.54,n=104), c27(d=43.88,n=49), c19(d=43.98,n=78), c31(d=44.19,n=16), c20(d=44.30,n=41), c14(d=44.45,n=56), c5(d=44.78,n=37), c15(d=46.85,n=78), c6(d=49.33,n=15)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1762, 1763, 1764, 1765, 1766, 1767, 1768, 1769, 1770, 1771]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1801(d=0.362), g277(d=56.096), g1239(d=56.206), g1710(d=56.541), g1749(d=58.151)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o900(d=0.362), o960(d=56.096), o103(d=56.206), o1907(d=56.541), o1534(d=58.151)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx900(d=0.362), idx960(d=56.096), idx103(d=56.206), idx1907(d=56.541), idx1534(d=58.151)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c4(d=40.67,n=75), c29(d=42.30,n=63), c19(d=42.75,n=78), c18(d=43.36,n=89), c30(d=43.44,n=67), c8(d=43.56,n=64), c15(d=43.76,n=78), c26(d=43.82,n=93), c2(d=43.92,n=53), c9(d=44.05,n=85), c24(d=44.08,n=87), c27(d=44.28,n=49), c12(d=44.31,n=78), c21(d=44.49,n=104), c7(d=44.55,n=48), c17(d=44.59,n=42), c28(d=44.73,n=92), c3(d=45.22,n=105), c22(d=45.28,n=81), c0(d=45.48,n=22), c13(d=45.68,n=82), c16(d=45.68,n=56), c25(d=45.74,n=56), c5(d=46.16,n=37), c23(d=46.35,n=60), c31(d=47.22,n=16), c11(d=47.56,n=26), c1(d=48.90,n=63), c14(d=49.42,n=56), c10(d=49.57,n=39), c6(d=50.42,n=15), c20(d=50.72,n=41)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [243, 244, 245, 246, 247, 248, 249, 250, 251, 252]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g266(d=0.316), g1844(d=58.703), g278(d=59.993), g294(d=61.797), g499(d=62.702)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o641(d=0.316), o1726(d=58.703), o968(d=59.993), o1301(d=61.797), o416(d=62.702)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx641(d=0.316), idx1726(d=58.703), idx968(d=59.993), idx1301(d=61.797), idx416(d=62.702)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c5(d=43.06,n=37), c24(d=44.61,n=87), c27(d=45.05,n=49), c22(d=45.31,n=81), c2(d=45.42,n=53), c29(d=45.60,n=63), c13(d=45.85,n=82), c21(d=46.04,n=104), c26(d=46.62,n=93), c7(d=46.99,n=48), c1(d=47.18,n=63), c4(d=47.29,n=75), c9(d=47.35,n=85), c15(d=47.54,n=78), c12(d=47.59,n=78), c30(d=47.66,n=67), c28(d=48.30,n=92), c3(d=48.67,n=105), c17(d=48.81,n=42), c8(d=48.81,n=64), c16(d=48.84,n=56), c23(d=48.88,n=60), c19(d=49.58,n=78), c25(d=49.98,n=56), c10(d=50.00,n=39), c11(d=50.37,n=26), c0(d=50.57,n=22), c18(d=50.62,n=89), c14(d=51.38,n=56), c20(d=51.69,n=41), c6(d=53.59,n=15), c31(d=53.84,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [318, 319, 320, 321, 322, 323, 324, 325, 326, 327]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g342(d=0.252), g1728(d=62.267), g530(d=62.674), g1672(d=63.075), g1234(d=64.776)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1466(d=0.252), o748(d=62.267), o1023(d=62.674), o1157(d=63.075), o56(d=64.776)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1466(d=0.252), idx748(d=62.267), idx1023(d=62.674), idx1157(d=63.075), idx56(d=64.776)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c8(d=45.90,n=64), c16(d=48.63,n=56), c12(d=49.91,n=78), c22(d=50.13,n=81), c27(d=50.24,n=49), c2(d=50.75,n=53), c21(d=50.76,n=104), c23(d=51.27,n=60), c15(d=51.60,n=78), c3(d=51.92,n=105), c29(d=52.08,n=63), c28(d=52.24,n=92), c30(d=52.31,n=67), c18(d=52.41,n=89), c19(d=52.75,n=78), c9(d=53.14,n=85), c0(d=53.27,n=22), c31(d=53.30,n=16), c13(d=53.75,n=82), c4(d=53.87,n=75), c26(d=54.25,n=93), c24(d=54.62,n=87), c7(d=54.89,n=48), c25(d=55.00,n=56), c6(d=55.01,n=15), c17(d=55.51,n=42), c10(d=55.51,n=39), c1(d=57.62,n=63), c20(d=58.14,n=41), c5(d=58.41,n=37), c11(d=58.85,n=26), c14(d=61.93,n=56)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [418, 419, 420, 421, 422, 423, 424, 425, 426, 427]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g439(d=0.387), g1399(d=64.185), g463(d=64.464), g964(d=64.977), g1397(d=65.470)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o703(d=0.387), o1460(d=64.185), o1353(d=64.464), o1573(d=64.977), o1428(d=65.470)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx703(d=0.387), idx1460(d=64.185), idx1353(d=64.464), idx1573(d=64.977), idx1428(d=65.470)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c6(d=37.56,n=15), c24(d=43.30,n=87), c27(d=43.81,n=49), c9(d=44.41,n=85), c28(d=44.56,n=92), c10(d=45.07,n=39), c5(d=46.03,n=37), c1(d=46.22,n=63), c13(d=46.31,n=82), c17(d=46.41,n=42), c16(d=46.98,n=56), c22(d=47.06,n=81), c12(d=47.11,n=78), c23(d=47.15,n=60), c30(d=47.38,n=67), c25(d=47.81,n=56), c7(d=47.85,n=48), c21(d=47.89,n=104), c4(d=47.96,n=75), c3(d=48.08,n=105), c2(d=48.08,n=53), c18(d=48.30,n=89), c11(d=48.33,n=26), c29(d=48.48,n=63), c26(d=49.01,n=93), c19(d=49.21,n=78), c14(d=49.31,n=56), c20(d=50.44,n=41), c15(d=51.30,n=78), c8(d=51.52,n=64), c0(d=54.73,n=22), c31(d=56.18,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [355, 356, 357, 358, 359, 360, 361, 362, 363, 364]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g356(d=0.298), g1752(d=61.196), g1348(d=62.206), g1485(d=62.870), g1478(d=64.096)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o320(d=0.298), o1600(d=61.196), o424(d=62.206), o220(d=62.870), o60(d=64.096)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx320(d=0.298), idx1600(d=61.196), idx424(d=62.206), idx220(d=62.870), idx60(d=64.096)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c8(d=44.76,n=64), c2(d=46.87,n=53), c15(d=47.24,n=78), c18(d=47.41,n=89), c12(d=47.49,n=78), c14(d=47.71,n=56), c16(d=47.94,n=56), c20(d=48.05,n=41), c9(d=48.26,n=85), c4(d=48.55,n=75), c17(d=48.64,n=42), c26(d=48.86,n=93), c7(d=48.99,n=48), c3(d=49.68,n=105), c23(d=50.14,n=60), c24(d=50.23,n=87), c22(d=50.26,n=81), c29(d=50.79,n=63), c28(d=50.84,n=92), c21(d=51.08,n=104), c30(d=51.30,n=67), c25(d=51.77,n=56), c13(d=51.87,n=82), c19(d=52.32,n=78), c10(d=52.98,n=39), c11(d=52.99,n=26), c27(d=53.79,n=49), c1(d=53.80,n=63), c31(d=54.26,n=16), c0(d=55.33,n=22), c5(d=57.93,n=37), c6(d=60.22,n=15)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [418, 419, 420, 421, 422, 423, 424, 425, 426, 427]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g435(d=0.237), g666(d=60.252), g100(d=62.874), g1826(d=65.408), g874(d=67.226)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o637(d=0.237), o850(d=60.252), o659(d=62.874), o1369(d=65.408), o732(d=67.226)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx637(d=0.237), idx850(d=60.252), idx659(d=62.874), idx1369(d=65.408), idx732(d=67.226)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c24(d=38.18,n=87), c19(d=39.89,n=78), c20(d=40.36,n=41), c15(d=41.89,n=78), c29(d=42.11,n=63), c14(d=42.14,n=56), c13(d=42.28,n=82), c12(d=42.33,n=78), c9(d=42.49,n=85), c3(d=42.74,n=105), c26(d=42.84,n=93), c17(d=43.03,n=42), c21(d=43.26,n=104), c7(d=43.36,n=48), c23(d=43.51,n=60), c25(d=43.54,n=56), c30(d=43.81,n=67), c18(d=43.88,n=89), c1(d=43.97,n=63), c22(d=44.24,n=81), c11(d=44.68,n=26), c2(d=45.13,n=53), c27(d=45.32,n=49), c5(d=45.46,n=37), c28(d=46.14,n=92), c6(d=46.24,n=15), c4(d=46.26,n=75), c16(d=46.89,n=56), c8(d=47.20,n=64), c10(d=47.66,n=39), c0(d=48.13,n=22), c31(d=50.86,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1477, 1478, 1479, 1480, 1481, 1482, 1483, 1484, 1485, 1486]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1555(d=0.319), g213(d=56.111), g1234(d=58.918), g853(d=59.422), g746(d=60.710)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1830(d=0.319), o1474(d=56.111), o56(d=58.918), o178(d=59.422), o868(d=60.710)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1830(d=0.319), idx1474(d=56.111), idx56(d=58.918), idx178(d=59.422), idx868(d=60.710)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c11(d=34.99,n=26), c26(d=39.36,n=93), c4(d=39.61,n=75), c30(d=40.11,n=67), c17(d=40.15,n=42), c9(d=40.28,n=85), c16(d=40.31,n=56), c29(d=40.35,n=63), c13(d=40.43,n=82), c3(d=40.63,n=105), c24(d=40.96,n=87), c10(d=41.03,n=39), c19(d=41.14,n=78), c1(d=41.44,n=63), c14(d=41.50,n=56), c31(d=41.53,n=16), c2(d=41.73,n=53), c7(d=41.93,n=48), c8(d=42.27,n=64), c22(d=42.39,n=81), c12(d=42.43,n=78), c18(d=42.47,n=89), c27(d=42.49,n=49), c0(d=42.65,n=22), c23(d=42.69,n=60), c25(d=42.70,n=56), c5(d=42.93,n=37), c28(d=43.44,n=92), c21(d=43.53,n=104), c6(d=44.46,n=15), c20(d=45.28,n=41), c15(d=46.39,n=78)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [606, 607, 608, 609, 610, 611, 612, 613, 614, 615]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g617(d=0.397), g100(d=59.316), g513(d=59.463), g329(d=60.177), g834(d=60.694)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1275(d=0.397), o659(d=59.316), o666(d=59.463), o627(d=60.177), o1433(d=60.694)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1275(d=0.397), idx659(d=59.316), idx666(d=59.463), idx627(d=60.177), idx1433(d=60.694)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c28(d=41.17,n=92), c8(d=42.09,n=64), c18(d=42.27,n=89), c30(d=42.72,n=67), c25(d=42.82,n=56), c0(d=42.99,n=22), c23(d=43.33,n=60), c4(d=43.38,n=75), c1(d=44.05,n=63), c9(d=44.33,n=85), c29(d=44.59,n=63), c20(d=44.70,n=41), c22(d=44.82,n=81), c24(d=44.86,n=87), c12(d=44.89,n=78), c21(d=44.99,n=104), c13(d=45.02,n=82), c27(d=45.04,n=49), c2(d=45.68,n=53), c5(d=46.13,n=37), c15(d=46.17,n=78), c16(d=46.29,n=56), c26(d=46.30,n=93), c7(d=46.56,n=48), c3(d=46.71,n=105), c19(d=46.74,n=78), c10(d=46.89,n=39), c11(d=47.01,n=26), c6(d=47.12,n=15), c31(d=47.93,n=16), c17(d=48.08,n=42), c14(d=49.98,n=56)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1762, 1763, 1764, 1765, 1766, 1767, 1768, 1769, 1770, 1771]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1776(d=0.325), g1783(d=60.854), g25(d=63.324), g335(d=63.376), g769(d=64.804)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o316(d=0.325), o486(d=60.854), o99(d=63.324), o1076(d=63.376), o1489(d=64.804)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx316(d=0.325), idx486(d=60.854), idx99(d=63.324), idx1076(d=63.376), idx1489(d=64.804)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c13(d=38.75,n=82), c28(d=41.63,n=92), c12(d=42.89,n=78), c30(d=43.13,n=67), c5(d=43.31,n=37), c19(d=43.35,n=78), c3(d=43.50,n=105), c31(d=43.62,n=16), c0(d=43.90,n=22), c14(d=44.73,n=56), c10(d=45.17,n=39), c15(d=45.26,n=78), c29(d=45.27,n=63), c25(d=45.27,n=56), c18(d=45.44,n=89), c23(d=45.59,n=60), c24(d=45.62,n=87), c11(d=45.69,n=26), c17(d=45.76,n=42), c16(d=45.78,n=56), c22(d=46.03,n=81), c4(d=46.11,n=75), c8(d=46.12,n=64), c2(d=46.13,n=53), c6(d=46.16,n=15), c21(d=46.91,n=104), c9(d=46.91,n=85), c26(d=46.99,n=93), c27(d=47.07,n=49), c1(d=49.73,n=63), c7(d=50.27,n=48), c20(d=50.95,n=41)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [710, 711, 712, 713, 714, 715, 716, 717, 718, 719]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g783(d=0.389), g15(d=61.066), g437(d=61.365), g1912(d=61.612), g1764(d=63.019)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1801(d=0.389), o1513(d=61.066), o651(d=61.365), o1871(d=61.612), o111(d=63.019)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1801(d=0.389), idx1513(d=61.066), idx651(d=61.365), idx1871(d=61.612), idx111(d=63.019)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c4(d=40.95,n=75), c18(d=43.33,n=89), c12(d=43.40,n=78), c28(d=43.48,n=92), c30(d=43.61,n=67), c19(d=43.68,n=78), c26(d=44.50,n=93), c3(d=44.54,n=105), c27(d=44.57,n=49), c25(d=44.88,n=56), c8(d=45.15,n=64), c1(d=45.42,n=63), c16(d=45.51,n=56), c2(d=45.59,n=53), c21(d=45.66,n=104), c9(d=45.95,n=85), c11(d=46.15,n=26), c29(d=46.24,n=63), c5(d=46.29,n=37), c17(d=46.39,n=42), c24(d=46.48,n=87), c0(d=46.61,n=22), c7(d=47.01,n=48), c14(d=47.45,n=56), c13(d=47.53,n=82), c23(d=47.92,n=60), c10(d=48.22,n=39), c22(d=48.55,n=81), c31(d=48.78,n=16), c20(d=49.51,n=41), c15(d=49.96,n=78), c6(d=53.87,n=15)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [243, 244, 245, 246, 247, 248, 249, 250, 251, 252]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g262(d=0.324), g1801(d=57.753), g442(d=59.714), g1932(d=64.004), g1763(d=64.305)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o466(d=0.324), o900(d=57.753), o772(d=59.714), o403(d=64.004), o101(d=64.305)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx466(d=0.324), idx900(d=57.753), idx772(d=59.714), idx403(d=64.004), idx101(d=64.305)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c21(d=37.30,n=104), c23(d=38.18,n=60), c27(d=38.39,n=49), c12(d=38.73,n=78), c30(d=39.28,n=67), c18(d=39.42,n=89), c15(d=40.80,n=78), c26(d=40.90,n=93), c28(d=41.00,n=92), c25(d=41.11,n=56), c3(d=41.17,n=105), c1(d=41.21,n=63), c9(d=41.44,n=85), c22(d=41.88,n=81), c8(d=41.89,n=64), c13(d=42.06,n=82), c14(d=42.32,n=56), c19(d=42.64,n=78), c17(d=42.83,n=42), c4(d=42.90,n=75), c16(d=43.02,n=56), c11(d=43.18,n=26), c29(d=43.64,n=63), c24(d=44.19,n=87), c2(d=44.28,n=53), c5(d=44.61,n=37), c7(d=44.64,n=48), c6(d=44.67,n=15), c20(d=45.11,n=41), c10(d=47.01,n=39), c0(d=48.22,n=22), c31(d=49.92,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1232, 1233, 1234, 1235, 1236, 1237, 1238, 1239, 1240, 1241]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1247(d=0.274), g1538(d=57.300), g1840(d=57.578), g1430(d=58.401), g1109(d=59.931)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o295(d=0.274), o1514(d=57.300), o1643(d=57.578), o598(d=58.401), o1851(d=59.931)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx295(d=0.274), idx1514(d=57.300), idx1643(d=57.578), idx598(d=58.401), idx1851(d=59.931)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c10(d=38.26,n=39), c22(d=42.07,n=81), c26(d=42.60,n=93), c16(d=42.65,n=56), c15(d=42.83,n=78), c4(d=43.06,n=75), c24(d=43.41,n=87), c28(d=43.54,n=92), c18(d=43.59,n=89), c14(d=43.93,n=56), c23(d=44.30,n=60), c8(d=44.37,n=64), c1(d=44.41,n=63), c3(d=44.44,n=105), c2(d=44.66,n=53), c9(d=44.78,n=85), c29(d=44.84,n=63), c12(d=44.89,n=78), c30(d=45.28,n=67), c19(d=45.71,n=78), c20(d=45.71,n=41), c0(d=45.73,n=22), c27(d=45.97,n=49), c21(d=47.01,n=104), c6(d=47.11,n=15), c17(d=47.73,n=42), c13(d=48.09,n=82), c5(d=48.45,n=37), c7(d=48.53,n=48), c11(d=49.08,n=26), c31(d=49.09,n=16), c25(d=49.73,n=56)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [567, 568, 569, 570, 571, 572, 573, 574, 575, 576]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g599(d=0.287), g309(d=54.999), g1532(d=58.247), g880(d=60.011), g970(d=62.839)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1672(d=0.287), o1816(d=54.999), o1405(d=58.247), o845(d=60.011), o1777(d=62.839)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1672(d=0.287), idx1816(d=54.999), idx1405(d=58.247), idx845(d=60.011), idx1777(d=62.839)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c17(d=38.51,n=42), c30(d=40.87,n=67), c26(d=42.40,n=93), c27(d=42.61,n=49), c14(d=42.81,n=56), c29(d=42.83,n=63), c9(d=43.15,n=85), c8(d=43.33,n=64), c24(d=43.78,n=87), c12(d=44.08,n=78), c21(d=44.61,n=104), c25(d=44.69,n=56), c18(d=44.93,n=89), c4(d=44.96,n=75), c7(d=45.12,n=48), c1(d=45.14,n=63), c16(d=45.23,n=56), c15(d=45.59,n=78), c22(d=45.69,n=81), c10(d=46.02,n=39), c19(d=46.03,n=78), c20(d=46.09,n=41), c13(d=46.22,n=82), c2(d=46.43,n=53), c23(d=46.54,n=60), c5(d=46.65,n=37), c28(d=46.93,n=92), c11(d=47.52,n=26), c3(d=48.20,n=105), c6(d=49.69,n=15), c0(d=49.80,n=22), c31(d=49.91,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [982, 983, 984, 985, 986, 987, 988, 989, 990, 991]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1018(d=0.354), g1348(d=58.280), g1022(d=59.628), g659(d=61.884), g25(d=62.060)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1781(d=0.354), o424(d=58.280), o1934(d=59.628), o682(d=61.884), o99(d=62.060)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1781(d=0.354), idx424(d=58.280), idx1934(d=59.628), idx682(d=61.884), idx99(d=62.060)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c13(d=45.78,n=82), c3(d=47.11,n=105), c24(d=47.39,n=87), c14(d=47.79,n=56), c10(d=48.00,n=39), c30(d=49.63,n=67), c19(d=49.73,n=78), c26(d=49.73,n=93), c4(d=49.87,n=75), c21(d=49.92,n=104), c16(d=50.36,n=56), c9(d=50.65,n=85), c22(d=50.96,n=81), c15(d=50.99,n=78), c27(d=51.29,n=49), c23(d=51.39,n=60), c17(d=51.43,n=42), c12(d=51.96,n=78), c28(d=53.58,n=92), c29(d=53.67,n=63), c11(d=53.78,n=26), c20(d=53.96,n=41), c0(d=54.09,n=22), c5(d=54.15,n=37), c6(d=54.31,n=15), c1(d=54.43,n=63), c8(d=54.65,n=64), c18(d=54.74,n=89), c2(d=55.11,n=53), c7(d=56.09,n=48), c25(d=56.58,n=56), c31(d=61.40,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [710, 711, 712, 713, 714, 715, 716, 717, 718, 719]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g785(d=0.302), g1538(d=65.338), g739(d=66.672), g825(d=66.723), g159(d=68.071)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1870(d=0.302), o1514(d=65.338), o714(d=66.672), o1100(d=66.723), o427(d=68.071)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1870(d=0.302), idx1514(d=65.338), idx714(d=66.672), idx1100(d=66.723), idx427(d=68.071)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c24(d=36.86,n=87), c3(d=39.14,n=105), c26(d=39.41,n=93), c10(d=39.59,n=39), c22(d=39.81,n=81), c5(d=39.88,n=37), c18(d=39.97,n=89), c1(d=39.99,n=63), c28(d=40.01,n=92), c16(d=40.12,n=56), c15(d=40.31,n=78), c12(d=40.42,n=78), c17(d=40.42,n=42), c21(d=40.86,n=104), c27(d=40.92,n=49), c19(d=41.14,n=78), c30(d=41.29,n=67), c13(d=41.30,n=82), c20(d=41.47,n=41), c8(d=41.91,n=64), c25(d=42.18,n=56), c4(d=42.38,n=75), c14(d=43.00,n=56), c23(d=43.30,n=60), c6(d=43.40,n=15), c29(d=43.42,n=63), c2(d=43.61,n=53), c7(d=43.91,n=48), c11(d=44.08,n=26), c9(d=44.70,n=85), c31(d=46.01,n=16), c0(d=47.15,n=22)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1477, 1478, 1479, 1480, 1481, 1482, 1483, 1484, 1485, 1486]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1490(d=0.382), g110(d=56.901), g37(d=58.414), g1488(d=58.642), g291(d=58.650)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o323(d=0.382), o959(d=56.901), o379(d=58.414), o294(d=58.642), o1254(d=58.650)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx323(d=0.382), idx959(d=56.901), idx379(d=58.414), idx294(d=58.642), idx1254(d=58.650)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c3(d=39.09,n=105), c4(d=42.47,n=75), c25(d=42.95,n=56), c20(d=43.11,n=41), c29(d=44.05,n=63), c28(d=44.10,n=92), c2(d=44.18,n=53), c9(d=44.41,n=85), c19(d=44.65,n=78), c16(d=45.03,n=56), c24(d=45.05,n=87), c11(d=45.07,n=26), c13(d=45.35,n=82), c14(d=45.49,n=56), c1(d=45.56,n=63), c15(d=45.57,n=78), c26(d=45.73,n=93), c7(d=45.94,n=48), c8(d=46.21,n=64), c12(d=46.44,n=78), c18(d=46.56,n=89), c30(d=46.60,n=67), c10(d=46.61,n=39), c21(d=46.94,n=104), c22(d=47.54,n=81), c5(d=47.57,n=37), c0(d=48.91,n=22), c31(d=49.34,n=16), c23(d=49.90,n=60), c27(d=50.54,n=49), c17(d=53.58,n=42), c6(d=55.39,n=15)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [138, 139, 140, 141, 142, 143, 144, 145, 146, 147]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g201(d=0.265), g499(d=57.310), g1198(d=59.159), g1949(d=59.604), g207(d=61.352)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1220(d=0.265), o416(d=57.310), o404(d=59.159), o990(d=59.604), o1370(d=61.352)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1220(d=0.265), idx416(d=57.310), idx404(d=59.159), idx990(d=59.604), idx1370(d=61.352)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c2(d=38.06,n=53), c12(d=38.75,n=78), c29(d=40.29,n=63), c7(d=40.36,n=48), c16(d=41.52,n=56), c10(d=41.75,n=39), c19(d=41.92,n=78), c15(d=42.15,n=78), c8(d=42.39,n=64), c1(d=42.50,n=63), c18(d=42.68,n=89), c9(d=42.70,n=85), c3(d=42.82,n=105), c30(d=43.20,n=67), c28(d=43.24,n=92), c21(d=43.24,n=104), c22(d=43.58,n=81), c4(d=43.58,n=75), c25(d=43.82,n=56), c14(d=43.99,n=56), c23(d=44.71,n=60), c11(d=44.75,n=26), c17(d=45.07,n=42), c24(d=45.23,n=87), c13(d=45.41,n=82), c20(d=46.12,n=41), c0(d=46.16,n=22), c27(d=46.53,n=49), c6(d=47.14,n=15), c26(d=47.49,n=93), c5(d=49.21,n=37), c31(d=49.55,n=16)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [85, 86, 87, 88, 89, 90, 91, 92, 93, 94]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g113(d=0.345), g901(d=58.391), g989(d=61.466), g1039(d=61.932), g111(d=62.066)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o993(d=0.345), o1426(d=58.391), o430(d=61.466), o313(d=61.932), o961(d=62.066)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx993(d=0.345), idx1426(d=58.391), idx430(d=61.466), idx313(d=61.932), idx961(d=62.066)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c15(d=45.23,n=78), c18(d=47.13,n=89), c2(d=47.89,n=53), c8(d=47.95,n=64), c20(d=48.00,n=41), c9(d=48.63,n=85), c14(d=49.36,n=56), c7(d=49.49,n=48), c29(d=49.77,n=63), c3(d=49.81,n=105), c19(d=49.85,n=78), c25(d=49.94,n=56), c26(d=49.98,n=93), c5(d=50.23,n=37), c27(d=50.37,n=49), c22(d=50.50,n=81), c1(d=50.81,n=63), c4(d=51.23,n=75), c13(d=51.73,n=82), c21(d=51.76,n=104), c12(d=51.87,n=78), c28(d=51.88,n=92), c16(d=52.40,n=56), c30(d=52.72,n=67), c23(d=52.78,n=60), c24(d=53.54,n=87), c0(d=53.62,n=22), c31(d=54.11,n=16), c17(d=54.14,n=42), c10(d=54.53,n=39), c6(d=56.83,n=15), c11(d=57.42,n=26)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [848, 849, 850, 851, 852, 853, 854, 855, 856, 857]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g857(d=0.338), g39(d=63.117), g1046(d=63.152), g1896(d=64.760), g1876(d=65.131)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o234(d=0.338), o415(d=63.117), o439(d=63.152), o1389(d=64.760), o653(d=65.131)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx234(d=0.338), idx415(d=63.117), idx439(d=63.152), idx1389(d=64.760), idx653(d=65.131)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c1(d=38.74,n=63), c18(d=41.73,n=89), c3(d=41.92,n=105), c22(d=42.15,n=81), c24(d=42.25,n=87), c28(d=42.43,n=92), c14(d=42.51,n=56), c7(d=42.87,n=48), c29(d=43.02,n=63), c27(d=43.59,n=49), c2(d=43.78,n=53), c15(d=44.19,n=78), c5(d=44.42,n=37), c19(d=44.46,n=78), c23(d=44.54,n=60), c10(d=44.62,n=39), c17(d=44.62,n=42), c4(d=44.67,n=75), c31(d=44.68,n=16), c9(d=44.69,n=85), c12(d=44.72,n=78), c20(d=44.81,n=41), c26(d=44.82,n=93), c21(d=44.90,n=104), c25(d=45.16,n=56), c8(d=45.22,n=64), c13(d=45.55,n=82), c30(d=46.78,n=67), c16(d=47.26,n=56), c11(d=47.37,n=26), c0(d=47.89,n=22), c6(d=47.91,n=15)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g70(d=0.262), g1063(d=59.355), g999(d=59.839), g1640(d=60.120), g1506(d=60.742)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1391(d=0.262), o925(d=59.355), o923(d=59.839), o385(d=60.120), o602(d=60.742)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1391(d=0.262), idx925(d=59.355), idx923(d=59.839), idx385(d=60.120), idx602(d=60.742)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c21(d=40.77,n=104), c20(d=44.53,n=41), c29(d=45.19,n=63), c13(d=45.28,n=82), c3(d=45.54,n=105), c31(d=45.56,n=16), c30(d=45.78,n=67), c26(d=46.03,n=93), c27(d=46.07,n=49), c28(d=46.14,n=92), c24(d=46.68,n=87), c23(d=46.72,n=60), c4(d=46.86,n=75), c18(d=47.20,n=89), c7(d=47.34,n=48), c1(d=47.38,n=63), c12(d=47.47,n=78), c17(d=47.47,n=42), c2(d=47.71,n=53), c8(d=47.71,n=64), c5(d=47.95,n=37), c0(d=48.17,n=22), c16(d=48.33,n=56), c15(d=49.03,n=78), c19(d=49.23,n=78), c14(d=49.95,n=56), c25(d=50.07,n=56), c11(d=50.14,n=26), c22(d=50.99,n=81), c9(d=51.33,n=85), c10(d=51.59,n=39), c6(d=53.65,n=15)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [1232, 1233, 1234, 1235, 1236, 1237, 1238, 1239, 1240, 1241]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g1252(d=0.234), g1893(d=63.418), g1323(d=63.893), g246(d=64.080), g451(d=64.368)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o368(d=0.234), o1347(d=63.418), o1747(d=63.893), o76(d=64.080), o1004(d=64.368)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighboTest Case '-[VectorAccelerateTests.IVFQualityAssessmentTests testIVFQualityWithLargerK]' passed (15.201 seconds).
+Test Suite 'IVFQualityAssessmentTests' passed at 2025-12-18 18:42:27.551.
+	 Executed 1 test, with 0 failures (0 unexpected) in 15.201 (15.201) seconds
+Test Suite 'VectorAcceleratePackageTests.xctest' passed at 2025-12-18 18:42:27.551.
+	 Executed 1 test, with 0 failures (0 unexpected) in 15.201 (15.201) seconds
+Test Suite 'Selected tests' passed at 2025-12-18 18:42:27.551.
+	 Executed 1 test, with 0 failures (0 unexpected) in 15.201 (15.202) seconds
+rs
+[IVF Debug]   top-5: [idx368(d=0.234), idx1347(d=63.418), idx1747(d=63.893), idx76(d=64.080), idx1004(d=64.368)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+[IVF Debug] === CLUSTER UTILIZATION ===
+[IVF Debug] numCentroids=32, totalVectors=2000
+[IVF Debug] listSizes: min=15, max=105, avg=62.5, stdDev=24.3
+[IVF Debug] emptyLists=0
+[IVF Debug] first 10 list sizes: [22, 63, 53, 105, 75, 37, 15, 48, 64, 85]
+[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===
+[IVF Debug] cluster[0]: count=22, storedNorm=2.337, actualMeanNorm=2.337, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug]   actual[0:4]=[-0.186, 0.240, 0.268, -0.141]
+[IVF Debug] cluster[1]: count=63, storedNorm=1.748, actualMeanNorm=1.748, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug]   actual[0:4]=[0.045, -0.288, -0.035, 0.134]
+[IVF Debug] cluster[2]: count=53, storedNorm=1.761, actualMeanNorm=1.761, centroid-vs-mean L2=0.0000
+[IVF Debug]   stored[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug]   actual[0:4]=[0.125, 0.364, 0.135, -0.415]
+[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===
+[IVF Debug] nprobe=32, numQueries=1
+[IVF Debug] query[0]: selected 32 clusters, totalCandidates=2000
+[IVF Debug]   clusters: [c8(d=41.31,n=64), c9(d=41.95,n=85), c26(d=42.73,n=93), c29(d=42.82,n=63), c24(d=43.74,n=87), c21(d=43.98,n=104), c5(d=44.18,n=37), c18(d=44.30,n=89), c28(d=44.55,n=92), c27(d=44.96,n=49), c4(d=45.21,n=75), c23(d=45.23,n=60), c22(d=45.24,n=81), c3(d=45.32,n=105), c1(d=45.43,n=63), c10(d=45.85,n=39), c25(d=46.28,n=56), c19(d=46.29,n=78), c30(d=46.43,n=67), c17(d=46.46,n=42), c20(d=46.50,n=41), c2(d=46.64,n=53), c31(d=46.69,n=16), c11(d=46.92,n=26), c7(d=46.94,n=48), c12(d=47.29,n=78), c6(d=47.59,n=15), c13(d=47.60,n=82), c16(d=47.82,n=56), c15(d=47.89,n=78), c14(d=47.91,n=56), c0(d=48.33,n=22)]
+[IVF Debug] Coarse summary: requested=32, avg=32.0, min=32, max=32
+[IVF Debug] === CANDIDATE GATHERING ===
+[IVF Debug] totalUniqueCandidates=2000, totalVectors=2000
+[IVF Debug] query[0]: candidatesGathered=2000, unique=2000
+[IVF Debug]   first 10 candidate indices: [418, 419, 420, 421, 422, 423, 424, 425, 426, 427]
+[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===
+[IVF Debug] searchedDatasetSize=2000, effectiveK=32
+[IVF Debug] query[0] fused results: 32 found
+[IVF Debug]   top-5 (gatheredIdx): [g475(d=0.295), g1893(d=58.653), g1025(d=59.492), g1334(d=60.060), g151(d=62.252)]
+[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===
+[IVF Debug] gatheredOriginalIndices.count=2000
+[IVF Debug] first 10 mappings: [g0->o185, g1->o198, g2->o225, g3->o310, g4->o477, g5->o481, g6->o624, g7->o646, g8->o677, g9->o788]
+[IVF Debug] query[0] final: 32 results
+[IVF Debug]   top-5 (originalIdx): [o1805(d=0.295), o1347(d=58.653), o43(d=59.492), o1964(d=60.060), o258(d=62.252)]
+[IVF Debug] === FINE SEARCH RESULTS ===
+[IVF Debug] query[0]: found 32/32 neighbors
+[IVF Debug]   top-5: [idx1805(d=0.295), idx1347(d=58.653), idx43(d=59.492), idx1964(d=60.060), idx258(d=62.252)]
+[IVF Debug] Fine summary: requested K=32, avg=32.0, min=32, max=32
+
+Large-K Recall (nprobe=32, K=32): 100.0%
+􀟈  Test run started.
+􀄵  Testing Library Version: 1501
+􀄵  Target Platform: arm64e-apple-macos14.0
+􁁛  Test run with 0 tests in 0 suites passed after 0.001 seconds.

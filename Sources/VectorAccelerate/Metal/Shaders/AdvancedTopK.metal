@@ -261,13 +261,13 @@ kernel void fused_l2_topk(
     }
 
     const ulong output_offset = (ulong)q_id * K;
-    const uint K_emit = (K <= K_PRIVATE) ? K : K_PRIVATE;
 
-    if (K_emit <= 32) {
+    // Small-K path: emit exact top-K when K <= 32 using reductions
+    if (K <= 32) {
         // Use parallel reduction for small K
         threadgroup BestCand scratch[MAX_TGS];
         
-        for (uint sel = 0; sel < K_emit; ++sel) {
+        for (uint sel = 0; sel < K; ++sel) {
             BestCand local = {INFINITY, SENTINEL_INDEX, 0};
             for (uint i = tid; i < pow2_size; i += tgs) {
                 Candidate c = shared_candidates[i];
@@ -292,38 +292,22 @@ kernel void fused_l2_topk(
             }
             threadgroup_barrier(mem_flags::mem_threadgroup);
         }
-        
-        // Pad remaining outputs
-        for (uint k = K_emit + tid; k < K; k += tgs) {
-            result_indices[output_offset + k] = SENTINEL_INDEX;
-            if (result_distances != nullptr) {
-                result_distances[output_offset + k] = INFINITY;
-            }
-        }
     } else {
-        // Use bitonic sort for larger K
+        // Use bitonic sort for larger K and emit full K results
         block_bitonic_sort(shared_candidates, pow2_size, tid, tgs);
         
-        for (uint k = tid; k < K_emit; k += tgs) {
-            if (k < pow2_size) {
-                Candidate result = shared_candidates[k];
-                result_indices[output_offset + k] = result.index;
+        for (uint out = tid; out < K; out += tgs) {
+            if (out < pow2_size) {
+                Candidate result = shared_candidates[out];
+                result_indices[output_offset + out] = result.index;
                 if (result_distances != nullptr) {
-                    result_distances[output_offset + k] = result.distance;
+                    result_distances[output_offset + out] = result.distance;
                 }
             } else {
-                result_indices[output_offset + k] = SENTINEL_INDEX;
+                result_indices[output_offset + out] = SENTINEL_INDEX;
                 if (result_distances != nullptr) {
-                    result_distances[output_offset + k] = INFINITY;
+                    result_distances[output_offset + out] = INFINITY;
                 }
-            }
-        }
-        
-        // Pad remaining outputs
-        for (uint k = K_emit + tid; k < K; k += tgs) {
-            result_indices[output_offset + k] = SENTINEL_INDEX;
-            if (result_distances != nullptr) {
-                result_distances[output_offset + k] = INFINITY;
             }
         }
     }

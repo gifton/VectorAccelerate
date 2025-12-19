@@ -58,6 +58,12 @@ public final class IVFSearchPipeline: @unchecked Sendable {
     private let fusedL2TopK: FusedL2TopKKernel
     private let topKSelection: TopKSelectionKernel
 
+    // MARK: - Debugging
+
+    /// Global toggle for lightweight debug prints during search.
+    /// Tests can set this to true to get coarse/fine valid-count summaries.
+    nonisolated(unsafe) public static var debugEnabled: Bool = false
+
     // MARK: - Initialization
 
     /// Create an IVF search pipeline.
@@ -232,6 +238,116 @@ public final class IVFSearchPipeline: @unchecked Sendable {
             throw IndexError.dimensionMismatch(expected: dimension, got: queries[0].count)
         }
 
+        // === DEBUG: Log cluster utilization (list size distribution) ===
+        if Self.debugEnabled {
+            let offsetPtr = structure.listOffsets.contents().bindMemory(
+                to: UInt32.self,
+                capacity: structure.numCentroids + 1
+            )
+            var listSizes: [Int] = []
+            var emptyLists = 0
+            var minSize = Int.max
+            var maxSize = 0
+            var totalVecs = 0
+
+            for c in 0..<structure.numCentroids {
+                let start = Int(offsetPtr[c])
+                let end = Int(offsetPtr[c + 1])
+                let size = end - start
+                listSizes.append(size)
+                totalVecs += size
+                if size == 0 { emptyLists += 1 }
+                minSize = min(minSize, size)
+                maxSize = max(maxSize, size)
+            }
+
+            let avgSize = Double(totalVecs) / Double(max(1, structure.numCentroids))
+            let variance = listSizes.reduce(0.0) { sum, size in
+                let diff = Double(size) - avgSize
+                return sum + diff * diff
+            } / Double(max(1, structure.numCentroids))
+            let stdDev = sqrt(variance)
+
+            print("[IVF Debug] === CLUSTER UTILIZATION ===")
+            print("[IVF Debug] numCentroids=\(structure.numCentroids), totalVectors=\(totalVecs)")
+            print("[IVF Debug] listSizes: min=\(minSize), max=\(maxSize), avg=\(String(format: "%.1f", avgSize)), stdDev=\(String(format: "%.1f", stdDev))")
+            print("[IVF Debug] emptyLists=\(emptyLists)")
+
+            // Show first 10 list sizes
+            let sampleSizes = listSizes.prefix(10).map { String($0) }.joined(separator: ", ")
+            print("[IVF Debug] first 10 list sizes: [\(sampleSizes)]")
+        }
+
+        // === DEBUG: Verify centroid computation (sample check) ===
+        if Self.debugEnabled {
+            let centroidPtr = structure.centroids.contents().bindMemory(
+                to: Float.self,
+                capacity: structure.numCentroids * dimension
+            )
+            let vectorsPtr = structure.listVectors.contents().bindMemory(
+                to: Float.self,
+                capacity: structure.totalVectors * dimension
+            )
+            let offsetPtr = structure.listOffsets.contents().bindMemory(
+                to: UInt32.self,
+                capacity: structure.numCentroids + 1
+            )
+
+            print("[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===")
+            var verified = 0
+            for c in 0..<structure.numCentroids where verified < 3 {
+                let listStart = Int(offsetPtr[c])
+                let listEnd = Int(offsetPtr[c + 1])
+                let listCount = listEnd - listStart
+                guard listCount > 0 else { continue }
+
+                // Compute actual mean of vectors in this cluster
+                var actualMean = [Float](repeating: 0, count: dimension)
+                for vecIdx in listStart..<listEnd {
+                    for d in 0..<dimension {
+                        actualMean[d] += vectorsPtr[vecIdx * dimension + d]
+                    }
+                }
+                for d in 0..<dimension {
+                    actualMean[d] /= Float(listCount)
+                }
+
+                // Get stored centroid
+                var storedCentroid = [Float](repeating: 0, count: dimension)
+                for d in 0..<dimension {
+                    storedCentroid[d] = centroidPtr[c * dimension + d]
+                }
+
+                // Compute L2 distance between stored and actual
+                var l2Dist: Float = 0
+                for d in 0..<dimension {
+                    let diff = storedCentroid[d] - actualMean[d]
+                    l2Dist += diff * diff
+                }
+                l2Dist = sqrt(l2Dist)
+
+                // Compute norms for reference
+                var storedNorm: Float = 0
+                var actualNorm: Float = 0
+                for d in 0..<dimension {
+                    storedNorm += storedCentroid[d] * storedCentroid[d]
+                    actualNorm += actualMean[d] * actualMean[d]
+                }
+                storedNorm = sqrt(storedNorm)
+                actualNorm = sqrt(actualNorm)
+
+                print("[IVF Debug] cluster[\(c)]: count=\(listCount), storedNorm=\(String(format: "%.3f", storedNorm)), actualMeanNorm=\(String(format: "%.3f", actualNorm)), centroid-vs-mean L2=\(String(format: "%.4f", l2Dist))")
+
+                // Show first 4 dims of each
+                let storedSample = storedCentroid.prefix(4).map { String(format: "%.3f", $0) }.joined(separator: ", ")
+                let actualSample = actualMean.prefix(4).map { String(format: "%.3f", $0) }.joined(separator: ", ")
+                print("[IVF Debug]   stored[0:4]=[\(storedSample)]")
+                print("[IVF Debug]   actual[0:4]=[\(actualSample)]")
+
+                verified += 1
+            }
+        }
+
         // Create query buffer
         let flatQueries = queries.flatMap { $0 }
         guard let queryBuffer = device.makeBuffer(
@@ -260,6 +376,54 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         )
         coarseTime = CACurrentMediaTime() - coarseStart
 
+        // Debug: summarize how many coarse lists were actually selected (non-sentinel)
+        if Self.debugEnabled {
+            let listPtr = coarseResult.listIndices.contents().bindMemory(to: UInt32.self, capacity: numQueries * nprobe)
+            let distPtr = coarseResult.listDistances.contents().bindMemory(to: Float.self, capacity: numQueries * nprobe)
+            let offsetPtr = structure.listOffsets.contents().bindMemory(to: UInt32.self, capacity: structure.numCentroids + 1)
+
+            var minSel = Int.max
+            var maxSel = Int.min
+            var sumSel = 0
+
+            print("[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===")
+            print("[IVF Debug] nprobe=\(nprobe), numQueries=\(numQueries)")
+
+            // Show detailed selection for first 3 queries
+            let detailQueries = min(3, numQueries)
+            for q in 0..<detailQueries {
+                var selectedClusters: [(cluster: Int, distance: Float, listSize: Int)] = []
+                for p in 0..<nprobe {
+                    let clusterIdx = listPtr[q * nprobe + p]
+                    let dist = distPtr[q * nprobe + p]
+                    if clusterIdx != 0xFFFFFFFF && Int(clusterIdx) < structure.numCentroids {
+                        let listStart = Int(offsetPtr[Int(clusterIdx)])
+                        let listEnd = Int(offsetPtr[Int(clusterIdx) + 1])
+                        let listSize = listEnd - listStart
+                        selectedClusters.append((Int(clusterIdx), dist, listSize))
+                    }
+                }
+                let clusterStr = selectedClusters.map { "c\($0.cluster)(d=\(String(format: "%.2f", $0.distance)),n=\($0.listSize))" }.joined(separator: ", ")
+                let totalCandidates = selectedClusters.reduce(0) { $0 + $1.listSize }
+                print("[IVF Debug] query[\(q)]: selected \(selectedClusters.count) clusters, totalCandidates=\(totalCandidates)")
+                print("[IVF Debug]   clusters: [\(clusterStr)]")
+            }
+
+            // Aggregate stats for all queries
+            for q in 0..<numQueries {
+                var count = 0
+                for p in 0..<nprobe {
+                    let val = listPtr[q * nprobe + p]
+                    if val != 0xFFFFFFFF && Int(val) < structure.numCentroids { count += 1 }
+                }
+                minSel = min(minSel, count)
+                maxSel = max(maxSel, count)
+                sumSel += count
+            }
+            let avgSel = Double(sumSel) / Double(max(1, numQueries))
+            print("[IVF Debug] Coarse summary: requested=\(nprobe), avg=\(String(format: "%.1f", avgSel)), min=\(minSel), max=\(maxSel)")
+        }
+
         // Phase 2: Gather candidates and search
         let listSearchStart = CACurrentMediaTime()
 
@@ -273,6 +437,61 @@ public final class IVFSearchPipeline: @unchecked Sendable {
             k: k
         )
         listSearchTime = CACurrentMediaTime() - listSearchStart
+
+        // Debug: summarize how many valid neighbors were produced per query (non-sentinel)
+        if Self.debugEnabled {
+            let idxPtr = gatheredResult.indices.contents().bindMemory(to: UInt32.self, capacity: numQueries * k)
+            let distPtr = gatheredResult.distances.contents().bindMemory(to: Float.self, capacity: numQueries * k)
+
+            var minValid = Int.max
+            var maxValid = Int.min
+            var sumValid = 0
+
+            print("[IVF Debug] === FINE SEARCH RESULTS ===")
+
+            // Show detailed results for first 3 queries
+            let detailQueries = min(3, numQueries)
+            for q in 0..<detailQueries {
+                var results: [(index: UInt32, distance: Float)] = []
+                let base = q * k
+                for i in 0..<k {
+                    let idx = idxPtr[base + i]
+                    let dist = distPtr[base + i]
+                    if idx != 0xFFFFFFFF {
+                        results.append((idx, dist))
+                    }
+                }
+                let resultStr = results.prefix(5).map { "idx\($0.index)(d=\(String(format: "%.3f", $0.distance)))" }.joined(separator: ", ")
+                print("[IVF Debug] query[\(q)]: found \(results.count)/\(k) neighbors")
+                print("[IVF Debug]   top-5: [\(resultStr)]")
+
+                // Check if distances are sorted
+                var isSorted = true
+                for i in 1..<results.count {
+                    if results[i].distance < results[i-1].distance {
+                        isSorted = false
+                        break
+                    }
+                }
+                if !isSorted && results.count > 1 {
+                    print("[IVF Debug]   WARNING: results NOT sorted by distance!")
+                }
+            }
+
+            // Aggregate stats
+            for q in 0..<numQueries {
+                var cnt = 0
+                let base = q * k
+                for i in 0..<k {
+                    if idxPtr[base + i] != 0xFFFFFFFF { cnt += 1 }
+                }
+                minValid = min(minValid, cnt)
+                maxValid = max(maxValid, cnt)
+                sumValid += cnt
+            }
+            let avgValid = Double(sumValid) / Double(max(1, numQueries))
+            print("[IVF Debug] Fine summary: requested K=\(k), avg=\(String(format: "%.1f", avgValid)), min=\(minValid), max=\(maxValid)")
+        }
 
         // Phase 3 is integrated into gatherAndSearch for efficiency
         mergeTime = 0  // Merge happens within the search phase
@@ -372,8 +591,29 @@ public final class IVFSearchPipeline: @unchecked Sendable {
             queryToCandidates[q] = candidates
         }
 
+        // Debug: log candidate gathering details
+        if IVFSearchPipeline.debugEnabled {
+            print("[IVF Debug] === CANDIDATE GATHERING ===")
+            print("[IVF Debug] totalUniqueCandidates=\(allCandidateIndices.count), totalVectors=\(structure.totalVectors)")
+
+            // Show details for first 3 queries
+            let detailQueries = min(3, numQueries)
+            for q in 0..<detailQueries {
+                let candidates = queryToCandidates[q]
+                let uniqueCandidates = Set(candidates)
+                print("[IVF Debug] query[\(q)]: candidatesGathered=\(candidates.count), unique=\(uniqueCandidates.count)")
+                if !candidates.isEmpty {
+                    let sampleIndices = candidates.prefix(10).map { String($0) }.joined(separator: ", ")
+                    print("[IVF Debug]   first 10 candidate indices: [\(sampleIndices)]")
+                }
+            }
+        }
+
         // If no candidates, return empty results
         if allCandidateIndices.isEmpty {
+            if IVFSearchPipeline.debugEnabled {
+                print("[IVF Debug] WARNING: No candidates gathered! Returning empty results.")
+            }
             return (indices: outputIndices, distances: outputDistances)
         }
 
@@ -428,6 +668,31 @@ public final class IVFSearchPipeline: @unchecked Sendable {
             config: Metal4FusedL2Config(includeDistances: true)
         )
 
+        // Debug: log fused L2 search results before mapping
+        if IVFSearchPipeline.debugEnabled {
+            print("[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===")
+            print("[IVF Debug] searchedDatasetSize=\(candidateList.count), effectiveK=\(params.k)")
+
+            let fusedIdxPtr = searchResult.indices.contents().bindMemory(to: UInt32.self, capacity: numQueries * k)
+            let fusedDistPtr = searchResult.distances!.contents().bindMemory(to: Float.self, capacity: numQueries * k)
+
+            // Show details for first 3 queries
+            let detailQueries = min(3, numQueries)
+            for q in 0..<detailQueries {
+                var results: [(gatheredIdx: UInt32, distance: Float)] = []
+                for i in 0..<k {
+                    let idx = fusedIdxPtr[q * k + i]
+                    let dist = fusedDistPtr[q * k + i]
+                    if idx != 0xFFFFFFFF {
+                        results.append((idx, dist))
+                    }
+                }
+                let resultStr = results.prefix(5).map { "g\($0.gatheredIdx)(d=\(String(format: "%.3f", $0.distance)))" }.joined(separator: ", ")
+                print("[IVF Debug] query[\(q)] fused results: \(results.count) found")
+                print("[IVF Debug]   top-5 (gatheredIdx): [\(resultStr)]")
+            }
+        }
+
         // Map gathered indices back to original indices
         let resultIndicesPtr = searchResult.indices.contents().bindMemory(
             to: UInt32.self,
@@ -446,6 +711,32 @@ public final class IVFSearchPipeline: @unchecked Sendable {
                     indicesPtr[offset] = gatheredOriginalIndices[Int(gatheredIdx)]
                     distancesPtr[offset] = resultDistancesPtr[offset]
                 }
+            }
+        }
+
+        // Debug: log index mapping results
+        if IVFSearchPipeline.debugEnabled {
+            print("[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===")
+            print("[IVF Debug] gatheredOriginalIndices.count=\(gatheredOriginalIndices.count)")
+
+            // Show first 10 mappings
+            let sampleMappings = gatheredOriginalIndices.prefix(10).enumerated().map { "g\($0.offset)->o\($0.element)" }.joined(separator: ", ")
+            print("[IVF Debug] first 10 mappings: [\(sampleMappings)]")
+
+            // Show final output for first 3 queries
+            let detailQueries = min(3, numQueries)
+            for q in 0..<detailQueries {
+                var finalResults: [(originalIdx: UInt32, distance: Float)] = []
+                for i in 0..<k {
+                    let idx = indicesPtr[q * k + i]
+                    let dist = distancesPtr[q * k + i]
+                    if idx != 0xFFFFFFFF {
+                        finalResults.append((idx, dist))
+                    }
+                }
+                let resultStr = finalResults.prefix(5).map { "o\($0.originalIdx)(d=\(String(format: "%.3f", $0.distance)))" }.joined(separator: ", ")
+                print("[IVF Debug] query[\(q)] final: \(finalResults.count) results")
+                print("[IVF Debug]   top-5 (originalIdx): [\(resultStr)]")
             }
         }
 
