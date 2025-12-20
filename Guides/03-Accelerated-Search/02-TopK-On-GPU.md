@@ -33,14 +33,18 @@ Without GPU selection, you'd spend 79% of time on selection!
 
 ---
 
-## The Techniques: Three Selection Algorithms
+## The Techniques: Selection Algorithms
 
-VectorAccelerate provides three GPU selection algorithms optimized for different scenarios:
+VectorAccelerate provides GPU selection algorithms optimized for different scenarios:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    SELECTION ALGORITHM CHOICE                        │
 ├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  RECOMMENDED: Use FusedL2TopKKernel (combines distance + selection) │
+│                                                                      │
+│  For standalone selection from pre-computed distances:              │
 │                                                                      │
 │  K ≤ 32?                                                            │
 │    │                                                                 │
@@ -50,7 +54,7 @@ VectorAccelerate provides three GPU selection algorithms optimized for different
 │                                                                      │
 │    └── NO → K ≤ 128?                                                │
 │                │                                                     │
-│                └── YES → HEAP-BASED SELECTION                       │
+│                └── YES → HEAP-BASED (via TopKSelectionKernel)       │
 │                          Private max-heap per thread                 │
 │                          O(N log K) per thread                       │
 │                                                                      │
@@ -60,6 +64,8 @@ VectorAccelerate provides three GPU selection algorithms optimized for different
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+> 💡 **Recommendation**: For most use cases, prefer `FusedL2TopKKernel` over separate distance + selection kernels. It avoids materializing the full distance matrix and provides better performance.
 
 ---
 
@@ -149,10 +155,12 @@ After 5 rounds: Lane 0 has global top-K
 
 ## Algorithm 2: Private Heap Selection (K ≤ 128)
 
+> ⚠️ **Note**: The standalone `StreamingTopKKernel` is deprecated due to correctness issues. For production use, prefer `FusedL2TopKKernel` which combines distance computation and Top-K selection in a single pass. The heap concept shown below is still used internally by the fused kernel.
+
 For medium K, each thread maintains a max-heap:
 
 ```metal
-// 📍 See: Sources/VectorAccelerate/Metal/Shaders/AdvancedTopK.metal:359-437
+// Heap concept used in FusedL2TopKKernel's private heap approach
 
 /// Max-heap: largest element at root
 /// We track K smallest by keeping a max-heap of size K
@@ -171,29 +179,9 @@ struct PrivateMaxHeap {
         }
     }
 };
-
-kernel void streaming_topk_process_chunk(
-    device const float* chunk_distances [[buffer(0)]],
-    device float* running_distances [[buffer(2)]],
-    device uint* running_indices [[buffer(3)]],
-    constant StreamConfig& config [[buffer(5)]],
-    uint q_idx [[thread_position_in_grid]]
-) {
-    PrivateMaxHeap heap;
-
-    // Load current best K
-    heap.load(running_distances + q_idx * K, running_indices + q_idx * K, K);
-
-    // Process new candidates
-    for (uint i = 0; i < config.chunk_size; ++i) {
-        float distance = chunk_distances[q_idx * config.chunk_size + i];
-        heap.insert(distance, config.chunk_base_index + i, K);
-    }
-
-    // Store updated best K
-    heap.store(running_distances + q_idx * K, running_indices + q_idx * K, K);
-}
 ```
+
+The `FusedL2TopKKernel` uses this heap pattern internally with K_PRIVATE=8 elements per thread, then merges heaps in shared memory for the final Top-K.
 
 ### Heap Operations
 

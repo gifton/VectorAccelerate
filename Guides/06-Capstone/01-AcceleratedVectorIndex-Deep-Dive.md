@@ -59,8 +59,8 @@ public actor AcceleratedVectorIndex {
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │    │
 │  │  │HandleAllocator│  │DeletionMask │  │MetadataStore │       │    │
 │  │  │              │  │              │  │              │       │    │
-│  │  │ Index↔Handle │  │ Valid/Deleted│  │ Key-Value    │       │    │
-│  │  │ Generation   │  │ Tracking     │  │ Per Vector   │       │    │
+│  │  │ StableID ↔   │  │ Valid/Deleted│  │ Key-Value    │       │    │
+│  │  │ Slot Index   │  │ Tracking     │  │ Per Vector   │       │    │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘       │    │
 │  │                                                              │    │
 │  │  ┌──────────────────────────────────────────────────────┐   │    │
@@ -134,30 +134,36 @@ Users get opaque handles, not raw indices:
 ```swift
 // 📍 See: Sources/VectorAccelerate/Index/Types/VectorHandle.swift
 
-public struct VectorHandle: Hashable, Sendable {
-    public let index: UInt32
-    public let generation: UInt16
+public struct VectorHandle: Hashable, Sendable, Comparable {
+    /// Stable identifier - never changes for the lifetime of the vector.
+    internal let stableID: UInt32
+
+    /// Invalid handle sentinel value.
+    public static let invalid = VectorHandle(stableID: .max)
+
+    public var isValid: Bool { stableID != .max }
 }
 ```
 
-**Why**: Handles remain valid across compaction. Generation detects stale references.
+**Why**: Handles are **stable across compaction**. The index maintains an internal indirection table that maps `stableID` to the current GPU storage slot. You never need to remap handles after calling `compact()`.
 
 ### 3. Lazy Deletion
 
 Remove marks vectors as deleted; compaction reclaims space later:
 
 ```swift
-// 📍 See: Sources/VectorAccelerate/Index/AcceleratedVectorIndex.swift:530-550
+// 📍 See: Sources/VectorAccelerate/Index/AcceleratedVectorIndex.swift
 
 public func remove(_ handle: VectorHandle) throws {
     guard handleAllocator.validate(handle) else {
         throw IndexError.invalidInput(message: "Invalid handle")
     }
 
+    let slotIndex = handleAllocator.slotIndex(for: handle)
     handleAllocator.markDeleted(handle)
-    deletionMask.markDeleted(Int(handle.index))
-    metadataStore.remove(handle.index)
-    ivfStructure?.removeVector(slotIndex: handle.index, generation: handle.generation)
+    deletionMask.markDeleted(slotIndex)
+    metadataStore.remove(handle.stableID)
+    ivfStructure?.removeVector(slotIndex: UInt32(slotIndex))
 }
 ```
 
@@ -200,20 +206,21 @@ insert([0.1, 0.2, ...], metadata: ["key": "value"])
 ┌─────────────────────────────────────────────────────────────────────┐
 │  3. Allocate handle                                                 │
 │     handle = handleAllocator.allocate()                            │
-│     Returns: VectorHandle(index: 42, generation: 1)                │
+│     Returns: VectorHandle(stableID: 42)                            │
 └─────────────────────────────────────────────────────────────────────┘
                 │
                 ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  4. Write to GPU buffer                                             │
-│     storage.writeVector(vector, at: handle.index)                  │
+│     slotIndex = handleAllocator.slotIndex(for: handle)             │
+│     storage.writeVector(vector, at: slotIndex)                     │
 │     Direct memcpy to MTLBuffer.contents()                          │
 └─────────────────────────────────────────────────────────────────────┘
                 │
                 ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  5. Store metadata (if provided)                                    │
-│     metadataStore[handle.index] = metadata                         │
+│     metadataStore[handle.stableID] = metadata                      │
 └─────────────────────────────────────────────────────────────────────┘
                 │
                 ▼
@@ -302,18 +309,28 @@ Best for > 100K vectors, configurable recall:
 let index = try await AcceleratedVectorIndex(
     configuration: .ivf(
         dimension: 768,
-        nlist: 256,     // Number of clusters
-        nprobe: 16,     // Clusters to search
-        capacity: 1_000_000
+        nlist: 256,              // Number of clusters
+        nprobe: 16,              // Clusters to search
+        capacity: 1_000_000,
+        routingThreshold: 10_000 // Auto-fallback to flat search below this
     )
+)
+
+// Or use auto-tuned parameters:
+let autoIndex = try await AcceleratedVectorIndex(
+    configuration: .ivfAuto(dimension: 768, capacity: 1_000_000)
 )
 ```
 
 Uses `IVFSearchPipeline` with centroid search + list scanning.
 
+> 💡 **Auto-Routing**: When vector count is below `routingThreshold`, IVF indexes automatically use flat search for better performance on small datasets.
+
 ---
 
 ## Handle Lifecycle
+
+Handles in VectorAccelerate are **stable across compaction**. This is a key design feature that simplifies client code.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -323,7 +340,8 @@ Uses `IVFSearchPipeline` with centroid search + list scanning.
 │  ALLOCATE                                                           │
 │  ┌─────────────────────────────────────────────────────────────┐    │
 │  │  handle = handleAllocator.allocate()                        │    │
-│  │  Returns: VectorHandle(index: 5, generation: 1)             │    │
+│  │  Returns: VectorHandle(stableID: 5)                         │    │
+│  │  // stableID never changes for this vector                  │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 │                                                                      │
 │  USE                                                                │
@@ -336,27 +354,59 @@ Uses `IVFSearchPipeline` with centroid search + list scanning.
 │  DELETE                                                             │
 │  ┌─────────────────────────────────────────────────────────────┐    │
 │  │  try index.remove(handle)                                   │    │
-│  │  // Handle marked deleted, generation unchanged             │    │
-│  │  // Vector still in buffer, but filtered from search        │    │
+│  │  // Handle marked deleted in deletion mask                  │    │
+│  │  // Vector still in GPU buffer, but excluded from search    │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 │                                                                      │
 │  COMPACT                                                            │
 │  ┌─────────────────────────────────────────────────────────────┐    │
-│  │  let mapping = try await index.compact()                    │    │
-│  │  // Old handles become stale                                │    │
-│  │  // mapping[oldHandle] = newHandle                          │    │
-│  │  // New handle has incremented generation                   │    │
+│  │  try await index.compact()                                  │    │
+│  │                                                             │    │
+│  │  // GPU slots are reorganized, deleted entries removed      │    │
+│  │  // Indirection table is updated: stableID → new slot       │    │
+│  │  // YOUR HANDLES REMAIN VALID! No remapping needed.         │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 │                                                                      │
-│  STALE HANDLE                                                       │
+│  POST-COMPACTION                                                    │
 │  ┌─────────────────────────────────────────────────────────────┐    │
-│  │  // Using old handle after compaction                       │    │
-│  │  let vector = try index.vector(for: oldHandle)  // nil!    │    │
-│  │  // Generation mismatch detected                            │    │
+│  │  // Same handle still works after compaction                │    │
+│  │  let vector = try index.vector(for: handle)  // Still works!│    │
+│  │                                                             │    │
+│  │  // Internal: handle.stableID → indirection → new slot      │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+### How Stable Handles Work
+
+```
+Before compact():
+┌──────────────────────────────────────────────────────────────┐
+│  Indirection Table          GPU Storage                      │
+│  ┌─────────────────┐       ┌─────────────────────────────┐  │
+│  │ stableID → slot │       │ [slot0: vec_A]              │  │
+│  │   0      →  0   │       │ [slot1: DELETED]            │  │
+│  │   1      →  1   │       │ [slot2: vec_C]              │  │
+│  │   2      →  2   │       │ [slot3: vec_D]              │  │
+│  └─────────────────┘       └─────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+
+After compact():
+┌──────────────────────────────────────────────────────────────┐
+│  Indirection Table          GPU Storage (compacted)          │
+│  ┌─────────────────┐       ┌─────────────────────────────┐  │
+│  │ stableID → slot │       │ [slot0: vec_A]              │  │
+│  │   0      →  0   │       │ [slot1: vec_C]  ← moved     │  │
+│  │   2      →  1   │  ←──  │ [slot2: vec_D]  ← moved     │  │
+│  │   3      →  2   │       │                             │  │
+│  └─────────────────┘       └─────────────────────────────┘  │
+│                                                              │
+│  Handle(stableID: 2) still works → maps to slot 1           │
+└──────────────────────────────────────────────────────────────┘
+```
+
+The indirection table maintains the mapping from stable IDs to current slots, so handles never become stale.
 
 ---
 
@@ -429,8 +479,8 @@ print("GPU Memory: \(stats.gpuVectorMemoryBytes / 1_000_000) MB")
 
 // Compact if fragmented
 if stats.shouldCompact {
-    let mapping = try await index.compact()
-    print("Compacted, updated \(mapping.count) handles")
+    try await index.compact()
+    print("Compacted - handles remain valid (no remapping needed)")
 }
 
 // MARK: - Cleanup

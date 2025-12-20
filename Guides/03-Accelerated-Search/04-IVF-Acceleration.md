@@ -335,14 +335,20 @@ VectorAccelerate achieves the same with GPU parallelism.
 ```swift
 import VectorAccelerate
 
-// Create IVF index
+// Create IVF index with explicit parameters
 let index = try await AcceleratedVectorIndex(
     configuration: .ivf(
         dimension: 768,
-        nlist: 256,      // Number of clusters
-        nprobe: 16,      // Clusters to search
-        capacity: 1_000_000
+        nlist: 256,              // Number of clusters
+        nprobe: 16,              // Clusters to search
+        capacity: 1_000_000,
+        routingThreshold: 10_000 // Auto-fallback to flat search below this
     )
+)
+
+// Or use auto-tuned parameters (recommended for most use cases)
+let autoIndex = try await AcceleratedVectorIndex(
+    configuration: .ivfAuto(dimension: 768, capacity: 1_000_000)
 )
 
 // Insert vectors (auto-trains when enough data)
@@ -356,6 +362,79 @@ try await index.train()
 // Search uses IVF automatically
 let results = try await index.search(query: queryVector, k: 10)
 ```
+
+---
+
+## Auto-Routing (v0.3.2+)
+
+IVF indexes now support automatic routing to flat search for small datasets:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    AUTO-ROUTING BEHAVIOR                             │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  vectorCount < routingThreshold?                                    │
+│       │                                                             │
+│       ├── YES → Use flat search (faster for small N)               │
+│       │         IVF overhead not worth it yet                       │
+│       │                                                             │
+│       └── NO → Use IVF search                                      │
+│                Clustering provides speedup at scale                 │
+│                                                                      │
+│  Default routingThreshold: 10,000 vectors                          │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+Check routing status:
+
+```swift
+if await index.willRouteToFlat {
+    print("Index is small, using flat search for now")
+}
+```
+
+---
+
+## IVF Quantization (v0.3.2+)
+
+For memory-constrained scenarios, IVF indexes support vector quantization:
+
+```swift
+import VectorAccelerate
+
+// Create IVF index with scalar quantization
+let quantizedIndex = try await AcceleratedVectorIndex(
+    configuration: .ivf(
+        dimension: 768,
+        nlist: 256,
+        nprobe: 16,
+        capacity: 1_000_000,
+        quantization: .sq8  // 4× memory savings
+    )
+)
+```
+
+### Quantization Options
+
+| Option | Compression | Quality | Use Case |
+|--------|-------------|---------|----------|
+| `.none` | 1:1 | Lossless | Default, maximum precision |
+| `.sq8` | 4:1 | High | Most use cases, minimal quality loss |
+| `.sq8Asymmetric` | 4:1 | Higher | Better for skewed distributions |
+| `.sq4` | 8:1 | Moderate | Memory-critical applications |
+
+### Memory Comparison
+
+```
+1M vectors × 768D:
+  Without quantization: ~3.1 GB
+  With SQ8:             ~0.8 GB (4× smaller)
+  With SQ4:             ~0.4 GB (8× smaller)
+```
+
+> ⚠️ **Note**: Quantization is only available for IVF indexes. Flat indexes always use full-precision float32 vectors.
 
 ---
 

@@ -86,7 +86,7 @@ MSL Version: 4.0 (Metal Shading Language)
 #endif
 ```
 
-The kernels are designed for MSL 4.0 but the architecture allows for Metal 3 fallbacks where needed.
+VectorAccelerate requires Metal 4 and has no backwards compatibility with Metal 3 or earlier. Ensure your target platforms meet the requirements above.
 
 ---
 
@@ -223,8 +223,8 @@ VectorAccelerate provides two layers:
 │   │              │ │              │ │              │ │              │   │
 │   │ • L2         │ │ • TopK       │ │ • Scalar     │ │ • Multiply   │   │
 │   │ • Cosine     │ │ • FusedL2TopK│ │ • Binary     │ │ • Transpose  │   │
-│   │ • DotProduct │ │ • Streaming  │ │ • Product    │ │ • MatVec     │   │
-│   │ • Hamming    │ │ • WarpSelect │ │ • Neural     │ │ • Batch      │   │
+│   │ • DotProduct │ │ • WarpSelect │ │ • Product    │ │ • MatVec     │   │
+│   │ • Hamming    │ │              │ │ • Neural     │ │ • Batch      │   │
 │   └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘   │
 │                                                                         │
 │   ┌─────────────────────────────────────────────────────────────────┐   │
@@ -345,6 +345,19 @@ Key capabilities used:
 | MTLSharedEvent | CPU/GPU synchronization |
 | SIMD Group Operations | Warp-level reductions |
 | Compute Pipelines | Shader execution |
+
+---
+
+## Known Limitations
+
+VectorAccelerate is under active development. Current limitations:
+
+| Limitation | Details |
+|------------|---------|
+| **GPU Distance Metrics** | Only `.euclidean` is fully GPU-accelerated. Other metrics fall back to CPU. |
+| **Fused Top-K** | `FusedL2TopKKernel` works best with K ≤ 8 (private heap size). Larger K uses fallback strategies. |
+| **IVF Index** | IVF support is functional but work-in-progress. Auto-routing to flat search helps with small datasets. |
+| **Quantization** | Scalar quantization (SQ8, SQ4) is available for IVF indexes only. |
 
 ---
 

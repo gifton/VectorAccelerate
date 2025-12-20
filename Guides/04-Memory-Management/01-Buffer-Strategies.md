@@ -310,6 +310,69 @@ With pooling:
 
 ---
 
+## Vector Quantization for Memory Savings (v0.3.2+)
+
+For large IVF indexes, vector quantization can dramatically reduce memory usage:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    QUANTIZATION MEMORY SAVINGS                       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  VectorQuantization Options:                                        │
+│                                                                      │
+│  .none (default)                                                    │
+│  └── 4 bytes/element (float32)                                     │
+│  └── 768D vector = 3,072 bytes                                     │
+│                                                                      │
+│  .sq8 (symmetric INT8)                                              │
+│  └── 1 byte/element                                                 │
+│  └── 768D vector = 768 bytes (4× smaller)                          │
+│                                                                      │
+│  .sq8Asymmetric (asymmetric INT8)                                   │
+│  └── 1 byte/element + zero-point offset                            │
+│  └── Better for skewed distributions                                │
+│                                                                      │
+│  .sq4 (packed INT4)                                                 │
+│  └── 0.5 bytes/element                                              │
+│  └── 768D vector = 384 bytes (8× smaller)                          │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Memory Comparison by Scale
+
+| Vectors | Dimension | No Quant | SQ8 | SQ4 |
+|---------|-----------|----------|-----|-----|
+| 100K | 768 | 307 MB | 77 MB | 38 MB |
+| 1M | 768 | 3.1 GB | 0.8 GB | 0.4 GB |
+| 10M | 768 | 30.7 GB | 7.7 GB | 3.8 GB |
+
+### Using Quantization
+
+```swift
+// IVF index with scalar quantization
+let index = try await AcceleratedVectorIndex(
+    configuration: .ivf(
+        dimension: 768,
+        nlist: 256,
+        nprobe: 16,
+        capacity: 1_000_000,
+        quantization: .sq8  // 4× memory savings
+    )
+)
+
+// Check if quantization is active
+if index.configuration.isQuantized {
+    let bytesPerVector = index.configuration.bytesPerVector
+    print("Using \(bytesPerVector) bytes per vector")
+}
+```
+
+> ⚠️ **Note**: Quantization is only available for IVF indexes. Flat indexes use full float32 precision. There is a small recall trade-off with quantization (~1-3% for SQ8, ~5-10% for SQ4).
+
+---
+
 ## Key Takeaways
 
 1. **Use .storageModeShared on Apple Silicon**: Zero-copy CPU↔GPU
