@@ -242,10 +242,8 @@ final class IVFTests: XCTestCase {
         try await index.remove(handles[3])
         try await index.remove(handles[5])
 
-        // Compact
-        let mapping = try await index.compact()
-
-        XCTAssertEqual(mapping.count, 7, "Should have 7 mappings for remaining vectors")
+        // Compact (stable handles remain valid, no mapping returned)
+        try await index.compact()
 
         let stats = await index.statistics()
         XCTAssertEqual(stats.vectorCount, 7)
@@ -274,8 +272,8 @@ final class IVFTests: XCTestCase {
         // Delete middle vector
         try await index.remove(handles[2])
 
-        // Compact
-        let mapping = try await index.compact()
+        // Compact (stable handles remain valid after compaction)
+        try await index.compact()
 
         // Search should still work
         let query: [Float] = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -285,11 +283,11 @@ final class IVFTests: XCTestCase {
         XCTAssertEqual(results[0].distance, 0.0, accuracy: 0.001,
                        "Exact match should have distance 0")
 
-        // Results should use new handles
-        let newHandles = Set(mapping.values)
+        // Original handles (except deleted) should still be valid
+        let validHandles = Set([handles[0], handles[1], handles[3], handles[4]])
         for result in results {
-            XCTAssertTrue(newHandles.contains(result.handle),
-                          "Results should use new handles after compaction")
+            XCTAssertTrue(validHandles.contains(result.handle),
+                          "Original handles should remain valid after compaction")
         }
     }
 
