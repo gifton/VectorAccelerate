@@ -60,6 +60,53 @@ public final class IVFCoarseQuantizerKernel: @unchecked Sendable, Metal4Kernel {
         try await fusedL2TopK.warmUp()
     }
 
+    // MARK: - Encode API
+
+    /// Encode coarse quantization into an existing encoder.
+    ///
+    /// This method allows fusing coarse quantization with other operations
+    /// in a single command buffer, reducing GPU dispatch overhead.
+    ///
+    /// - Parameters:
+    ///   - encoder: The compute command encoder
+    ///   - queries: Query vectors buffer [numQueries × dimension]
+    ///   - centroids: Centroid vectors buffer [numCentroids × dimension]
+    ///   - outputIndices: Output buffer for centroid indices [numQueries × nprobe]
+    ///   - outputDistances: Output buffer for centroid distances [numQueries × nprobe]
+    ///   - numQueries: Number of query vectors
+    ///   - numCentroids: Number of centroids
+    ///   - dimension: Vector dimension
+    ///   - nprobe: Number of nearest centroids to find per query
+    /// - Returns: Encoding result for profiling
+    @discardableResult
+    public func encode(
+        into encoder: any MTLComputeCommandEncoder,
+        queries: any MTLBuffer,
+        centroids: any MTLBuffer,
+        outputIndices: any MTLBuffer,
+        outputDistances: any MTLBuffer,
+        numQueries: Int,
+        numCentroids: Int,
+        dimension: Int,
+        nprobe: Int
+    ) -> Metal4EncodingResult {
+        let params = FusedL2TopKParameters(
+            numQueries: numQueries,
+            numDataset: numCentroids,
+            dimension: dimension,
+            k: nprobe
+        )
+
+        return fusedL2TopK.encode(
+            into: encoder,
+            queries: queries,
+            dataset: centroids,
+            outputIndices: outputIndices,
+            outputDistances: outputDistances,
+            parameters: params
+        )
+    }
+
     // MARK: - Coarse Quantization
 
     /// Find the nprobe nearest centroids for each query.

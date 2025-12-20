@@ -57,6 +57,7 @@ public final class IVFSearchPipeline: @unchecked Sendable {
     private let coarseQuantizer: IVFCoarseQuantizerKernel
     private let fusedL2TopK: FusedL2TopKKernel
     private let topKSelection: TopKSelectionKernel
+    private let ivfListSearch: IVFListSearchKernel
 
     // MARK: - Debugging
 
@@ -84,6 +85,7 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         self.coarseQuantizer = try await IVFCoarseQuantizerKernel(context: context)
         self.fusedL2TopK = try await FusedL2TopKKernel(context: context)
         self.topKSelection = try await TopKSelectionKernel(context: context)
+        self.ivfListSearch = try await IVFListSearchKernel(context: context)
     }
 
     // MARK: - Warm Up
@@ -93,6 +95,7 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         try await coarseQuantizer.warmUp()
         try await fusedL2TopK.warmUp()
         try await topKSelection.warmUp()
+        try await ivfListSearch.warmUp()
     }
 
     // MARK: - Index Structure Preparation
@@ -359,27 +362,89 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         }
         queryBuffer.label = "IVFSearchPipeline.queries"
 
-        var coarseTime: TimeInterval = 0
-        var listSearchTime: TimeInterval = 0
+        var fusedSearchTime: TimeInterval = 0
         var mergeTime: TimeInterval = 0
         let bufferTime = CACurrentMediaTime() - startTime
 
-        // Phase 1: Coarse Quantization
-        let coarseStart = CACurrentMediaTime()
-        let coarseResult = try await coarseQuantizer.findNearestCentroids(
-            queries: queryBuffer,
-            centroids: structure.centroids,
+        // === FUSED DISPATCH: Allocate all output buffers upfront ===
+
+        // Coarse quantization output buffers
+        let coarseIndicesSize = numQueries * nprobe * MemoryLayout<UInt32>.size
+        let coarseDistancesSize = numQueries * nprobe * MemoryLayout<Float>.size
+
+        guard let coarseListIndices = device.makeBuffer(length: coarseIndicesSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: coarseIndicesSize)
+        }
+        coarseListIndices.label = "IVFSearchPipeline.coarseListIndices"
+
+        guard let coarseListDistances = device.makeBuffer(length: coarseDistancesSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: coarseDistancesSize)
+        }
+        coarseListDistances.label = "IVFSearchPipeline.coarseListDistances"
+
+        // IVF list search output buffers
+        let outputCount = numQueries * k
+        let outputIndicesSize = outputCount * MemoryLayout<UInt32>.size
+        let outputDistancesSize = outputCount * MemoryLayout<Float>.size
+
+        guard let outputIndices = device.makeBuffer(length: outputIndicesSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: outputIndicesSize)
+        }
+        outputIndices.label = "IVFListSearch.outputIndices"
+
+        guard let outputDistances = device.makeBuffer(length: outputDistancesSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: outputDistancesSize)
+        }
+        outputDistances.label = "IVFListSearch.outputDistances"
+
+        // Build IVF list search parameters
+        let listSearchParams = IVFListSearchParameters(
             numQueries: numQueries,
             numCentroids: structure.numCentroids,
             dimension: dimension,
-            nprobe: nprobe
+            nprobe: nprobe,
+            k: k,
+            maxCandidatesPerQuery: structure.totalVectors
         )
-        coarseTime = CACurrentMediaTime() - coarseStart
+
+        // === FUSED DISPATCH: Single command buffer for both phases ===
+        let fusedSearchStart = CACurrentMediaTime()
+
+        try await context.executeAndWait { [self] _, encoder in
+            // Phase 1: Coarse Quantization (find nprobe nearest centroids)
+            self.coarseQuantizer.encode(
+                into: encoder,
+                queries: queryBuffer,
+                centroids: structure.centroids,
+                outputIndices: coarseListIndices,
+                outputDistances: coarseListDistances,
+                numQueries: numQueries,
+                numCentroids: structure.numCentroids,
+                dimension: dimension,
+                nprobe: nprobe
+            )
+
+            // Memory barrier to ensure coarse results are visible to list search
+            encoder.memoryBarrier(scope: .buffers)
+
+            // Phase 2: IVF List Search (search within selected lists)
+            self.ivfListSearch.encode(
+                into: encoder,
+                queries: queryBuffer,
+                structure: structure,
+                selectedLists: coarseListIndices,
+                outputIndices: outputIndices,
+                outputDistances: outputDistances,
+                parameters: listSearchParams
+            )
+        }
+
+        fusedSearchTime = CACurrentMediaTime() - fusedSearchStart
 
         // Debug: summarize how many coarse lists were actually selected (non-sentinel)
         if Self.debugEnabled {
-            let listPtr = coarseResult.listIndices.contents().bindMemory(to: UInt32.self, capacity: numQueries * nprobe)
-            let distPtr = coarseResult.listDistances.contents().bindMemory(to: Float.self, capacity: numQueries * nprobe)
+            let listPtr = coarseListIndices.contents().bindMemory(to: UInt32.self, capacity: numQueries * nprobe)
+            let distPtr = coarseListDistances.contents().bindMemory(to: Float.self, capacity: numQueries * nprobe)
             let offsetPtr = structure.listOffsets.contents().bindMemory(to: UInt32.self, capacity: structure.numCentroids + 1)
 
             var minSel = Int.max
@@ -424,24 +489,10 @@ public final class IVFSearchPipeline: @unchecked Sendable {
             print("[IVF Debug] Coarse summary: requested=\(nprobe), avg=\(String(format: "%.1f", avgSel)), min=\(minSel), max=\(maxSel)")
         }
 
-        // Phase 2: Gather candidates and search
-        let listSearchStart = CACurrentMediaTime()
-
-        // Gather candidates from selected lists for each query
-        let gatheredResult = try await gatherAndSearch(
-            queries: queryBuffer,
-            structure: structure,
-            coarseResult: coarseResult,
-            numQueries: numQueries,
-            dimension: dimension,
-            k: k
-        )
-        listSearchTime = CACurrentMediaTime() - listSearchStart
-
         // Debug: summarize how many valid neighbors were produced per query (non-sentinel)
         if Self.debugEnabled {
-            let idxPtr = gatheredResult.indices.contents().bindMemory(to: UInt32.self, capacity: numQueries * k)
-            let distPtr = gatheredResult.distances.contents().bindMemory(to: Float.self, capacity: numQueries * k)
+            let idxPtr = outputIndices.contents().bindMemory(to: UInt32.self, capacity: numQueries * k)
+            let distPtr = outputDistances.contents().bindMemory(to: Float.self, capacity: numQueries * k)
 
             var minValid = Int.max
             var maxValid = Int.min
@@ -493,21 +544,22 @@ public final class IVFSearchPipeline: @unchecked Sendable {
             print("[IVF Debug] Fine summary: requested K=\(k), avg=\(String(format: "%.1f", avgValid)), min=\(minValid), max=\(maxValid)")
         }
 
-        // Phase 3 is integrated into gatherAndSearch for efficiency
-        mergeTime = 0  // Merge happens within the search phase
+        // Phase 3 is integrated into the fused search
+        mergeTime = 0  // Merge happens within the search kernel
 
         let totalTime = CACurrentMediaTime() - startTime
 
+        // With fused dispatch, we report combined time in listSearch for backwards compatibility
         let phaseTimings = configuration.enableProfiling ? IVFPhaseTimings(
-            coarseQuantization: coarseTime,
-            listSearch: listSearchTime,
+            coarseQuantization: 0,  // Fused with list search
+            listSearch: fusedSearchTime,  // Combined coarse + list search
             candidateMerge: mergeTime,
             bufferOperations: bufferTime
         ) : nil
 
         return IVFSearchResult(
-            indices: gatheredResult.indices,
-            distances: gatheredResult.distances,
+            indices: outputIndices,
+            distances: outputDistances,
             numQueries: numQueries,
             k: k,
             executionTime: totalTime,
@@ -515,233 +567,6 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         )
     }
 
-    // MARK: - Private Helpers
-
-    private func gatherAndSearch(
-        queries: any MTLBuffer,
-        structure: IVFGPUIndexStructure,
-        coarseResult: IVFCoarseResult,
-        numQueries: Int,
-        dimension: Int,
-        k: Int
-    ) async throws -> (indices: any MTLBuffer, distances: any MTLBuffer) {
-        let device = context.device.rawDevice
-        let nprobe = coarseResult.nprobe
-
-        // Read list offsets to CPU for gathering
-        let offsetPtr = structure.listOffsets.contents().bindMemory(
-            to: UInt32.self,
-            capacity: structure.numCentroids + 1
-        )
-        let listIndicesPtr = coarseResult.listIndices.contents().bindMemory(
-            to: UInt32.self,
-            capacity: numQueries * nprobe
-        )
-
-        // For each query, gather vectors from selected lists
-        // This is done per-query to handle variable list sizes
-
-        // Allocate output buffers
-        let outputSize = numQueries * k
-        guard let outputIndices = device.makeBuffer(
-            length: outputSize * MemoryLayout<UInt32>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: outputSize * MemoryLayout<UInt32>.size)
-        }
-        outputIndices.label = "IVFSearchPipeline.outputIndices"
-
-        guard let outputDistances = device.makeBuffer(
-            length: outputSize * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: outputSize * MemoryLayout<Float>.size)
-        }
-        outputDistances.label = "IVFSearchPipeline.outputDistances"
-
-        // Initialize with sentinel values
-        let indicesPtr = outputIndices.contents().bindMemory(to: UInt32.self, capacity: outputSize)
-        let distancesPtr = outputDistances.contents().bindMemory(to: Float.self, capacity: outputSize)
-        for i in 0..<outputSize {
-            indicesPtr[i] = 0xFFFFFFFF
-            distancesPtr[i] = Float.infinity
-        }
-
-        // Process queries - gather candidates and search
-        // For efficiency, we batch queries that select similar lists
-
-        // Simple approach: process all queries together by gathering all unique candidates
-        var allCandidateIndices = Set<Int>()
-        var queryToCandidates: [[Int]] = Array(repeating: [], count: numQueries)
-
-        for q in 0..<numQueries {
-            var candidates: [Int] = []
-            for p in 0..<nprobe {
-                let listIdx = Int(listIndicesPtr[q * nprobe + p])
-                guard listIdx < structure.numCentroids else { continue }
-
-                let listStart = Int(offsetPtr[listIdx])
-                let listEnd = Int(offsetPtr[listIdx + 1])
-
-                for vecIdx in listStart..<listEnd {
-                    candidates.append(vecIdx)
-                    allCandidateIndices.insert(vecIdx)
-                }
-            }
-            queryToCandidates[q] = candidates
-        }
-
-        // Debug: log candidate gathering details
-        if IVFSearchPipeline.debugEnabled {
-            print("[IVF Debug] === CANDIDATE GATHERING ===")
-            print("[IVF Debug] totalUniqueCandidates=\(allCandidateIndices.count), totalVectors=\(structure.totalVectors)")
-
-            // Show details for first 3 queries
-            let detailQueries = min(3, numQueries)
-            for q in 0..<detailQueries {
-                let candidates = queryToCandidates[q]
-                let uniqueCandidates = Set(candidates)
-                print("[IVF Debug] query[\(q)]: candidatesGathered=\(candidates.count), unique=\(uniqueCandidates.count)")
-                if !candidates.isEmpty {
-                    let sampleIndices = candidates.prefix(10).map { String($0) }.joined(separator: ", ")
-                    print("[IVF Debug]   first 10 candidate indices: [\(sampleIndices)]")
-                }
-            }
-        }
-
-        // If no candidates, return empty results
-        if allCandidateIndices.isEmpty {
-            if IVFSearchPipeline.debugEnabled {
-                print("[IVF Debug] WARNING: No candidates gathered! Returning empty results.")
-            }
-            return (indices: outputIndices, distances: outputDistances)
-        }
-
-        // Gather unique candidate vectors
-        let candidateList = Array(allCandidateIndices).sorted()
-
-        // Read vectors from structure
-        let vectorsPtr = structure.listVectors.contents().bindMemory(
-            to: Float.self,
-            capacity: structure.totalVectors * dimension
-        )
-        let originalIndicesPtr = structure.vectorIndices.contents().bindMemory(
-            to: UInt32.self,
-            capacity: structure.totalVectors
-        )
-
-        // Create gathered vectors buffer
-        var gatheredVectors: [Float] = []
-        gatheredVectors.reserveCapacity(candidateList.count * dimension)
-        var gatheredOriginalIndices: [UInt32] = []
-        gatheredOriginalIndices.reserveCapacity(candidateList.count)
-
-        for candidateIdx in candidateList {
-            let vecStart = candidateIdx * dimension
-            for d in 0..<dimension {
-                gatheredVectors.append(vectorsPtr[vecStart + d])
-            }
-            gatheredOriginalIndices.append(originalIndicesPtr[candidateIdx])
-        }
-
-        guard let gatheredBuffer = device.makeBuffer(
-            bytes: gatheredVectors,
-            length: gatheredVectors.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: gatheredVectors.count * MemoryLayout<Float>.size)
-        }
-
-        // For each query, search within its candidates
-        // Use fused L2 + top-k on the gathered candidates
-        let params = FusedL2TopKParameters(
-            numQueries: numQueries,
-            numDataset: candidateList.count,
-            dimension: dimension,
-            k: min(k, candidateList.count)
-        )
-
-        let searchResult = try await fusedL2TopK.execute(
-            queries: queries,
-            dataset: gatheredBuffer,
-            parameters: params,
-            config: Metal4FusedL2Config(includeDistances: true)
-        )
-
-        // Debug: log fused L2 search results before mapping
-        if IVFSearchPipeline.debugEnabled {
-            print("[IVF Debug] === FUSED L2 SEARCH (before index mapping) ===")
-            print("[IVF Debug] searchedDatasetSize=\(candidateList.count), effectiveK=\(params.k)")
-
-            let fusedIdxPtr = searchResult.indices.contents().bindMemory(to: UInt32.self, capacity: numQueries * k)
-            let fusedDistPtr = searchResult.distances!.contents().bindMemory(to: Float.self, capacity: numQueries * k)
-
-            // Show details for first 3 queries
-            let detailQueries = min(3, numQueries)
-            for q in 0..<detailQueries {
-                var results: [(gatheredIdx: UInt32, distance: Float)] = []
-                for i in 0..<k {
-                    let idx = fusedIdxPtr[q * k + i]
-                    let dist = fusedDistPtr[q * k + i]
-                    if idx != 0xFFFFFFFF {
-                        results.append((idx, dist))
-                    }
-                }
-                let resultStr = results.prefix(5).map { "g\($0.gatheredIdx)(d=\(String(format: "%.3f", $0.distance)))" }.joined(separator: ", ")
-                print("[IVF Debug] query[\(q)] fused results: \(results.count) found")
-                print("[IVF Debug]   top-5 (gatheredIdx): [\(resultStr)]")
-            }
-        }
-
-        // Map gathered indices back to original indices
-        let resultIndicesPtr = searchResult.indices.contents().bindMemory(
-            to: UInt32.self,
-            capacity: numQueries * k
-        )
-        let resultDistancesPtr = searchResult.distances!.contents().bindMemory(
-            to: Float.self,
-            capacity: numQueries * k
-        )
-
-        for q in 0..<numQueries {
-            for i in 0..<k {
-                let offset = q * k + i
-                let gatheredIdx = resultIndicesPtr[offset]
-                if gatheredIdx != 0xFFFFFFFF && Int(gatheredIdx) < gatheredOriginalIndices.count {
-                    indicesPtr[offset] = gatheredOriginalIndices[Int(gatheredIdx)]
-                    distancesPtr[offset] = resultDistancesPtr[offset]
-                }
-            }
-        }
-
-        // Debug: log index mapping results
-        if IVFSearchPipeline.debugEnabled {
-            print("[IVF Debug] === INDEX MAPPING (gatheredIdx -> originalIdx) ===")
-            print("[IVF Debug] gatheredOriginalIndices.count=\(gatheredOriginalIndices.count)")
-
-            // Show first 10 mappings
-            let sampleMappings = gatheredOriginalIndices.prefix(10).enumerated().map { "g\($0.offset)->o\($0.element)" }.joined(separator: ", ")
-            print("[IVF Debug] first 10 mappings: [\(sampleMappings)]")
-
-            // Show final output for first 3 queries
-            let detailQueries = min(3, numQueries)
-            for q in 0..<detailQueries {
-                var finalResults: [(originalIdx: UInt32, distance: Float)] = []
-                for i in 0..<k {
-                    let idx = indicesPtr[q * k + i]
-                    let dist = distancesPtr[q * k + i]
-                    if idx != 0xFFFFFFFF {
-                        finalResults.append((idx, dist))
-                    }
-                }
-                let resultStr = finalResults.prefix(5).map { "o\($0.originalIdx)(d=\(String(format: "%.3f", $0.distance)))" }.joined(separator: ", ")
-                print("[IVF Debug] query[\(q)] final: \(finalResults.count) results")
-                print("[IVF Debug]   top-5 (originalIdx): [\(resultStr)]")
-            }
-        }
-
-        return (indices: outputIndices, distances: outputDistances)
-    }
 }
 
 // MARK: - GPU Index Structure

@@ -111,7 +111,9 @@ public final class KernelContext: @unchecked Sendable {
             // ML integration
             "LearnedDistance",
             "NeuralQuantization",
-            "AttentionSimilarity"
+            "AttentionSimilarity",
+            // IVF indexing
+            "IVFListSearch"
             // NOTE: All shaders now use VA_* prefixed guards to avoid conflicts
             // NOTE: Histogram kernels are in StatisticsShaders.metal
         ]
