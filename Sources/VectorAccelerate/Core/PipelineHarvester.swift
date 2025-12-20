@@ -133,7 +133,7 @@ public actor PipelineHarvester {
         device: any MTLDevice,
         compiler: Metal4ShaderCompiler,
         outputDirectory: URL,
-        vectorAccelerateVersion: String = "0.3.0"
+        vectorAccelerateVersion: String = "0.4.0"
     ) throws {
         self.device = device
         self.compiler = compiler
