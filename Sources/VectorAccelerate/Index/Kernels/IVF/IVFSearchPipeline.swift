@@ -407,36 +407,70 @@ public final class IVFSearchPipeline: @unchecked Sendable {
             maxCandidatesPerQuery: structure.totalVectors
         )
 
-        // === FUSED DISPATCH: Single command buffer for both phases ===
+        // === DISPATCH: Choose fused or non-fused path based on nprobe ===
+        // The fused L2 TopK shader only supports K <= 8. For nprobe > 8, we need
+        // to use the two-pass fallback which requires a separate command buffer.
         let fusedSearchStart = CACurrentMediaTime()
+        let fusedMaxK = 8  // Matches FusedL2TopKKernel.fusedMaxK
 
-        try await context.executeAndWait { [self] _, encoder in
-            // Phase 1: Coarse Quantization (find nprobe nearest centroids)
-            try self.coarseQuantizer.encode(
-                into: encoder,
+        if nprobe <= fusedMaxK {
+            // FUSED PATH: Single command buffer for both phases (nprobe <= 8)
+            try await context.executeAndWait { [self] _, encoder in
+                // Phase 1: Coarse Quantization (find nprobe nearest centroids)
+                try self.coarseQuantizer.encode(
+                    into: encoder,
+                    queries: queryBuffer,
+                    centroids: structure.centroids,
+                    outputIndices: coarseListIndices,
+                    outputDistances: coarseListDistances,
+                    numQueries: numQueries,
+                    numCentroids: structure.numCentroids,
+                    dimension: dimension,
+                    nprobe: nprobe
+                )
+
+                // Memory barrier to ensure coarse results are visible to list search
+                encoder.memoryBarrier(scope: .buffers)
+
+                // Phase 2: IVF List Search (search within selected lists)
+                self.ivfListSearch.encode(
+                    into: encoder,
+                    queries: queryBuffer,
+                    structure: structure,
+                    selectedLists: coarseListIndices,
+                    outputIndices: outputIndices,
+                    outputDistances: outputDistances,
+                    parameters: listSearchParams
+                )
+            }
+        } else {
+            // NON-FUSED PATH: Separate command buffers for nprobe > 8
+            // Phase 1: Coarse Quantization using execute() which handles K > 8
+            let coarseResult = try await coarseQuantizer.findNearestCentroids(
                 queries: queryBuffer,
                 centroids: structure.centroids,
-                outputIndices: coarseListIndices,
-                outputDistances: coarseListDistances,
                 numQueries: numQueries,
                 numCentroids: structure.numCentroids,
                 dimension: dimension,
                 nprobe: nprobe
             )
 
-            // Memory barrier to ensure coarse results are visible to list search
-            encoder.memoryBarrier(scope: .buffers)
+            // Copy results to our pre-allocated buffers
+            memcpy(coarseListIndices.contents(), coarseResult.listIndices.contents(), coarseIndicesSize)
+            memcpy(coarseListDistances.contents(), coarseResult.listDistances.contents(), coarseDistancesSize)
 
-            // Phase 2: IVF List Search (search within selected lists)
-            self.ivfListSearch.encode(
-                into: encoder,
-                queries: queryBuffer,
-                structure: structure,
-                selectedLists: coarseListIndices,
-                outputIndices: outputIndices,
-                outputDistances: outputDistances,
-                parameters: listSearchParams
-            )
+            // Phase 2: IVF List Search
+            try await context.executeAndWait { [self] _, encoder in
+                self.ivfListSearch.encode(
+                    into: encoder,
+                    queries: queryBuffer,
+                    structure: structure,
+                    selectedLists: coarseListIndices,
+                    outputIndices: outputIndices,
+                    outputDistances: outputDistances,
+                    parameters: listSearchParams
+                )
+            }
         }
 
         fusedSearchTime = CACurrentMediaTime() - fusedSearchStart

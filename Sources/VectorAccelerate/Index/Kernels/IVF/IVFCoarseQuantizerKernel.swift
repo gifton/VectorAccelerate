@@ -78,6 +78,10 @@ public final class IVFCoarseQuantizerKernel: @unchecked Sendable, Metal4Kernel {
     ///   - dimension: Vector dimension
     ///   - nprobe: Number of nearest centroids to find per query
     /// - Returns: Encoding result for profiling
+    /// Maximum nprobe value supported by the fused encode path.
+    /// For nprobe > 8, use `findNearestCentroids()` instead which handles larger K values.
+    public static let maxFusedNprobe = 8
+
     @discardableResult
     public func encode(
         into encoder: any MTLComputeCommandEncoder,
@@ -90,6 +94,13 @@ public final class IVFCoarseQuantizerKernel: @unchecked Sendable, Metal4Kernel {
         dimension: Int,
         nprobe: Int
     ) throws -> Metal4EncodingResult {
+        // The fused L2 TopK shader only supports K <= 8
+        guard nprobe <= Self.maxFusedNprobe else {
+            throw IndexError.invalidInput(
+                message: "nprobe (\(nprobe)) exceeds maximum for fused encode path (\(Self.maxFusedNprobe)). Use findNearestCentroids() for nprobe > 8."
+            )
+        }
+
         let params = try FusedL2TopKParameters(
             numQueries: numQueries,
             numDataset: numCentroids,
