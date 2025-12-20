@@ -1,4 +1,0 @@
-Total tests:     1077
-Zero-duration tests:      171
-Suspicious 100% metric lines:        8
-Slow >=1s tests:       28
