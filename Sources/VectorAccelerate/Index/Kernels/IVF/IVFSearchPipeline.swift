@@ -55,7 +55,6 @@ public final class IVFSearchPipeline: @unchecked Sendable {
     // MARK: - Private Properties
 
     private let coarseQuantizer: IVFCoarseQuantizerKernel
-    private let fusedL2TopK: FusedL2TopKKernel
     private let topKSelection: TopKSelectionKernel
     private let ivfListSearch: IVFListSearchKernel
 
@@ -83,7 +82,6 @@ public final class IVFSearchPipeline: @unchecked Sendable {
 
         // Initialize component kernels
         self.coarseQuantizer = try await IVFCoarseQuantizerKernel(context: context)
-        self.fusedL2TopK = try await FusedL2TopKKernel(context: context)
         self.topKSelection = try await TopKSelectionKernel(context: context)
         self.ivfListSearch = try await IVFListSearchKernel(context: context)
     }
@@ -93,7 +91,6 @@ public final class IVFSearchPipeline: @unchecked Sendable {
     /// Warm up all pipeline components.
     public func warmUp() async throws {
         try await coarseQuantizer.warmUp()
-        try await fusedL2TopK.warmUp()
         try await topKSelection.warmUp()
         try await ivfListSearch.warmUp()
     }
@@ -229,9 +226,12 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         guard k > 0 else {
             throw IndexError.invalidInput(message: "k must be positive")
         }
+        // NOTE: TopKSelectionKernel currently supports K up to 128.
+        guard k <= TopKParameters.maxK else {
+            throw IndexError.invalidInput(message: "k must be <= \(TopKParameters.maxK) for GPU IVF search")
+        }
 
         let startTime = CACurrentMediaTime()
-        let device = context.device.rawDevice
         let numQueries = queries.count
         let dimension = structure.dimension
         let nprobe = configuration.nprobe
@@ -353,13 +353,8 @@ public final class IVFSearchPipeline: @unchecked Sendable {
 
         // Create query buffer
         let flatQueries = queries.flatMap { $0 }
-        guard let queryBuffer = device.makeBuffer(
-            bytes: flatQueries,
-            length: flatQueries.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatQueries.count * MemoryLayout<Float>.size)
-        }
+        let queryToken = try await context.getBuffer(for: flatQueries)
+        let queryBuffer = queryToken.buffer
         queryBuffer.label = "IVFSearchPipeline.queries"
 
         var fusedSearchTime: TimeInterval = 0

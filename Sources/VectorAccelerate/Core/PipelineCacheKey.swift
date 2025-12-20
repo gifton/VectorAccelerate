@@ -232,7 +232,9 @@ public struct PipelineCacheKey: Hashable, Codable, Sendable {
             // Handle fused operations
             if operation.hasPrefix("fused_") {
                 baseName = operation.replacingOccurrences(of: "_", with: "")
-            } else if operation.hasPrefix("batch_") {
+            } else if operation.hasPrefix("batch_") && !operation.hasSuffix("_kernel") {
+                // Only transform abbreviated batch operation names (e.g., "batch_l2")
+                // Complete function names (e.g., "batch_projection_kernel") pass through unchanged
                 baseName = "batch" + operation.dropFirst(6).capitalized
             } else {
                 baseName = operation

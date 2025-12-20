@@ -286,6 +286,68 @@ public final class L2DistanceKernel: @unchecked Sendable, DimensionOptimizedKern
         )
     }
 
+    /// Encode L2 distance computation with explicit buffer offsets.
+    ///
+    /// This is primarily used for chunked processing, where the caller wants to compute
+    /// distances for a subrange of the database buffer without copying.
+    ///
+    /// - Parameters:
+    ///   - encoder: The compute command encoder
+    ///   - queries: Query vectors buffer
+    ///   - queryOffset: Byte offset into `queries`
+    ///   - database: Database vectors buffer
+    ///   - databaseOffset: Byte offset into `database`
+    ///   - distances: Output distance buffer
+    ///   - distancesOffset: Byte offset into `distances`
+    ///   - parameters: Execution parameters (must match the logical shapes)
+    /// - Returns: Encoding result
+    @discardableResult
+    public func encode(
+        into encoder: any MTLComputeCommandEncoder,
+        queries: any MTLBuffer,
+        queryOffset: Int,
+        database: any MTLBuffer,
+        databaseOffset: Int,
+        distances: any MTLBuffer,
+        distancesOffset: Int,
+        parameters: L2DistanceParameters
+    ) -> Metal4EncodingResult {
+        // Select pipeline
+        let (pipeline, pipelineName) = selectPipeline(for: parameters.dimension)
+
+        // Configure encoder
+        encoder.setComputePipelineState(pipeline)
+        encoder.label = "L2Distance.\(pipelineName) (offsets)"
+
+        // Bind buffers with offsets
+        encoder.setBuffer(queries, offset: queryOffset, index: 0)
+        encoder.setBuffer(database, offset: databaseOffset, index: 1)
+        encoder.setBuffer(distances, offset: distancesOffset, index: 2)
+
+        // Bind parameters
+        var params = parameters
+        encoder.setBytes(&params, length: MemoryLayout<L2DistanceParameters>.size, index: 3)
+
+        // Calculate thread configuration
+        let config = Metal4ThreadConfiguration.forDistanceKernel(
+            numQueries: Int(parameters.numQueries),
+            numDatabase: Int(parameters.numDatabase),
+            pipeline: pipeline
+        )
+
+        // Dispatch
+        encoder.dispatchThreadgroups(
+            config.threadgroups,
+            threadsPerThreadgroup: config.threadsPerThreadgroup
+        )
+
+        return Metal4EncodingResult(
+            pipelineName: pipelineName,
+            threadgroups: config.threadgroups,
+            threadsPerThreadgroup: config.threadsPerThreadgroup
+        )
+    }
+
     // MARK: - Execute API (Standalone)
 
     /// Execute L2 distance computation as a standalone operation.

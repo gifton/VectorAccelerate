@@ -139,7 +139,7 @@ public final class IVFCoarseQuantizerKernel: @unchecked Sendable, Metal4Kernel {
         }
 
         // Use fused L2 + Top-K to find nearest centroids
-        let params = FusedL2TopKParameters(
+        let params = try FusedL2TopKParameters(
             numQueries: numQueries,
             numDataset: numCentroids,
             dimension: dimension,

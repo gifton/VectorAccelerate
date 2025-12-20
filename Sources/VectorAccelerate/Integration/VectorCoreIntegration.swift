@@ -2,7 +2,8 @@
 //  VectorCoreIntegration.swift
 //  VectorAccelerate
 //
-//  Integration protocols and extensions for VectorCore types
+//  Integration protocols and extensions for VectorCore types.
+//  Uses Metal 4 exclusively (iOS 26+, macOS 26+).
 //
 
 import Foundation
@@ -14,35 +15,35 @@ import VectorCore
 /// Protocol for types that can be accelerated with Metal
 public protocol MetalAccelerable {
     associatedtype Element: Numeric
-    
+
     /// Convert to Metal-compatible buffer format
     func toMetalBuffer() async throws -> BufferToken
-    
+
     /// Create from Metal buffer result
     static func fromMetalBuffer(_ buffer: BufferToken, dimension: Int) -> Self
 }
 
 // MARK: - Distance Provider Implementation
 
-/// GPU-accelerated distance computation provider
+/// GPU-accelerated distance computation provider using Metal 4
 public actor AcceleratedDistanceProvider: DistanceProvider {
-    private let engine: ComputeEngine
-    private let context: MetalContext
-    
+    private let engine: Metal4ComputeEngine
+    private let context: Metal4Context
+
     public init() async throws {
         guard ComputeDevice.gpu().isAvailable else {
             throw VectorError.metalNotAvailable()
         }
-        
-        self.context = try await VectorAccelerate.MetalContext()
-        self.engine = try await ComputeEngine(context: context)
+
+        self.context = try await Metal4Context()
+        self.engine = try await Metal4ComputeEngine(context: context)
     }
-    
-    public init(context: MetalContext) async throws {
+
+    public init(context: Metal4Context) async throws {
         self.context = context
-        self.engine = try await ComputeEngine(context: context)
+        self.engine = try await Metal4ComputeEngine(context: context)
     }
-    
+
     public func distance<T: VectorProtocol>(
         from vector1: T,
         to vector2: T,
@@ -51,10 +52,20 @@ public actor AcceleratedDistanceProvider: DistanceProvider {
         let v1Array = vector1.toArray()
         let v2Array = vector2.toArray()
 
-        // Route through ComputeEngine which supports all SupportedDistanceMetric values
-        return try await engine.distance(v1Array, v2Array, metric: metric)
+        switch metric {
+        case .euclidean:
+            return try await engine.euclideanDistance(v1Array, v2Array)
+        case .cosine:
+            return try await engine.cosineDistance(v1Array, v2Array)
+        case .dotProduct:
+            return try await engine.dotProduct(v1Array, v2Array)
+        case .manhattan:
+            return try await engine.manhattanDistance(v1Array, v2Array)
+        case .chebyshev:
+            return try await engine.chebyshevDistance(v1Array, v2Array)
+        }
     }
-    
+
     public func batchDistance<T: VectorProtocol>(
         from query: T,
         to candidates: [T],
@@ -63,14 +74,13 @@ public actor AcceleratedDistanceProvider: DistanceProvider {
         let queryArray = query.toArray()
         let candidateArrays = candidates.map { $0.toArray() }
 
-        // Prefer GPU batch paths when available, otherwise fall back to per-item
         switch metric {
         case .euclidean:
             return try await engine.batchEuclideanDistance(query: queryArray, candidates: candidateArrays)
-        case .manhattan:
-            return try await engine.batchManhattanDistance(query: queryArray, candidates: candidateArrays)
-        case .cosine, .dotProduct, .chebyshev:
-            // No specialized batch kernels yet — compute sequentially
+        case .cosine:
+            return try await engine.batchCosineDistance(query: queryArray, candidates: candidateArrays)
+        case .dotProduct, .manhattan, .chebyshev:
+            // No specialized batch kernels yet - compute sequentially
             var distances: [Float] = []
             distances.reserveCapacity(candidateArrays.count)
             for candidate in candidates {
@@ -83,99 +93,97 @@ public actor AcceleratedDistanceProvider: DistanceProvider {
 
 // MARK: - Vector Operations Provider
 
-/// GPU-accelerated vector operations provider
+/// GPU-accelerated vector operations provider using Metal 4
 public actor AcceleratedVectorOperations: VectorOperationsProvider {
-    private let engine: ComputeEngine
-    private let context: MetalContext
-    
+    private let engine: Metal4ComputeEngine
+    private let context: Metal4Context
+
     public init() async throws {
         guard ComputeDevice.gpu().isAvailable else {
             throw VectorError.metalNotAvailable()
         }
-        
-        self.context = try await VectorAccelerate.MetalContext()
-        self.engine = try await ComputeEngine(context: context)
+
+        self.context = try await Metal4Context()
+        self.engine = try await Metal4ComputeEngine(context: context)
     }
-    
-    public init(context: MetalContext) async throws {
+
+    public init(context: Metal4Context) async throws {
         self.context = context
-        self.engine = try await ComputeEngine(context: context)
+        self.engine = try await Metal4ComputeEngine(context: context)
     }
-    
+
     public func add<T: VectorProtocol>(_ v1: T, _ v2: T) async throws -> T where T.Scalar == Float {
         let a = v1.toArray()
         let b = v2.toArray()
-        
+
         // Get buffers
         let bufferA = try await context.getBuffer(for: a)
         let bufferB = try await context.getBuffer(for: b)
         let resultBuffer = try await context.getBuffer(size: a.count * MemoryLayout<Float>.size)
-        
-        // Get shader
-        let shaderManager = try await ShaderManager(device: context.device)
-        let pipelineState = try await shaderManager.getPipelineState(functionName: "vectorAdd")
-        
+
+        // Get pipeline using Metal 4 shader compiler
+        let pipeline = try await context.getPipeline(functionName: "vectorAdd")
+
         // Execute
         try await context.executeAndWait { commandBuffer, encoder in
-            encoder.setComputePipelineState(pipelineState)
+            encoder.setComputePipelineState(pipeline)
             encoder.setBuffer(bufferA.buffer, offset: 0, index: 0)
             encoder.setBuffer(bufferB.buffer, offset: 0, index: 1)
             encoder.setBuffer(resultBuffer.buffer, offset: 0, index: 2)
-            
+
             var dim = UInt32(a.count)
             encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
-            
+
             let (threadsPerGroup, threadgroups) = await context.calculateThreadGroups(for: a.count)
             encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerGroup)
         }
-        
+
         let result = resultBuffer.copyData(as: Float.self)
         return try T(result)
     }
-    
+
     public func multiply<T: VectorProtocol>(_ v1: T, _ v2: T) async throws -> T where T.Scalar == Float {
         let a = v1.toArray()
         let b = v2.toArray()
-        
+
         // Get buffers
         let bufferA = try await context.getBuffer(for: a)
         let bufferB = try await context.getBuffer(for: b)
         let resultBuffer = try await context.getBuffer(size: a.count * MemoryLayout<Float>.size)
-        
-        // Get shader
-        let shaderManager = try await ShaderManager(device: context.device)
-        let pipelineState = try await shaderManager.getPipelineState(functionName: "vectorMultiply")
-        
+
+        // Get pipeline
+        let pipeline = try await context.getPipeline(functionName: "vectorMultiply")
+
         // Execute
         try await context.executeAndWait { commandBuffer, encoder in
-            encoder.setComputePipelineState(pipelineState)
+            encoder.setComputePipelineState(pipeline)
             encoder.setBuffer(bufferA.buffer, offset: 0, index: 0)
             encoder.setBuffer(bufferB.buffer, offset: 0, index: 1)
             encoder.setBuffer(resultBuffer.buffer, offset: 0, index: 2)
-            
+
             var dim = UInt32(a.count)
             encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
-            
+
             let (threadsPerGroup, threadgroups) = await context.calculateThreadGroups(for: a.count)
             encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerGroup)
         }
-        
+
         let result = resultBuffer.copyData(as: Float.self)
         return try T(result)
     }
-    
+
     public func scale<T: VectorProtocol>(_ vector: T, by scalar: Float) async throws -> T where T.Scalar == Float {
         let array = vector.toArray()
         let scaled = try await engine.scale(array, by: scalar)
         return try T(scaled)
     }
-    
+
     public func normalize<T: VectorProtocol>(_ vector: T) async throws -> T where T.Scalar == Float {
         let array = vector.toArray()
         let normalized = try await engine.normalize(array)
         return try T(normalized)
     }
-    
+
     public func dotProduct<T: VectorProtocol>(_ v1: T, _ v2: T) async throws -> Float where T.Scalar == Float {
         let a = v1.toArray()
         let b = v2.toArray()
@@ -187,37 +195,37 @@ public actor AcceleratedVectorOperations: VectorOperationsProvider {
 
 /// Factory for creating GPU-accelerated vector computation providers
 public enum AcceleratedVectorFactory {
-    
-    /// Create default accelerated providers
+
+    /// Create default accelerated providers using Metal 4
     public static func createDefaultProviders() async throws -> (
         distance: AcceleratedDistanceProvider,
         operations: AcceleratedVectorOperations
     ) {
-        let context = try await VectorAccelerate.MetalContext()
-        
+        let context = try await Metal4Context()
+
         let distance = try await AcceleratedDistanceProvider(context: context)
         let operations = try await AcceleratedVectorOperations(context: context)
-        
+
         return (distance, operations)
     }
-    
+
     /// Check if acceleration is available
     public static var isAccelerationAvailable: Bool {
         ComputeDevice.gpu().isAvailable
     }
-    
+
     /// Create providers with custom configuration
     public static func createProviders(
-        configuration: MetalConfiguration
+        configuration: Metal4Configuration
     ) async throws -> (
         distance: AcceleratedDistanceProvider,
         operations: AcceleratedVectorOperations
     ) {
-        let context = try await VectorAccelerate.MetalContext(configuration: configuration)
-        
+        let context = try await Metal4Context(configuration: configuration)
+
         let distance = try await AcceleratedDistanceProvider(context: context)
         let operations = try await AcceleratedVectorOperations(context: context)
-        
+
         return (distance, operations)
     }
 }
@@ -235,7 +243,7 @@ public struct AccelerationStatistics: Sendable {
     public let totalTime: TimeInterval
     public let averageTime: TimeInterval
     public let speedupFactor: Double // Compared to CPU baseline
-    
+
     public init(
         totalOperations: Int,
         totalTime: TimeInterval,
@@ -252,7 +260,7 @@ public struct AccelerationStatistics: Sendable {
 // MARK: - Convenience Extensions
 
 public extension VectorProtocol where Scalar == Float {
-    
+
     /// Compute distance using GPU acceleration if available
     func acceleratedDistance(
         to other: Self,
@@ -266,7 +274,7 @@ public extension VectorProtocol where Scalar == Float {
             return distance(to: other, metric: metric)
         }
     }
-    
+
     /// Normalize using GPU acceleration if available
     func acceleratedNormalize() async throws -> Self {
         if AcceleratedVectorFactory.isAccelerationAvailable {
@@ -279,18 +287,11 @@ public extension VectorProtocol where Scalar == Float {
     }
 
     /// Fast normalization without runtime validation (VectorCore 0.1.5)
-    ///
-    /// Uses `normalizedUnchecked()` for 15-20% faster normalization in hot paths
-    /// where vectors are known to be valid (non-zero, finite values).
-    ///
-    /// - Warning: Only use after validating vector data. Debug builds assert validity.
-    /// - Returns: Normalized vector
     func acceleratedNormalizeUnchecked() async throws -> Self {
         if AcceleratedVectorFactory.isAccelerationAvailable {
             let provider = try await AcceleratedVectorOperations()
             return try await provider.normalize(self)
         } else {
-            // Use VectorCore 0.1.5's fast unchecked normalization
             return normalizedUnchecked()
         }
     }
@@ -298,34 +299,24 @@ public extension VectorProtocol where Scalar == Float {
 
 // MARK: - IndexableVector Extensions (VectorCore 0.1.5)
 
-/// GPU-accelerated extensions for IndexableVector types (e.g., Vector384Optimized)
-///
-/// These extensions leverage the `isNormalized` and `cachedMagnitude` properties
-/// from VectorCore 0.1.5's IndexableVector protocol to skip unnecessary computations.
 public extension IndexableVector where Scalar == Float {
 
     /// Compute distance with GPU acceleration, skipping normalization if already normalized
-    ///
-    /// For cosine similarity with pre-normalized vectors, this provides significant
-    /// speedup by avoiding redundant normalization.
     func acceleratedDistanceOptimized(
         to other: Self,
         metric: SupportedDistanceMetric = .euclidean
     ) async throws -> Float {
         // For cosine with normalized vectors, use dot product directly
         if metric == .cosine && self.isNormalized && other.isNormalized {
-            // Both vectors normalized - cosine similarity = dot product
             if AcceleratedVectorFactory.isAccelerationAvailable {
                 let provider = try await AcceleratedVectorOperations()
                 let dot = try await provider.dotProduct(self, other)
                 return 1.0 - dot  // Convert similarity to distance
             } else {
-                // Use cached computation path
                 return 1.0 - DotProductDistance().distance(self, other)
             }
         }
 
-        // Fall back to standard accelerated distance
         return try await acceleratedDistance(to: other, metric: metric)
     }
 }
@@ -334,19 +325,19 @@ public extension IndexableVector where Scalar == Float {
 
 /// Strategy for choosing between CPU and GPU execution
 public struct HybridExecutionStrategy {
-    public let gpuThreshold: Int // Minimum dimension for GPU execution
-    public let batchThreshold: Int // Minimum batch size for GPU execution
-    
+    public let gpuThreshold: Int
+    public let batchThreshold: Int
+
     public init(gpuThreshold: Int = 128, batchThreshold: Int = 10) {
         self.gpuThreshold = gpuThreshold
         self.batchThreshold = batchThreshold
     }
-    
+
     public func shouldUseGPU<T: VectorProtocol>(for vector: T) -> Bool {
         guard AcceleratedVectorFactory.isAccelerationAvailable else { return false }
         return vector.scalarCount >= gpuThreshold
     }
-    
+
     public func shouldUseGPU<T: VectorProtocol>(for vectors: [T]) -> Bool {
         guard AcceleratedVectorFactory.isAccelerationAvailable else { return false }
         guard let first = vectors.first else { return false }
@@ -357,7 +348,6 @@ public struct HybridExecutionStrategy {
 // MARK: - High-level Integration Facade
 
 /// Lightweight facade to integrate VectorAccelerate with VectorCore
-/// Provides factory methods and configuration commonly used by clients/tests.
 public struct VectorCoreIntegration: Sendable {
     public struct Configuration: Sendable {
         public var preferGPU: Bool
@@ -382,10 +372,10 @@ public struct VectorCoreIntegration: Sendable {
         case metalUnavailable
     }
 
-    private let context: MetalContext
+    private let context: Metal4Context
     public let configuration: Configuration
 
-    public init(context: MetalContext, configuration: Configuration = .init()) {
+    public init(context: Metal4Context, configuration: Configuration = .init()) {
         self.context = context
         self.configuration = configuration
     }
@@ -405,55 +395,11 @@ public struct VectorCoreIntegration: Sendable {
 
 // MARK: - GPU-Accelerated Batch Operations Extension
 
-/// GPU-accelerated extensions to VectorCore's BatchOperations
-///
-/// These extensions provide Metal/GPU acceleration for batch vector operations,
-/// automatically delegating to GPU kernels when beneficial for large datasets.
-///
-/// ## Usage Pattern
-/// ```swift
-/// // Check if GPU acceleration is available
-/// if ComputeDevice.gpu().isAvailable {
-///     // Use GPU-accelerated k-NN search
-///     let neighbors = try await BatchOperations.findNearestGPU(
-///         to: query,
-///         in: largeVectorSet,
-///         k: 100
-///     )
-/// }
-/// ```
-///
-/// ## Performance Characteristics
-/// - **Optimal for**: Large datasets (>1000 vectors), high dimensions (>128)
-/// - **GPU threshold**: Automatically uses GPU for datasets >1000 vectors
-/// - **Fallback**: Gracefully falls back to CPU when GPU unavailable
-///
 public extension BatchOperations {
 
     // MARK: - GPU-Accelerated k-NN Search
 
-    /// Find k nearest neighbors using GPU acceleration
-    ///
-    /// Uses VectorAccelerate's Metal kernels for high-performance distance computation
-    /// on large datasets. Provides 3-10x speedup over CPU for datasets >1000 vectors.
-    ///
-    /// - Parameters:
-    ///   - query: The query vector to search from
-    ///   - vectors: Array of candidate vectors to search
-    ///   - k: Number of nearest neighbors to find
-    ///   - metric: Distance metric to use (default: euclidean)
-    /// - Returns: Array of (index, distance) tuples sorted by distance
-    /// - Throws: AccelerationError if GPU allocation fails
-    ///
-    /// ## Example
-    /// ```swift
-    /// let neighbors = try await BatchOperations.findNearestGPU(
-    ///     to: queryVector,
-    ///     in: dataset,  // 10,000 vectors
-    ///     k: 100,
-    ///     metric: .cosine
-    /// )
-    /// ```
+    /// Find k nearest neighbors using GPU acceleration (Metal 4)
     static func findNearestGPU<V: VectorProtocol & Sendable>(
         to query: V,
         in vectors: [V],
@@ -468,29 +414,35 @@ public extension BatchOperations {
             return []
         }
 
-        // Initialize Metal context and batch distance engine
-        let context = try await MetalContext()
-        let distanceEngine = try await BatchDistanceEngine(metalContext: context)
+        let context = try await Metal4Context()
+        let engine = try await Metal4ComputeEngine(context: context)
 
-        // Convert vectors to arrays for GPU processing
         let queryArray = query.toArray()
         let candidateArrays = vectors.map { $0.toArray() }
 
-        // Compute distances using GPU (currently only Euclidean is optimized)
+        // Compute distances using GPU
         let distances: [Float]
         switch metric {
         case .euclidean:
-            distances = try await distanceEngine.batchEuclideanDistance(
-                query: queryArray,
-                candidates: candidateArrays
-            )
+            distances = try await engine.batchEuclideanDistance(query: queryArray, candidates: candidateArrays)
+        case .cosine:
+            distances = try await engine.batchCosineDistance(query: queryArray, candidates: candidateArrays)
         default:
-            // For other metrics, use ComputeEngine's individual distance methods
-            let engine = try await ComputeEngine(context: context)
+            // For other metrics, compute individually
             distances = try await withThrowingTaskGroup(of: (Int, Float).self) { group in
                 for (index, candidate) in candidateArrays.enumerated() {
                     group.addTask {
-                        let dist = try await engine.distance(queryArray, candidate, metric: metric)
+                        let dist: Float
+                        switch metric {
+                        case .dotProduct:
+                            dist = try await engine.dotProduct(queryArray, candidate)
+                        case .manhattan:
+                            dist = try await engine.manhattanDistance(queryArray, candidate)
+                        case .chebyshev:
+                            dist = try await engine.chebyshevDistance(queryArray, candidate)
+                        default:
+                            dist = try await engine.euclideanDistance(queryArray, candidate)
+                        }
                         return (index, dist)
                     }
                 }
@@ -506,23 +458,13 @@ public extension BatchOperations {
         // Create (index, distance) pairs
         let pairs = distances.enumerated().map { (index: $0.offset, distance: $0.element) }
 
-        // Select top-k using heap selection (optimized for small k relative to n)
+        // Select top-k
         return selectTopK(pairs, k: k)
     }
 
     // MARK: - GPU-Accelerated Batch Distance Computation
 
     /// Compute distances from a query to multiple candidates using GPU
-    ///
-    /// Efficiently computes distances in parallel using Metal compute shaders.
-    /// Provides significant speedup for large batches (>1000 vectors).
-    ///
-    /// - Parameters:
-    ///   - query: The query vector
-    ///   - candidates: Array of candidate vectors
-    ///   - metric: Distance metric to use
-    /// - Returns: Array of distances in same order as candidates
-    /// - Throws: AccelerationError if GPU processing fails
     static func batchDistancesGPU<V: VectorProtocol & Sendable>(
         from query: V,
         to candidates: [V],
@@ -536,26 +478,33 @@ public extension BatchOperations {
             return []
         }
 
-        let context = try await MetalContext()
+        let context = try await Metal4Context()
+        let engine = try await Metal4ComputeEngine(context: context)
 
         let queryArray = query.toArray()
         let candidateArrays = candidates.map { $0.toArray() }
 
-        // Use BatchDistanceEngine for optimized batch computation
         switch metric {
         case .euclidean:
-            let distanceEngine = try await BatchDistanceEngine(metalContext: context)
-            return try await distanceEngine.batchEuclideanDistance(
-                query: queryArray,
-                candidates: candidateArrays
-            )
+            return try await engine.batchEuclideanDistance(query: queryArray, candidates: candidateArrays)
+        case .cosine:
+            return try await engine.batchCosineDistance(query: queryArray, candidates: candidateArrays)
         default:
-            // For other metrics, use ComputeEngine's methods
-            let engine = try await ComputeEngine(context: context)
+            // For other metrics, compute individually
             return try await withThrowingTaskGroup(of: (Int, Float).self) { group in
                 for (index, candidate) in candidateArrays.enumerated() {
                     group.addTask {
-                        let dist = try await engine.distance(queryArray, candidate, metric: metric)
+                        let dist: Float
+                        switch metric {
+                        case .dotProduct:
+                            dist = try await engine.dotProduct(queryArray, candidate)
+                        case .manhattan:
+                            dist = try await engine.manhattanDistance(queryArray, candidate)
+                        case .chebyshev:
+                            dist = try await engine.chebyshevDistance(queryArray, candidate)
+                        default:
+                            dist = try await engine.euclideanDistance(queryArray, candidate)
+                        }
                         return (index, dist)
                     }
                 }
@@ -572,18 +521,6 @@ public extension BatchOperations {
     // MARK: - GPU-Accelerated Batch Vector Operations
 
     /// Normalize vectors in batch using GPU
-    ///
-    /// Applies L2 normalization to all vectors using Metal compute shaders.
-    /// Provides 5-8x speedup over CPU for large batches.
-    ///
-    /// - Parameter vectors: Vectors to normalize
-    /// - Returns: Array of normalized vectors
-    /// - Throws: AccelerationError if GPU processing fails
-    ///
-    /// ## Example
-    /// ```swift
-    /// let normalized = try await BatchOperations.normalizeGPU(embeddings)
-    /// ```
     static func normalizeGPU<V: VectorProtocol & Sendable>(
         _ vectors: [V]
     ) async throws -> [V] where V.Scalar == Float {
@@ -595,10 +532,9 @@ public extension BatchOperations {
             return []
         }
 
-        let context = try await MetalContext()
-        let engine = try await ComputeEngine(context: context)
+        let context = try await Metal4Context()
+        let engine = try await Metal4ComputeEngine(context: context)
 
-        // Process vectors in batches for memory efficiency
         var results: [V] = []
         results.reserveCapacity(vectors.count)
 
@@ -606,7 +542,6 @@ public extension BatchOperations {
             let array = vector.toArray()
             let normalized = try await engine.normalize(array)
 
-            // Convert back to original vector type
             if let result = try? V(normalized) {
                 results.append(result)
             }
@@ -616,13 +551,6 @@ public extension BatchOperations {
     }
 
     /// Fast batch normalization using normalizedUnchecked() (VectorCore 0.1.5)
-    ///
-    /// Uses VectorCore 0.1.5's `normalizedUnchecked()` for 15-20% faster CPU fallback
-    /// when GPU is unavailable. Best for validated embedding pipelines.
-    ///
-    /// - Parameter vectors: Vectors to normalize (must have valid, non-zero values)
-    /// - Returns: Array of normalized vectors
-    /// - Warning: Only use with validated input data. Debug builds assert validity.
     static func normalizeGPUUnchecked<V: VectorProtocol & Sendable>(
         _ vectors: [V]
     ) async throws -> [V] where V.Scalar == Float {
@@ -630,17 +558,15 @@ public extension BatchOperations {
             return []
         }
 
-        // Try GPU path first
         if ComputeDevice.gpu().isAvailable {
             return try await normalizeGPU(vectors)
         }
 
-        // CPU fallback using VectorCore 0.1.5's fast unchecked normalization
+        // CPU fallback
         var results: [V] = []
         results.reserveCapacity(vectors.count)
 
         for vector in vectors {
-            // Use unchecked variant - 15-20% faster than safe normalized()
             results.append(vector.normalizedUnchecked())
         }
 
@@ -648,14 +574,6 @@ public extension BatchOperations {
     }
 
     /// Scale vectors by a constant using GPU
-    ///
-    /// Multiplies all vector components by a scalar value using Metal.
-    ///
-    /// - Parameters:
-    ///   - vectors: Vectors to scale
-    ///   - scalar: Scaling factor
-    /// - Returns: Array of scaled vectors
-    /// - Throws: AccelerationError if GPU processing fails
     static func scaleGPU<V: VectorProtocol & Sendable>(
         _ vectors: [V],
         by scalar: Float
@@ -668,7 +586,7 @@ public extension BatchOperations {
             return []
         }
 
-        let context = try await MetalContext()
+        let context = try await Metal4Context()
         let operations = try await AcceleratedVectorOperations(context: context)
 
         var results: [V] = []
@@ -683,20 +601,6 @@ public extension BatchOperations {
     }
 
     /// Compute pairwise distances using GPU acceleration
-    ///
-    /// Computes full distance matrix between all vector pairs using Metal.
-    /// Highly optimized for matrices >100x100 using tiled computation.
-    ///
-    /// - Parameters:
-    ///   - vectors: Vectors to compute pairwise distances for
-    ///   - metric: Distance metric to use
-    /// - Returns: Symmetric distance matrix [n][n]
-    /// - Throws: AccelerationError if GPU processing fails
-    ///
-    /// ## Performance
-    /// - Small (<100): Use CPU (BatchOperations.pairwiseDistances)
-    /// - Medium (100-1000): 2-3x GPU speedup
-    /// - Large (>1000): 5-10x GPU speedup
     static func pairwiseDistancesGPU<V: VectorProtocol & Sendable>(
         _ vectors: [V],
         metric: SupportedDistanceMetric = .euclidean
@@ -712,7 +616,6 @@ public extension BatchOperations {
 
         // For small matrices, CPU is more efficient
         if n < 100 {
-            // Fall back to VectorCore's CPU implementation with specific metric type
             switch metric {
             case .euclidean:
                 return await pairwiseDistances(vectors, metric: EuclideanDistance())
@@ -723,48 +626,50 @@ public extension BatchOperations {
             case .manhattan:
                 return await pairwiseDistances(vectors, metric: ManhattanDistance())
             case .chebyshev:
-                // Fallback to euclidean for chebyshev (not available in VectorCore)
                 return await pairwiseDistances(vectors, metric: EuclideanDistance())
             }
         }
 
-        let context = try await MetalContext()
+        let context = try await Metal4Context()
+        let engine = try await Metal4ComputeEngine(context: context)
 
-        // Convert to arrays
         let arrays = vectors.map { $0.toArray() }
-
-        // Compute distance matrix using GPU
         var matrix = Array(repeating: Array(repeating: Float(0), count: n), count: n)
 
-        // Use appropriate engine based on metric
-        switch metric {
-        case .euclidean:
-            let distanceEngine = try await BatchDistanceEngine(metalContext: context)
-            // Process rows
-            for i in 0..<n {
-                let query = arrays[i]
-                let candidates = Array(arrays[i..<n])
-                let distances = try await distanceEngine.batchEuclideanDistance(
-                    query: query,
-                    candidates: candidates
-                )
+        // Process rows
+        for i in 0..<n {
+            let query = arrays[i]
+            let candidates = Array(arrays[i..<n])
 
-                // Fill symmetric matrix
-                for j in i..<n {
-                    let dist = distances[j - i]
-                    matrix[i][j] = dist
-                    matrix[j][i] = dist
+            let distances: [Float]
+            switch metric {
+            case .euclidean:
+                distances = try await engine.batchEuclideanDistance(query: query, candidates: candidates)
+            case .cosine:
+                distances = try await engine.batchCosineDistance(query: query, candidates: candidates)
+            default:
+                // Compute individually for other metrics
+                var dists: [Float] = []
+                for candidate in candidates {
+                    switch metric {
+                    case .dotProduct:
+                        dists.append(try await engine.dotProduct(query, candidate))
+                    case .manhattan:
+                        dists.append(try await engine.manhattanDistance(query, candidate))
+                    case .chebyshev:
+                        dists.append(try await engine.chebyshevDistance(query, candidate))
+                    default:
+                        dists.append(try await engine.euclideanDistance(query, candidate))
+                    }
                 }
+                distances = dists
             }
-        default:
-            // For other metrics, use ComputeEngine
-            let engine = try await ComputeEngine(context: context)
-            for i in 0..<n {
-                for j in i..<n {
-                    let dist = try await engine.distance(arrays[i], arrays[j], metric: metric)
-                    matrix[i][j] = dist
-                    matrix[j][i] = dist
-                }
+
+            // Fill symmetric matrix
+            for j in i..<n {
+                let dist = distances[j - i]
+                matrix[i][j] = dist
+                matrix[j][i] = dist
             }
         }
 
@@ -782,7 +687,6 @@ public extension BatchOperations {
             return elements.sorted { $0.distance < $1.distance }
         }
 
-        // For small k relative to n, use heap selection
         var heap = [(index: Int, distance: Float)]()
         heap.reserveCapacity(k + 1)
 
@@ -790,11 +694,10 @@ public extension BatchOperations {
             if heap.count < k {
                 heap.append(element)
                 if heap.count == k {
-                    heap.sort { $0.distance > $1.distance }  // Max heap
+                    heap.sort { $0.distance > $1.distance }
                 }
             } else if element.distance < heap[0].distance {
                 heap[0] = element
-                // Restore heap property
                 var i = 0
                 while i < k {
                     let left = 2 * i + 1
@@ -819,22 +722,5 @@ public extension BatchOperations {
         }
 
         return heap.sorted { $0.distance < $1.distance }
-    }
-
-    /// Convert SupportedDistanceMetric to DistanceMetric protocol type
-    private static func convertToDistanceMetric(_ metric: SupportedDistanceMetric) -> any DistanceMetric {
-        switch metric {
-        case .euclidean:
-            return EuclideanDistance()
-        case .cosine:
-            return CosineDistance()
-        case .dotProduct:
-            return DotProductDistance()
-        case .manhattan:
-            return ManhattanDistance()
-        case .chebyshev:
-            // Fallback to euclidean if chebyshev not available as DistanceMetric
-            return EuclideanDistance()
-        }
     }
 }

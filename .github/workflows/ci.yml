@@ -7,6 +7,13 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# ============================================================================
+# REQUIRES macOS 26 / Xcode 26 / iOS 26 SDK
+# ============================================================================
+# VectorAccelerate 0.3.0+ is Metal 4 ONLY and requires the macOS 26 runner
+# which provides Xcode 26 with iOS 26, macOS 26, tvOS 26, and visionOS 3 SDKs.
+# ============================================================================
+
 env:
   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
 
@@ -20,10 +27,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 'latest-stable'
+      # macOS 26 runner has Xcode 26 as default - no setup needed
 
       - name: Validate Metal Shaders
         run: |
@@ -49,8 +53,8 @@ jobs:
             if xcrun metal -c "$shader" \
                 -o ".build/metal-validation/${name%.metal}.air" \
                 -I "$SHADER_DIR" \
-                -std=metal3.0 \
-                -mmacosx-version-min=14.0 \
+                -std=metal4.0 \
+                -mmacosx-version-min=26.0 \
                 2>&1 | tee -a metal-compile.log; then
               echo "- ✅ $name" >> $GITHUB_STEP_SUMMARY
               ((PASSED++))
@@ -91,11 +95,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 'latest-stable'
 
       - name: System Info
         run: |
@@ -143,11 +142,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 'latest-stable'
-
       - name: Restore SPM Cache
         uses: actions/cache@v4
         with:
@@ -184,11 +178,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 'latest-stable'
 
       - name: Cache SPM
         uses: actions/cache@v4
@@ -227,11 +216,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: 'latest-stable'
 
       - name: Restore SPM Cache
         uses: actions/cache@v4

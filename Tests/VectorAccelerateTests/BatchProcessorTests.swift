@@ -74,12 +74,12 @@ struct ErrorOperation: BatchOperation {
 }
 
 final class BatchProcessorTests: XCTestCase {
-    var context: MetalContext!
+    var context: Metal4Context!
     var processor: BatchProcessor!
     
     override func setUp() async throws {
         try await super.setUp()
-        context = try await MetalContext()
+        context = try await Metal4Context()
         processor = await BatchProcessor(context: context)
     }
     

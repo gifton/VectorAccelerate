@@ -6,14 +6,18 @@
 //
 //  Manages:
 //  - Centroids (cluster centers)
-//  - Inverted lists (vectors assigned to each centroid)
+//  - Inverted lists (slot indices assigned to each centroid)
 //  - Training state and cluster assignments
 //  - GPU structure preparation for search
+//
+//  P0.8: With stable handles, IVFListEntry contains only slotIndex.
+//  Handle stability is managed by HandleAllocator's indirection layer.
 //
 
 import Foundation
 @preconcurrency import Metal
 import VectorCore
+
 // MARK: - IVF Training State
 
 /// State of IVF index training.
@@ -34,12 +38,12 @@ enum IVFTrainingState: Sendable {
 // MARK: - Inverted List Entry
 
 /// Entry in an inverted list.
+///
+/// With stable handles (P0.8), entries only store the slot index.
+/// Handle validity is managed by the `HandleAllocator` indirection layer.
 struct IVFListEntry: Sendable {
     /// Slot index in the main vector storage
     let slotIndex: UInt32
-
-    /// Handle generation at time of insertion
-    let generation: UInt16
 }
 
 // MARK: - IVF Structure
@@ -48,7 +52,7 @@ struct IVFListEntry: Sendable {
 ///
 /// Maintains:
 /// - Centroids from K-Means training
-/// - Inverted lists mapping centroids to assigned vectors
+/// - Inverted lists mapping centroids to assigned slot indices
 /// - GPU-ready structure for efficient search
 ///
 /// ## Training Flow
@@ -74,6 +78,14 @@ final class IVFStructure: @unchecked Sendable {
 
     /// Minimum vectors before training
     let minTrainingVectors: Int
+
+    /// Vector quantization type (for memory reduction)
+    let quantization: VectorQuantization
+
+    // MARK: - Quantized Storage
+
+    /// Quantized vector storage (only used when quantization != .none)
+    private var quantizedStorage: IVFQuantizedStorage?
 
     // MARK: - State
 
@@ -135,6 +147,16 @@ final class IVFStructure: @unchecked Sendable {
         return sqrt(variance)
     }
 
+    /// Whether quantization is enabled for this index.
+    var isQuantized: Bool {
+        quantization != .none
+    }
+
+    /// Bytes used by quantized storage (0 if not quantized).
+    var quantizedStorageBytes: Int {
+        quantizedStorage?.usedBytes ?? 0
+    }
+
     // MARK: - Initialization
 
     /// Create an IVF structure.
@@ -144,11 +166,19 @@ final class IVFStructure: @unchecked Sendable {
     ///   - nprobe: Number of clusters to probe during search
     ///   - dimension: Vector dimension
     ///   - minTrainingVectors: Minimum vectors before training (default: 10 * numClusters)
-    init(numClusters: Int, nprobe: Int, dimension: Int, minTrainingVectors: Int? = nil) {
+    ///   - quantization: Vector quantization type (default: none)
+    init(
+        numClusters: Int,
+        nprobe: Int,
+        dimension: Int,
+        minTrainingVectors: Int? = nil,
+        quantization: VectorQuantization = .none
+    ) {
         self.numClusters = numClusters
         self.nprobe = nprobe
         self.dimension = dimension
         self.minTrainingVectors = minTrainingVectors ?? max(numClusters * 10, 1000)
+        self.quantization = quantization
 
         // Pre-allocate inverted lists
         self.invertedLists = Array(repeating: [], count: numClusters)
@@ -227,11 +257,10 @@ final class IVFStructure: @unchecked Sendable {
     /// - Parameters:
     ///   - vector: Vector data
     ///   - slotIndex: Slot index in main storage
-    ///   - generation: Handle generation
     /// - Returns: Cluster index the vector was assigned to
-    func assignToCluster(vector: [Float], slotIndex: UInt32, generation: UInt16) -> Int {
+    func assignToCluster(vector: [Float], slotIndex: UInt32) -> Int {
         let clusterIdx = findNearestCentroid(vector: vector)
-        let entry = IVFListEntry(slotIndex: slotIndex, generation: generation)
+        let entry = IVFListEntry(slotIndex: slotIndex)
         invertedLists[clusterIdx].append(entry)
         gpuStructureDirty = true
         return clusterIdx
@@ -260,14 +289,12 @@ final class IVFStructure: @unchecked Sendable {
 
     // MARK: - Remove
 
-    /// Remove a vector from the index.
+    /// Remove a vector from the index by slot index.
     ///
-    /// - Parameters:
-    ///   - slotIndex: Slot index to remove
-    ///   - generation: Expected generation
+    /// - Parameter slotIndex: Slot index to remove
     /// - Returns: true if found and removed
     @discardableResult
-    func removeVector(slotIndex: UInt32, generation: UInt16) -> Bool {
+    func removeVector(slotIndex: UInt32) -> Bool {
         // Check staging first
         if let idx = stagingSlots.firstIndex(of: slotIndex) {
             stagingSlots.remove(at: idx)
@@ -278,7 +305,7 @@ final class IVFStructure: @unchecked Sendable {
         // Check all inverted lists
         for listIdx in 0..<invertedLists.count {
             if let entryIdx = invertedLists[listIdx].firstIndex(where: {
-                $0.slotIndex == slotIndex && $0.generation == generation
+                $0.slotIndex == slotIndex
             }) {
                 invertedLists[listIdx].remove(at: entryIdx)
                 gpuStructureDirty = true
@@ -439,7 +466,7 @@ final class IVFStructure: @unchecked Sendable {
         for listIdx in 0..<invertedLists.count {
             invertedLists[listIdx] = invertedLists[listIdx].compactMap { entry in
                 guard let newSlot = indexMapping[entry.slotIndex] else { return nil }
-                return IVFListEntry(slotIndex: newSlot, generation: entry.generation &+ 1)
+                return IVFListEntry(slotIndex: newSlot)
             }
         }
 
@@ -456,6 +483,20 @@ final class IVFStructure: @unchecked Sendable {
         stagingSlots = []
         gpuStructure = nil
         gpuStructureDirty = true
+        quantizedStorage?.reset()
+        quantizedStorage = nil
+    }
+
+    // MARK: - Quantization Access
+
+    /// Get the quantized storage for search operations.
+    func getQuantizedStorage() -> IVFQuantizedStorage? {
+        return quantizedStorage
+    }
+
+    /// Check if vectors are stored in quantized format.
+    var hasQuantizedVectors: Bool {
+        quantizedStorage != nil && (quantizedStorage?.vectorCount ?? 0) > 0
     }
 
     // MARK: - Statistics

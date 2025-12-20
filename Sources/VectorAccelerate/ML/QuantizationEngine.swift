@@ -57,39 +57,39 @@ public struct ProductCodebook: Sendable {
     public let index: Int
 }
 
-/// Main quantization engine
+/// Main quantization engine using Metal 4
 public actor QuantizationEngine {
-    private let context: MetalContext?
+    private let context: Metal4Context?
     private let configuration: QuantizationConfiguration
     private let logger: Logger
-    
+
     // Product quantization state
     private var productCodebooks: [ProductCodebook] = []
     private var isProductQuantizationTrained = false
-    
+
     // Performance tracking
     private var quantizedVectors: Int = 0
     private var totalCompressionRatio: Float = 0
-    
+
     // MARK: - Initialization
-    
+
     public init(
         configuration: QuantizationConfiguration,
-        context: MetalContext? = nil
+        context: Metal4Context? = nil
     ) async {
         self.configuration = configuration
         if configuration.useGPU {
             if let ctx = context {
                 self.context = ctx
             } else {
-                self.context = await MetalContext.createDefault()
+                self.context = await Metal4Context.createDefault()
             }
         } else {
             self.context = nil
         }
         self.logger = Logger.shared
-        
-        await logger.info("Initialized QuantizationEngine with method: \(configuration.method)", 
+
+        await logger.info("Initialized QuantizationEngine with method: \(configuration.method)",
                          category: "QuantizationEngine")
     }
     

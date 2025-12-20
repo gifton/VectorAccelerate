@@ -2,7 +2,7 @@
 //  MatrixEngine.swift
 //  VectorAccelerate
 //
-//  High-performance matrix operations with GPU acceleration
+//  High-performance matrix operations with GPU acceleration using Metal 4.
 //
 
 import Foundation
@@ -16,7 +16,7 @@ public struct MatrixConfiguration: Sendable {
     public let tileSize: Int
     public let preferGPUThreshold: Int
     public let enableAsyncExecution: Bool
-    
+
     public init(
         useTiledMultiplication: Bool = true,
         tileSize: Int = 32,
@@ -28,7 +28,7 @@ public struct MatrixConfiguration: Sendable {
         self.preferGPUThreshold = preferGPUThreshold
         self.enableAsyncExecution = enableAsyncExecution
     }
-    
+
     public static let `default` = MatrixConfiguration()
     public static let performance = MatrixConfiguration(
         tileSize: 64,
@@ -41,7 +41,7 @@ public struct MatrixConfiguration: Sendable {
 public enum MatrixLayout: Sendable {
     case rowMajor
     case columnMajor
-    
+
     var isTransposed: Bool {
         self == .columnMajor
     }
@@ -53,74 +53,98 @@ public struct MatrixDescriptor: Sendable {
     public let columns: Int
     public let layout: MatrixLayout
     public let leadingDimension: Int?
-    
+
     public init(rows: Int, columns: Int, layout: MatrixLayout = .rowMajor, leadingDimension: Int? = nil) {
         self.rows = rows
         self.columns = columns
         self.layout = layout
         self.leadingDimension = leadingDimension ?? columns
     }
-    
+
     public var elementCount: Int {
         rows * columns
     }
-    
+
     public var byteSize: Int {
         elementCount * MemoryLayout<Float>.stride
     }
 }
 
-/// Main matrix operations engine
-/// Orchestrates matrix operations using specialized kernel wrappers
+/// Main matrix operations engine using Metal 4
+///
+/// This actor orchestrates matrix operations using Metal 4 specialized kernels.
+/// It automatically selects between CPU (Accelerate) and GPU (Metal 4) execution
+/// based on matrix size and configuration.
+///
+/// ## Metal 4 Only
+/// This implementation requires Metal 4 (iOS 26+, macOS 26+). There is no
+/// fallback to older Metal versions.
+///
+/// ## Usage
+///
+/// ```swift
+/// let context = try await Metal4Context()
+/// let engine = await MatrixEngine(context: context)
+///
+/// let result = try await engine.multiply(matrixA, descriptorA: descA,
+///                                         matrixB, descriptorB: descB)
+/// ```
 public actor MatrixEngine {
-    private let context: MetalContext
+    private let context: Metal4Context
     private let configuration: MatrixConfiguration
     private let logger: Logger
-    
-    // Legacy shader cache for GPU operations
-    // Note: For Metal 4 optimized operations, use MatrixMultiplyKernel etc. directly
-    private var matrixMultiplyShader: (any MTLComputePipelineState)?
-    private var matrixTransposeShader: (any MTLComputePipelineState)?
-    private var batchMatrixMultiplyShader: (any MTLComputePipelineState)?
-    
+
+    // Metal 4 Kernels (lazy initialized)
+    private var matrixMultiplyKernel: MatrixMultiplyKernel?
+    private var matrixTransposeKernel: MatrixTransposeKernel?
+
     // Performance tracking
     private var operationCount: Int = 0
     private var totalComputeTime: TimeInterval = 0
-    
+
     // MARK: - Initialization
-    
+
+    /// Create a MatrixEngine with a Metal 4 context.
+    ///
+    /// - Parameters:
+    ///   - context: Metal 4 context for GPU operations
+    ///   - configuration: Matrix operation configuration
     public init(
-        context: MetalContext,
+        context: Metal4Context,
         configuration: MatrixConfiguration = .default
     ) async {
         self.context = context
         self.configuration = configuration
         self.logger = Logger.shared
-
-        // Pre-compile shaders for GPU operations
-        // Note: For Metal 4 optimized operations, use MatrixMultiplyKernel etc. directly
-        await precompileShaders()
     }
 
-    private func precompileShaders() async {
-        do {
-            // Try to load pre-compiled legacy shaders as fallback
-            matrixMultiplyShader = try await context.loadShader(functionName: "matrixMultiply")
-            matrixTransposeShader = try await context.loadShader(functionName: "matrixTranspose")
-            batchMatrixMultiplyShader = try await context.loadShader(functionName: "batchMatrixMultiply")
-            await logger.info("Legacy matrix shaders compiled successfully")
-        } catch {
-            await logger.warning("Failed to precompile legacy matrix shaders: \(error)")
+    // MARK: - Kernel Initialization (Lazy)
+
+    private func getMatrixMultiplyKernel() async throws -> MatrixMultiplyKernel {
+        if let kernel = matrixMultiplyKernel {
+            return kernel
         }
+        let kernel = try await MatrixMultiplyKernel(context: context)
+        matrixMultiplyKernel = kernel
+        return kernel
     }
-    
+
+    private func getMatrixTransposeKernel() async throws -> MatrixTransposeKernel {
+        if let kernel = matrixTransposeKernel {
+            return kernel
+        }
+        let kernel = try await MatrixTransposeKernel(context: context)
+        matrixTransposeKernel = kernel
+        return kernel
+    }
+
     // MARK: - Matrix Multiplication
-    
+
     /// Perform matrix multiplication: C = A * B
     ///
     /// Computes the matrix product C = AB where:
     /// - A is an m×n matrix
-    /// - B is an n×p matrix  
+    /// - B is an n×p matrix
     /// - C is the resulting m×p matrix
     ///
     /// Mathematical formula:
@@ -151,10 +175,10 @@ public actor MatrixEngine {
                 actual: descriptorB.rows
             )
         }
-        
+
         let measureToken = await logger.startMeasure("matrixMultiply")
         defer { measureToken.end() }
-        
+
         // Decide execution path based on size
         let totalElements = descriptorA.rows * descriptorB.columns
 
@@ -182,66 +206,28 @@ public actor MatrixEngine {
 
         return result
     }
-    
-    /// GPU-accelerated matrix multiplication
+
+    /// GPU-accelerated matrix multiplication using Metal 4 kernel
     private func gpuMatrixMultiply(
         _ matrixA: [Float],
         descriptorA: MatrixDescriptor,
         _ matrixB: [Float],
         descriptorB: MatrixDescriptor
     ) async throws -> [Float] {
-        let outputRows = descriptorA.rows
-        let outputCols = descriptorB.columns
-        let sharedDim = descriptorA.columns
-        
-        // Get buffers
-        let bufferA = try await context.getBuffer(for: matrixA)
-        let bufferB = try await context.getBuffer(for: matrixB)
-        let outputBuffer = try await context.getBuffer(size: outputRows * outputCols * MemoryLayout<Float>.stride)
-        
-        // Ensure shader is loaded
-        if matrixMultiplyShader == nil {
-            matrixMultiplyShader = try await loadMatrixMultiplyShader()
-        }
-        
-        guard let shader = matrixMultiplyShader else {
-            throw VectorError.shaderNotFound(name: "matrixMultiply")
-        }
-        
-        // Execute on GPU
-        try await context.executeAndWait { commandBuffer, encoder in
-            encoder.setComputePipelineState(shader)
-            encoder.setBuffer(bufferA.buffer, offset: 0, index: 0)
-            encoder.setBuffer(bufferB.buffer, offset: 0, index: 1)
-            encoder.setBuffer(outputBuffer.buffer, offset: 0, index: 2)
-            
-            var params = (
-                rowsA: UInt32(outputRows),
-                colsA: UInt32(sharedDim),
-                colsB: UInt32(outputCols)
-            )
-            encoder.setBytes(&params, length: MemoryLayout.size(ofValue: params), index: 3)
-            
-            // Configure thread groups for tiled execution
-            let threadgroupSize = MTLSize(
-                width: min(configuration.tileSize, outputCols),
-                height: min(configuration.tileSize, outputRows),
-                depth: 1
-            )
-            
-            let threadgroupCount = MTLSize(
-                width: (outputCols + threadgroupSize.width - 1) / threadgroupSize.width,
-                height: (outputRows + threadgroupSize.height - 1) / threadgroupSize.height,
-                depth: 1
-            )
-            
-            encoder.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
-        }
-        
-        // Read results
-        return outputBuffer.copyData(as: Float.self, count: outputRows * outputCols)
+        let kernel = try await getMatrixMultiplyKernel()
+
+        let result = try await kernel.multiply(
+            matrixA: matrixA,
+            rowsA: descriptorA.rows,
+            colsA: descriptorA.columns,
+            matrixB: matrixB,
+            rowsB: descriptorB.rows,
+            colsB: descriptorB.columns
+        )
+
+        return result.asMatrix().values
     }
-    
+
     /// CPU-optimized matrix multiplication using Accelerate
     private func cpuMatrixMultiply(
         _ matrixA: [Float],
@@ -252,15 +238,13 @@ public actor MatrixEngine {
         let m = descriptorA.rows
         let n = descriptorB.columns
         let k = descriptorA.columns
-        
+
         var result = [Float](repeating: 0, count: m * n)
-        
-        // Use vDSP for optimal CPU performance (modern replacement for deprecated cblas_sgemm)
+
+        // Use vDSP for optimal CPU performance
         matrixA.withUnsafeBufferPointer { ptrA in
             matrixB.withUnsafeBufferPointer { ptrB in
                 result.withUnsafeMutableBufferPointer { ptrC in
-                    // Using vDSP_mmul for matrix multiplication
-                    // Note: vDSP_mmul expects column-major for B, so we use the transposed version
                     vDSP_mmul(
                         ptrA.baseAddress!, vDSP_Stride(1),
                         ptrB.baseAddress!, vDSP_Stride(1),
@@ -272,12 +256,12 @@ public actor MatrixEngine {
                 }
             }
         }
-        
+
         return result
     }
-    
+
     // MARK: - Matrix Transpose
-    
+
     /// Transpose a matrix
     ///
     /// Computes the transpose A^T of matrix A where:
@@ -289,9 +273,6 @@ public actor MatrixEngine {
     ///
     /// - Complexity: O(m·n) with cache-oblivious algorithm for optimal cache usage
     /// - Memory: O(m·n) for output matrix
-    ///
-    /// Implementation uses cache blocking for matrices larger than L2 cache
-    /// to minimize cache misses during the transpose operation.
     ///
     /// - Parameters:
     ///   - matrix: Input matrix in row-major order
@@ -321,54 +302,27 @@ public actor MatrixEngine {
 
         return result
     }
-    
-    /// GPU-accelerated transpose
+
+    /// GPU-accelerated transpose using Metal 4 kernel
     private func gpuTranspose(
         _ matrix: [Float],
         descriptor: MatrixDescriptor
     ) async throws -> [Float] {
-        // Ensure shader is loaded
-        if matrixTransposeShader == nil {
-            matrixTransposeShader = try await loadTransposeShader()
-        }
+        let kernel = try await getMatrixTransposeKernel()
 
-        guard let shader = matrixTransposeShader else {
-            // Fallback to CPU if shader unavailable
-            return cpuTranspose(matrix, descriptor: descriptor)
-        }
+        let result = try await kernel.transpose(
+            data: matrix,
+            rows: descriptor.rows,
+            columns: descriptor.columns
+        )
 
-        let bufferInput = try await context.getBuffer(for: matrix)
-        let outputBuffer = try await context.getBuffer(size: descriptor.elementCount * MemoryLayout<Float>.stride)
-
-        try await context.executeAndWait { commandBuffer, encoder in
-            encoder.setComputePipelineState(shader)
-            encoder.setBuffer(bufferInput.buffer, offset: 0, index: 0)
-            encoder.setBuffer(outputBuffer.buffer, offset: 0, index: 1)
-
-            var dims = (rows: UInt32(descriptor.rows), cols: UInt32(descriptor.columns))
-            encoder.setBytes(&dims, length: MemoryLayout.size(ofValue: dims), index: 2)
-
-            let threadgroupSize = MTLSize(
-                width: min(16, descriptor.columns),
-                height: min(16, descriptor.rows),
-                depth: 1
-            )
-            let threadgroupCount = MTLSize(
-                width: (descriptor.columns + threadgroupSize.width - 1) / threadgroupSize.width,
-                height: (descriptor.rows + threadgroupSize.height - 1) / threadgroupSize.height,
-                depth: 1
-            )
-
-            encoder.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
-        }
-
-        return outputBuffer.copyData(as: Float.self, count: descriptor.elementCount)
+        return result.asMatrix().values
     }
-    
+
     /// CPU transpose using Accelerate
     private func cpuTranspose(_ matrix: [Float], descriptor: MatrixDescriptor) -> [Float] {
         var result = [Float](repeating: 0, count: descriptor.elementCount)
-        
+
         matrix.withUnsafeBufferPointer { src in
             result.withUnsafeMutableBufferPointer { dst in
                 vDSP_mtrans(
@@ -381,12 +335,12 @@ public actor MatrixEngine {
                 )
             }
         }
-        
+
         return result
     }
-    
+
     // MARK: - Batch Operations
-    
+
     /// Batch matrix-vector multiplication
     public func batchMatrixVectorMultiply(
         matrices: [[Float]],
@@ -399,11 +353,11 @@ public actor MatrixEngine {
                 actual: vectors.count
             )
         }
-        
+
         let measureToken = await logger.startMeasure("batchMatrixVectorMultiply")
         measureToken.addMetadata("batchSize", value: "\(matrices.count)")
         defer { measureToken.end() }
-        
+
         // Process in parallel
         return try await withThrowingTaskGroup(of: (Int, [Float]).self) { group in
             for (index, (matrix, vector)) in zip(matrices, vectors).enumerated() {
@@ -416,7 +370,7 @@ public actor MatrixEngine {
                     return (index, result)
                 }
             }
-            
+
             // Collect results in order
             var results = [[Float]](repeating: [], count: matrices.count)
             for try await (index, result) in group {
@@ -425,7 +379,7 @@ public actor MatrixEngine {
             return results
         }
     }
-    
+
     /// Single matrix-vector multiplication
     private func matrixVectorMultiply(
         matrix: [Float],
@@ -438,14 +392,13 @@ public actor MatrixEngine {
                 actual: vector.count
             )
         }
-        
-        // Use vDSP for efficient computation (modern replacement for deprecated cblas_sgemv)
+
+        // Use vDSP for efficient computation
         var result = [Float](repeating: 0, count: descriptor.rows)
-        
+
         matrix.withUnsafeBufferPointer { matPtr in
             vector.withUnsafeBufferPointer { vecPtr in
                 result.withUnsafeMutableBufferPointer { resPtr in
-                    // Using vDSP_mmul treating vector as a column matrix
                     vDSP_mmul(
                         matPtr.baseAddress!, vDSP_Stride(1),
                         vecPtr.baseAddress!, vDSP_Stride(1),
@@ -457,75 +410,12 @@ public actor MatrixEngine {
                 }
             }
         }
-        
+
         return result
     }
-    
-    // MARK: - Shader Loading
-    
-    private func loadMatrixMultiplyShader() async throws -> any MTLComputePipelineState {
-        let source = """
-        #include <metal_stdlib>
-        using namespace metal;
-        
-        kernel void matrixMultiply(
-            device const float* A [[buffer(0)]],
-            device const float* B [[buffer(1)]],
-            device float* C [[buffer(2)]],
-            constant uint3& params [[buffer(3)]],  // rowsA, colsA, colsB
-            uint2 gid [[thread_position_in_grid]]
-        ) {
-            uint rowsA = params.x;
-            uint colsA = params.y;
-            uint colsB = params.z;
-            
-            uint row = gid.y;
-            uint col = gid.x;
-            
-            if (row >= rowsA || col >= colsB) return;
-            
-            float sum = 0.0f;
-            for (uint k = 0; k < colsA; k++) {
-                sum += A[row * colsA + k] * B[k * colsB + col];
-            }
-            
-            C[row * colsB + col] = sum;
-        }
-        """
-        
-        return try await context.compileShader(source: source, functionName: "matrixMultiply")
-    }
-    
-    private func loadTransposeShader() async throws -> any MTLComputePipelineState {
-        let source = """
-        #include <metal_stdlib>
-        using namespace metal;
-        
-        kernel void matrixTranspose(
-            device const float* input [[buffer(0)]],
-            device float* output [[buffer(1)]],
-            constant uint2& dims [[buffer(2)]],  // rows, cols
-            uint2 gid [[thread_position_in_grid]]
-        ) {
-            uint rows = dims.x;
-            uint cols = dims.y;
-            
-            uint row = gid.y;
-            uint col = gid.x;
-            
-            if (row >= rows || col >= cols) return;
-            
-            // Input: row-major [row][col]
-            // Output: row-major transposed [col][row]
-            output[col * rows + row] = input[row * cols + col];
-        }
-        """
-        
-        return try await context.compileShader(source: source, functionName: "matrixTranspose")
-    }
-    
+
     // MARK: - Performance Metrics
-    
+
     public func getPerformanceMetrics() -> (operations: Int, averageTime: TimeInterval) {
         let avgTime = operationCount > 0 ? totalComputeTime / Double(operationCount) : 0
         return (operationCount, avgTime)
@@ -535,10 +425,10 @@ public actor MatrixEngine {
 // MARK: - Convenience Extensions
 
 public extension MatrixEngine {
-    /// Create with default context
+    /// Create with default Metal 4 context
     static func createDefault() async throws -> MatrixEngine {
-        guard let context = await MetalContext.createDefault() else {
-            throw VectorError.deviceInitializationFailed("Metal not available")
+        guard let context = await Metal4Context.createDefault() else {
+            throw VectorError.deviceInitializationFailed("Metal 4 not available")
         }
         return await MatrixEngine(context: context)
     }

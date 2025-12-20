@@ -4,75 +4,56 @@
 //
 //  Opaque handle to a vector stored in an AcceleratedVectorIndex.
 //
-//  Handles are lightweight value types that uniquely identify vectors.
-//  They use a generation counter for stale handle detection after compact().
+//  Handles are stable across compaction: a handle's identity never changes for the
+//  lifetime of the vector. Internally the index uses an indirection table to map
+//  handle IDs to the current storage slot.
 //
 
 import Foundation
 
 // MARK: - Vector Handle
 
-/// Opaque handle to a vector in an AcceleratedVectorIndex.
+/// Opaque handle to a vector in an ``AcceleratedVectorIndex``.
 ///
 /// Handles are returned from `insert()` and used to identify vectors in
 /// search results, metadata operations, and removal.
 ///
 /// ## Characteristics
-/// - Lightweight: 6 bytes (UInt32 index + UInt16 generation)
+/// - Lightweight: 4 bytes (`UInt32` stable ID)
 /// - Hashable: Can be used as dictionary keys
 /// - Comparable: Supports sorting
 /// - Sendable: Safe for concurrent access
 ///
-/// ## Generation-Based Stability
-/// Handles include a generation counter that enables detection of stale handles
-/// after `compact()` operations. When a slot is reused, its generation increments,
-/// making old handles to that slot invalid.
+/// ## Stability
+/// Handles are stable across `compact()`.
 ///
-/// ```swift
-/// let handle = try await index.insert(vector)
-/// try await index.remove(handle)
-/// try await index.compact()
-/// // handle is now stale - the slot may be reused with a new generation
-/// ```
-///
-/// ## Usage
-/// ```swift
-/// let handle = try await index.insert(vector)
-/// let results = try await index.search(query: query, k: 10)
-/// if results[0].handle == handle {
-///     print("Found our vector!")
-/// }
-/// ```
+/// Internally, the index may move vectors to different GPU storage slots during
+/// compaction. A handle's `stableID` is mapped to the current slot via an
+/// indirection table, so user code never needs to remap handles.
 public struct VectorHandle: Hashable, Sendable, Comparable {
 
     // MARK: - Internal Storage
 
-    /// Internal index into the vector buffer.
-    /// This is an implementation detail and should not be relied upon.
+    /// Stable identifier for this vector.
+    ///
+    /// This value never changes for the lifetime of the vector.
     @usableFromInline
-    internal let index: UInt32
-
-    /// Generation counter for stale handle detection.
-    /// Incremented each time a slot is reused after deletion.
-    @usableFromInline
-    internal let generation: UInt16
+    internal let stableID: UInt32
 
     // MARK: - Constants
 
     /// Invalid handle sentinel value.
-    /// Used to indicate "no vector" in search results when k exceeds available vectors.
-    public static let invalid = VectorHandle(index: .max, generation: 0)
+    /// Used to indicate "no vector" in search results when `k` exceeds available vectors.
+    public static let invalid = VectorHandle(stableID: .max)
 
     // MARK: - Initialization
 
-    /// Create a handle with the given internal index and generation.
-    /// - Parameters:
-    ///   - index: The internal buffer index
-    ///   - generation: The generation counter for this slot
+    /// Create a handle with the given stable identifier.
+    ///
+    /// This is intentionally internal to keep handles opaque to consumers.
     @usableFromInline
-    internal init(index: UInt32, generation: UInt16) {
-        self.index = index
-        self.generation = generation
+    internal init(stableID: UInt32) {
+        self.stableID = stableID
     }
 
     // MARK: - Validation
@@ -80,22 +61,18 @@ public struct VectorHandle: Hashable, Sendable, Comparable {
     /// Whether this handle is potentially valid (not the sentinel value).
     ///
     /// Note: This only checks if the handle is not the sentinel value.
-    /// A handle may still be stale if its generation doesn't match the
-    /// current generation of its slot in the index.
+    /// A handle may still not exist in a particular index instance.
     @inlinable
     public var isValid: Bool {
-        self != .invalid
+        stableID != .max
     }
 
     // MARK: - Comparable
 
-    /// Compare handles by index, then by generation.
+    /// Compare handles by stable ID.
     @inlinable
     public static func < (lhs: VectorHandle, rhs: VectorHandle) -> Bool {
-        if lhs.index != rhs.index {
-            return lhs.index < rhs.index
-        }
-        return lhs.generation < rhs.generation
+        lhs.stableID < rhs.stableID
     }
 }
 
@@ -103,7 +80,7 @@ public struct VectorHandle: Hashable, Sendable, Comparable {
 
 extension VectorHandle: CustomStringConvertible {
     public var description: String {
-        isValid ? "VectorHandle(\(index))" : "VectorHandle.invalid"
+        isValid ? "VectorHandle(\(stableID))" : "VectorHandle.invalid"
     }
 }
 
@@ -111,7 +88,7 @@ extension VectorHandle: CustomStringConvertible {
 
 extension VectorHandle: CustomDebugStringConvertible {
     public var debugDescription: String {
-        "VectorHandle(index: \(index), generation: \(generation), valid: \(isValid))"
+        "VectorHandle(stableID: \(stableID), valid: \(isValid))"
     }
 }
 
@@ -119,14 +96,12 @@ extension VectorHandle: CustomDebugStringConvertible {
 
 extension VectorHandle: Codable {
     public init(from decoder: any Decoder) throws {
-        var container = try decoder.unkeyedContainer()
-        self.index = try container.decode(UInt32.self)
-        self.generation = try container.decode(UInt16.self)
+        let container = try decoder.singleValueContainer()
+        self.stableID = try container.decode(UInt32.self)
     }
 
     public func encode(to encoder: any Encoder) throws {
-        var container = encoder.unkeyedContainer()
-        try container.encode(index)
-        try container.encode(generation)
+        var container = encoder.singleValueContainer()
+        try container.encode(stableID)
     }
 }

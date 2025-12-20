@@ -242,14 +242,21 @@ final class IVFTests: XCTestCase {
         try await index.remove(handles[3])
         try await index.remove(handles[5])
 
-        // Compact
-        let mapping = try await index.compact()
+        // Compact (returns Void with P0.8 stable handles)
+        try await index.compact()
 
-        XCTAssertEqual(mapping.count, 7, "Should have 7 mappings for remaining vectors")
-
+        // P0.8: Remaining handles should still be valid
         let stats = await index.statistics()
         XCTAssertEqual(stats.vectorCount, 7)
         XCTAssertEqual(stats.deletedSlots, 0)
+
+        // Verify remaining handles are still valid (P0.8)
+        let contains0 = await index.contains(handles[0])
+        let contains2 = await index.contains(handles[2])
+        let contains4 = await index.contains(handles[4])
+        XCTAssertTrue(contains0)
+        XCTAssertTrue(contains2)
+        XCTAssertTrue(contains4)
     }
 
     /// Search should work correctly after IVF compaction.
@@ -274,8 +281,8 @@ final class IVFTests: XCTestCase {
         // Delete middle vector
         try await index.remove(handles[2])
 
-        // Compact
-        let mapping = try await index.compact()
+        // Compact (returns Void with P0.8)
+        try await index.compact()
 
         // Search should still work
         let query: [Float] = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -285,11 +292,11 @@ final class IVFTests: XCTestCase {
         XCTAssertEqual(results[0].distance, 0.0, accuracy: 0.001,
                        "Exact match should have distance 0")
 
-        // Results should use new handles
-        let newHandles = Set(mapping.values)
+        // P0.8: Results should use original stable handles
+        let validHandles = Set([handles[0], handles[1], handles[3], handles[4]])
         for result in results {
-            XCTAssertTrue(newHandles.contains(result.handle),
-                          "Results should use new handles after compaction")
+            XCTAssertTrue(validHandles.contains(result.handle),
+                          "Results should use original stable handles (P0.8)")
         }
     }
 
