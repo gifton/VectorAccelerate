@@ -54,7 +54,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
         var groundTruth: [[UInt32]] = []
         for query in queries {
             let results = try await flatIndex.search(query: query, k: k)
-            groundTruth.append(results.map { $0.handle.index })
+            groundTruth.append(results.map { $0.handle.stableID })
         }
 
         // Test different nprobe values
@@ -90,7 +90,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
             var totalRecall: Float = 0
             for (i, query) in queries.enumerated() {
                 let results = try await ivfIndex.search(query: query, k: k)
-                let resultIndices = Set(results.map { $0.handle.index })
+                let resultIndices = Set(results.map { $0.handle.stableID })
                 let gtSet = Set(groundTruth[i])
                 let intersection = resultIndices.intersection(gtSet)
                 totalRecall += Float(intersection.count) / Float(k)
@@ -199,11 +199,11 @@ final class IVFQualityAssessmentTests: XCTestCase {
 
                 // Ground truth (use index for comparison)
                 let gtResults = try await flatIndex.search(query: query, k: k)
-                let gtIndices = Set(gtResults.map { $0.handle.index })
+                let gtIndices = Set(gtResults.map { $0.handle.stableID })
 
                 // IVF results
                 let ivfResults = try await ivfIndex.search(query: query, k: k)
-                let ivfIndices = Set(ivfResults.map { $0.handle.index })
+                let ivfIndices = Set(ivfResults.map { $0.handle.stableID })
 
                 let intersection = ivfIndices.intersection(gtIndices)
                 totalRecall += Float(intersection.count) / Float(k)
@@ -264,7 +264,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
             var groundTruth: [Set<UInt32>] = []
             for query in queries {
                 let gtResults = try await flatIndex.search(query: query, k: k)
-                groundTruth.append(Set(gtResults.map { $0.handle.index }))
+                groundTruth.append(Set(gtResults.map { $0.handle.stableID }))
             }
 
             // Benchmark flat (pure timing, no recall calculation)
@@ -288,7 +288,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
             // Calculate recall AFTER timing
             var totalRecall: Float = 0
             for (i, results) in ivfResults.enumerated() {
-                let ivfIndices = Set(results.map { $0.handle.index })
+                let ivfIndices = Set(results.map { $0.handle.stableID })
                 let intersection = ivfIndices.intersection(groundTruth[i])
                 totalRecall += Float(intersection.count) / Float(k)
             }
@@ -354,14 +354,14 @@ final class IVFQualityAssessmentTests: XCTestCase {
         var groundTruth: [Set<UInt32>] = []
         for q in queries {
             let gt = try await flatIndex.search(query: q, k: kLarge)
-            groundTruth.append(Set(gt.map { $0.handle.index }))
+            groundTruth.append(Set(gt.map { $0.handle.stableID }))
         }
 
         // IVF results and recall
         var totalRecall: Float = 0
         for (i, q) in queries.enumerated() {
             let res = try await ivfIndex.search(query: q, k: kLarge)
-            let idxSet = Set(res.map { $0.handle.index })
+            let idxSet = Set(res.map { $0.handle.stableID })
             let inter = idxSet.intersection(groundTruth[i])
             totalRecall += Float(inter.count) / Float(kLarge)
         }

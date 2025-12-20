@@ -92,7 +92,7 @@ final class IVFValidationTests: XCTestCase {
         var groundTruth: [Set<UInt32>] = []
         for query in queries {
             let results = try await flatIndex.search(query: query, k: k)
-            groundTruth.append(Set(results.map { $0.handle.index }))
+            groundTruth.append(Set(results.map { $0.handle.stableID }))
         }
 
         // Test increasing nprobe values
@@ -117,7 +117,7 @@ final class IVFValidationTests: XCTestCase {
             var totalRecall: Float = 0
             for (i, query) in queries.enumerated() {
                 let results = try await ivfIndex.search(query: query, k: k)
-                let ivfIndices = Set(results.map { $0.handle.index })
+                let ivfIndices = Set(results.map { $0.handle.stableID })
                 let intersection = ivfIndices.intersection(groundTruth[i])
                 totalRecall += Float(intersection.count) / Float(k)
             }
@@ -180,10 +180,10 @@ final class IVFValidationTests: XCTestCase {
         var totalRecall: Float = 0
         for query in queries {
             let gtResults = try await flatIndex.search(query: query, k: k)
-            let gtIndices = Set(gtResults.map { $0.handle.index })
+            let gtIndices = Set(gtResults.map { $0.handle.stableID })
 
             let ivfResults = try await ivfIndex.search(query: query, k: k)
-            let ivfIndices = Set(ivfResults.map { $0.handle.index })
+            let ivfIndices = Set(ivfResults.map { $0.handle.stableID })
 
             let intersection = ivfIndices.intersection(gtIndices)
             totalRecall += Float(intersection.count) / Float(k)
@@ -305,7 +305,7 @@ final class IVFValidationTests: XCTestCase {
         var groundTruth: [Set<UInt32>] = []
         for query in queries {
             let results = try await flatIndex.search(query: query, k: k)
-            groundTruth.append(Set(results.map { $0.handle.index }))
+            groundTruth.append(Set(results.map { $0.handle.stableID }))
         }
 
         // FAISS-like expectations for uniform random data
@@ -342,7 +342,7 @@ final class IVFValidationTests: XCTestCase {
             var totalRecall: Float = 0
             for (i, query) in queries.enumerated() {
                 let results = try await ivfIndex.search(query: query, k: k)
-                let ivfIndices = Set(results.map { $0.handle.index })
+                let ivfIndices = Set(results.map { $0.handle.stableID })
                 let intersection = ivfIndices.intersection(groundTruth[i])
                 totalRecall += Float(intersection.count) / Float(k)
             }
@@ -713,8 +713,8 @@ final class IVFValidationTests: XCTestCase {
             let ivfResults = try await ivfIndex.search(query: query, k: k)
 
             // Create maps of index -> distance
-            let flatDistances = Dictionary(uniqueKeysWithValues: flatResults.map { ($0.handle.index, $0.distance) })
-            let ivfDistances = Dictionary(uniqueKeysWithValues: ivfResults.map { ($0.handle.index, $0.distance) })
+            let flatDistances = Dictionary(uniqueKeysWithValues: flatResults.map { ($0.handle.stableID, $0.distance) })
+            let ivfDistances = Dictionary(uniqueKeysWithValues: ivfResults.map { ($0.handle.stableID, $0.distance) })
 
             // Compare distances for matching indices
             for (index, flatDist) in flatDistances {
@@ -787,7 +787,7 @@ final class IVFValidationTests: XCTestCase {
             let results = try await ivfIndex.search(query: query, k: k)
 
             // The first result should be the landmark itself (distance ~0)
-            let foundIndices = results.map { Int($0.handle.index) }
+            let foundIndices = results.map { Int($0.handle.stableID) }
             let firstResult = foundIndices[0]
             let firstDistance = results[0].distance
 
@@ -910,10 +910,10 @@ final class IVFValidationTests: XCTestCase {
 
         for query in queries {
             let gtResults = try await flatIndex.search(query: query, k: k)
-            let gtIndices = Set(gtResults.map { $0.handle.index })
+            let gtIndices = Set(gtResults.map { $0.handle.stableID })
 
             let ivfResults = try await ivfIndex.search(query: query, k: k)
-            let ivfIndices = Set(ivfResults.map { $0.handle.index })
+            let ivfIndices = Set(ivfResults.map { $0.handle.stableID })
 
             // Verify we get results
             XCTAssertEqual(ivfResults.count, k, "Should return K results")
@@ -1069,10 +1069,10 @@ final class IVFValidationTests: XCTestCase {
         var duplicatesFound = 0
         var duplicateIndices: [UInt32] = []
         for result in results {
-            let idx = Int(result.handle.index)
+            let idx = Int(result.handle.stableID)
             if idx >= duplicateStartIdx && idx < duplicateStartIdx + numDuplicates {
                 duplicatesFound += 1
-                duplicateIndices.append(result.handle.index)
+                duplicateIndices.append(result.handle.stableID)
             }
         }
 
@@ -1141,10 +1141,10 @@ final class IVFValidationTests: XCTestCase {
 
         // The zero vector should be found as first result with distance 0
         let firstResult = results[0]
-        print("  First result: index=\(firstResult.handle.index), distance=\(firstResult.distance)")
+        print("  First result: index=\(firstResult.handle.stableID), distance=\(firstResult.distance)")
 
         XCTAssertEqual(
-            Int(firstResult.handle.index), zeroIdx,
+            Int(firstResult.handle.stableID), zeroIdx,
             "Zero vector should be first result"
         )
         XCTAssertLessThan(
@@ -1206,11 +1206,11 @@ final class IVFValidationTests: XCTestCase {
 
         for query in queries {
             let gtResults = try await flatIndex.search(query: query, k: k)
-            let gtIndices = Set(gtResults.map { $0.handle.index })
-            let gtDistances = Dictionary(uniqueKeysWithValues: gtResults.map { ($0.handle.index, $0.distance) })
+            let gtIndices = Set(gtResults.map { $0.handle.stableID })
+            let gtDistances = Dictionary(uniqueKeysWithValues: gtResults.map { ($0.handle.stableID, $0.distance) })
 
             let ivfResults = try await ivfIndex.search(query: query, k: k)
-            let ivfIndices = Set(ivfResults.map { $0.handle.index })
+            let ivfIndices = Set(ivfResults.map { $0.handle.stableID })
 
             // Verify we get K results
             XCTAssertEqual(ivfResults.count, k, "Should return K results")
@@ -1225,7 +1225,7 @@ final class IVFValidationTests: XCTestCase {
 
             // Check distance accuracy for matching results
             for result in ivfResults {
-                if let gtDist = gtDistances[result.handle.index] {
+                if let gtDist = gtDistances[result.handle.stableID] {
                     let diff = abs(result.distance - gtDist)
                     maxDistanceDiff = max(maxDistanceDiff, diff)
                 }
@@ -1420,7 +1420,7 @@ final class IVFValidationTests: XCTestCase {
             var groundTruth: [Set<UInt32>] = []
             for query in queries {
                 let gtResults = try await flatIndex.search(query: query, k: k)
-                groundTruth.append(Set(gtResults.map { $0.handle.index }))
+                groundTruth.append(Set(gtResults.map { $0.handle.stableID }))
             }
 
             // Warmup
@@ -1450,7 +1450,7 @@ final class IVFValidationTests: XCTestCase {
             // Calculate recall
             var totalRecall: Float = 0
             for (i, results) in ivfResults.enumerated() {
-                let ivfIndices = Set(results.map { $0.handle.index })
+                let ivfIndices = Set(results.map { $0.handle.stableID })
                 let intersection = ivfIndices.intersection(groundTruth[i])
                 totalRecall += Float(intersection.count) / Float(k)
             }
@@ -1503,7 +1503,7 @@ final class IVFValidationTests: XCTestCase {
         var groundTruth: [Set<UInt32>] = []
         for query in queries {
             let results = try await flatIndex.search(query: query, k: k)
-            groundTruth.append(Set(results.map { $0.handle.index }))
+            groundTruth.append(Set(results.map { $0.handle.stableID }))
         }
 
         // Test different nlist values
@@ -1533,7 +1533,7 @@ final class IVFValidationTests: XCTestCase {
             var totalRecall: Float = 0
             for (i, query) in queries.enumerated() {
                 let results = try await ivfIndex.search(query: query, k: k)
-                let ivfIndices = Set(results.map { $0.handle.index })
+                let ivfIndices = Set(results.map { $0.handle.stableID })
 
                 // Verify we get results
                 XCTAssertGreaterThan(results.count, 0, "Should return results")
@@ -1898,8 +1898,8 @@ final class IVFValidationTests: XCTestCase {
             }
 
             // Same indices in same order
-            let singleIndices = singleRes.map { $0.handle.index }
-            let batchIndices = batchRes.map { $0.handle.index }
+            let singleIndices = singleRes.map { $0.handle.stableID }
+            let batchIndices = batchRes.map { $0.handle.stableID }
             if singleIndices != batchIndices {
                 allMatch = false
                 mismatchedQueries.append(queryIdx)
@@ -2006,8 +2006,8 @@ final class IVFValidationTests: XCTestCase {
                 "Query \(queryIdx): result counts differ"
             )
             // With accept-all filter, results should be identical
-            let noFilterIndices = noFilterRes.map { $0.handle.index }
-            let withFilterIndices = withFilterRes.map { $0.handle.index }
+            let noFilterIndices = noFilterRes.map { $0.handle.stableID }
+            let withFilterIndices = withFilterRes.map { $0.handle.stableID }
             XCTAssertEqual(
                 noFilterIndices, withFilterIndices,
                 "Query \(queryIdx): indices differ despite accept-all filter"
@@ -2069,8 +2069,8 @@ final class IVFValidationTests: XCTestCase {
         XCTAssertEqual(ivfResults.count, flatResults.count)
         var allMatch = true
         for (queryIdx, (ivfRes, flatRes)) in zip(ivfResults, flatResults).enumerated() {
-            let ivfIndices = Set(ivfRes.map { $0.handle.index })
-            let flatIndices = Set(flatRes.map { $0.handle.index })
+            let ivfIndices = Set(ivfRes.map { $0.handle.stableID })
+            let flatIndices = Set(flatRes.map { $0.handle.stableID })
             if ivfIndices != flatIndices {
                 allMatch = false
                 print("  Query \(queryIdx): indices differ")
@@ -2416,10 +2416,10 @@ extension IVFValidationTests {
         var totalRecall: Float = 0
         for query in queries {
             let gtResults = try await flatIndex.search(query: query, k: k)
-            let gtIndices = Set(gtResults.map { $0.handle.index })
+            let gtIndices = Set(gtResults.map { $0.handle.stableID })
 
             let ivfResults = try await ivfIndex.search(query: query, k: k)
-            let ivfIndices = Set(ivfResults.map { $0.handle.index })
+            let ivfIndices = Set(ivfResults.map { $0.handle.stableID })
 
             let intersection = ivfIndices.intersection(gtIndices)
             totalRecall += Float(intersection.count) / Float(k)

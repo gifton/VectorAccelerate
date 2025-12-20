@@ -1,5 +1,0 @@
-2025-12-20T04:40:06.9730000Z Job is waiting for a hosted runner to come online.
-2025-12-20T04:40:06.9680000Z Requested labels: macos-26
-2025-12-20T04:40:06.9680000Z Job defined at: gifton/VectorAccelerate/.github/workflows/ci.yml@refs/pull/14/merge
-2025-12-20T04:40:06.9680000Z Waiting for a runner to pick up this job...
-2025-12-20T04:40:06.9730000Z Job is about to start running on the hosted runner: GitHub Actions 1000010096
