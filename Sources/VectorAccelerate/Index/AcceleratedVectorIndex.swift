@@ -339,8 +339,14 @@ public actor AcceleratedVectorIndex {
         }
 
         try await ivf.train(vectors: trainingVectors, context: context)
-        // Note: IVFStructure.train() already assigns staged vectors to clusters,
-        // so no need to re-assign here.
+
+        // After training, reassign ALL vectors to their nearest clusters.
+        // IVFStructure.train() clears inverted lists, so we must reassign here.
+        for slotIndex in deletionMask {
+            guard slotIndex < storage.allocatedSlots else { continue }
+            let vector = try storage.readVector(at: slotIndex)
+            _ = ivf.assignToCluster(vector: vector, slotIndex: UInt32(slotIndex))
+        }
     }
 
     /// Enable or disable auto-training for IVF indexes.
