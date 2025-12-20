@@ -18,6 +18,7 @@
 //  - Latent space optimized for quantization (trained end-to-end)
 //  - Better reconstruction quality for complex data distributions
 
+import Accelerate
 import Foundation
 @preconcurrency import Metal
 import QuartzCore
@@ -212,12 +213,31 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     private let encodeQuantizePipeline: any MTLComputePipelineState
     private let dequantizeDecodePipeline: any MTLComputePipelineState
 
+    /// Optimized 2D decode pipelines for different threadgroup sizes
+    private var optimizedDecodePipeline32: (any MTLComputePipelineState)?
+    private var optimizedDecodePipeline64: (any MTLComputePipelineState)?
+    private var optimizedDecodePipeline128: (any MTLComputePipelineState)?
+    private var optimizedDecodePipeline256: (any MTLComputePipelineState)?
+
+    /// Transposed weight decode pipeline (coalesced memory access)
+    private var optimizedDecodeTransposedPipeline: (any MTLComputePipelineState)?
+
+    /// Best threadgroup size determined during initialization
+    private let bestThreadgroupSize: Int
+
+    /// Whether any optimized 2D decode kernel is available
+    private let useOptimizedDecode: Bool
+
+    /// Whether transposed decode kernel is available
+    private let hasTransposedDecode: Bool
+
     // MARK: - Weight Management
 
     private let tensorManager: TensorManager
     private var currentConfig: Metal4NeuralQuantizationConfig?
     private var encoderWeights: TensorBuffer?
     private var decoderWeights: TensorBuffer?
+    private var decoderWeightsTransposed: TensorBuffer?
     private var encoderBias: TensorBuffer?
     private var decoderBias: TensorBuffer?
 
@@ -247,6 +267,84 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         self.decodePipeline = try await device.makeComputePipelineState(function: decodeFunc)
         self.encodeQuantizePipeline = try await device.makeComputePipelineState(function: encodeQuantizeFunc)
         self.dequantizeDecodePipeline = try await device.makeComputePipelineState(function: dequantizeDecodeFunc)
+
+        // Try to load optimized 2D decode kernel variants
+        var loadedAny = false
+
+        // Load 32-thread variant
+        if let func32 = library.makeFunction(name: "neural_dequantize_decode_2d_tg_kernel") {
+            do {
+                self.optimizedDecodePipeline32 = try await device.makeComputePipelineState(function: func32)
+                loadedAny = true
+            } catch {
+                VectorLogDebug("Failed to compile 32-thread decode kernel: \(error)", category: "NeuralQuantization")
+            }
+        }
+
+        // Load 64-thread variant
+        if let func64 = library.makeFunction(name: "neural_dequantize_decode_2d_tg64_kernel") {
+            do {
+                self.optimizedDecodePipeline64 = try await device.makeComputePipelineState(function: func64)
+                loadedAny = true
+            } catch {
+                VectorLogDebug("Failed to compile 64-thread decode kernel: \(error)", category: "NeuralQuantization")
+            }
+        }
+
+        // Load 128-thread variant (empirically best performer)
+        if let func128 = library.makeFunction(name: "neural_dequantize_decode_2d_tg128_kernel") {
+            do {
+                self.optimizedDecodePipeline128 = try await device.makeComputePipelineState(function: func128)
+                loadedAny = true
+            } catch {
+                VectorLogDebug("Failed to compile 128-thread decode kernel: \(error)", category: "NeuralQuantization")
+            }
+        }
+
+        // Load 256-thread variant
+        if let func256 = library.makeFunction(name: "neural_dequantize_decode_2d_tg256_kernel") {
+            do {
+                self.optimizedDecodePipeline256 = try await device.makeComputePipelineState(function: func256)
+                loadedAny = true
+            } catch {
+                VectorLogDebug("Failed to compile 256-thread decode kernel: \(error)", category: "NeuralQuantization")
+            }
+        }
+
+        // Load transposed weight variant (coalesced memory access)
+        var hasTransposed = false
+        if let funcTransposed = library.makeFunction(name: "neural_dequantize_decode_2d_transposed_kernel") {
+            do {
+                self.optimizedDecodeTransposedPipeline = try await device.makeComputePipelineState(function: funcTransposed)
+                hasTransposed = true
+                VectorLogDebug("Loaded transposed weight decode kernel", category: "NeuralQuantization")
+            } catch {
+                VectorLogDebug("Failed to compile transposed decode kernel: \(error)", category: "NeuralQuantization")
+            }
+        }
+        self.hasTransposedDecode = hasTransposed
+
+        self.useOptimizedDecode = loadedAny
+
+        // Select best threadgroup size based on benchmark results:
+        // 128 threads provides best throughput (~2.57x vs 32)
+        // Fall back to smaller sizes if 128 isn't available
+        if optimizedDecodePipeline128 != nil {
+            self.bestThreadgroupSize = 128
+        } else if optimizedDecodePipeline64 != nil {
+            self.bestThreadgroupSize = 64
+        } else if optimizedDecodePipeline256 != nil {
+            self.bestThreadgroupSize = 256
+        } else if optimizedDecodePipeline32 != nil {
+            self.bestThreadgroupSize = 32
+        } else {
+            self.bestThreadgroupSize = 0  // Will use fallback 1D kernel
+        }
+
+        if loadedAny {
+            let transposedStatus = hasTransposed ? ", transposed: enabled" : ""
+            VectorLogDebug("Loaded optimized 2D neural decode kernels (best: \(bestThreadgroupSize) threads\(transposedStatus))", category: "NeuralQuantization")
+        }
     }
 
     // MARK: - Warm Up
@@ -295,6 +393,9 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             dataType: .float32
         )
 
+        // Create transposed decoder weights for coalesced memory access
+        try await createTransposedDecoderWeights()
+
         currentConfig = config
     }
 
@@ -326,6 +427,9 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             shape: decoderShape,
             dataType: .float32
         )
+
+        // Create transposed decoder weights for coalesced memory access
+        try await createTransposedDecoderWeights()
 
         currentConfig = config
     }
@@ -362,6 +466,9 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             shape: decoderShape
         )
 
+        // Create transposed decoder weights for coalesced memory access
+        try await createTransposedDecoderWeights()
+
         currentConfig = config
     }
 
@@ -383,7 +490,32 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             name: "neural_decoder"
         )
 
+        // Create transposed decoder weights for coalesced memory access
+        try await createTransposedDecoderWeights()
+
         currentConfig = config
+    }
+
+    /// Create transposed decoder weights for coalesced memory access.
+    ///
+    /// The transposed layout [latentDim, inputDim] enables adjacent threads
+    /// to read adjacent memory locations during decode, improving memory bandwidth.
+    private func createTransposedDecoderWeights() async throws {
+        guard let decoderWeights = decoderWeights else { return }
+        guard hasTransposedDecode else {
+            VectorLogDebug("Transposed decode kernel not available, skipping transpose", category: "NeuralQuantization")
+            return
+        }
+
+        do {
+            decoderWeightsTransposed = try await tensorManager.createTransposedTensor(
+                from: decoderWeights,
+                name: "neural_decoder_transposed"
+            )
+            VectorLogDebug("Created transposed decoder weights [\(decoderWeightsTransposed!.shape)]", category: "NeuralQuantization")
+        } catch {
+            VectorLogDebug("Failed to create transposed decoder weights: \(error)", category: "NeuralQuantization")
+        }
     }
 
     /// Check if weights are loaded.
@@ -395,10 +527,12 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     public func unloadWeights() async {
         await tensorManager.unload(name: "neural_encoder")
         await tensorManager.unload(name: "neural_decoder")
+        await tensorManager.unload(name: "neural_decoder_transposed")
         await tensorManager.unload(name: "encoder_bias")
         await tensorManager.unload(name: "decoder_bias")
         encoderWeights = nil
         decoderWeights = nil
+        decoderWeightsTransposed = nil
         encoderBias = nil
         decoderBias = nil
         currentConfig = nil
@@ -525,6 +659,9 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     }
 
     /// Dequantize and decode in one pass.
+    ///
+    /// Prefers transposed weight kernel when available (coalesced memory access).
+    /// Falls back to optimized 2D dispatch with best threadgroup size.
     @discardableResult
     public func encodeDequantizeDecode(
         into encoder: any MTLComputeCommandEncoder,
@@ -533,10 +670,150 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         output: any MTLBuffer,
         parameters: NeuralQuantizationParameters
     ) throws -> Metal4EncodingResult {
+        // Prefer transposed kernel for best performance (coalesced memory access)
+        if let transposedWeights = decoderWeightsTransposed,
+           let transposedPipeline = optimizedDecodeTransposedPipeline {
+            return try encodeDequantizeDecodeTransposed(
+                into: encoder,
+                input: input,
+                scale: scale,
+                output: output,
+                parameters: parameters,
+                transposedWeights: transposedWeights,
+                pipeline: transposedPipeline
+            )
+        }
+
+        // Fall back to non-transposed with best threadgroup size
+        return try encodeDequantizeDecodeWithThreadgroupSize(
+            into: encoder,
+            input: input,
+            scale: scale,
+            output: output,
+            parameters: parameters,
+            threadgroupSize: bestThreadgroupSize
+        )
+    }
+
+    /// Dequantize and decode using transposed weights (coalesced memory access).
+    private func encodeDequantizeDecodeTransposed(
+        into encoder: any MTLComputeCommandEncoder,
+        input: any MTLBuffer,
+        scale: any MTLBuffer,
+        output: any MTLBuffer,
+        parameters: NeuralQuantizationParameters,
+        transposedWeights: TensorBuffer,
+        pipeline: any MTLComputePipelineState
+    ) throws -> Metal4EncodingResult {
+        let numVectors = Int(parameters.numVectors)
+        let outputDim = Int(parameters.inputDimension)
+
+        encoder.setComputePipelineState(pipeline)
+        encoder.label = "NeuralDequantizeDecodeTransposed"
+
+        encoder.setBuffer(input, offset: 0, index: 0)
+        encoder.setBuffer(scale, offset: 0, index: 1)
+        encoder.setBuffer(transposedWeights.buffer, offset: 0, index: 2)
+        encoder.setBuffer(output, offset: 0, index: 3)
+        encoder.setBuffer(decoderBias?.buffer, offset: 0, index: 4)
+
+        var params = parameters
+        encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
+
+        // 128-thread dispatch (same as best non-transposed)
+        let threadgroupSize = 128
+        let threadsPerThreadgroup = MTLSize(width: 1, height: threadgroupSize, depth: 1)
+        let threadgroups = MTLSize(
+            width: numVectors,
+            height: (outputDim + threadgroupSize - 1) / threadgroupSize,
+            depth: 1
+        )
+
+        encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
+
+        return Metal4EncodingResult(
+            pipelineName: "neural_dequantize_decode_2d_transposed_kernel",
+            threadgroups: threadgroups,
+            threadsPerThreadgroup: threadsPerThreadgroup
+        )
+    }
+
+    /// Dequantize and decode with explicit threadgroup size selection.
+    ///
+    /// - Parameters:
+    ///   - threadgroupSize: Number of outputs per threadgroup (32, 64, 128, or 256)
+    @discardableResult
+    public func encodeDequantizeDecodeWithThreadgroupSize(
+        into encoder: any MTLComputeCommandEncoder,
+        input: any MTLBuffer,
+        scale: any MTLBuffer,
+        output: any MTLBuffer,
+        parameters: NeuralQuantizationParameters,
+        threadgroupSize: Int
+    ) throws -> Metal4EncodingResult {
         guard let decoderWeights = decoderWeights else {
             throw VectorError.invalidOperation("Decoder weights not loaded")
         }
 
+        let numVectors = Int(parameters.numVectors)
+        let outputDim = Int(parameters.inputDimension)
+
+        // Select the appropriate pipeline based on threadgroup size
+        let pipeline: (any MTLComputePipelineState)?
+        let kernelName: String
+
+        switch threadgroupSize {
+        case 256:
+            pipeline = optimizedDecodePipeline256
+            kernelName = "neural_dequantize_decode_2d_tg256_kernel"
+        case 128:
+            pipeline = optimizedDecodePipeline128
+            kernelName = "neural_dequantize_decode_2d_tg128_kernel"
+        case 64:
+            pipeline = optimizedDecodePipeline64
+            kernelName = "neural_dequantize_decode_2d_tg64_kernel"
+        case 32:
+            pipeline = optimizedDecodePipeline32
+            kernelName = "neural_dequantize_decode_2d_tg_kernel"
+        default:
+            pipeline = nil
+            kernelName = "neural_dequantize_decode_kernel"
+        }
+
+        // Use optimized 2D kernel if available
+        if let optimizedPipeline = pipeline {
+            encoder.setComputePipelineState(optimizedPipeline)
+            encoder.label = "NeuralDequantizeDecode2D_\(threadgroupSize)"
+
+            encoder.setBuffer(input, offset: 0, index: 0)
+            encoder.setBuffer(scale, offset: 0, index: 1)
+            encoder.setBuffer(decoderWeights.buffer, offset: 0, index: 2)
+            encoder.setBuffer(output, offset: 0, index: 3)
+            encoder.setBuffer(decoderBias?.buffer, offset: 0, index: 4)
+
+            var params = parameters
+            encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
+
+            // Optimized 2D dispatch:
+            // - threadgroup x = 1 vector
+            // - threadgroup y = threadgroupSize output dims
+            let threadsPerThreadgroup = MTLSize(width: 1, height: threadgroupSize, depth: 1)
+            let threadgroups = MTLSize(
+                width: numVectors,
+                height: (outputDim + threadgroupSize - 1) / threadgroupSize,
+                depth: 1
+            )
+
+            encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
+
+            return Metal4EncodingResult(
+                pipelineName: kernelName,
+                threadgroups: threadgroups,
+                threadsPerThreadgroup: threadsPerThreadgroup
+            )
+        }
+
+        // Fallback: Original 1D dispatch (one thread per vector)
         encoder.setComputePipelineState(dequantizeDecodePipeline)
         encoder.label = "NeuralDequantizeDecode"
 
@@ -549,7 +826,6 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         var params = parameters
         encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
 
-        let numVectors = Int(parameters.numVectors)
         let config = Metal4ThreadConfiguration.linear(count: numVectors, pipeline: dequantizeDecodePipeline)
         encoder.dispatchThreadgroups(config.threadgroups, threadsPerThreadgroup: config.threadsPerThreadgroup)
 
@@ -580,39 +856,22 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             throw VectorError.countMismatch(expected: config.inputDimension, actual: inputDim)
         }
 
-        let device = context.device.rawDevice
         let numVectors = vectors.count
         let latentDim = config.latentDimension
 
-        // Create input buffer
+        // Use pooled buffers for temporary allocations (RAII auto-return)
         let flatInput = vectors.flatMap { $0 }
-        guard let inputBuffer = device.makeBuffer(
-            bytes: flatInput,
-            length: flatInput.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatInput.count * MemoryLayout<Float>.size)
-        }
-        inputBuffer.label = "NeuralQuantize.input"
+        let inputToken = try await context.getBuffer(for: flatInput)
+        inputToken.buffer.label = "NeuralQuantize.input"
 
-        // Create output buffer (INT8)
+        // Output buffer (INT8)
         let outputSize = numVectors * latentDim
-        guard let outputBuffer = device.makeBuffer(
-            length: outputSize,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: outputSize)
-        }
-        outputBuffer.label = "NeuralQuantize.output"
+        let outputToken = try await context.getBuffer(size: outputSize)
+        outputToken.buffer.label = "NeuralQuantize.output"
 
-        // Create scale buffer (one scale per vector)
-        guard let scaleBuffer = device.makeBuffer(
-            length: numVectors * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: numVectors * MemoryLayout<Float>.size)
-        }
-        scaleBuffer.label = "NeuralQuantize.scale"
+        // Scale buffer (one scale per vector)
+        let scaleToken = try await context.getBuffer(size: numVectors * MemoryLayout<Float>.size)
+        scaleToken.buffer.label = "NeuralQuantize.scale"
 
         let parameters = NeuralQuantizationParameters(
             numVectors: numVectors,
@@ -624,9 +883,9 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         try await context.executeAndWait { [self] _, encoder in
             try self.encodeEncodeQuantize(
                 into: encoder,
-                input: inputBuffer,
-                output: outputBuffer,
-                scale: scaleBuffer,
+                input: inputToken.buffer,
+                output: outputToken.buffer,
+                scale: scaleToken.buffer,
                 parameters: parameters
             )
         }
@@ -634,10 +893,11 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         let encodingTime = CACurrentMediaTime() - startTime
 
         // Extract results
-        let latentCodes = Data(bytes: outputBuffer.contents(), count: outputSize)
-        let scalePtr = scaleBuffer.contents().bindMemory(to: Float.self, capacity: numVectors)
+        let latentCodes = Data(bytes: outputToken.buffer.contents(), count: outputSize)
+        let scalePtr = scaleToken.buffer.contents().bindMemory(to: Float.self, capacity: numVectors)
         let avgScale = (0..<numVectors).reduce(0.0) { $0 + scalePtr[$1] } / Float(numVectors)
 
+        // Tokens auto-return to pool when scope exits
         return Metal4NeuralEncodingResult(
             latentCodes: latentCodes,
             numVectors: numVectors,
@@ -656,44 +916,24 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             throw VectorError.invalidOperation("Weights not loaded. Call loadWeights first.")
         }
 
-        let device = context.device.rawDevice
         let numVectors = encoded.numVectors
         let inputDim = config.inputDimension
 
-        // Create input buffer (INT8 codes)
-        guard let inputBuffer = device.makeBuffer(
-            bytes: [UInt8](encoded.latentCodes),
-            length: encoded.latentCodes.count,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: encoded.latentCodes.count)
-        }
-        inputBuffer.label = "NeuralDequantize.input"
+        // Use pooled buffers for temporary allocations (RAII auto-return)
+        let inputToken = try await context.getBuffer(for: [UInt8](encoded.latentCodes))
+        inputToken.buffer.label = "NeuralDequantize.input"
 
-        // Create scale buffer
-        guard let scaleBuffer = device.makeBuffer(
-            length: numVectors * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: numVectors * MemoryLayout<Float>.size)
-        }
-        scaleBuffer.label = "NeuralDequantize.scale"
+        let scaleToken = try await context.getBuffer(size: numVectors * MemoryLayout<Float>.size)
+        scaleToken.buffer.label = "NeuralDequantize.scale"
 
-        // Initialize scales (use stored average for now)
-        let scalePtr = scaleBuffer.contents().bindMemory(to: Float.self, capacity: numVectors)
-        for i in 0..<numVectors {
-            scalePtr[i] = encoded.scale
-        }
+        // Initialize scales using vectorized fill (use stored average for now)
+        let scalePtr = scaleToken.buffer.contents().bindMemory(to: Float.self, capacity: numVectors)
+        var scaleValue = encoded.scale
+        vDSP_vfill(&scaleValue, scalePtr, 1, vDSP_Length(numVectors))
 
-        // Create output buffer
         let outputSize = numVectors * inputDim * MemoryLayout<Float>.size
-        guard let outputBuffer = device.makeBuffer(
-            length: outputSize,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: outputSize)
-        }
-        outputBuffer.label = "NeuralDequantize.output"
+        let outputToken = try await context.getBuffer(size: outputSize)
+        outputToken.buffer.label = "NeuralDequantize.output"
 
         let parameters = NeuralQuantizationParameters(
             numVectors: numVectors,
@@ -703,27 +943,78 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         try await context.executeAndWait { [self] _, encoder in
             try self.encodeDequantizeDecode(
                 into: encoder,
-                input: inputBuffer,
-                scale: scaleBuffer,
-                output: outputBuffer,
+                input: inputToken.buffer,
+                scale: scaleToken.buffer,
+                output: outputToken.buffer,
                 parameters: parameters
             )
         }
 
-        // Extract results
-        let outputPtr = outputBuffer.contents().bindMemory(to: Float.self, capacity: numVectors * inputDim)
+        // Extract results using bulk copy (optimized memcpy-based initialization)
+        let outputPtr = outputToken.buffer.contents().bindMemory(to: Float.self, capacity: numVectors * inputDim)
         var results: [[Float]] = []
         results.reserveCapacity(numVectors)
         for i in 0..<numVectors {
-            var row: [Float] = []
-            row.reserveCapacity(inputDim)
-            for j in 0..<inputDim {
-                row.append(outputPtr[i * inputDim + j])
-            }
+            let rowStart = outputPtr.advanced(by: i * inputDim)
+            let row = Array(UnsafeBufferPointer(start: rowStart, count: inputDim))
             results.append(row)
         }
 
+        // Tokens auto-return to pool when scope exits
         return results
+    }
+
+    /// Decode quantized latent codes to a flat contiguous array.
+    ///
+    /// This is significantly faster than `decode()` when you don't need
+    /// the nested array structure. The output is row-major:
+    /// `[v0d0, v0d1, ..., v0dN, v1d0, v1d1, ..., v1dN, ...]`
+    ///
+    /// - Parameter encoded: Encoding result from `encode()`
+    /// - Returns: Flat array of reconstructed values [N * inputDim]
+    public func decodeFlat(_ encoded: Metal4NeuralEncodingResult) async throws -> [Float] {
+        guard let config = currentConfig else {
+            throw VectorError.invalidOperation("Weights not loaded. Call loadWeights first.")
+        }
+
+        let numVectors = encoded.numVectors
+        let inputDim = config.inputDimension
+
+        // Use pooled buffers for temporary allocations (RAII auto-return)
+        let inputToken = try await context.getBuffer(for: [UInt8](encoded.latentCodes))
+        inputToken.buffer.label = "NeuralDequantizeFlat.input"
+
+        let scaleToken = try await context.getBuffer(size: numVectors * MemoryLayout<Float>.size)
+        scaleToken.buffer.label = "NeuralDequantizeFlat.scale"
+
+        // Initialize scales using vectorized fill
+        let scalePtr = scaleToken.buffer.contents().bindMemory(to: Float.self, capacity: numVectors)
+        var scaleValue = encoded.scale
+        vDSP_vfill(&scaleValue, scalePtr, 1, vDSP_Length(numVectors))
+
+        let outputSize = numVectors * inputDim * MemoryLayout<Float>.size
+        let outputToken = try await context.getBuffer(size: outputSize)
+        outputToken.buffer.label = "NeuralDequantizeFlat.output"
+
+        let parameters = NeuralQuantizationParameters(
+            numVectors: numVectors,
+            config: config
+        )
+
+        try await context.executeAndWait { [self] _, encoder in
+            try self.encodeDequantizeDecode(
+                into: encoder,
+                input: inputToken.buffer,
+                scale: scaleToken.buffer,
+                output: outputToken.buffer,
+                parameters: parameters
+            )
+        }
+
+        // Single bulk copy for flat result (maximum performance)
+        let outputPtr = outputToken.buffer.contents().bindMemory(to: Float.self, capacity: numVectors * inputDim)
+        // Tokens auto-return to pool when scope exits
+        return Array(UnsafeBufferPointer(start: outputPtr, count: numVectors * inputDim))
     }
 
     /// Encode and decode with quality metrics.

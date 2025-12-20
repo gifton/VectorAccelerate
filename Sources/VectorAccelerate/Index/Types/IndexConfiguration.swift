@@ -105,6 +105,17 @@ public struct IndexConfiguration: Sendable, Equatable {
     /// Index type and parameters.
     public let indexType: IndexType
 
+    /// Routing threshold for automatic IVF-to-Flat fallback.
+    ///
+    /// When the index contains fewer vectors than this threshold, search operations
+    /// will automatically use flat (brute-force) search even if the index is
+    /// configured as IVF. This optimizes performance for small datasets where
+    /// IVF clustering overhead exceeds its benefits.
+    ///
+    /// Set to 0 to disable automatic routing (always use configured index type).
+    /// Default: 10,000 vectors.
+    public let routingThreshold: Int
+
     /// Vector quantization method for memory reduction.
     /// Only applicable to IVF indexes. Ignored for flat indexes.
     public let quantization: VectorQuantization
@@ -138,18 +149,21 @@ public struct IndexConfiguration: Sendable, Equatable {
     ///   - metric: Distance metric (default: euclidean)
     ///   - capacity: Initial capacity (default: 10,000)
     ///   - indexType: Index type (default: flat)
+    ///   - routingThreshold: Vector count below which IVF falls back to flat search (default: 10,000)
     ///   - quantization: Vector quantization method (default: none)
     public init(
         dimension: Int,
         metric: SupportedDistanceMetric = .euclidean,
         capacity: Int = 10_000,
         indexType: IndexType = .flat,
+        routingThreshold: Int = 10_000,
         quantization: VectorQuantization = .none
     ) {
         self.dimension = dimension
         self.metric = metric
         self.capacity = capacity
         self.indexType = indexType
+        self.routingThreshold = routingThreshold
         self.quantization = quantization
     }
 
@@ -170,7 +184,9 @@ public struct IndexConfiguration: Sendable, Equatable {
             dimension: dimension,
             metric: metric,
             capacity: capacity,
-            indexType: .flat
+            indexType: .flat,
+            routingThreshold: 0,  // Flat index doesn't need routing
+            quantization: .none
         )
     }
 
@@ -181,6 +197,7 @@ public struct IndexConfiguration: Sendable, Equatable {
     ///   - nprobe: Number of clusters to search
     ///   - metric: Distance metric (default: euclidean)
     ///   - capacity: Initial capacity (default: 100,000)
+    ///   - routingThreshold: Vector count below which search falls back to flat (default: 10,000)
     ///   - minTrainingVectors: Minimum vectors before auto-training triggers
     ///     (nil uses default: max(nlist * 10, 1000))
     ///   - quantization: Vector quantization method (default: none)
@@ -191,6 +208,7 @@ public struct IndexConfiguration: Sendable, Equatable {
         nprobe: Int,
         metric: SupportedDistanceMetric = .euclidean,
         capacity: Int = 100_000,
+        routingThreshold: Int = 10_000,
         minTrainingVectors: Int? = nil,
         quantization: VectorQuantization = .none
     ) -> IndexConfiguration {
@@ -199,6 +217,7 @@ public struct IndexConfiguration: Sendable, Equatable {
             metric: metric,
             capacity: capacity,
             indexType: .ivf(nlist: nlist, nprobe: nprobe, minTrainingVectors: minTrainingVectors),
+            routingThreshold: routingThreshold,
             quantization: quantization
         )
     }
@@ -300,6 +319,9 @@ extension IndexConfiguration: CustomStringConvertible {
             if let minVecs = minTrainingVectors {
                 desc += ", minTrainingVectors=\(minVecs)"
             }
+            if routingThreshold > 0 {
+                desc += ", routingThreshold=\(routingThreshold)"
+            }
             if quantization != .none {
                 desc += ", quantization=\(quantization)"
             }
@@ -390,6 +412,7 @@ extension IndexConfiguration {
     ///   - expectedSize: Expected dataset size
     ///   - targetRecall: Target recall (default 0.90)
     ///   - metric: Distance metric
+    ///   - routingThreshold: Vector count below which search falls back to flat (default: 10,000)
     ///   - quantization: Vector quantization method (default: none)
     /// - Returns: Optimally configured IVF index
     public static func ivfAuto(
@@ -397,6 +420,7 @@ extension IndexConfiguration {
         expectedSize: Int,
         targetRecall: Float = 0.90,
         metric: SupportedDistanceMetric = .euclidean,
+        routingThreshold: Int = 10_000,
         quantization: VectorQuantization = .none
     ) -> IndexConfiguration {
         let nlist = recommendedNlist(for: expectedSize)
@@ -408,6 +432,7 @@ extension IndexConfiguration {
             nprobe: nprobe,
             metric: metric,
             capacity: expectedSize,
+            routingThreshold: routingThreshold,
             quantization: quantization
         )
     }

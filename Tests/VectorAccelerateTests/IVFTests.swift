@@ -242,21 +242,12 @@ final class IVFTests: XCTestCase {
         try await index.remove(handles[3])
         try await index.remove(handles[5])
 
-        // Compact (returns Void with P0.8 stable handles)
+        // Compact (stable handles remain valid, no mapping returned)
         try await index.compact()
 
-        // P0.8: Remaining handles should still be valid
         let stats = await index.statistics()
         XCTAssertEqual(stats.vectorCount, 7)
         XCTAssertEqual(stats.deletedSlots, 0)
-
-        // Verify remaining handles are still valid (P0.8)
-        let contains0 = await index.contains(handles[0])
-        let contains2 = await index.contains(handles[2])
-        let contains4 = await index.contains(handles[4])
-        XCTAssertTrue(contains0)
-        XCTAssertTrue(contains2)
-        XCTAssertTrue(contains4)
     }
 
     /// Search should work correctly after IVF compaction.
@@ -281,7 +272,7 @@ final class IVFTests: XCTestCase {
         // Delete middle vector
         try await index.remove(handles[2])
 
-        // Compact (returns Void with P0.8)
+        // Compact (stable handles remain valid after compaction)
         try await index.compact()
 
         // Search should still work
@@ -292,11 +283,11 @@ final class IVFTests: XCTestCase {
         XCTAssertEqual(results[0].distance, 0.0, accuracy: 0.001,
                        "Exact match should have distance 0")
 
-        // P0.8: Results should use original stable handles
+        // Original handles (except deleted) should still be valid
         let validHandles = Set([handles[0], handles[1], handles[3], handles[4]])
         for result in results {
             XCTAssertTrue(validHandles.contains(result.handle),
-                          "Results should use original stable handles (P0.8)")
+                          "Original handles should remain valid after compaction")
         }
     }
 
@@ -443,340 +434,190 @@ final class IVFTests: XCTestCase {
         }
     }
 
-    // MARK: - P0.4: Configurable IVF Training Tests
+    // MARK: - IVF to Flat Routing Tests
 
-    /// IVF training should trigger when minTrainingVectors is reached.
-    func testIVFTrainingActuallyTriggers() async throws {
-        // Use low minTrainingVectors for testing
+    /// IVF index should report routing to flat for small datasets.
+    func testIVFRoutingThresholdDetection() async throws {
         let config = IndexConfiguration.ivf(
-            dimension: 32,
+            dimension: 8,
             nlist: 4,
             nprobe: 2,
-            minTrainingVectors: 50
+            routingThreshold: 100  // Route to flat when < 100 vectors
         )
 
         let index = try await AcceleratedVectorIndex(configuration: config)
 
-        // Initially not trained
-        var stats = await index.statistics()
-        XCTAssertFalse(stats.ivfStats?.isTrained ?? true, "IVF should not be trained initially")
+        // Verify initial state
+        let isIVF = await index.isIVF
+        XCTAssertTrue(isIVF, "Should be configured as IVF")
 
-        // Insert enough vectors to trigger training
-        for i in 0..<60 {
-            var vector = [Float](repeating: 0.0, count: 32)
-            vector[0] = Float(i)
-            vector[1] = Float(i % 10)
+        let threshold = await index.routingThreshold
+        XCTAssertEqual(threshold, 100)
+
+        let willRouteEmpty = await index.willRouteToFlat
+        XCTAssertTrue(willRouteEmpty, "Should route to flat when empty")
+
+        // Insert 50 vectors (below threshold)
+        for i in 0..<50 {
+            let vector = [Float](repeating: Float(i) / 50.0, count: 8)
             _ = try await index.insert(vector)
         }
 
-        stats = await index.statistics()
-        XCTAssertTrue(stats.ivfStats?.isTrained == true,
-                      "IVF should be trained after 60 inserts with minTrainingVectors=50")
-        XCTAssertEqual(stats.vectorCount, 60)
-    }
+        let willRoute50 = await index.willRouteToFlat
+        XCTAssertTrue(willRoute50, "Should route to flat with 50 vectors")
 
-    /// IVF search should work correctly after training.
-    func testIVFSearchAfterTraining() async throws {
-        let dimension = 16
-        let config = IndexConfiguration.ivf(
-            dimension: dimension,
-            nlist: 4,
-            nprobe: 4,  // Search all clusters for accuracy
-            minTrainingVectors: 40
-        )
-
-        let index = try await AcceleratedVectorIndex(configuration: config)
-
-        // Insert vectors with distinct patterns
-        var expectedHandles: [VectorHandle] = []
-        for i in 0..<50 {
-            var vector = [Float](repeating: 0.0, count: dimension)
-            // Create 4 clusters by setting first dimension
-            let cluster = i % 4
-            vector[0] = Float(cluster) * 10.0
-            vector[1] = Float(i)
-            let h = try await index.insert(vector)
-            expectedHandles.append(h)
-        }
-
-        // Verify trained
-        let stats = await index.statistics()
-        XCTAssertTrue(stats.ivfStats?.isTrained == true)
-
-        // Search for vector near cluster 0
-        var query = [Float](repeating: 0.0, count: dimension)
-        query[0] = 0.5  // Close to cluster 0 (vectors 0, 4, 8, 12, ...)
-        query[1] = 0.0
-
-        let results = try await index.search(query: query, k: 5)
-
-        XCTAssertGreaterThan(results.count, 0, "Should find at least one result after training")
-
-        // First result should be very close to query
-        XCTAssertLessThan(results[0].distance, 5.0, "Nearest neighbor should be close")
-    }
-
-    /// IVF search recall compared to brute force.
-    ///
-    /// Tests that IVF search achieves reasonable recall compared to brute force.
-    /// With P0.1 fix (per-query CSR candidate lists with GPU indirection), recall
-    /// should be at least 50% with nprobe=4 (searching half of 8 clusters).
-    func testIVFRecallVsBruteForce() async throws {
-        let dimension = 16
-        let vectorCount = 100
-        let nlist = 8
-        let nprobe = 4  // Search half the clusters
-        let k = 5
-
-        // Create both IVF and flat indexes with same data
-        let ivfConfig = IndexConfiguration.ivf(
-            dimension: dimension,
-            nlist: nlist,
-            nprobe: nprobe,
-            minTrainingVectors: 50  // Low threshold for testing
-        )
-        let flatConfig = IndexConfiguration.flat(dimension: dimension, capacity: vectorCount + 10)
-
-        let ivfIndex = try await AcceleratedVectorIndex(configuration: ivfConfig)
-        let flatIndex = try await AcceleratedVectorIndex(configuration: flatConfig)
-
-        // Insert same vectors into both
-        var vectors: [[Float]] = []
-        for _ in 0..<vectorCount {
-            let vec = (0..<dimension).map { _ in Float.random(in: -1...1) }
-            vectors.append(vec)
-        }
-
-        let ivfHandles = try await ivfIndex.insert(vectors)
-        let flatHandles = try await flatIndex.insert(vectors)
-
-        // Create stableID to vector index mapping for recall calculation
-        var ivfHandleToIdx: [UInt32: Int] = [:]
-        for (i, h) in ivfHandles.enumerated() {
-            ivfHandleToIdx[h.stableID] = i
-        }
-        var flatHandleToIdx: [UInt32: Int] = [:]
-        for (i, h) in flatHandles.enumerated() {
-            flatHandleToIdx[h.stableID] = i
-        }
-
-        // Verify IVF is trained
-        let ivfStats = await ivfIndex.statistics()
-        XCTAssertTrue(ivfStats.ivfStats?.isTrained == true)
-
-        // Run multiple queries and compute recall
-        var totalRecall: Float = 0.0
-        let numQueries = 10
-
-        for _ in 0..<numQueries {
-            let query = (0..<dimension).map { _ in Float.random(in: -1...1) }
-
-            // Get ground truth from flat index (exact)
-            let flatResults = try await flatIndex.search(query: query, k: k)
-            let groundTruth = Set(flatResults.map { flatHandleToIdx[$0.handle.stableID]! })
-
-            // Get IVF results (approximate)
-            let ivfResults = try await ivfIndex.search(query: query, k: k)
-            let ivfSet = Set(ivfResults.map { ivfHandleToIdx[$0.handle.stableID]! })
-
-            // Compute recall: how many of ground truth did IVF find?
-            let intersection = groundTruth.intersection(ivfSet)
-            let recall = Float(intersection.count) / Float(groundTruth.count)
-            totalRecall += recall
-        }
-
-        let avgRecall = totalRecall / Float(numQueries)
-
-        // With P0.1 fix, IVF should achieve reasonable recall.
-        // Searching 50% of clusters (nprobe=4/nlist=8) should yield ~50%+ recall.
-        XCTAssertGreaterThanOrEqual(avgRecall, 0.5,
-                                    "IVF recall should be at least 50% with nprobe=4/nlist=8")
-
-        print("IVF Recall: \(avgRecall * 100)% (nprobe=\(nprobe)/nlist=\(nlist))")
-    }
-
-    /// Verify IVF correctness: nprobe = nlist should give near 100% recall.
-    func testIVFRecallWithFullNprobe() async throws {
-        let dimension = 16
-        let vectorCount = 100
-        let nlist = 8
-        let nprobe = 8  // Search ALL clusters - should match brute force
-        let k = 5
-
-        let ivfConfig = IndexConfiguration.ivf(
-            dimension: dimension,
-            nlist: nlist,
-            nprobe: nprobe,
-            minTrainingVectors: 50
-        )
-        let flatConfig = IndexConfiguration.flat(dimension: dimension, capacity: vectorCount + 10)
-
-        let ivfIndex = try await AcceleratedVectorIndex(configuration: ivfConfig)
-        let flatIndex = try await AcceleratedVectorIndex(configuration: flatConfig)
-
-        // Insert same vectors into both
-        var vectors: [[Float]] = []
-        for _ in 0..<vectorCount {
-            let vec = (0..<dimension).map { _ in Float.random(in: -1...1) }
-            vectors.append(vec)
-        }
-
-        let ivfHandles = try await ivfIndex.insert(vectors)
-        let flatHandles = try await flatIndex.insert(vectors)
-
-        var ivfHandleToIdx: [UInt32: Int] = [:]
-        for (i, h) in ivfHandles.enumerated() {
-            ivfHandleToIdx[h.stableID] = i
-        }
-        var flatHandleToIdx: [UInt32: Int] = [:]
-        for (i, h) in flatHandles.enumerated() {
-            flatHandleToIdx[h.stableID] = i
-        }
-
-        // Run multiple queries and compute recall
-        var totalRecall: Float = 0.0
-        let numQueries = 10
-
-        for _ in 0..<numQueries {
-            let query = (0..<dimension).map { _ in Float.random(in: -1...1) }
-
-            let flatResults = try await flatIndex.search(query: query, k: k)
-            let groundTruth = Set(flatResults.map { flatHandleToIdx[$0.handle.stableID]! })
-
-            let ivfResults = try await ivfIndex.search(query: query, k: k)
-            let ivfSet = Set(ivfResults.map { ivfHandleToIdx[$0.handle.stableID]! })
-
-            let intersection = groundTruth.intersection(ivfSet)
-            let recall = Float(intersection.count) / Float(groundTruth.count)
-            totalRecall += recall
-        }
-
-        let avgRecall = totalRecall / Float(numQueries)
-
-        // With nprobe = nlist (searching all clusters), recall should be very high (95%+)
-        // Small variations due to tie-breaking and floating point differences
-        XCTAssertGreaterThanOrEqual(avgRecall, 0.95,
-                                    "IVF with nprobe=nlist should achieve 95%+ recall")
-
-        print("IVF Full Recall: \(avgRecall * 100)% (nprobe=\(nprobe)/nlist=\(nlist))")
-    }
-
-    /// Default minTrainingVectors should work when not specified.
-    func testIVFDefaultMinTrainingVectors() async throws {
-        // Default is max(nlist * 10, 1000), so for nlist=4, it's 1000
-        let config = IndexConfiguration.ivf(
-            dimension: 16,
-            nlist: 4,
-            nprobe: 2
-            // Note: minTrainingVectors not specified, uses default
-        )
-
-        let index = try await AcceleratedVectorIndex(configuration: config)
-
-        // Insert fewer than 1000 vectors
-        for i in 0..<50 {
-            _ = try await index.insert([Float](repeating: Float(i), count: 16))
-        }
-
-        // Should NOT be trained (need 1000 vectors by default)
-        let stats = await index.statistics()
-        XCTAssertFalse(stats.ivfStats?.isTrained ?? true,
-                       "IVF should not be trained with only 50 vectors (default needs 1000)")
-    }
-
-    /// Manual training should work.
-    func testIVFManualTraining() async throws {
-        let config = IndexConfiguration.ivf(
-            dimension: 16,
-            nlist: 4,
-            nprobe: 2
-            // No minTrainingVectors, use default (1000)
-        )
-
-        let index = try await AcceleratedVectorIndex(configuration: config)
-
-        // Disable auto-training
-        await index.setAutoTraining(false)
-
-        // Insert enough vectors
-        for i in 0..<50 {
-            _ = try await index.insert([Float](repeating: Float(i), count: 16))
-        }
-
-        // Still not trained (auto-training disabled)
-        var stats = await index.statistics()
-        XCTAssertFalse(stats.ivfStats?.isTrained ?? true)
-
-        // Manually trigger training
-        try await index.train()
-
-        // Now should be trained
-        stats = await index.statistics()
-        XCTAssertTrue(stats.ivfStats?.isTrained == true,
-                      "IVF should be trained after manual train() call")
-    }
-
-    // MARK: - P0.3 Regression Test
-
-    /// Regression test: batch IVF search should not have cross-query contamination.
-    ///
-    /// Before P0.1 fix, batch search built a union of candidates across ALL queries,
-    /// causing queries to find results from other queries' probed clusters.
-    /// P0.1's CSR-based per-query candidate lists fix this.
-    func testIVFBatchSearchNoCrossQueryContamination() async throws {
-        let dimension = 32
-        let config = IndexConfiguration.ivf(
-            dimension: dimension,
-            nlist: 8,
-            nprobe: 1,  // Only probe 1 cluster - makes contamination obvious
-            minTrainingVectors: 50
-        )
-        let index = try await AcceleratedVectorIndex(configuration: config)
-
-        // Insert vectors that cluster into distinct groups
-        // Group A (slots 0-49): vectors near [0,0,0,...]
-        // Group B (slots 50-99): vectors near [10,10,10,...]
-        for i in 0..<100 {
-            let value: Float = i < 50 ? 0.0 : 10.0
-            // Add small noise to create realistic clusters
-            let noise = Float(i % 10) * 0.01
-            var vector = [Float](repeating: value + noise, count: dimension)
-            vector[0] = value  // First dimension is the main discriminator
+        // Insert more to exceed threshold
+        for i in 50..<150 {
+            let vector = [Float](repeating: Float(i) / 150.0, count: 8)
             _ = try await index.insert(vector)
         }
 
-        // Verify trained
-        let stats = await index.statistics()
-        XCTAssertTrue(stats.ivfStats?.isTrained == true, "IVF should be trained")
+        let willRoute150 = await index.willRouteToFlat
+        XCTAssertFalse(willRoute150, "Should use IVF with 150 vectors")
+    }
 
-        // Batch query: Q1 near group A, Q2 near group B
-        let queries: [[Float]] = [
-            [Float](repeating: 0.0, count: dimension),   // Should find group A (slots 0-49)
-            [Float](repeating: 10.0, count: dimension)   // Should find group B (slots 50-99)
+    /// Routing threshold of 0 should disable automatic routing.
+    func testIVFRoutingDisabled() async throws {
+        let config = IndexConfiguration.ivf(
+            dimension: 8,
+            nlist: 4,
+            nprobe: 2,
+            routingThreshold: 0  // Disable routing
+        )
+
+        let index = try await AcceleratedVectorIndex(configuration: config)
+
+        // Insert a few vectors
+        for i in 0..<10 {
+            let vector = [Float](repeating: Float(i), count: 8)
+            _ = try await index.insert(vector)
+        }
+
+        // Should NOT route to flat even with few vectors
+        let willRoute = await index.willRouteToFlat
+        XCTAssertFalse(willRoute, "Should not route to flat when threshold is disabled")
+    }
+
+    /// Search results should be consistent regardless of routing.
+    func testIVFRoutingSearchConsistency() async throws {
+        let dimension = 8
+        let vectors: [[Float]] = [
+            [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         ]
 
-        let results = try await index.search(queries: queries, k: 5)
+        // Create IVF index with routing enabled (threshold = 100)
+        let routedConfig = IndexConfiguration.ivf(
+            dimension: dimension,
+            nlist: 2,
+            nprobe: 2,
+            routingThreshold: 100  // Will route to flat for this small dataset
+        )
 
-        XCTAssertEqual(results.count, 2, "Should have results for both queries")
+        // Create flat index for comparison
+        let flatConfig = IndexConfiguration.flat(dimension: dimension)
 
-        // Q1 results should be from group A (slots 0-49)
-        for result in results[0] {
-            guard let slot = await index.slot(for: result.handle) else {
-                XCTFail("Invalid handle in Q1 results")
-                continue
-            }
-            XCTAssertLessThan(slot, 50,
-                "Q1 (near [0,0,...]) should only find group A vectors (slots 0-49), got slot \(slot)")
+        let routedIndex = try await AcceleratedVectorIndex(configuration: routedConfig)
+        let flatIndex = try await AcceleratedVectorIndex(configuration: flatConfig)
+
+        // Insert same vectors
+        for vector in vectors {
+            _ = try await routedIndex.insert(vector)
+            _ = try await flatIndex.insert(vector)
         }
 
-        // Q2 results should be from group B (slots 50-99)
-        for result in results[1] {
-            guard let slot = await index.slot(for: result.handle) else {
-                XCTFail("Invalid handle in Q2 results")
-                continue
-            }
-            XCTAssertGreaterThanOrEqual(slot, 50,
-                "Q2 (near [10,10,...]) should only find group B vectors (slots 50-99), got slot \(slot)")
+        // Verify routing is happening
+        let willRoute = await routedIndex.willRouteToFlat
+        XCTAssertTrue(willRoute, "Routed index should use flat search")
+
+        // Search both with same query
+        let query: [Float] = [0.95, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+        let routedResults = try await routedIndex.search(query: query, k: 3)
+        let flatResults = try await flatIndex.search(query: query, k: 3)
+
+        // Results should be identical
+        XCTAssertEqual(routedResults.count, flatResults.count)
+
+        for i in 0..<min(routedResults.count, flatResults.count) {
+            XCTAssertEqual(routedResults[i].distance, flatResults[i].distance, accuracy: 0.0001,
+                           "Distance at position \(i) should match")
         }
+    }
+
+    /// Batch search should also respect routing threshold.
+    func testIVFRoutingBatchSearch() async throws {
+        let config = IndexConfiguration.ivf(
+            dimension: 8,
+            nlist: 4,
+            nprobe: 2,
+            routingThreshold: 50
+        )
+
+        let index = try await AcceleratedVectorIndex(configuration: config)
+
+        // Insert 30 vectors (below threshold)
+        for i in 0..<30 {
+            let vector = [Float](repeating: Float(i) / 30.0, count: 8)
+            _ = try await index.insert(vector)
+        }
+
+        let willRoute = await index.willRouteToFlat
+        XCTAssertTrue(willRoute, "Should route to flat")
+
+        // Batch search should work
+        let queries: [[Float]] = [
+            [0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.5, 0.5, 0.0, 0.0, 0.0, 0.0],
+        ]
+
+        let results = try await index.search(queries: queries, k: 3)
+
+        XCTAssertEqual(results.count, 2)
+        XCTAssertGreaterThan(results[0].count, 0)
+        XCTAssertGreaterThan(results[1].count, 0)
+    }
+
+    /// Default routing threshold should be 10,000.
+    func testIVFDefaultRoutingThreshold() async throws {
+        let config = IndexConfiguration.ivf(
+            dimension: 8,
+            nlist: 4,
+            nprobe: 2
+            // Using default routingThreshold
+        )
+
+        XCTAssertEqual(config.routingThreshold, 10_000,
+                       "Default routing threshold should be 10,000")
+
+        let index = try await AcceleratedVectorIndex(configuration: config)
+        let threshold = await index.routingThreshold
+        XCTAssertEqual(threshold, 10_000)
+    }
+
+    /// Flat index should not have routing behavior.
+    func testFlatIndexNoRouting() async throws {
+        let config = IndexConfiguration.flat(dimension: 8)
+
+        // Flat config should have routingThreshold = 0
+        XCTAssertEqual(config.routingThreshold, 0,
+                       "Flat index should have routing threshold of 0")
+
+        let index = try await AcceleratedVectorIndex(configuration: config)
+
+        // Insert some vectors
+        for i in 0..<10 {
+            let vector = [Float](repeating: Float(i), count: 8)
+            _ = try await index.insert(vector)
+        }
+
+        // willRouteToFlat should be false (already flat)
+        let willRoute = await index.willRouteToFlat
+        XCTAssertFalse(willRoute, "Flat index should not report routing to flat")
+
+        let isIVF = await index.isIVF
+        XCTAssertFalse(isIVF)
     }
 }

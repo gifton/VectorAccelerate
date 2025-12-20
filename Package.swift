@@ -50,7 +50,7 @@ let package = Package(
         .target(
             name: "VectorAccelerate",
             dependencies: [
-                .product(name: "VectorCore", package: "VectorCore")
+                .product(name: "VectorCore", package: "VectorCore"),
             ],
             resources: [
                 .process("Metal/Shaders")  // Metal shader files
