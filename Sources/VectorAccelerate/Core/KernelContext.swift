@@ -113,7 +113,9 @@ public final class KernelContext: @unchecked Sendable {
             "NeuralQuantization",
             "AttentionSimilarity",
             // IVF indexing
-            "IVFListSearch"
+            "IVFListSearch",
+            // Clustering operations (K-means, K-means++)
+            "ClusteringShaders"
             // NOTE: All shaders now use VA_* prefixed guards to avoid conflicts
             // NOTE: Histogram kernels are in StatisticsShaders.metal
         ]
@@ -134,6 +136,14 @@ public final class KernelContext: @unchecked Sendable {
         #define VA_ATOMIC_TYPES_DEFINED
         typedef atomic<float> atomic_float;
         typedef atomic<uint> atomic_uint;
+        #endif
+
+        // Metal4Common.h constants for ClusteringShaders
+        #ifndef VA_SIMD_WIDTH
+        #define VA_SIMD_WIDTH 32
+        #endif
+        #ifndef VA_INFINITY
+        #define VA_INFINITY INFINITY
         #endif
 
         """
