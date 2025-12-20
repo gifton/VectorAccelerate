@@ -1,12 +1,28 @@
 // KernelContext.swift
-// Synchronous wrapper for kernel initialization
+// Internal utility for Metal4ShaderCompiler shader loading fallback
+//
+// NOTE: After the Metal4-only migration, KernelContext is primarily used internally
+// by Metal4ShaderCompiler for loading Metal libraries in SPM environments.
+// Prefer using Metal4Context for all new kernel development.
 
-import Metal
+@preconcurrency import Metal
 import Foundation
 import VectorCore
 
-/// Synchronous context for kernel initialization
-/// This is a lightweight wrapper that provides the minimal Metal resources needed by kernels
+/// Internal utility for Metal library loading with SPM fallback support.
+///
+/// This class provides synchronous Metal library loading used by `Metal4ShaderCompiler`
+/// as a fallback when the default library is unavailable (common in SPM packages).
+///
+/// **Note**: After the Metal4-only migration, prefer using `Metal4Context` and
+/// `Metal4ShaderCompiler` for all kernel development. This class is retained for
+/// its shader compilation fallback capabilities.
+///
+/// ## Primary Use Case
+/// ```swift
+/// // Used internally by Metal4ShaderCompiler
+/// let library = try KernelContext.getSharedLibrary(for: device)
+/// ```
 public final class KernelContext: @unchecked Sendable {
     public let device: any MTLDevice
     public let commandQueue: any MTLCommandQueue
@@ -103,6 +119,8 @@ public final class KernelContext: @unchecked Sendable {
             // Selection and reduction
             "AdvancedTopK",
             "SearchAndRetrieval",
+            // IVF index operations
+            "IVFCandidateBuilder",
             // Quantization (all types)
             "QuantizationShaders",
             "ProductQuantization",
@@ -197,7 +215,7 @@ public final class KernelContext: @unchecked Sendable {
         // Compile the combined source
         do {
             let options = MTLCompileOptions()
-            options.fastMathEnabled = true
+            options.mathMode = .fast
             let library = try device.makeLibrary(source: combinedSource, options: options)
             return library
         } catch {

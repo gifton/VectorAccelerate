@@ -412,7 +412,7 @@ public final class IVFSearchPipeline: @unchecked Sendable {
 
         try await context.executeAndWait { [self] _, encoder in
             // Phase 1: Coarse Quantization (find nprobe nearest centroids)
-            self.coarseQuantizer.encode(
+            try self.coarseQuantizer.encode(
                 into: encoder,
                 queries: queryBuffer,
                 centroids: structure.centroids,

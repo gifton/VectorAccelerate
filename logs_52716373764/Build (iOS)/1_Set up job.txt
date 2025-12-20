@@ -1,0 +1,32 @@
+﻿2025-12-20T04:40:09.6316470Z Current runner version: '2.330.0'
+2025-12-20T04:40:09.6334430Z ##[group]Runner Image Provisioner
+2025-12-20T04:40:09.6335090Z Hosted Compute Agent
+2025-12-20T04:40:09.6335540Z Version: 20251211.462
+2025-12-20T04:40:09.6336020Z Commit: 6cbad8c2bb55d58165063d031ccabf57e2d2db61
+2025-12-20T04:40:09.6336460Z Build Date: 2025-12-11T16:28:49Z
+2025-12-20T04:40:09.6336950Z Worker ID: {7d200ca4-d725-4af2-a73c-95f66701e046}
+2025-12-20T04:40:09.6337460Z ##[endgroup]
+2025-12-20T04:40:09.6337810Z ##[group]Operating System
+2025-12-20T04:40:09.6338200Z macOS
+2025-12-20T04:40:09.6338500Z 26.0.1
+2025-12-20T04:40:09.6338790Z 25A362
+2025-12-20T04:40:09.6339070Z ##[endgroup]
+2025-12-20T04:40:09.6339380Z ##[group]Runner Image
+2025-12-20T04:40:09.6339760Z Image: macos-26-arm64
+2025-12-20T04:40:09.6340080Z Version: 20251216.0100.1
+2025-12-20T04:40:09.6340780Z Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20251216.0100/images/macos/macos-26-arm64-Readme.md
+2025-12-20T04:40:09.6341780Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20251216.0100
+2025-12-20T04:40:09.6342590Z ##[endgroup]
+2025-12-20T04:40:09.6343350Z ##[group]GITHUB_TOKEN Permissions
+2025-12-20T04:40:09.6345150Z Contents: read
+2025-12-20T04:40:09.6345510Z Metadata: read
+2025-12-20T04:40:09.6346050Z Packages: read
+2025-12-20T04:40:09.6346380Z ##[endgroup]
+2025-12-20T04:40:09.6348180Z Secret source: Actions
+2025-12-20T04:40:09.6348680Z Prepare workflow directory
+2025-12-20T04:40:09.6824740Z Prepare all required actions
+2025-12-20T04:40:09.6883520Z Getting action download info
+2025-12-20T04:40:09.9119990Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2025-12-20T04:40:10.3917800Z Download action repository 'actions/cache@v4' (SHA:0057852bfaa89a56745cba8c7296529d2fc39830)
+2025-12-20T04:40:10.5948160Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2025-12-20T04:40:10.9927860Z Complete job name: Build (iOS)

@@ -12,11 +12,10 @@ import VectorCore
 import Accelerate
 import VectorCore
 
-@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
 final class MatrixEngineEnhancedTests: XCTestCase {
     
     var engine: MatrixEngine!
-    var context: MetalContext!
+    var context: Metal4Context!
     
     override func setUp() async throws {
         try await super.setUp()
@@ -25,7 +24,7 @@ final class MatrixEngineEnhancedTests: XCTestCase {
             throw XCTSkip("Metal not available")
         }
         
-        context = try await MetalContext()
+        context = try await Metal4Context()
         engine = await MatrixEngine(context: context, configuration: .default)
     }
     

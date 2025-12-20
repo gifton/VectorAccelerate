@@ -1,0 +1,195 @@
+﻿2025-12-20T04:40:09.6746050Z Current runner version: '2.330.0'
+2025-12-20T04:40:09.6763580Z ##[group]Runner Image Provisioner
+2025-12-20T04:40:09.6764200Z Hosted Compute Agent
+2025-12-20T04:40:09.6764600Z Version: 20251211.462
+2025-12-20T04:40:09.6765040Z Commit: 6cbad8c2bb55d58165063d031ccabf57e2d2db61
+2025-12-20T04:40:09.6765510Z Build Date: 2025-12-11T16:28:49Z
+2025-12-20T04:40:09.6766010Z Worker ID: {d5d31430-fdd1-47b6-8082-ff957de506a7}
+2025-12-20T04:40:09.6766490Z ##[endgroup]
+2025-12-20T04:40:09.6767020Z ##[group]Operating System
+2025-12-20T04:40:09.6767500Z macOS
+2025-12-20T04:40:09.6767820Z 26.0.1
+2025-12-20T04:40:09.6768130Z 25A362
+2025-12-20T04:40:09.6768440Z ##[endgroup]
+2025-12-20T04:40:09.6768830Z ##[group]Runner Image
+2025-12-20T04:40:09.6769310Z Image: macos-26-arm64
+2025-12-20T04:40:09.6769690Z Version: 20251216.0100.1
+2025-12-20T04:40:09.6770510Z Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20251216.0100/images/macos/macos-26-arm64-Readme.md
+2025-12-20T04:40:09.6771660Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20251216.0100
+2025-12-20T04:40:09.6772450Z ##[endgroup]
+2025-12-20T04:40:09.6773350Z ##[group]GITHUB_TOKEN Permissions
+2025-12-20T04:40:09.6774680Z Contents: read
+2025-12-20T04:40:09.6777720Z Metadata: read
+2025-12-20T04:40:09.6778140Z Packages: read
+2025-12-20T04:40:09.6778440Z ##[endgroup]
+2025-12-20T04:40:09.6779950Z Secret source: Actions
+2025-12-20T04:40:09.6780390Z Prepare workflow directory
+2025-12-20T04:40:09.7278360Z Prepare all required actions
+2025-12-20T04:40:09.7306120Z Getting action download info
+2025-12-20T04:40:09.9369560Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2025-12-20T04:40:10.3836670Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2025-12-20T04:40:10.7393590Z Complete job name: Metal Shaders
+2025-12-20T04:40:10.8069210Z ##[group]Run actions/checkout@v4
+2025-12-20T04:40:10.8069760Z with:
+2025-12-20T04:40:10.8070090Z   repository: gifton/VectorAccelerate
+2025-12-20T04:40:10.8070690Z   token: ***
+2025-12-20T04:40:10.8070960Z   ssh-strict: true
+2025-12-20T04:40:10.8071250Z   ssh-user: git
+2025-12-20T04:40:10.8071540Z   persist-credentials: true
+2025-12-20T04:40:10.8071850Z   clean: true
+2025-12-20T04:40:10.8072130Z   sparse-checkout-cone-mode: true
+2025-12-20T04:40:10.8072480Z   fetch-depth: 1
+2025-12-20T04:40:10.8072770Z   fetch-tags: false
+2025-12-20T04:40:10.8073050Z   show-progress: true
+2025-12-20T04:40:10.8073340Z   lfs: false
+2025-12-20T04:40:10.8073620Z   submodules: false
+2025-12-20T04:40:10.8073920Z   set-safe-directory: true
+2025-12-20T04:40:10.8074350Z env:
+2025-12-20T04:40:10.8074710Z   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+2025-12-20T04:40:10.8075170Z ##[endgroup]
+2025-12-20T04:40:11.5936580Z Syncing repository: gifton/VectorAccelerate
+2025-12-20T04:40:11.5942060Z ##[group]Getting Git version info
+2025-12-20T04:40:11.5943850Z Working directory is '/Users/runner/work/VectorAccelerate/VectorAccelerate'
+2025-12-20T04:40:11.5947330Z [command]/opt/homebrew/bin/git version
+2025-12-20T04:40:11.6622360Z git version 2.50.1
+2025-12-20T04:40:11.6740310Z ##[endgroup]
+2025-12-20T04:40:11.6756130Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/17eb32e8-c651-4c15-a779-77888892312b/.gitconfig'
+2025-12-20T04:40:11.6758460Z Temporarily overriding HOME='/Users/runner/work/_temp/17eb32e8-c651-4c15-a779-77888892312b' before making global git config changes
+2025-12-20T04:40:11.6762780Z Adding repository directory to the temporary git global config as a safe directory
+2025-12-20T04:40:11.6766400Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/VectorAccelerate/VectorAccelerate
+2025-12-20T04:40:11.7086050Z Deleting the contents of '/Users/runner/work/VectorAccelerate/VectorAccelerate'
+2025-12-20T04:40:11.7149660Z ##[group]Initializing the repository
+2025-12-20T04:40:11.7164190Z [command]/opt/homebrew/bin/git init /Users/runner/work/VectorAccelerate/VectorAccelerate
+2025-12-20T04:40:11.7704320Z hint: Using 'master' as the name for the initial branch. This default branch name
+2025-12-20T04:40:11.7728610Z hint: is subject to change. To configure the initial branch name to use in all
+2025-12-20T04:40:11.7744370Z hint: of your new repositories, which will suppress this warning, call:
+2025-12-20T04:40:11.7745480Z hint:
+2025-12-20T04:40:11.7746200Z hint: 	git config --global init.defaultBranch <name>
+2025-12-20T04:40:11.7746820Z hint:
+2025-12-20T04:40:11.7747890Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2025-12-20T04:40:11.7748860Z hint: 'development'. The just-created branch can be renamed via this command:
+2025-12-20T04:40:11.7750220Z hint:
+2025-12-20T04:40:11.7750780Z hint: 	git branch -m <name>
+2025-12-20T04:40:11.7751370Z hint:
+2025-12-20T04:40:11.7752130Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2025-12-20T04:40:11.7754190Z Initialized empty Git repository in /Users/runner/work/VectorAccelerate/VectorAccelerate/.git/
+2025-12-20T04:40:11.7756560Z [command]/opt/homebrew/bin/git remote add origin https://github.com/gifton/VectorAccelerate
+2025-12-20T04:40:11.7993100Z ##[endgroup]
+2025-12-20T04:40:11.7998160Z ##[group]Disabling automatic garbage collection
+2025-12-20T04:40:11.8084720Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2025-12-20T04:40:11.8090120Z ##[endgroup]
+2025-12-20T04:40:11.8091940Z ##[group]Setting up auth
+2025-12-20T04:40:11.8094540Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-12-20T04:40:11.8099050Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-12-20T04:40:12.0936470Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-12-20T04:40:12.1107560Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-12-20T04:40:12.2837970Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2025-12-20T04:40:12.3190130Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2025-12-20T04:40:12.5514400Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2025-12-20T04:40:12.5627850Z ##[endgroup]
+2025-12-20T04:40:12.5729760Z ##[group]Fetching the repository
+2025-12-20T04:40:12.5741940Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +e9eee4d11386b42dca65f5a5dafd928a0d3febd8:refs/remotes/pull/14/merge
+2025-12-20T04:40:13.8510310Z From https://github.com/gifton/VectorAccelerate
+2025-12-20T04:40:13.8511210Z  * [new ref]         e9eee4d11386b42dca65f5a5dafd928a0d3febd8 -> pull/14/merge
+2025-12-20T04:40:13.8681400Z ##[endgroup]
+2025-12-20T04:40:13.8731030Z ##[group]Determining the checkout info
+2025-12-20T04:40:13.8835110Z ##[endgroup]
+2025-12-20T04:40:13.8938000Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2025-12-20T04:40:13.9246550Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2025-12-20T04:40:13.9570590Z ##[group]Checking out the ref
+2025-12-20T04:40:13.9673660Z [command]/opt/homebrew/bin/git checkout --progress --force refs/remotes/pull/14/merge
+2025-12-20T04:40:13.9954890Z HEAD is now at e9eee4d Merge 1b4645ea782f9aeecb23e87bacca983ec945984f into cba7c68a5d2693e5d22aa5627df53c2c979f6bdc
+2025-12-20T04:40:14.0264100Z ##[endgroup]
+2025-12-20T04:40:14.0567110Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2025-12-20T04:40:14.0669210Z e9eee4d11386b42dca65f5a5dafd928a0d3febd8
+2025-12-20T04:40:14.1434040Z ##[group]Run set -e
+2025-12-20T04:40:14.1434800Z [36;1mset -e[0m
+2025-12-20T04:40:14.1435810Z [36;1m[0m
+2025-12-20T04:40:14.1436240Z [36;1mSHADER_DIR="Sources/VectorAccelerate/Metal/Shaders"[0m
+2025-12-20T04:40:14.1436820Z [36;1mFAILED=0[0m
+2025-12-20T04:40:14.1437190Z [36;1mPASSED=0[0m
+2025-12-20T04:40:14.1437650Z [36;1m[0m
+2025-12-20T04:40:14.1438090Z [36;1mecho "## Metal Shader Validation" >> $GITHUB_STEP_SUMMARY[0m
+2025-12-20T04:40:14.1438700Z [36;1mecho "" >> $GITHUB_STEP_SUMMARY[0m
+2025-12-20T04:40:14.1439350Z [36;1mecho "Compiling Metal shaders with \`xcrun metal\`..." >> $GITHUB_STEP_SUMMARY[0m
+2025-12-20T04:40:14.1440080Z [36;1mecho "" >> $GITHUB_STEP_SUMMARY[0m
+2025-12-20T04:40:14.1440520Z [36;1m[0m
+2025-12-20T04:40:14.1440920Z [36;1m# Create output directory for .air files[0m
+2025-12-20T04:40:14.1441420Z [36;1mmkdir -p .build/metal-validation[0m
+2025-12-20T04:40:14.1441840Z [36;1m[0m
+2025-12-20T04:40:14.1442390Z [36;1m# Compile each shader individually for clear error reporting[0m
+2025-12-20T04:40:14.1442980Z [36;1mfor shader in "$SHADER_DIR"/*.metal; do[0m
+2025-12-20T04:40:14.1443540Z [36;1m  name=$(basename "$shader")[0m
+2025-12-20T04:40:14.1443970Z [36;1m  echo "Compiling $name..."[0m
+2025-12-20T04:40:14.1444350Z [36;1m[0m
+2025-12-20T04:40:14.1444750Z [36;1m  if xcrun metal -c "$shader" \[0m
+2025-12-20T04:40:14.1445280Z [36;1m      -o ".build/metal-validation/${name%.metal}.air" \[0m
+2025-12-20T04:40:14.1445760Z [36;1m      -I "$SHADER_DIR" \[0m
+2025-12-20T04:40:14.1446160Z [36;1m      -std=metal4.0 \[0m
+2025-12-20T04:40:14.1446690Z [36;1m      -mmacosx-version-min=26.0 \[0m
+2025-12-20T04:40:14.1447190Z [36;1m      2>&1 | tee -a metal-compile.log; then[0m
+2025-12-20T04:40:14.1447700Z [36;1m    echo "- ✅ $name" >> $GITHUB_STEP_SUMMARY[0m
+2025-12-20T04:40:14.1448190Z [36;1m    ((PASSED++))[0m
+2025-12-20T04:40:14.1448590Z [36;1m  else[0m
+2025-12-20T04:40:14.1449050Z [36;1m    echo "- ❌ $name" >> $GITHUB_STEP_SUMMARY[0m
+2025-12-20T04:40:14.1449520Z [36;1m    ((FAILED++))[0m
+2025-12-20T04:40:14.1449970Z [36;1m  fi[0m
+2025-12-20T04:40:14.1450310Z [36;1mdone[0m
+2025-12-20T04:40:14.1450890Z [36;1m[0m
+2025-12-20T04:40:14.1451360Z [36;1mecho "" >> $GITHUB_STEP_SUMMARY[0m
+2025-12-20T04:40:14.1452080Z [36;1mecho "**Results:** $PASSED passed, $FAILED failed" >> $GITHUB_STEP_SUMMARY[0m
+2025-12-20T04:40:14.1452690Z [36;1m[0m
+2025-12-20T04:40:14.1453100Z [36;1m# Fail the job if any shader failed to compile[0m
+2025-12-20T04:40:14.1453580Z [36;1mif [ "$FAILED" -gt 0 ]; then[0m
+2025-12-20T04:40:14.1454020Z [36;1m  echo "" >> $GITHUB_STEP_SUMMARY[0m
+2025-12-20T04:40:14.1454620Z [36;1m  echo "❌ Metal shader compilation failed!" >> $GITHUB_STEP_SUMMARY[0m
+2025-12-20T04:40:14.1455230Z [36;1m  echo ""[0m
+2025-12-20T04:40:14.1455910Z [36;1m  echo "::error::$FAILED Metal shader(s) failed to compile. See log for details."[0m
+2025-12-20T04:40:14.1456570Z [36;1m  exit 1[0m
+2025-12-20T04:40:14.1456990Z [36;1melse[0m
+2025-12-20T04:40:14.1457530Z [36;1m  echo "" >> $GITHUB_STEP_SUMMARY[0m
+2025-12-20T04:40:14.1458200Z [36;1m  echo "✅ All Metal shaders compiled successfully" >> $GITHUB_STEP_SUMMARY[0m
+2025-12-20T04:40:14.1458830Z [36;1mfi[0m
+2025-12-20T04:40:14.1627570Z shell: /bin/bash -e {0}
+2025-12-20T04:40:14.1629010Z env:
+2025-12-20T04:40:14.1630240Z   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+2025-12-20T04:40:14.1631520Z ##[endgroup]
+2025-12-20T04:40:14.2520810Z Compiling AdvancedTopK.metal...
+2025-12-20T04:40:28.3016880Z Compiling AttentionSimilarity.metal...
+2025-12-20T04:40:34.0447360Z Compiling BasicOperations.metal...
+2025-12-20T04:40:34.2880880Z Compiling ChebyshevDistance.metal...
+2025-12-20T04:40:34.5685850Z Compiling ClusteringShaders.metal...
+2025-12-20T04:40:34.8059550Z Compiling CosineSimilarity.metal...
+2025-12-20T04:40:34.9794930Z Compiling DataTransformations.metal...
+2025-12-20T04:40:35.1910060Z Compiling DistanceShaders.metal...
+2025-12-20T04:40:35.3424970Z Compiling DotProduct.metal...
+2025-12-20T04:40:35.5149380Z Compiling HammingDistance.metal...
+2025-12-20T04:40:35.7249800Z Compiling IVFCandidateBuilder.metal...
+2025-12-20T04:40:35.8597590Z Compiling IVFListSearch.metal...
+2025-12-20T04:40:36.0132150Z Compiling L2Distance.metal...
+2025-12-20T04:40:36.1470240Z Compiling L2Normalization.metal...
+2025-12-20T04:40:36.2536550Z Compiling LearnedDistance.metal...
+2025-12-20T04:40:36.4340330Z Compiling ManhattanDistance.metal...
+2025-12-20T04:40:36.6272100Z Compiling MinkowskiDistance.metal...
+2025-12-20T04:40:36.9766200Z Compiling NeuralQuantization.metal...
+2025-12-20T04:40:37.2686660Z Compiling OptimizedMatrixOps.metal...
+2025-12-20T04:40:37.4423410Z Compiling ProductQuantization.metal...
+2025-12-20T04:40:37.5721360Z Compiling QuantizationShaders.metal...
+2025-12-20T04:40:37.7108070Z Compiling SearchAndRetrieval.metal...
+2025-12-20T04:40:38.0614130Z Compiling StatisticsShaders.metal...
+2025-12-20T04:40:38.3329840Z Post job cleanup.
+2025-12-20T04:40:39.5358530Z [command]/opt/homebrew/bin/git version
+2025-12-20T04:40:39.6591050Z git version 2.50.1
+2025-12-20T04:40:39.7106540Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/7ae0320e-15bf-43f0-aa5e-c4aa77239be2/.gitconfig'
+2025-12-20T04:40:39.7208480Z Temporarily overriding HOME='/Users/runner/work/_temp/7ae0320e-15bf-43f0-aa5e-c4aa77239be2' before making global git config changes
+2025-12-20T04:40:39.7308890Z Adding repository directory to the temporary git global config as a safe directory
+2025-12-20T04:40:39.7411120Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/VectorAccelerate/VectorAccelerate
+2025-12-20T04:40:39.7629180Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-12-20T04:40:39.7888860Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-12-20T04:40:40.0665000Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-12-20T04:40:40.0774300Z http.https://github.com/.extraheader
+2025-12-20T04:40:40.1221120Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+2025-12-20T04:40:40.1565510Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-12-20T04:40:40.4446360Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2025-12-20T04:40:40.4810580Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2025-12-20T04:40:40.7660230Z Cleaning up orphan processes

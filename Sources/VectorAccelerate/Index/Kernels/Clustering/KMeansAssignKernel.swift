@@ -277,7 +277,7 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
         dimension: Int,
         startTime: CFTimeInterval
     ) async throws -> KMeansAssignmentResult {
-        let params = FusedL2TopKParameters(
+        let params = try FusedL2TopKParameters(
             numQueries: numVectors,
             numDataset: numCentroids,
             dimension: dimension,

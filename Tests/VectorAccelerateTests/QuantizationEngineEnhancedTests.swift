@@ -11,7 +11,6 @@ import XCTest
 import VectorCore
 import VectorCore
 
-@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
 final class QuantizationEngineEnhancedTests: XCTestCase {
     
     var engine: QuantizationEngine!
@@ -125,12 +124,12 @@ final class QuantizationEngineEnhancedTests: XCTestCase {
         }
     }
     
-    func testInitializationWithMetalContext() async throws {
+    func testInitializationWithMetal4Context() async throws {
         guard MetalDevice.isAvailable else {
             throw XCTSkip("Metal not available")
         }
         
-        let context = try await MetalContext()
+        let context = try await Metal4Context()
         let config = QuantizationConfiguration(useGPU: true)
         let testEngine = await QuantizationEngine(configuration: config, context: context)
         

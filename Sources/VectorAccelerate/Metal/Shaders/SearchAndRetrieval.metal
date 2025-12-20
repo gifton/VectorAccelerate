@@ -279,7 +279,7 @@ kernel void parallel_reduce_kernel(
     // Phase 4: Final warp reduction
     if (local_id < 32) {
         IndexedValue val = shared_data[local_id];
-        
+
         // Use optimized SIMD shuffle reduction
         val = warp_reduce(val, OP);
 
@@ -291,4 +291,161 @@ kernel void parallel_reduce_kernel(
             }
         }
     }
+}
+
+// MARK: - Part 3: Top-K Merge (Sorted Lists)
+
+// Merges two sorted (best-to-worst) top-k lists into a single top-k list.
+//
+// This is used by the chunked K>8 fallback path to avoid CPU merges:
+// - running_* holds the best-so-far [Q × K]
+// - chunk_* holds the best for the current chunk [Q × chunkK]
+//
+// Output is sorted (best-to-worst) by value, with stable tie-break on index.
+
+struct TopKMergeParams {
+    uint32_t num_queries;   // Q
+    uint32_t k;             // K (output length)
+    uint32_t chunk_k;       // chunkK (input length)
+    uint32_t chunk_base;    // base offset to add to chunk indices
+};
+
+inline bool va_merge_is_better(float distA, uint idxA, float distB, uint idxB) {
+    if (distA < distB) return true;
+    if (distA > distB) return false;
+    return idxA < idxB;
+}
+
+// (Spec Section: Metal Kernel Signatures - merge_topk_sorted_kernel)
+kernel void merge_topk_sorted_kernel(
+    device const uint* running_indices [[buffer(0)]],
+    device const float* running_distances [[buffer(1)]],
+    device const uint* chunk_indices [[buffer(2)]],
+    device const float* chunk_distances [[buffer(3)]],
+    device uint* out_indices [[buffer(4)]],
+    device float* out_distances [[buffer(5)]],
+    constant TopKMergeParams& params [[buffer(6)]],
+    uint tid [[thread_position_in_grid]]
+) {
+    if (tid >= params.num_queries) return;
+
+    // Use standard constants (VA_INVALID_INDEX = 0xFFFFFFFF, VA_INFINITY = INFINITY)
+    constexpr uint INVALID_INDEX = 0xFFFFFFFF;
+
+    const uint K = params.k;
+    const uint Kc = params.chunk_k;
+    const uint base = params.chunk_base;
+
+    // Strides: row-major contiguous
+    const uint running_row = tid * K;
+    const uint chunk_row = tid * Kc;
+
+    uint i = 0;
+    uint j = 0;
+
+    for (uint out = 0; out < K; ++out) {
+        // Running candidate
+        uint idxA = INVALID_INDEX;
+        float distA = INFINITY;
+        if (i < K) {
+            idxA = running_indices[running_row + i];
+            distA = running_distances[running_row + i];
+            if (idxA == INVALID_INDEX) {
+                distA = INFINITY;
+            }
+        }
+
+        // Chunk candidate (convert to global index)
+        uint idxB = INVALID_INDEX;
+        float distB = INFINITY;
+        if (j < Kc) {
+            uint local = chunk_indices[chunk_row + j];
+            distB = chunk_distances[chunk_row + j];
+
+            if (local != INVALID_INDEX) {
+                idxB = local + base;
+            } else {
+                idxB = INVALID_INDEX;
+                distB = INFINITY;
+            }
+        }
+
+        const bool takeA = va_merge_is_better(distA, idxA, distB, idxB);
+
+        if (takeA) {
+            out_indices[running_row + out] = idxA;
+            out_distances[running_row + out] = distA;
+            i += 1;
+        } else {
+            out_indices[running_row + out] = idxB;
+            out_distances[running_row + out] = distB;
+            j += 1;
+        }
+    }
+}
+
+// MARK: - Part 4: IVF Candidate Distance (Indirection-Aware)
+
+// Computes L2 squared distances from queries to a per-query candidate set, where
+// candidates are expressed as IVF entry indices that must be mapped through
+// `vectorIndices` to obtain the underlying storage slot in the global vector
+// buffer.
+//
+// This kernel intentionally avoids any CPU-side vector gathering. The CPU builds
+// a compact candidate list (CSR) and a parallel `candidateQueryIds` array so each
+// candidate can be processed independently on GPU.
+
+struct IVFIndirectionDistanceParams {
+    uint32_t dimension;         // D
+    uint32_t total_candidates;  // total number of candidate entries across all queries
+    uint32_t num_queries;       // Q
+    uint32_t total_ivf_entries; // length of vectorIndices (safety bound)
+    uint32_t storage_capacity;  // number of slots in the global vector buffer
+    uint32_t padding0;
+    uint32_t padding1;
+    uint32_t padding2;
+};
+
+kernel void ivf_distance_with_indirection(
+    device const float* queries [[buffer(0)]],
+    device const float* vectors [[buffer(1)]],
+    device const uint* vectorIndices [[buffer(2)]],
+    device const uint* candidateIVFIndices [[buffer(3)]],
+    device const uint* candidateQueryIds [[buffer(4)]],
+    device float* outDistances [[buffer(5)]],
+    device uint* outSlots [[buffer(6)]],
+    constant IVFIndirectionDistanceParams& params [[buffer(7)]],
+    uint tid [[thread_position_in_grid]]
+) {
+    if (tid >= params.total_candidates) return;
+
+    uint q = candidateQueryIds[tid];
+    uint ivfEntry = candidateIVFIndices[tid];
+
+    // Safety guards to avoid OOB reads if CPU inputs are malformed.
+    if (q >= params.num_queries || ivfEntry >= params.total_ivf_entries) {
+        outDistances[tid] = INFINITY;
+        outSlots[tid] = UINT_MAX;
+        return;
+    }
+
+    uint slot = vectorIndices[ivfEntry];
+    if (slot >= params.storage_capacity) {
+        outDistances[tid] = INFINITY;
+        outSlots[tid] = UINT_MAX;
+        return;
+    }
+
+    const uint D = params.dimension;
+    const uint qBase = q * D;
+    const uint vBase = slot * D;
+
+    float dist = 0.0f;
+    for (uint d = 0; d < D; ++d) {
+        float diff = queries[qBase + d] - vectors[vBase + d];
+        dist += diff * diff;
+    }
+
+    outDistances[tid] = dist;
+    outSlots[tid] = slot;
 }

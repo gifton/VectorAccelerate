@@ -26,6 +26,36 @@ import Foundation
 import QuartzCore
 import VectorCore
 
+// MARK: - K-Means Initialization Method
+
+/// Centroid initialization method for K-Means clustering.
+///
+/// The initialization method significantly impacts clustering quality and convergence speed.
+/// K-Means++ is recommended for most use cases as it produces better-spread initial centroids.
+public enum KMeansInitialization: Sendable, Equatable {
+    /// Random initialization: select k points uniformly at random from the dataset.
+    ///
+    /// - Pros: Fast O(k), simple, reproducible with seed
+    /// - Cons: May produce clustered initial centroids, leading to:
+    ///   - Slower convergence
+    ///   - Higher final inertia
+    ///   - More sensitivity to local minima
+    case random
+
+    /// K-Means++ initialization: select centroids with probability proportional to D²(x).
+    ///
+    /// Algorithm:
+    /// 1. Choose first centroid uniformly at random
+    /// 2. For each point x, compute D(x) = distance to nearest existing centroid
+    /// 3. Choose next centroid with probability proportional to D(x)²
+    /// 4. Repeat until k centroids are selected
+    ///
+    /// - Pros: Better initial spread, faster convergence, lower final inertia
+    /// - Cons: O(nk) complexity (still fast for typical use cases)
+    /// - Reference: Arthur & Vassilvitskii, "k-means++: The Advantages of Careful Seeding" (2007)
+    case kMeansPlusPlus
+}
+
 // MARK: - K-Means Configuration
 
 /// Configuration for K-Means GPU clustering.
@@ -51,6 +81,12 @@ public struct KMeansConfiguration: Sendable {
     /// Batch size for mini-batch updates (0 = full batch)
     public let batchSize: Int
 
+    /// Centroid initialization method
+    ///
+    /// Default is `.kMeansPlusPlus` which provides better initial centroid spread
+    /// and typically results in faster convergence and lower final inertia.
+    public let initialization: KMeansInitialization
+
     public init(
         numClusters: Int,
         dimension: Int,
@@ -58,7 +94,8 @@ public struct KMeansConfiguration: Sendable {
         convergenceThreshold: Float = 1e-4,
         metric: SupportedDistanceMetric = .euclidean,
         enableProfiling: Bool = false,
-        batchSize: Int = 0
+        batchSize: Int = 0,
+        initialization: KMeansInitialization = .kMeansPlusPlus
     ) {
         self.numClusters = numClusters
         self.dimension = dimension
@@ -67,6 +104,7 @@ public struct KMeansConfiguration: Sendable {
         self.metric = metric
         self.enableProfiling = enableProfiling
         self.batchSize = batchSize
+        self.initialization = initialization
     }
 
     /// Validate configuration parameters.

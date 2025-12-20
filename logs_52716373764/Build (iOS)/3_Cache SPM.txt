@@ -1,0 +1,21 @@
+﻿2025-12-20T04:40:13.9748680Z ##[group]Run actions/cache@v4
+2025-12-20T04:40:13.9749080Z with:
+2025-12-20T04:40:13.9749350Z   path: .build
+~/Library/Developer/Xcode/DerivedData
+
+2025-12-20T04:40:13.9749700Z   key: macOS-spm-ios-
+2025-12-20T04:40:13.9749950Z   restore-keys: macOS-spm-ios-
+
+2025-12-20T04:40:13.9750190Z   enableCrossOsArchive: false
+2025-12-20T04:40:13.9750400Z   fail-on-cache-miss: false
+2025-12-20T04:40:13.9750670Z   lookup-only: false
+2025-12-20T04:40:13.9750850Z   save-always: false
+2025-12-20T04:40:13.9751030Z env:
+2025-12-20T04:40:13.9751260Z   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+2025-12-20T04:40:13.9751550Z ##[endgroup]
+2025-12-20T04:40:14.4051770Z Cache hit for: macOS-spm-ios-
+2025-12-20T04:40:14.9072920Z Received 58375522 of 58375522 (100.0%), 111.8 MBs/sec
+2025-12-20T04:40:14.9174080Z Cache Size: ~56 MB (58375522 B)
+2025-12-20T04:40:14.9283720Z [command]/opt/homebrew/bin/gtar -xf /Users/runner/work/_temp/ad2fa347-153c-4af4-ac01-406dba22b707/cache.tzst -P -C /Users/runner/work/VectorAccelerate/VectorAccelerate --delay-directory-restore --use-compress-program unzstd
+2025-12-20T04:40:16.6209670Z Cache restored successfully
+2025-12-20T04:40:16.6574220Z Cache restored from key: macOS-spm-ios-

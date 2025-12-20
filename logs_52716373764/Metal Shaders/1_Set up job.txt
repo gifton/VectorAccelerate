@@ -1,0 +1,31 @@
+﻿2025-12-20T04:40:09.6744800Z Current runner version: '2.330.0'
+2025-12-20T04:40:09.6763540Z ##[group]Runner Image Provisioner
+2025-12-20T04:40:09.6764200Z Hosted Compute Agent
+2025-12-20T04:40:09.6764590Z Version: 20251211.462
+2025-12-20T04:40:09.6765030Z Commit: 6cbad8c2bb55d58165063d031ccabf57e2d2db61
+2025-12-20T04:40:09.6765510Z Build Date: 2025-12-11T16:28:49Z
+2025-12-20T04:40:09.6766010Z Worker ID: {d5d31430-fdd1-47b6-8082-ff957de506a7}
+2025-12-20T04:40:09.6766480Z ##[endgroup]
+2025-12-20T04:40:09.6767010Z ##[group]Operating System
+2025-12-20T04:40:09.6767490Z macOS
+2025-12-20T04:40:09.6767820Z 26.0.1
+2025-12-20T04:40:09.6768130Z 25A362
+2025-12-20T04:40:09.6768430Z ##[endgroup]
+2025-12-20T04:40:09.6768830Z ##[group]Runner Image
+2025-12-20T04:40:09.6769300Z Image: macos-26-arm64
+2025-12-20T04:40:09.6769680Z Version: 20251216.0100.1
+2025-12-20T04:40:09.6770510Z Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20251216.0100/images/macos/macos-26-arm64-Readme.md
+2025-12-20T04:40:09.6771560Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20251216.0100
+2025-12-20T04:40:09.6772440Z ##[endgroup]
+2025-12-20T04:40:09.6773350Z ##[group]GITHUB_TOKEN Permissions
+2025-12-20T04:40:09.6774670Z Contents: read
+2025-12-20T04:40:09.6777710Z Metadata: read
+2025-12-20T04:40:09.6778130Z Packages: read
+2025-12-20T04:40:09.6778430Z ##[endgroup]
+2025-12-20T04:40:09.6779940Z Secret source: Actions
+2025-12-20T04:40:09.6780380Z Prepare workflow directory
+2025-12-20T04:40:09.7278320Z Prepare all required actions
+2025-12-20T04:40:09.7306100Z Getting action download info
+2025-12-20T04:40:09.9369500Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2025-12-20T04:40:10.3836550Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2025-12-20T04:40:10.7393560Z Complete job name: Metal Shaders

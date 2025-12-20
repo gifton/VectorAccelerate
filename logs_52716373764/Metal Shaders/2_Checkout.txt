@@ -1,0 +1,73 @@
+﻿2025-12-20T04:40:10.8069170Z ##[group]Run actions/checkout@v4
+2025-12-20T04:40:10.8069760Z with:
+2025-12-20T04:40:10.8070090Z   repository: gifton/VectorAccelerate
+2025-12-20T04:40:10.8070690Z   token: ***
+2025-12-20T04:40:10.8070960Z   ssh-strict: true
+2025-12-20T04:40:10.8071250Z   ssh-user: git
+2025-12-20T04:40:10.8071530Z   persist-credentials: true
+2025-12-20T04:40:10.8071850Z   clean: true
+2025-12-20T04:40:10.8072130Z   sparse-checkout-cone-mode: true
+2025-12-20T04:40:10.8072480Z   fetch-depth: 1
+2025-12-20T04:40:10.8072760Z   fetch-tags: false
+2025-12-20T04:40:10.8073050Z   show-progress: true
+2025-12-20T04:40:10.8073340Z   lfs: false
+2025-12-20T04:40:10.8073620Z   submodules: false
+2025-12-20T04:40:10.8073920Z   set-safe-directory: true
+2025-12-20T04:40:10.8074350Z env:
+2025-12-20T04:40:10.8074710Z   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+2025-12-20T04:40:10.8075160Z ##[endgroup]
+2025-12-20T04:40:11.5936310Z Syncing repository: gifton/VectorAccelerate
+2025-12-20T04:40:11.5941780Z ##[group]Getting Git version info
+2025-12-20T04:40:11.5943830Z Working directory is '/Users/runner/work/VectorAccelerate/VectorAccelerate'
+2025-12-20T04:40:11.5947290Z [command]/opt/homebrew/bin/git version
+2025-12-20T04:40:11.6622160Z git version 2.50.1
+2025-12-20T04:40:11.6740200Z ##[endgroup]
+2025-12-20T04:40:11.6756030Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/17eb32e8-c651-4c15-a779-77888892312b/.gitconfig'
+2025-12-20T04:40:11.6758400Z Temporarily overriding HOME='/Users/runner/work/_temp/17eb32e8-c651-4c15-a779-77888892312b' before making global git config changes
+2025-12-20T04:40:11.6762770Z Adding repository directory to the temporary git global config as a safe directory
+2025-12-20T04:40:11.6766350Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/VectorAccelerate/VectorAccelerate
+2025-12-20T04:40:11.7085930Z Deleting the contents of '/Users/runner/work/VectorAccelerate/VectorAccelerate'
+2025-12-20T04:40:11.7149520Z ##[group]Initializing the repository
+2025-12-20T04:40:11.7164110Z [command]/opt/homebrew/bin/git init /Users/runner/work/VectorAccelerate/VectorAccelerate
+2025-12-20T04:40:11.7704210Z hint: Using 'master' as the name for the initial branch. This default branch name
+2025-12-20T04:40:11.7728540Z hint: is subject to change. To configure the initial branch name to use in all
+2025-12-20T04:40:11.7744220Z hint: of your new repositories, which will suppress this warning, call:
+2025-12-20T04:40:11.7745470Z hint:
+2025-12-20T04:40:11.7746190Z hint: 	git config --global init.defaultBranch <name>
+2025-12-20T04:40:11.7746810Z hint:
+2025-12-20T04:40:11.7747870Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2025-12-20T04:40:11.7748840Z hint: 'development'. The just-created branch can be renamed via this command:
+2025-12-20T04:40:11.7750210Z hint:
+2025-12-20T04:40:11.7750770Z hint: 	git branch -m <name>
+2025-12-20T04:40:11.7751360Z hint:
+2025-12-20T04:40:11.7752060Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2025-12-20T04:40:11.7754180Z Initialized empty Git repository in /Users/runner/work/VectorAccelerate/VectorAccelerate/.git/
+2025-12-20T04:40:11.7756560Z [command]/opt/homebrew/bin/git remote add origin https://github.com/gifton/VectorAccelerate
+2025-12-20T04:40:11.7992960Z ##[endgroup]
+2025-12-20T04:40:11.7998110Z ##[group]Disabling automatic garbage collection
+2025-12-20T04:40:11.8084570Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2025-12-20T04:40:11.8090080Z ##[endgroup]
+2025-12-20T04:40:11.8091930Z ##[group]Setting up auth
+2025-12-20T04:40:11.8094500Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-12-20T04:40:11.8099000Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-12-20T04:40:12.0935520Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-12-20T04:40:12.1107460Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-12-20T04:40:12.2837820Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2025-12-20T04:40:12.3189980Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2025-12-20T04:40:12.5514320Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2025-12-20T04:40:12.5627790Z ##[endgroup]
+2025-12-20T04:40:12.5729700Z ##[group]Fetching the repository
+2025-12-20T04:40:12.5741860Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +e9eee4d11386b42dca65f5a5dafd928a0d3febd8:refs/remotes/pull/14/merge
+2025-12-20T04:40:13.8510250Z From https://github.com/gifton/VectorAccelerate
+2025-12-20T04:40:13.8511210Z  * [new ref]         e9eee4d11386b42dca65f5a5dafd928a0d3febd8 -> pull/14/merge
+2025-12-20T04:40:13.8681330Z ##[endgroup]
+2025-12-20T04:40:13.8730980Z ##[group]Determining the checkout info
+2025-12-20T04:40:13.8835050Z ##[endgroup]
+2025-12-20T04:40:13.8937890Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2025-12-20T04:40:13.9246450Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2025-12-20T04:40:13.9570500Z ##[group]Checking out the ref
+2025-12-20T04:40:13.9673560Z [command]/opt/homebrew/bin/git checkout --progress --force refs/remotes/pull/14/merge
+2025-12-20T04:40:13.9954810Z HEAD is now at e9eee4d Merge 1b4645ea782f9aeecb23e87bacca983ec945984f into cba7c68a5d2693e5d22aa5627df53c2c979f6bdc
+2025-12-20T04:40:14.0264050Z ##[endgroup]
+2025-12-20T04:40:14.0567060Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2025-12-20T04:40:14.0668970Z e9eee4d11386b42dca65f5a5dafd928a0d3febd8

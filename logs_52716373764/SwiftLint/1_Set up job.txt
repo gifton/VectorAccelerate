@@ -1,0 +1,31 @@
+﻿2025-12-20T04:40:09.7031940Z Current runner version: '2.330.0'
+2025-12-20T04:40:09.7047150Z ##[group]Runner Image Provisioner
+2025-12-20T04:40:09.7047660Z Hosted Compute Agent
+2025-12-20T04:40:09.7047990Z Version: 20251211.462
+2025-12-20T04:40:09.7048360Z Commit: 6cbad8c2bb55d58165063d031ccabf57e2d2db61
+2025-12-20T04:40:09.7048790Z Build Date: 2025-12-11T16:28:49Z
+2025-12-20T04:40:09.7049290Z Worker ID: {80263662-5a37-441b-a714-2b6961f30803}
+2025-12-20T04:40:09.7049700Z ##[endgroup]
+2025-12-20T04:40:09.7050020Z ##[group]Operating System
+2025-12-20T04:40:09.7050370Z macOS
+2025-12-20T04:40:09.7050730Z 26.0.1
+2025-12-20T04:40:09.7051020Z 25A362
+2025-12-20T04:40:09.7051310Z ##[endgroup]
+2025-12-20T04:40:09.7051610Z ##[group]Runner Image
+2025-12-20T04:40:09.7051950Z Image: macos-26-arm64
+2025-12-20T04:40:09.7052290Z Version: 20251216.0100.1
+2025-12-20T04:40:09.7052980Z Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20251216.0100/images/macos/macos-26-arm64-Readme.md
+2025-12-20T04:40:09.7053950Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20251216.0100
+2025-12-20T04:40:09.7054670Z ##[endgroup]
+2025-12-20T04:40:09.7055380Z ##[group]GITHUB_TOKEN Permissions
+2025-12-20T04:40:09.7056590Z Contents: read
+2025-12-20T04:40:09.7056940Z Metadata: read
+2025-12-20T04:40:09.7057250Z Packages: read
+2025-12-20T04:40:09.7057560Z ##[endgroup]
+2025-12-20T04:40:09.7058940Z Secret source: Actions
+2025-12-20T04:40:09.7059350Z Prepare workflow directory
+2025-12-20T04:40:09.7334230Z Prepare all required actions
+2025-12-20T04:40:09.7362650Z Getting action download info
+2025-12-20T04:40:10.1965600Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2025-12-20T04:40:10.5013050Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2025-12-20T04:40:10.7164820Z Complete job name: SwiftLint
