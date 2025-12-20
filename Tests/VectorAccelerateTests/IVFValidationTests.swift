@@ -1163,9 +1163,9 @@ final class IVFValidationTests: XCTestCase {
         print("✓ Zero vector handled correctly")
     }
 
-    /// Test with very high dimensional vectors
+    /// Test with high dimensional vectors (within kernel limits)
     func testHighDimensionalVectors() async throws {
-        let dimension = 1536  // OpenAI embedding dimension
+        let dimension = 768  // Max supported by FusedL2TopK kernel
         let datasetSize = 500
         let nlist = 16
         let nprobe = 8  // 50%
@@ -2334,7 +2334,7 @@ final class IVFValidationTests: XCTestCase {
  │     - Insert/search zero vector, verify correct handling                    │
  │                                                                             │
  │  6. testHighDimensionalVectors ✓                                            │
- │     - D=1536 (OpenAI embedding dimension)                                   │
+ │     - D=768 (max supported dimension)                                       │
  │                                                                             │
  │  7. testNonStandardNlistValues ✓                                            │
  │     - nlist << sqrt(N), nlist = sqrt(N), nlist >> sqrt(N)                   │

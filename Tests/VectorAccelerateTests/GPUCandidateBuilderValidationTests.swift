@@ -66,6 +66,7 @@ final class GPUCandidateBuilderValidationTests: XCTestCase {
             nlist: nlist,
             nprobe: 4,  // 25% of lists
             capacity: datasetSize * 2,
+            routingThreshold: 0,  // Force IVF search (don't fall back to flat)
             minTrainingVectors: 100
         )
         let ivfIndexGPU = try await AcceleratedVectorIndex(configuration: ivfConfigGPU)
