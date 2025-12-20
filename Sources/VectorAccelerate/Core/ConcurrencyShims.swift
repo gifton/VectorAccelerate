@@ -10,10 +10,10 @@
 
 @preconcurrency import Metal
 #if canImport(MetalKit)
-@preconcurrency import MetalKit
+import MetalKit
 #endif
 #if canImport(MetalPerformanceShaders)
-@preconcurrency import MetalPerformanceShaders
+import MetalPerformanceShaders
 #endif
 #if canImport(Accelerate)
 @preconcurrency import Accelerate

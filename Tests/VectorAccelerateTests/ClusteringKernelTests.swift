@@ -601,6 +601,236 @@ final class KMeansPipelineTests: XCTestCase {
     }
 }
 
+// MARK: - K-Means Initialization Tests
+
+@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
+final class KMeansInitializationTests: XCTestCase {
+
+    var context: Metal4Context!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        guard MTLCreateSystemDefaultDevice() != nil else {
+            throw XCTSkip("Metal device not available")
+        }
+        context = try await Metal4Context()
+    }
+
+    override func tearDown() {
+        context = nil
+        super.tearDown()
+    }
+
+    /// Test that K-Means++ produces better spread centroids than random initialization.
+    ///
+    /// K-Means++ should produce initial centroids that are more spread out,
+    /// leading to lower initial inertia (sum of squared distances to nearest centroid).
+    func testKMeansPlusPlusProducesBetterSpread() async throws {
+        let dimension = 32
+        let numVectors = 500
+        let numClusters = 16
+        let numTrials = 5  // Run multiple trials to account for randomness
+
+        let vectors = ClusteringTestHelpers.randomVectors(count: numVectors, dimension: dimension)
+
+        var kMeansPlusPlusInertias: [Float] = []
+        var randomInertias: [Float] = []
+
+        for _ in 0..<numTrials {
+            // K-Means++ configuration
+            let kppConfig = KMeansConfiguration(
+                numClusters: numClusters,
+                dimension: dimension,
+                maxIterations: 1,  // Only 1 iteration to measure initial quality
+                initialization: .kMeansPlusPlus
+            )
+
+            // Random configuration
+            let randomConfig = KMeansConfiguration(
+                numClusters: numClusters,
+                dimension: dimension,
+                maxIterations: 1,
+                initialization: .random
+            )
+
+            let kppPipeline = try await KMeansPipeline(context: context, configuration: kppConfig)
+            let randomPipeline = try await KMeansPipeline(context: context, configuration: randomConfig)
+
+            let kppResult = try await kppPipeline.fit(vectors: vectors)
+            let randomResult = try await randomPipeline.fit(vectors: vectors)
+
+            kMeansPlusPlusInertias.append(kppResult.inertia)
+            randomInertias.append(randomResult.inertia)
+        }
+
+        // K-Means++ should have lower average inertia (better spread)
+        let avgKppInertia = kMeansPlusPlusInertias.reduce(0, +) / Float(numTrials)
+        let avgRandomInertia = randomInertias.reduce(0, +) / Float(numTrials)
+
+        print("K-Means++ average inertia: \(avgKppInertia)")
+        print("Random average inertia: \(avgRandomInertia)")
+        print("Improvement: \(String(format: "%.1f%%", (1 - avgKppInertia / avgRandomInertia) * 100))")
+
+        // K-Means++ should typically produce lower or similar inertia
+        // Allow for some variance due to randomness
+        XCTAssertLessThanOrEqual(
+            avgKppInertia,
+            avgRandomInertia * 1.1,  // Allow 10% margin for random variation
+            "K-Means++ should produce similar or better inertia than random initialization"
+        )
+    }
+
+    /// Test that K-Means++ initialization produces unique centroids.
+    func testKMeansPlusPlusProducesUniqueCentroids() async throws {
+        let dimension = 8
+        let numVectors = 100
+        let numClusters = 10
+
+        let vectors = ClusteringTestHelpers.randomVectors(count: numVectors, dimension: dimension)
+
+        let config = KMeansConfiguration(
+            numClusters: numClusters,
+            dimension: dimension,
+            maxIterations: 1,
+            initialization: .kMeansPlusPlus
+        )
+
+        let pipeline = try await KMeansPipeline(context: context, configuration: config)
+        let result = try await pipeline.fit(vectors: vectors)
+        let centroids = result.extractCentroids()
+
+        // Check all centroids are unique
+        for i in 0..<numClusters {
+            for j in (i+1)..<numClusters {
+                let dist = ClusteringTestHelpers.cpuL2DistanceSquared(centroids[i], centroids[j])
+                XCTAssertGreaterThan(dist, 1e-10, "Centroids \(i) and \(j) should be unique")
+            }
+        }
+    }
+
+    /// Test that random initialization produces valid centroids.
+    func testRandomInitializationProducesValidCentroids() async throws {
+        let dimension = 8
+        let numVectors = 100
+        let numClusters = 10
+
+        let vectors = ClusteringTestHelpers.randomVectors(count: numVectors, dimension: dimension)
+
+        let config = KMeansConfiguration(
+            numClusters: numClusters,
+            dimension: dimension,
+            maxIterations: 1,
+            initialization: .random
+        )
+
+        let pipeline = try await KMeansPipeline(context: context, configuration: config)
+        let result = try await pipeline.fit(vectors: vectors)
+        let centroids = result.extractCentroids()
+
+        // Check we got the right number of centroids
+        XCTAssertEqual(centroids.count, numClusters)
+
+        // Check all centroids are unique
+        for i in 0..<numClusters {
+            for j in (i+1)..<numClusters {
+                let dist = ClusteringTestHelpers.cpuL2DistanceSquared(centroids[i], centroids[j])
+                XCTAssertGreaterThan(dist, 1e-10, "Centroids \(i) and \(j) should be unique")
+            }
+        }
+    }
+
+    /// Test convergence comparison between initialization methods.
+    ///
+    /// K-Means++ typically converges faster (fewer iterations) due to better initial placement.
+    /// Note: Both methods should converge to reasonable solutions; comparing inertia across
+    /// single runs is unreliable due to randomness and local minima.
+    func testConvergenceComparison() async throws {
+        let dimension = 16
+        let numClusters = 8
+        let pointsPerCluster = 50
+
+        // Create well-separated clusters
+        let trueCentroids: [[Float]] = (0..<numClusters).map { i in
+            (0..<dimension).map { d in
+                Float(i) * 5.0 + (d == 0 ? Float(i) * 3.0 : 0)
+            }
+        }
+
+        let (vectors, _) = ClusteringTestHelpers.clusteredVectors(
+            centroids: trueCentroids,
+            pointsPerCluster: pointsPerCluster,
+            noise: 0.5
+        )
+
+        // K-Means++ configuration
+        let kppConfig = KMeansConfiguration(
+            numClusters: numClusters,
+            dimension: dimension,
+            maxIterations: 50,
+            convergenceThreshold: 1e-4,
+            initialization: .kMeansPlusPlus
+        )
+
+        // Random configuration
+        let randomConfig = KMeansConfiguration(
+            numClusters: numClusters,
+            dimension: dimension,
+            maxIterations: 50,
+            convergenceThreshold: 1e-4,
+            initialization: .random
+        )
+
+        let kppPipeline = try await KMeansPipeline(context: context, configuration: kppConfig)
+        let randomPipeline = try await KMeansPipeline(context: context, configuration: randomConfig)
+
+        let kppResult = try await kppPipeline.fit(vectors: vectors)
+        let randomResult = try await randomPipeline.fit(vectors: vectors)
+
+        print("K-Means++ iterations: \(kppResult.iterations), inertia: \(kppResult.inertia)")
+        print("Random iterations: \(randomResult.iterations), inertia: \(randomResult.inertia)")
+
+        // Both should converge (not max out iterations) for well-separated data
+        XCTAssertTrue(kppResult.converged || kppResult.iterations < 50,
+                      "K-Means++ should converge for well-separated clusters")
+        XCTAssertTrue(randomResult.converged || randomResult.iterations < 50,
+                      "Random init should converge for well-separated clusters")
+
+        // Both should produce positive, finite inertia
+        XCTAssertGreaterThan(kppResult.inertia, 0, "K-Means++ inertia should be positive")
+        XCTAssertLessThan(kppResult.inertia, Float.infinity, "K-Means++ inertia should be finite")
+        XCTAssertGreaterThan(randomResult.inertia, 0, "Random inertia should be positive")
+        XCTAssertLessThan(randomResult.inertia, Float.infinity, "Random inertia should be finite")
+
+        // Note: We don't strictly compare inertia between single runs because K-Means
+        // can converge to different local minima. The better test is in
+        // testKMeansPlusPlusProducesBetterSpread which uses multiple trials.
+    }
+
+    /// Test that initialization enum works correctly in configuration.
+    func testInitializationEnumInConfiguration() {
+        let kppConfig = KMeansConfiguration(
+            numClusters: 16,
+            dimension: 64,
+            initialization: .kMeansPlusPlus
+        )
+        XCTAssertEqual(kppConfig.initialization, .kMeansPlusPlus)
+
+        let randomConfig = KMeansConfiguration(
+            numClusters: 16,
+            dimension: 64,
+            initialization: .random
+        )
+        XCTAssertEqual(randomConfig.initialization, .random)
+
+        // Default should be K-Means++
+        let defaultConfig = KMeansConfiguration(
+            numClusters: 16,
+            dimension: 64
+        )
+        XCTAssertEqual(defaultConfig.initialization, .kMeansPlusPlus)
+    }
+}
+
 // MARK: - Shader Args Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)

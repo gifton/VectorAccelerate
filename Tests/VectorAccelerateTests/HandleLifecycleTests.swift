@@ -1,51 +1,57 @@
 //
 //  HandleLifecycleTests.swift
-//  VectorAccelerate
+//  VectorAccelerateTests
 //
-//  Comprehensive tests for handle lifecycle and compaction.
+//  Tests for VectorHandle lifecycle - insertion, deletion, validation, and compaction.
 //
-//  Covers:
-//  - Handle validity checking (contains, isHandleValid)
-//  - Stale handle detection after compact
-//  - Handle mapping during compaction
-//  - Handle reuse and generation tracking
-//  - allHandles enumeration
+//  P0.8 Stable Handles: Handles remain valid across compact() operations.
+//  The index maintains an internal indirection table that maps stable IDs
+//  to current storage slots.
 //
 
 import XCTest
 @testable import VectorAccelerate
-import VectorAccelerate
-import VectorCore
 
-/// Tests for handle lifecycle, validity, and compaction behavior.
 final class HandleLifecycleTests: XCTestCase {
 
-    // MARK: - Basic Contains Tests
+    // MARK: - Handle Creation Tests
 
-    /// A valid, active handle should return true for contains().
-    func testContainsActiveHandle() async throws {
+    /// Handles from insert should be valid.
+    func testInsertReturnsValidHandle() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
 
         let handle = try await index.insert([1.0, 0.0, 0.0, 0.0])
 
-        let containsActive = await index.contains(handle)
-        XCTAssertTrue(containsActive, "Active handle should be contained")
+        let isValid = await index.contains(handle)
+        XCTAssertTrue(isValid, "Newly inserted handle should be valid")
     }
 
-    /// A deleted handle should return false for contains().
-    func testContainsDeletedHandle() async throws {
+    /// Multiple inserts should return distinct handles.
+    func testMultipleInsertsReturnDistinctHandles() async throws {
+        let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
+        let index = try await AcceleratedVectorIndex(configuration: config)
+
+        let handle1 = try await index.insert([1.0, 0.0, 0.0, 0.0])
+        let handle2 = try await index.insert([2.0, 0.0, 0.0, 0.0])
+
+        XCTAssertNotEqual(handle1, handle2, "Different inserts should return different handles")
+    }
+
+    // MARK: - contains() Tests
+
+    /// contains() should return true for valid handle.
+    func testContainsValidHandle() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
 
         let handle = try await index.insert([1.0, 0.0, 0.0, 0.0])
-        try await index.remove(handle)
 
-        let containsDeleted = await index.contains(handle)
-        XCTAssertFalse(containsDeleted, "Deleted handle should not be contained")
+        let containsResult = await index.contains(handle)
+        XCTAssertTrue(containsResult, "Valid handle should be contained")
     }
 
-    /// An invalid handle should return false for contains().
+    /// contains() should return false for .invalid handle.
     func testContainsInvalidHandle() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
@@ -57,18 +63,16 @@ final class HandleLifecycleTests: XCTestCase {
         XCTAssertFalse(containsInvalid, "Invalid handle should not be contained")
     }
 
-    /// A handle with wrong generation should return false for contains().
-    func testContainsWrongGenerationHandle() async throws {
+    /// contains() should return false for deleted handle.
+    func testContainsDeletedHandle() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
 
         let handle = try await index.insert([1.0, 0.0, 0.0, 0.0])
+        try await index.remove(handle)
 
-        // Create a handle with same index but different generation
-        let wrongGenHandle = VectorHandle(index: handle.index, generation: handle.generation &+ 1)
-
-        let containsWrong = await index.contains(wrongGenHandle)
-        XCTAssertFalse(containsWrong, "Handle with wrong generation should not be contained")
+        let containsResult = await index.contains(handle)
+        XCTAssertFalse(containsResult, "Deleted handle should not be contained")
     }
 
     // MARK: - isHandleValid Tests
@@ -147,6 +151,7 @@ final class HandleLifecycleTests: XCTestCase {
         let index = try await AcceleratedVectorIndex(configuration: config)
 
         let allHandles = await index.allHandles()
+
         XCTAssertEqual(allHandles.count, 0, "Empty index should have no handles")
     }
 
@@ -159,8 +164,14 @@ final class HandleLifecycleTests: XCTestCase {
 
         let handle = try await index.insert([1.0, 0.0, 0.0, 0.0])
 
-        let retrievedHandle = await index.handle(for: handle.index)
-        XCTAssertEqual(retrievedHandle, handle, "handle(for:) should return the same handle")
+        // Get the slot for this handle
+        let slot = await index.slot(for: handle)
+        XCTAssertNotNil(slot, "Should have a slot for the handle")
+
+        if let slot = slot {
+            let retrievedHandle = await index.handle(for: slot)
+            XCTAssertEqual(retrievedHandle, handle, "handle(for:) should return the same handle")
+        }
     }
 
     /// handle(for:) should return nil for unoccupied slot.
@@ -181,24 +192,21 @@ final class HandleLifecycleTests: XCTestCase {
         let index = try await AcceleratedVectorIndex(configuration: config)
 
         let handle = try await index.insert([1.0, 0.0, 0.0, 0.0])
-        let slotIndex = handle.index
+        let slot = await index.slot(for: handle)
 
         try await index.remove(handle)
 
-        // After deletion, the slot should still return the handle (but contains should be false)
-        // The slot is marked deleted but not yet compacted
-        let retrievedHandle = await index.handle(for: slotIndex)
-        // Note: handle(for:) might return the handle even if deleted, but contains() should return false
-        if let retrieved = retrievedHandle {
-            let isContained = await index.contains(retrieved)
-            XCTAssertFalse(isContained, "Handle from deleted slot should not be contained")
+        // After deletion, the slot should return nil
+        if let slot = slot {
+            let retrievedHandle = await index.handle(for: slot)
+            XCTAssertNil(retrievedHandle, "Deleted slot should return nil for handle(for:)")
         }
     }
 
-    // MARK: - Compaction Tests
+    // MARK: - P0.8 Stable Handles - Compaction Tests
 
-    /// After compaction, old handles should become stale (return nil on vector retrieval).
-    func testStaleHandleAfterCompact() async throws {
+    /// With P0.8 stable handles: handles remain valid after compaction.
+    func testStableHandlesAfterCompact() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
 
@@ -213,60 +221,28 @@ final class HandleLifecycleTests: XCTestCase {
         try await index.remove(handles[1])
         try await index.remove(handles[3])
 
-        // Compact
-        let mapping = try await index.compact()
+        // Compact (returns Void with P0.8)
+        try await index.compact()
 
-        // Old handles for kept vectors should be stale (not in contains)
-        // The mapping provides new handles
-        XCTAssertEqual(mapping.count, 3, "Should have 3 handle mappings for kept vectors")
+        // P0.8: Original handles for kept vectors should STILL BE VALID
+        let contains0 = await index.contains(handles[0])
+        let contains2 = await index.contains(handles[2])
+        let contains4 = await index.contains(handles[4])
 
-        // Old handle for vector 0 should be stale
-        let oldHandle0 = handles[0]
-        let isStale = await index.contains(oldHandle0)
-        XCTAssertFalse(isStale, "Old handle should be stale after compact")
+        XCTAssertTrue(contains0, "Handle 0 should still be valid after compact (P0.8)")
+        XCTAssertTrue(contains2, "Handle 2 should still be valid after compact (P0.8)")
+        XCTAssertTrue(contains4, "Handle 4 should still be valid after compact (P0.8)")
 
-        // Vector retrieval with old handle should return nil
-        let vector = try await index.vector(for: oldHandle0)
-        XCTAssertNil(vector, "Old handle should not retrieve vector after compact")
+        // Deleted handles should still be invalid
+        let contains1 = await index.contains(handles[1])
+        let contains3 = await index.contains(handles[3])
+
+        XCTAssertFalse(contains1, "Deleted handle 1 should remain invalid")
+        XCTAssertFalse(contains3, "Deleted handle 3 should remain invalid")
     }
 
-    /// Compaction should return a valid mapping from old to new handles.
-    func testHandleMappingAfterCompact() async throws {
-        let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
-        let index = try await AcceleratedVectorIndex(configuration: config)
-
-        // Insert 5 vectors
-        var handles: [VectorHandle] = []
-        for i in 0..<5 {
-            let handle = try await index.insert([Float(i), 0.0, 0.0, 0.0])
-            handles.append(handle)
-        }
-
-        // Delete vectors at indices 1 and 3
-        try await index.remove(handles[1])
-        try await index.remove(handles[3])
-
-        // Compact
-        let mapping = try await index.compact()
-
-        // Verify mapping contains the kept handles
-        XCTAssertTrue(mapping.keys.contains(handles[0]), "Mapping should include handle 0")
-        XCTAssertTrue(mapping.keys.contains(handles[2]), "Mapping should include handle 2")
-        XCTAssertTrue(mapping.keys.contains(handles[4]), "Mapping should include handle 4")
-
-        // Deleted handles should not be in mapping
-        XCTAssertFalse(mapping.keys.contains(handles[1]), "Mapping should not include deleted handle 1")
-        XCTAssertFalse(mapping.keys.contains(handles[3]), "Mapping should not include deleted handle 3")
-
-        // New handles should be valid
-        for (_, newHandle) in mapping {
-            let isValid = await index.contains(newHandle)
-            XCTAssertTrue(isValid, "New handle should be valid")
-        }
-    }
-
-    /// New handles from mapping should retrieve the correct vectors.
-    func testNewHandlesRetrieveCorrectVectors() async throws {
+    /// P0.8: Original handles should retrieve correct vectors after compaction.
+    func testVectorRetrievalWithStableHandles() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
 
@@ -290,43 +266,41 @@ final class HandleLifecycleTests: XCTestCase {
         try await index.remove(handles[3])
 
         // Compact
-        let mapping = try await index.compact()
+        try await index.compact()
 
-        // Verify new handles retrieve correct vectors
-        // Handle 0 → should retrieve [0,0,0,0]
-        if let newHandle = mapping[handles[0]] {
-            let retrieved = try await index.vector(for: newHandle)
-            XCTAssertNotNil(retrieved)
-            XCTAssertEqual(Double(retrieved?[0] ?? -1), 0.0, accuracy: 0.001)
-        }
+        // P0.8: Original handles should retrieve correct vectors
+        let retrieved0 = try await index.vector(for: handles[0])
+        XCTAssertNotNil(retrieved0)
+        XCTAssertEqual(Double(retrieved0?[0] ?? -1), 0.0, accuracy: 0.001)
 
-        // Handle 2 → should retrieve [2,0,0,0]
-        if let newHandle = mapping[handles[2]] {
-            let retrieved = try await index.vector(for: newHandle)
-            XCTAssertNotNil(retrieved)
-            XCTAssertEqual(Double(retrieved?[0] ?? -1), 2.0, accuracy: 0.001)
-        }
+        let retrieved2 = try await index.vector(for: handles[2])
+        XCTAssertNotNil(retrieved2)
+        XCTAssertEqual(Double(retrieved2?[0] ?? -1), 2.0, accuracy: 0.001)
 
-        // Handle 4 → should retrieve [4,0,0,0]
-        if let newHandle = mapping[handles[4]] {
-            let retrieved = try await index.vector(for: newHandle)
-            XCTAssertNotNil(retrieved)
-            XCTAssertEqual(Double(retrieved?[0] ?? -1), 4.0, accuracy: 0.001)
-        }
+        let retrieved4 = try await index.vector(for: handles[4])
+        XCTAssertNotNil(retrieved4)
+        XCTAssertEqual(Double(retrieved4?[0] ?? -1), 4.0, accuracy: 0.001)
+
+        // Deleted handles should return nil
+        let retrieved1 = try await index.vector(for: handles[1])
+        XCTAssertNil(retrieved1)
+
+        let retrieved3 = try await index.vector(for: handles[3])
+        XCTAssertNil(retrieved3)
     }
 
     /// New inserts after compaction should get fresh handles.
-    func testHandleReuseAfterCompact() async throws {
+    func testNewHandlesAfterCompact() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
 
         // Insert and delete to create fragmentation
         let handle1 = try await index.insert([1.0, 0.0, 0.0, 0.0])
-        _ = try await index.insert([2.0, 0.0, 0.0, 0.0])
+        let handle2 = try await index.insert([2.0, 0.0, 0.0, 0.0])
         try await index.remove(handle1)
 
         // Compact
-        _ = try await index.compact()
+        try await index.compact()
 
         // Insert a new vector
         let newHandle = try await index.insert([3.0, 0.0, 0.0, 0.0])
@@ -335,118 +309,85 @@ final class HandleLifecycleTests: XCTestCase {
         let isNewValid = await index.contains(newHandle)
         XCTAssertTrue(isNewValid, "New handle should be valid")
 
-        // New handle should be different from the old handles
-        XCTAssertNotEqual(newHandle.index, handle1.index,
-                          "New handle may reuse slot but should have different generation or index")
+        // Old handle (handle2) should still be valid (P0.8)
+        let isOldValid = await index.contains(handle2)
+        XCTAssertTrue(isOldValid, "Old handle should still be valid (P0.8)")
 
-        // Verify vector retrieval works
-        let retrieved = try await index.vector(for: newHandle)
-        XCTAssertNotNil(retrieved)
-        XCTAssertEqual(Double(retrieved?[0] ?? -1), 3.0, accuracy: 0.001)
+        // Verify vector retrieval works for both
+        let retrievedOld = try await index.vector(for: handle2)
+        XCTAssertNotNil(retrievedOld)
+        XCTAssertEqual(Double(retrievedOld?[0] ?? -1), 2.0, accuracy: 0.001)
+
+        let retrievedNew = try await index.vector(for: newHandle)
+        XCTAssertNotNil(retrievedNew)
+        XCTAssertEqual(Double(retrievedNew?[0] ?? -1), 3.0, accuracy: 0.001)
     }
 
-    // MARK: - Generation Tests
-
-    /// After compaction, old handles become stale when slots are reorganized.
-    /// Note: When a slot is fully deleted and compacted, fresh inserts may reuse the slot
-    /// at generation 0 since there's no active handle to conflict with.
-    func testHandleValidityAfterCompactAndReinsert() async throws {
+    /// P0.8: stableID never changes for a vector's lifetime.
+    func testStableIDNeverChanges() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
 
-        // Insert two vectors
-        let handle1 = try await index.insert([1.0, 0.0, 0.0, 0.0])
-        let handle2 = try await index.insert([2.0, 0.0, 0.0, 0.0])
-
-        // Delete only one
-        try await index.remove(handle1)
-
-        // Compact - handle2 gets remapped
-        let mapping = try await index.compact()
-
-        // handle2 should be in the mapping and get a new handle
-        XCTAssertTrue(mapping.keys.contains(handle2), "Kept vector should be in mapping")
-
-        // New handle should be valid
-        if let newHandle = mapping[handle2] {
-            let isValid = await index.contains(newHandle)
-            XCTAssertTrue(isValid, "New handle should be valid")
-
-            // Old handle should be stale
-            let oldValid = await index.contains(handle2)
-            XCTAssertFalse(oldValid, "Old handle should be stale after compaction")
-        }
-    }
-
-    /// Test that compaction properly tracks generation for reorganized handles.
-    /// This tests the handle mapping mechanism rather than generation tracking
-    /// after full deletion (which resets to generation 0).
-    func testCompactPreservesGenerationTracking() async throws {
-        let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
-        let index = try await AcceleratedVectorIndex(configuration: config)
-
-        // Insert 3 vectors
+        // Insert vectors
         let handle0 = try await index.insert([0.0, 0.0, 0.0, 0.0])
         let handle1 = try await index.insert([1.0, 0.0, 0.0, 0.0])
         let handle2 = try await index.insert([2.0, 0.0, 0.0, 0.0])
 
-        // Delete the middle one
+        // Record stableIDs (these should never change)
+        let stableID0 = handle0.stableID
+        let stableID2 = handle2.stableID
+
+        // Delete middle vector
         try await index.remove(handle1)
 
         // Compact
-        let mapping = try await index.compact()
+        try await index.compact()
 
-        // Old handles should be stale (mapping provides new ones)
-        let contains0Old = await index.contains(handle0)
-        let contains2Old = await index.contains(handle2)
-        XCTAssertFalse(contains0Old, "Old handle 0 should be stale after compact")
-        XCTAssertFalse(contains2Old, "Old handle 2 should be stale after compact")
-
-        // New handles should be valid
-        if let newHandle0 = mapping[handle0] {
-            let containsNew = await index.contains(newHandle0)
-            XCTAssertTrue(containsNew, "New handle should be valid")
-
-            // Verify correct vector is retrieved
-            let retrieved = try await index.vector(for: newHandle0)
-            XCTAssertNotNil(retrieved)
-            XCTAssertEqual(Double(retrieved?[0] ?? -1), 0.0, accuracy: 0.001)
-        }
+        // stableIDs should be unchanged
+        XCTAssertEqual(handle0.stableID, stableID0, "stableID should never change")
+        XCTAssertEqual(handle2.stableID, stableID2, "stableID should never change")
     }
 
-    // MARK: - Compaction Edge Cases
+    // MARK: - Edge Case Compaction Tests
 
-    /// Compacting with no deletions should return empty mapping.
+    /// Compaction with no deletions should be a no-op.
     func testCompactWithNoDeletions() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
 
-        // Insert without deleting
+        // Insert vectors
+        var handles: [VectorHandle] = []
         for i in 0..<5 {
-            _ = try await index.insert([Float(i), 0.0, 0.0, 0.0])
+            let handle = try await index.insert([Float(i), 0.0, 0.0, 0.0])
+            handles.append(handle)
         }
 
-        // Compact
-        let mapping = try await index.compact()
+        // No deletions - compact should be a no-op
+        try await index.compact()
 
-        XCTAssertEqual(mapping.count, 0, "No deletions means no compaction needed")
+        // All handles should still be valid
+        for handle in handles {
+            let isValid = await index.contains(handle)
+            XCTAssertTrue(isValid, "Handle should remain valid after no-op compact")
+        }
     }
 
-    /// Compacting empty index should work without error.
+    /// Empty index compaction should be a no-op.
     func testCompactEmptyIndex() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
 
-        let mapping = try await index.compact()
-        XCTAssertEqual(mapping.count, 0, "Empty index compaction should return empty mapping")
+        try await index.compact()
+
+        let stats = await index.statistics()
+        XCTAssertEqual(stats.vectorCount, 0, "Empty index should remain empty")
     }
 
-    /// After deleting all vectors and compacting, index should be empty.
-    func testCompactAfterDeletingAll() async throws {
+    /// All vectors deleted then compacted.
+    func testCompactWithAllDeleted() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
 
-        // Insert and delete all
         var handles: [VectorHandle] = []
         for i in 0..<5 {
             let handle = try await index.insert([Float(i), 0.0, 0.0, 0.0])
@@ -458,10 +399,7 @@ final class HandleLifecycleTests: XCTestCase {
         }
 
         // Compact
-        let mapping = try await index.compact()
-
-        // Should have no mappings (all deleted)
-        XCTAssertEqual(mapping.count, 0, "All vectors deleted means no mappings")
+        try await index.compact()
 
         // Index should be empty
         let stats = await index.statistics()
@@ -470,6 +408,7 @@ final class HandleLifecycleTests: XCTestCase {
     }
 
     /// Multiple sequential compactions should work correctly.
+    /// With P0.8 stable handles, original handles remain valid across compaction.
     func testMultipleCompactions() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
@@ -483,30 +422,50 @@ final class HandleLifecycleTests: XCTestCase {
         try await index.remove(handles[1])
         try await index.remove(handles[3])
 
-        let mapping1 = try await index.compact()
-        XCTAssertEqual(mapping1.count, 3)
+        try await index.compact()
 
-        // Get new handles
-        var currentHandles = mapping1.values.map { $0 }
+        // With P0.8 stable handles: remaining handles should still be valid
+        var stats = await index.statistics()
+        XCTAssertEqual(stats.vectorCount, 3)
+
+        // Original handles 0, 2, 4 should still be valid (P0.8 guarantee)
+        var contains0 = await index.contains(handles[0])
+        let contains1 = await index.contains(handles[1])
+        var contains2 = await index.contains(handles[2])
+        let contains3 = await index.contains(handles[3])
+        var contains4 = await index.contains(handles[4])
+        XCTAssertTrue(contains0)
+        XCTAssertFalse(contains1) // Deleted
+        XCTAssertTrue(contains2)
+        XCTAssertFalse(contains3) // Deleted
+        XCTAssertTrue(contains4)
 
         // Second round: add more, delete some, compact
+        var newHandles: [VectorHandle] = []
         for i in 5..<8 {
             let handle = try await index.insert([Float(i), 0.0, 0.0, 0.0])
-            currentHandles.append(handle)
+            newHandles.append(handle)
         }
 
-        // Delete first current handle
-        if let first = currentHandles.first {
-            try await index.remove(first)
-        }
+        // Delete handle[0] (original first one)
+        try await index.remove(handles[0])
 
-        let mapping2 = try await index.compact()
+        try await index.compact()
 
-        // Should have mappings for remaining vectors
-        XCTAssertEqual(mapping2.count, 5, "Should have 5 vectors after second compaction")
+        // Should have 5 vectors (2 from first round + 3 from second)
+        stats = await index.statistics()
+        XCTAssertEqual(stats.vectorCount, 5, "Should have 5 vectors after second compaction")
+
+        // All original remaining handles should still be valid
+        contains0 = await index.contains(handles[0])
+        contains2 = await index.contains(handles[2])
+        contains4 = await index.contains(handles[4])
+        XCTAssertFalse(contains0) // Deleted in second round
+        XCTAssertTrue(contains2)
+        XCTAssertTrue(contains4)
 
         // All new handles should be valid
-        for newHandle in mapping2.values {
+        for newHandle in newHandles {
             let isValid = await index.contains(newHandle)
             XCTAssertTrue(isValid)
         }
@@ -515,6 +474,7 @@ final class HandleLifecycleTests: XCTestCase {
     // MARK: - Metadata Preservation After Compact
 
     /// Metadata should be preserved after compaction.
+    /// With P0.8 stable handles, original handles remain valid.
     func testMetadataPreservedAfterCompact() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
@@ -527,24 +487,26 @@ final class HandleLifecycleTests: XCTestCase {
         // Delete middle one
         try await index.remove(handle2)
 
-        // Compact
-        let mapping = try await index.compact()
+        // Compact (returns Void with P0.8)
+        try await index.compact()
 
-        // Check metadata is preserved
-        if let newHandle1 = mapping[handle1] {
-            let meta = await index.metadata(for: newHandle1)
-            XCTAssertEqual(meta?["key"], "value1")
-        }
+        // With P0.8 stable handles: original handles remain valid
+        // Check metadata is preserved using original handles
+        let meta1 = await index.metadata(for: handle1)
+        XCTAssertEqual(meta1?["key"], "value1")
 
-        if let newHandle3 = mapping[handle3] {
-            let meta = await index.metadata(for: newHandle3)
-            XCTAssertEqual(meta?["key"], "value3")
-        }
+        let meta3 = await index.metadata(for: handle3)
+        XCTAssertEqual(meta3?["key"], "value3")
+
+        // Deleted handle's metadata should be gone
+        let meta2 = await index.metadata(for: handle2)
+        XCTAssertNil(meta2)
     }
 
     // MARK: - Search After Compact
 
     /// Search should work correctly after compaction.
+    /// With P0.8 stable handles, original handles remain valid.
     func testSearchAfterCompact() async throws {
         let config = IndexConfiguration.flat(dimension: 4, capacity: 100)
         let index = try await AcceleratedVectorIndex(configuration: config)
@@ -568,8 +530,8 @@ final class HandleLifecycleTests: XCTestCase {
         try await index.remove(handles[1])
         try await index.remove(handles[3])
 
-        // Compact
-        let mapping = try await index.compact()
+        // Compact (returns Void with P0.8)
+        try await index.compact()
 
         // Search should find the remaining vectors
         let query: [Float] = [0.0, 0.0, 0.0, 0.0]
@@ -580,11 +542,11 @@ final class HandleLifecycleTests: XCTestCase {
         // First result should be exact match with distance 0
         XCTAssertEqual(results[0].distance, 0.0, accuracy: 0.001)
 
-        // Results should use new handles from mapping
-        let newHandleSet = Set(mapping.values)
+        // With P0.8 stable handles: results should use original handles
+        let validHandleSet = Set([handles[0], handles[2], handles[4]])
         for result in results {
-            XCTAssertTrue(newHandleSet.contains(result.handle),
-                          "Search results should use new handles")
+            XCTAssertTrue(validHandleSet.contains(result.handle),
+                          "Search results should use original stable handles")
         }
     }
 }

@@ -262,6 +262,55 @@ public final class TopKSelectionKernel: @unchecked Sendable, Metal4Kernel, Fusib
         )
     }
 
+    /// Encode top-k selection using explicit byte offsets for input and outputs.
+    ///
+    /// This is useful when selecting from subranges of a larger buffer (e.g. IVF
+    /// candidate segments) without allocating temporary buffers.
+    ///
+    /// - Parameters:
+    ///   - inputOffset: Byte offset into the input buffer
+    ///   - outputValuesOffset: Byte offset into the output values buffer
+    ///   - outputIndicesOffset: Byte offset into the output indices buffer
+    @discardableResult
+    public func encodeWithOffsets(
+        into encoder: any MTLComputeCommandEncoder,
+        input: any MTLBuffer,
+        inputOffset: Int,
+        outputValues: any MTLBuffer,
+        outputValuesOffset: Int,
+        outputIndices: any MTLBuffer,
+        outputIndicesOffset: Int,
+        parameters: TopKParameters
+    ) -> Metal4EncodingResult {
+        encoder.setComputePipelineState(batchPipeline)
+        encoder.label = "TopKSelection.batch (K=\(parameters.k))"
+
+        // Bind buffers with explicit offsets
+        encoder.setBuffer(input, offset: inputOffset, index: 0)
+        encoder.setBuffer(outputValues, offset: outputValuesOffset, index: 1)
+        encoder.setBuffer(outputIndices, offset: outputIndicesOffset, index: 2)
+
+        var params = parameters
+        encoder.setBytes(&params, length: MemoryLayout<TopKParameters>.size, index: 3)
+
+        // One threadgroup per query (batchSize)
+        let config = Metal4ThreadConfiguration.linear(
+            count: Int(parameters.batchSize),
+            pipeline: batchPipeline
+        )
+
+        encoder.dispatchThreadgroups(
+            config.threadgroups,
+            threadsPerThreadgroup: config.threadsPerThreadgroup
+        )
+
+        return Metal4EncodingResult(
+            pipelineName: "topk_select_batch_kernel",
+            threadgroups: config.threadgroups,
+            threadsPerThreadgroup: config.threadsPerThreadgroup
+        )
+    }
+
     // MARK: - Execute API
 
     /// Execute top-k selection as standalone operation.

@@ -2,7 +2,8 @@
 //  BenchmarkFramework.swift
 //  VectorAccelerate
 //
-//  Benchmarking infrastructure for measuring GPU acceleration performance
+//  Benchmarking infrastructure for measuring GPU acceleration performance.
+//  Uses Metal 4 exclusively (iOS 26+, macOS 26+).
 //
 
 import Foundation
@@ -15,18 +16,18 @@ public struct BenchmarkResult: Sendable {
     public let name: String
     public let samples: [TimeInterval]
     public let configuration: BenchmarkConfiguration
-    
+
     public init(name: String, samples: [TimeInterval], configuration: BenchmarkConfiguration) {
         self.name = name
         self.samples = samples
         self.configuration = configuration
     }
-    
+
     /// Average execution time
     public var averageTime: TimeInterval {
         samples.reduce(0, +) / Double(samples.count)
     }
-    
+
     /// Median execution time (more robust than average)
     public var medianTime: TimeInterval {
         let sorted = samples.sorted()
@@ -37,29 +38,29 @@ public struct BenchmarkResult: Sendable {
             return sorted[count / 2]
         }
     }
-    
+
     /// Standard deviation
     public var standardDeviation: TimeInterval {
         let avg = averageTime
         let variance = samples.reduce(0) { $0 + pow($1 - avg, 2) } / Double(samples.count)
         return sqrt(variance)
     }
-    
+
     /// Minimum execution time
     public var minTime: TimeInterval {
         samples.min() ?? 0
     }
-    
-    /// Maximum execution time  
+
+    /// Maximum execution time
     public var maxTime: TimeInterval {
         samples.max() ?? 0
     }
-    
+
     /// Operations per second (based on median time)
     public var operationsPerSecond: Double {
         1.0 / medianTime
     }
-    
+
     /// Throughput in vectors processed per second (if applicable)
     public var vectorsPerSecond: Double? {
         guard let vectorCount = configuration.additionalInfo["vectorCount"].flatMap(Double.init) else {
@@ -78,7 +79,7 @@ public struct BenchmarkConfiguration: Sendable {
     public let dimension: Int
     public let batchSize: Int
     public let additionalInfo: [String: String]
-    
+
     public init(
         iterations: Int = 100,
         warmupIterations: Int = 10,
@@ -92,54 +93,60 @@ public struct BenchmarkConfiguration: Sendable {
         self.batchSize = batchSize
         self.additionalInfo = additionalInfo
     }
-    
+
     public static let `default` = BenchmarkConfiguration()
 }
 
 // MARK: - Benchmark Suite
 
-/// Comprehensive benchmark suite for VectorAccelerate
+/// Comprehensive benchmark suite for VectorAccelerate using Metal 4
 public actor BenchmarkSuite {
-    private let engine: ComputeEngine
-    private let context: MetalContext
-    
-    public init(engine: ComputeEngine, context: MetalContext) {
+    private let engine: Metal4ComputeEngine
+    private let context: Metal4Context
+
+    public init(engine: Metal4ComputeEngine, context: Metal4Context) {
         self.engine = engine
         self.context = context
     }
-    
+
+    /// Convenience initializer that creates its own context and engine
+    public init() async throws {
+        self.context = try await Metal4Context()
+        self.engine = try await Metal4ComputeEngine(context: context)
+    }
+
     /// Run all benchmarks and return results
     public func runAllBenchmarks(
         configurations: [BenchmarkConfiguration] = [.default]
     ) async throws -> [BenchmarkResult] {
         var results: [BenchmarkResult] = []
-        
+
         for config in configurations {
             // Distance computation benchmarks
             results.append(try await benchmarkEuclideanDistance(config: config))
             results.append(try await benchmarkCosineDistance(config: config))
             results.append(try await benchmarkDotProduct(config: config))
-            
+
             // Batch operation benchmarks
             results.append(try await benchmarkBatchEuclideanDistance(config: config))
-            
+
             // Vector operation benchmarks
             results.append(try await benchmarkNormalize(config: config))
             results.append(try await benchmarkScale(config: config))
-            
+
             // Matrix operation benchmarks
             results.append(try await benchmarkMatrixVectorMultiply(config: config))
         }
-        
+
         return results
     }
-    
+
     // MARK: - Individual Benchmarks
-    
+
     public func benchmarkEuclideanDistance(config: BenchmarkConfiguration) async throws -> BenchmarkResult {
         let vectorA = generateRandomVector(dimension: config.dimension)
         let vectorB = generateRandomVector(dimension: config.dimension)
-        
+
         return try await measurePerformance(
             name: "Euclidean Distance (dim: \(config.dimension))",
             configuration: config
@@ -147,11 +154,11 @@ public actor BenchmarkSuite {
             _ = try await engine.euclideanDistance(vectorA, vectorB)
         }
     }
-    
+
     public func benchmarkCosineDistance(config: BenchmarkConfiguration) async throws -> BenchmarkResult {
         let vectorA = generateRandomVector(dimension: config.dimension)
         let vectorB = generateRandomVector(dimension: config.dimension)
-        
+
         return try await measurePerformance(
             name: "Cosine Distance (dim: \(config.dimension))",
             configuration: config
@@ -159,11 +166,11 @@ public actor BenchmarkSuite {
             _ = try await engine.cosineDistance(vectorA, vectorB)
         }
     }
-    
+
     public func benchmarkDotProduct(config: BenchmarkConfiguration) async throws -> BenchmarkResult {
         let vectorA = generateRandomVector(dimension: config.dimension)
         let vectorB = generateRandomVector(dimension: config.dimension)
-        
+
         return try await measurePerformance(
             name: "Dot Product (dim: \(config.dimension))",
             configuration: config
@@ -171,22 +178,21 @@ public actor BenchmarkSuite {
             _ = try await engine.dotProduct(vectorA, vectorB)
         }
     }
-    
+
     public func benchmarkBatchEuclideanDistance(config: BenchmarkConfiguration) async throws -> BenchmarkResult {
         let query = generateRandomVector(dimension: config.dimension)
         let candidates = (0..<config.batchSize).map { _ in
             generateRandomVector(dimension: config.dimension)
         }
-        
-        var modifiedConfig = config
-        modifiedConfig = BenchmarkConfiguration(
+
+        let modifiedConfig = BenchmarkConfiguration(
             iterations: config.iterations,
             warmupIterations: config.warmupIterations,
             dimension: config.dimension,
             batchSize: config.batchSize,
             additionalInfo: config.additionalInfo.merging(["vectorCount": String(config.batchSize)]) { _, new in new }
         )
-        
+
         return try await measurePerformance(
             name: "Batch Euclidean Distance (dim: \(config.dimension), batch: \(config.batchSize))",
             configuration: modifiedConfig
@@ -194,10 +200,10 @@ public actor BenchmarkSuite {
             _ = try await engine.batchEuclideanDistance(query: query, candidates: candidates)
         }
     }
-    
+
     public func benchmarkNormalize(config: BenchmarkConfiguration) async throws -> BenchmarkResult {
         let vector = generateRandomVector(dimension: config.dimension)
-        
+
         return try await measurePerformance(
             name: "Vector Normalize (dim: \(config.dimension))",
             configuration: config
@@ -205,11 +211,11 @@ public actor BenchmarkSuite {
             _ = try await engine.normalize(vector)
         }
     }
-    
+
     public func benchmarkScale(config: BenchmarkConfiguration) async throws -> BenchmarkResult {
         let vector = generateRandomVector(dimension: config.dimension)
         let scalar: Float = 2.5
-        
+
         return try await measurePerformance(
             name: "Vector Scale (dim: \(config.dimension))",
             configuration: config
@@ -217,13 +223,13 @@ public actor BenchmarkSuite {
             _ = try await engine.scale(vector, by: scalar)
         }
     }
-    
+
     public func benchmarkMatrixVectorMultiply(config: BenchmarkConfiguration) async throws -> BenchmarkResult {
         let rows = config.dimension
         let cols = config.dimension
         let matrix = (0..<rows).map { _ in generateRandomVector(dimension: cols) }
         let vector = generateRandomVector(dimension: cols)
-        
+
         return try await measurePerformance(
             name: "Matrix-Vector Multiply (\(rows)x\(cols))",
             configuration: config
@@ -231,9 +237,9 @@ public actor BenchmarkSuite {
             _ = try await engine.matrixVectorMultiply(matrix: matrix, vector: vector)
         }
     }
-    
+
     // MARK: - Helper Methods
-    
+
     private func measurePerformance(
         name: String,
         configuration: BenchmarkConfiguration,
@@ -241,12 +247,12 @@ public actor BenchmarkSuite {
     ) async throws -> BenchmarkResult {
         var samples: [TimeInterval] = []
         samples.reserveCapacity(configuration.iterations)
-        
+
         // Warmup runs
         for _ in 0..<configuration.warmupIterations {
             try await operation()
         }
-        
+
         // Measured runs
         for _ in 0..<configuration.iterations {
             let startTime = CFAbsoluteTimeGetCurrent()
@@ -254,10 +260,10 @@ public actor BenchmarkSuite {
             let elapsedTime = CFAbsoluteTimeGetCurrent() - startTime
             samples.append(elapsedTime)
         }
-        
+
         return BenchmarkResult(name: name, samples: samples, configuration: configuration)
     }
-    
+
     private func generateRandomVector(dimension: Int) -> [Float] {
         (0..<dimension).map { _ in Float.random(in: -1...1) }
     }
@@ -269,22 +275,22 @@ public actor BenchmarkSuite {
 public struct PerformanceComparison: Sendable {
     public let cpuResult: BenchmarkResult
     public let gpuResult: BenchmarkResult
-    
+
     public init(cpu: BenchmarkResult, gpu: BenchmarkResult) {
         self.cpuResult = cpu
         self.gpuResult = gpu
     }
-    
+
     /// Speedup factor (GPU vs CPU)
     public var speedupFactor: Double {
         cpuResult.medianTime / gpuResult.medianTime
     }
-    
+
     /// Performance improvement percentage
     public var improvementPercent: Double {
         ((cpuResult.medianTime - gpuResult.medianTime) / cpuResult.medianTime) * 100
     }
-    
+
     /// Whether GPU is faster
     public var gpuIsFaster: Bool {
         speedupFactor > 1.0
@@ -295,11 +301,11 @@ public struct PerformanceComparison: Sendable {
 
 /// Generate formatted benchmark reports
 public struct BenchmarkReport {
-    
+
     /// Generate console-friendly report
     public static func consoleReport(results: [BenchmarkResult]) -> String {
-        var report = "# VectorAccelerate Benchmark Results\n\n"
-        
+        var report = "# VectorAccelerate Benchmark Results (Metal 4)\n\n"
+
         for result in results {
             report += "## \(result.name)\n"
             report += "- Iterations: \(result.configuration.iterations)\n"
@@ -308,17 +314,17 @@ public struct BenchmarkReport {
             report += "- Std Deviation: \(String(format: "%.3f", result.standardDeviation * 1000))ms\n"
             report += "- Min/Max: \(String(format: "%.3f", result.minTime * 1000))/\(String(format: "%.3f", result.maxTime * 1000))ms\n"
             report += "- Operations/sec: \(String(format: "%.0f", result.operationsPerSecond))\n"
-            
+
             if let vectorsPerSec = result.vectorsPerSecond {
                 report += "- Vectors/sec: \(String(format: "%.0f", vectorsPerSec))\n"
             }
-            
+
             report += "\n"
         }
-        
+
         return report
     }
-    
+
     /// Generate JSON report
     public static func jsonReport(results: [BenchmarkResult]) throws -> Data {
         let reportData = results.map { result in
@@ -335,9 +341,9 @@ public struct BenchmarkReport {
                     "dimension": result.configuration.dimension,
                     "batchSize": result.configuration.batchSize
                 ]
-            ]
+            ] as [String : Any]
         }
-        
+
         return try JSONSerialization.data(withJSONObject: reportData, options: .prettyPrinted)
     }
 }

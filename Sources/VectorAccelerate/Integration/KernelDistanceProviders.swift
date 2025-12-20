@@ -37,7 +37,6 @@ import VectorCore
 /// // Batch distances
 /// let distances = try await provider.batchDistance(from: query, to: candidates, metric: .euclidean)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor L2KernelDistanceProvider: DistanceProvider {
     private let kernel: L2DistanceKernel
     private let context: Metal4Context
@@ -102,7 +101,6 @@ public actor L2KernelDistanceProvider: DistanceProvider {
 ///
 /// Provides GPU-accelerated cosine distance/similarity computation with optional
 /// input normalization.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor CosineKernelDistanceProvider: DistanceProvider {
     private let kernel: CosineSimilarityKernel
     private let context: Metal4Context
@@ -171,7 +169,6 @@ public actor CosineKernelDistanceProvider: DistanceProvider {
 ///
 /// Note: Dot product is typically used as a similarity measure (higher = more similar),
 /// not a distance. This provider returns the negative dot product for distance semantics.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor DotProductKernelDistanceProvider: DistanceProvider {
     private let kernel: DotProductKernel
     private let context: Metal4Context
@@ -230,7 +227,6 @@ public actor DotProductKernelDistanceProvider: DistanceProvider {
 /// VectorCore DistanceProvider backed by Metal4 MinkowskiDistanceKernel.
 ///
 /// Supports Manhattan (L1, p=1), Euclidean (L2, p=2), and Chebyshev (L∞, p→∞) distances.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor MinkowskiKernelDistanceProvider: DistanceProvider {
     private let kernel: MinkowskiDistanceKernel
     private let context: Metal4Context
@@ -302,7 +298,6 @@ public actor MinkowskiKernelDistanceProvider: DistanceProvider {
 ///
 /// Computes Jaccard distance (1 - Jaccard similarity) for set-based vectors.
 /// Useful for document fingerprints and near-duplicate detection.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor JaccardKernelDistanceProvider {
     private let kernel: JaccardDistanceKernel
     private let context: Metal4Context
@@ -359,7 +354,6 @@ public actor JaccardKernelDistanceProvider {
 ///
 /// Computes Hamming distance for binary vectors. Best used with
 /// BinaryQuantizationKernel for compressed similarity search.
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor HammingKernelDistanceProvider {
     private let kernel: HammingDistanceKernel
     private let context: Metal4Context
@@ -416,7 +410,6 @@ public actor HammingKernelDistanceProvider {
 /// let euclidean = try await provider.distance(from: v1, to: v2, metric: .euclidean)
 /// let cosine = try await provider.distance(from: v1, to: v2, metric: .cosine)
 /// ```
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public actor UniversalKernelDistanceProvider: DistanceProvider {
     private let context: Metal4Context
 
@@ -565,7 +558,6 @@ public actor UniversalKernelDistanceProvider: DistanceProvider {
 
 // MARK: - Metal4Context Extensions
 
-@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public extension Metal4Context {
 
     /// Create a distance kernel for the specified metric.

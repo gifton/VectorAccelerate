@@ -57,6 +57,13 @@ public final class IVFSearchPipeline: @unchecked Sendable {
     private let coarseQuantizer: IVFCoarseQuantizerKernel
     private let fusedL2TopK: FusedL2TopKKernel
     private let topKSelection: TopKSelectionKernel
+    private let ivfListSearch: IVFListSearchKernel
+
+    // MARK: - Debugging
+
+    /// Global toggle for lightweight debug prints during search.
+    /// Tests can set this to true to get coarse/fine valid-count summaries.
+    nonisolated(unsafe) public static var debugEnabled: Bool = false
 
     // MARK: - Initialization
 
@@ -78,6 +85,7 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         self.coarseQuantizer = try await IVFCoarseQuantizerKernel(context: context)
         self.fusedL2TopK = try await FusedL2TopKKernel(context: context)
         self.topKSelection = try await TopKSelectionKernel(context: context)
+        self.ivfListSearch = try await IVFListSearchKernel(context: context)
     }
 
     // MARK: - Warm Up
@@ -87,6 +95,7 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         try await coarseQuantizer.warmUp()
         try await fusedL2TopK.warmUp()
         try await topKSelection.warmUp()
+        try await ivfListSearch.warmUp()
     }
 
     // MARK: - Index Structure Preparation
@@ -232,6 +241,116 @@ public final class IVFSearchPipeline: @unchecked Sendable {
             throw IndexError.dimensionMismatch(expected: dimension, got: queries[0].count)
         }
 
+        // === DEBUG: Log cluster utilization (list size distribution) ===
+        if Self.debugEnabled {
+            let offsetPtr = structure.listOffsets.contents().bindMemory(
+                to: UInt32.self,
+                capacity: structure.numCentroids + 1
+            )
+            var listSizes: [Int] = []
+            var emptyLists = 0
+            var minSize = Int.max
+            var maxSize = 0
+            var totalVecs = 0
+
+            for c in 0..<structure.numCentroids {
+                let start = Int(offsetPtr[c])
+                let end = Int(offsetPtr[c + 1])
+                let size = end - start
+                listSizes.append(size)
+                totalVecs += size
+                if size == 0 { emptyLists += 1 }
+                minSize = min(minSize, size)
+                maxSize = max(maxSize, size)
+            }
+
+            let avgSize = Double(totalVecs) / Double(max(1, structure.numCentroids))
+            let variance = listSizes.reduce(0.0) { sum, size in
+                let diff = Double(size) - avgSize
+                return sum + diff * diff
+            } / Double(max(1, structure.numCentroids))
+            let stdDev = sqrt(variance)
+
+            print("[IVF Debug] === CLUSTER UTILIZATION ===")
+            print("[IVF Debug] numCentroids=\(structure.numCentroids), totalVectors=\(totalVecs)")
+            print("[IVF Debug] listSizes: min=\(minSize), max=\(maxSize), avg=\(String(format: "%.1f", avgSize)), stdDev=\(String(format: "%.1f", stdDev))")
+            print("[IVF Debug] emptyLists=\(emptyLists)")
+
+            // Show first 10 list sizes
+            let sampleSizes = listSizes.prefix(10).map { String($0) }.joined(separator: ", ")
+            print("[IVF Debug] first 10 list sizes: [\(sampleSizes)]")
+        }
+
+        // === DEBUG: Verify centroid computation (sample check) ===
+        if Self.debugEnabled {
+            let centroidPtr = structure.centroids.contents().bindMemory(
+                to: Float.self,
+                capacity: structure.numCentroids * dimension
+            )
+            let vectorsPtr = structure.listVectors.contents().bindMemory(
+                to: Float.self,
+                capacity: structure.totalVectors * dimension
+            )
+            let offsetPtr = structure.listOffsets.contents().bindMemory(
+                to: UInt32.self,
+                capacity: structure.numCentroids + 1
+            )
+
+            print("[IVF Debug] === CENTROID VERIFICATION (first 3 non-empty clusters) ===")
+            var verified = 0
+            for c in 0..<structure.numCentroids where verified < 3 {
+                let listStart = Int(offsetPtr[c])
+                let listEnd = Int(offsetPtr[c + 1])
+                let listCount = listEnd - listStart
+                guard listCount > 0 else { continue }
+
+                // Compute actual mean of vectors in this cluster
+                var actualMean = [Float](repeating: 0, count: dimension)
+                for vecIdx in listStart..<listEnd {
+                    for d in 0..<dimension {
+                        actualMean[d] += vectorsPtr[vecIdx * dimension + d]
+                    }
+                }
+                for d in 0..<dimension {
+                    actualMean[d] /= Float(listCount)
+                }
+
+                // Get stored centroid
+                var storedCentroid = [Float](repeating: 0, count: dimension)
+                for d in 0..<dimension {
+                    storedCentroid[d] = centroidPtr[c * dimension + d]
+                }
+
+                // Compute L2 distance between stored and actual
+                var l2Dist: Float = 0
+                for d in 0..<dimension {
+                    let diff = storedCentroid[d] - actualMean[d]
+                    l2Dist += diff * diff
+                }
+                l2Dist = sqrt(l2Dist)
+
+                // Compute norms for reference
+                var storedNorm: Float = 0
+                var actualNorm: Float = 0
+                for d in 0..<dimension {
+                    storedNorm += storedCentroid[d] * storedCentroid[d]
+                    actualNorm += actualMean[d] * actualMean[d]
+                }
+                storedNorm = sqrt(storedNorm)
+                actualNorm = sqrt(actualNorm)
+
+                print("[IVF Debug] cluster[\(c)]: count=\(listCount), storedNorm=\(String(format: "%.3f", storedNorm)), actualMeanNorm=\(String(format: "%.3f", actualNorm)), centroid-vs-mean L2=\(String(format: "%.4f", l2Dist))")
+
+                // Show first 4 dims of each
+                let storedSample = storedCentroid.prefix(4).map { String(format: "%.3f", $0) }.joined(separator: ", ")
+                let actualSample = actualMean.prefix(4).map { String(format: "%.3f", $0) }.joined(separator: ", ")
+                print("[IVF Debug]   stored[0:4]=[\(storedSample)]")
+                print("[IVF Debug]   actual[0:4]=[\(actualSample)]")
+
+                verified += 1
+            }
+        }
+
         // Create query buffer
         let flatQueries = queries.flatMap { $0 }
         guard let queryBuffer = device.makeBuffer(
@@ -243,52 +362,238 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         }
         queryBuffer.label = "IVFSearchPipeline.queries"
 
-        var coarseTime: TimeInterval = 0
-        var listSearchTime: TimeInterval = 0
+        var fusedSearchTime: TimeInterval = 0
         var mergeTime: TimeInterval = 0
         let bufferTime = CACurrentMediaTime() - startTime
 
-        // Phase 1: Coarse Quantization
-        let coarseStart = CACurrentMediaTime()
-        let coarseResult = try await coarseQuantizer.findNearestCentroids(
-            queries: queryBuffer,
-            centroids: structure.centroids,
+        // === FUSED DISPATCH: Allocate all output buffers upfront ===
+
+        // Coarse quantization output buffers
+        let coarseIndicesSize = numQueries * nprobe * MemoryLayout<UInt32>.size
+        let coarseDistancesSize = numQueries * nprobe * MemoryLayout<Float>.size
+
+        guard let coarseListIndices = device.makeBuffer(length: coarseIndicesSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: coarseIndicesSize)
+        }
+        coarseListIndices.label = "IVFSearchPipeline.coarseListIndices"
+
+        guard let coarseListDistances = device.makeBuffer(length: coarseDistancesSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: coarseDistancesSize)
+        }
+        coarseListDistances.label = "IVFSearchPipeline.coarseListDistances"
+
+        // IVF list search output buffers
+        let outputCount = numQueries * k
+        let outputIndicesSize = outputCount * MemoryLayout<UInt32>.size
+        let outputDistancesSize = outputCount * MemoryLayout<Float>.size
+
+        guard let outputIndices = device.makeBuffer(length: outputIndicesSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: outputIndicesSize)
+        }
+        outputIndices.label = "IVFListSearch.outputIndices"
+
+        guard let outputDistances = device.makeBuffer(length: outputDistancesSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: outputDistancesSize)
+        }
+        outputDistances.label = "IVFListSearch.outputDistances"
+
+        // Build IVF list search parameters
+        let listSearchParams = IVFListSearchParameters(
             numQueries: numQueries,
             numCentroids: structure.numCentroids,
             dimension: dimension,
-            nprobe: nprobe
+            nprobe: nprobe,
+            k: k,
+            maxCandidatesPerQuery: structure.totalVectors
         )
-        coarseTime = CACurrentMediaTime() - coarseStart
 
-        // Phase 2: Gather candidates and search
-        let listSearchStart = CACurrentMediaTime()
+        // === DISPATCH: Choose fused or non-fused path based on nprobe ===
+        // The fused L2 TopK shader only supports K <= 8. For nprobe > 8, we need
+        // to use the two-pass fallback which requires a separate command buffer.
+        let fusedSearchStart = CACurrentMediaTime()
+        let fusedMaxK = 8  // Matches FusedL2TopKKernel.fusedMaxK
 
-        // Gather candidates from selected lists for each query
-        let gatheredResult = try await gatherAndSearch(
-            queries: queryBuffer,
-            structure: structure,
-            coarseResult: coarseResult,
-            numQueries: numQueries,
-            dimension: dimension,
-            k: k
-        )
-        listSearchTime = CACurrentMediaTime() - listSearchStart
+        if nprobe <= fusedMaxK {
+            // FUSED PATH: Single command buffer for both phases (nprobe <= 8)
+            try await context.executeAndWait { [self] _, encoder in
+                // Phase 1: Coarse Quantization (find nprobe nearest centroids)
+                try self.coarseQuantizer.encode(
+                    into: encoder,
+                    queries: queryBuffer,
+                    centroids: structure.centroids,
+                    outputIndices: coarseListIndices,
+                    outputDistances: coarseListDistances,
+                    numQueries: numQueries,
+                    numCentroids: structure.numCentroids,
+                    dimension: dimension,
+                    nprobe: nprobe
+                )
 
-        // Phase 3 is integrated into gatherAndSearch for efficiency
-        mergeTime = 0  // Merge happens within the search phase
+                // Memory barrier to ensure coarse results are visible to list search
+                encoder.memoryBarrier(scope: .buffers)
+
+                // Phase 2: IVF List Search (search within selected lists)
+                self.ivfListSearch.encode(
+                    into: encoder,
+                    queries: queryBuffer,
+                    structure: structure,
+                    selectedLists: coarseListIndices,
+                    outputIndices: outputIndices,
+                    outputDistances: outputDistances,
+                    parameters: listSearchParams
+                )
+            }
+        } else {
+            // NON-FUSED PATH: Separate command buffers for nprobe > 8
+            // Phase 1: Coarse Quantization using execute() which handles K > 8
+            let coarseResult = try await coarseQuantizer.findNearestCentroids(
+                queries: queryBuffer,
+                centroids: structure.centroids,
+                numQueries: numQueries,
+                numCentroids: structure.numCentroids,
+                dimension: dimension,
+                nprobe: nprobe
+            )
+
+            // Copy results to our pre-allocated buffers
+            memcpy(coarseListIndices.contents(), coarseResult.listIndices.contents(), coarseIndicesSize)
+            memcpy(coarseListDistances.contents(), coarseResult.listDistances.contents(), coarseDistancesSize)
+
+            // Phase 2: IVF List Search
+            try await context.executeAndWait { [self] _, encoder in
+                self.ivfListSearch.encode(
+                    into: encoder,
+                    queries: queryBuffer,
+                    structure: structure,
+                    selectedLists: coarseListIndices,
+                    outputIndices: outputIndices,
+                    outputDistances: outputDistances,
+                    parameters: listSearchParams
+                )
+            }
+        }
+
+        fusedSearchTime = CACurrentMediaTime() - fusedSearchStart
+
+        // Debug: summarize how many coarse lists were actually selected (non-sentinel)
+        if Self.debugEnabled {
+            let listPtr = coarseListIndices.contents().bindMemory(to: UInt32.self, capacity: numQueries * nprobe)
+            let distPtr = coarseListDistances.contents().bindMemory(to: Float.self, capacity: numQueries * nprobe)
+            let offsetPtr = structure.listOffsets.contents().bindMemory(to: UInt32.self, capacity: structure.numCentroids + 1)
+
+            var minSel = Int.max
+            var maxSel = Int.min
+            var sumSel = 0
+
+            print("[IVF Debug] === COARSE QUANTIZATION (cluster selection) ===")
+            print("[IVF Debug] nprobe=\(nprobe), numQueries=\(numQueries)")
+
+            // Show detailed selection for first 3 queries
+            let detailQueries = min(3, numQueries)
+            for q in 0..<detailQueries {
+                var selectedClusters: [(cluster: Int, distance: Float, listSize: Int)] = []
+                for p in 0..<nprobe {
+                    let clusterIdx = listPtr[q * nprobe + p]
+                    let dist = distPtr[q * nprobe + p]
+                    if clusterIdx != 0xFFFFFFFF && Int(clusterIdx) < structure.numCentroids {
+                        let listStart = Int(offsetPtr[Int(clusterIdx)])
+                        let listEnd = Int(offsetPtr[Int(clusterIdx) + 1])
+                        let listSize = listEnd - listStart
+                        selectedClusters.append((Int(clusterIdx), dist, listSize))
+                    }
+                }
+                let clusterStr = selectedClusters.map { "c\($0.cluster)(d=\(String(format: "%.2f", $0.distance)),n=\($0.listSize))" }.joined(separator: ", ")
+                let totalCandidates = selectedClusters.reduce(0) { $0 + $1.listSize }
+                print("[IVF Debug] query[\(q)]: selected \(selectedClusters.count) clusters, totalCandidates=\(totalCandidates)")
+                print("[IVF Debug]   clusters: [\(clusterStr)]")
+            }
+
+            // Aggregate stats for all queries
+            for q in 0..<numQueries {
+                var count = 0
+                for p in 0..<nprobe {
+                    let val = listPtr[q * nprobe + p]
+                    if val != 0xFFFFFFFF && Int(val) < structure.numCentroids { count += 1 }
+                }
+                minSel = min(minSel, count)
+                maxSel = max(maxSel, count)
+                sumSel += count
+            }
+            let avgSel = Double(sumSel) / Double(max(1, numQueries))
+            print("[IVF Debug] Coarse summary: requested=\(nprobe), avg=\(String(format: "%.1f", avgSel)), min=\(minSel), max=\(maxSel)")
+        }
+
+        // Debug: summarize how many valid neighbors were produced per query (non-sentinel)
+        if Self.debugEnabled {
+            let idxPtr = outputIndices.contents().bindMemory(to: UInt32.self, capacity: numQueries * k)
+            let distPtr = outputDistances.contents().bindMemory(to: Float.self, capacity: numQueries * k)
+
+            var minValid = Int.max
+            var maxValid = Int.min
+            var sumValid = 0
+
+            print("[IVF Debug] === FINE SEARCH RESULTS ===")
+
+            // Show detailed results for first 3 queries
+            let detailQueries = min(3, numQueries)
+            for q in 0..<detailQueries {
+                var results: [(index: UInt32, distance: Float)] = []
+                let base = q * k
+                for i in 0..<k {
+                    let idx = idxPtr[base + i]
+                    let dist = distPtr[base + i]
+                    if idx != 0xFFFFFFFF {
+                        results.append((idx, dist))
+                    }
+                }
+                let resultStr = results.prefix(5).map { "idx\($0.index)(d=\(String(format: "%.3f", $0.distance)))" }.joined(separator: ", ")
+                print("[IVF Debug] query[\(q)]: found \(results.count)/\(k) neighbors")
+                print("[IVF Debug]   top-5: [\(resultStr)]")
+
+                // Check if distances are sorted
+                var isSorted = true
+                for i in 1..<results.count {
+                    if results[i].distance < results[i-1].distance {
+                        isSorted = false
+                        break
+                    }
+                }
+                if !isSorted && results.count > 1 {
+                    print("[IVF Debug]   WARNING: results NOT sorted by distance!")
+                }
+            }
+
+            // Aggregate stats
+            for q in 0..<numQueries {
+                var cnt = 0
+                let base = q * k
+                for i in 0..<k {
+                    if idxPtr[base + i] != 0xFFFFFFFF { cnt += 1 }
+                }
+                minValid = min(minValid, cnt)
+                maxValid = max(maxValid, cnt)
+                sumValid += cnt
+            }
+            let avgValid = Double(sumValid) / Double(max(1, numQueries))
+            print("[IVF Debug] Fine summary: requested K=\(k), avg=\(String(format: "%.1f", avgValid)), min=\(minValid), max=\(maxValid)")
+        }
+
+        // Phase 3 is integrated into the fused search
+        mergeTime = 0  // Merge happens within the search kernel
 
         let totalTime = CACurrentMediaTime() - startTime
 
+        // With fused dispatch, we report combined time in listSearch for backwards compatibility
         let phaseTimings = configuration.enableProfiling ? IVFPhaseTimings(
-            coarseQuantization: coarseTime,
-            listSearch: listSearchTime,
+            coarseQuantization: 0,  // Fused with list search
+            listSearch: fusedSearchTime,  // Combined coarse + list search
             candidateMerge: mergeTime,
             bufferOperations: bufferTime
         ) : nil
 
         return IVFSearchResult(
-            indices: gatheredResult.indices,
-            distances: gatheredResult.distances,
+            indices: outputIndices,
+            distances: outputDistances,
             numQueries: numQueries,
             k: k,
             executionTime: totalTime,
@@ -296,161 +601,6 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         )
     }
 
-    // MARK: - Private Helpers
-
-    private func gatherAndSearch(
-        queries: any MTLBuffer,
-        structure: IVFGPUIndexStructure,
-        coarseResult: IVFCoarseResult,
-        numQueries: Int,
-        dimension: Int,
-        k: Int
-    ) async throws -> (indices: any MTLBuffer, distances: any MTLBuffer) {
-        let device = context.device.rawDevice
-        let nprobe = coarseResult.nprobe
-
-        // Read list offsets to CPU for gathering
-        let offsetPtr = structure.listOffsets.contents().bindMemory(
-            to: UInt32.self,
-            capacity: structure.numCentroids + 1
-        )
-        let listIndicesPtr = coarseResult.listIndices.contents().bindMemory(
-            to: UInt32.self,
-            capacity: numQueries * nprobe
-        )
-
-        // For each query, gather vectors from selected lists
-        // This is done per-query to handle variable list sizes
-
-        // Allocate output buffers
-        let outputSize = numQueries * k
-        guard let outputIndices = device.makeBuffer(
-            length: outputSize * MemoryLayout<UInt32>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: outputSize * MemoryLayout<UInt32>.size)
-        }
-        outputIndices.label = "IVFSearchPipeline.outputIndices"
-
-        guard let outputDistances = device.makeBuffer(
-            length: outputSize * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: outputSize * MemoryLayout<Float>.size)
-        }
-        outputDistances.label = "IVFSearchPipeline.outputDistances"
-
-        // Initialize with sentinel values
-        let indicesPtr = outputIndices.contents().bindMemory(to: UInt32.self, capacity: outputSize)
-        let distancesPtr = outputDistances.contents().bindMemory(to: Float.self, capacity: outputSize)
-        for i in 0..<outputSize {
-            indicesPtr[i] = 0xFFFFFFFF
-            distancesPtr[i] = Float.infinity
-        }
-
-        // Process queries - gather candidates and search
-        // For efficiency, we batch queries that select similar lists
-
-        // Simple approach: process all queries together by gathering all unique candidates
-        var allCandidateIndices = Set<Int>()
-        var queryToCandidates: [[Int]] = Array(repeating: [], count: numQueries)
-
-        for q in 0..<numQueries {
-            var candidates: [Int] = []
-            for p in 0..<nprobe {
-                let listIdx = Int(listIndicesPtr[q * nprobe + p])
-                guard listIdx < structure.numCentroids else { continue }
-
-                let listStart = Int(offsetPtr[listIdx])
-                let listEnd = Int(offsetPtr[listIdx + 1])
-
-                for vecIdx in listStart..<listEnd {
-                    candidates.append(vecIdx)
-                    allCandidateIndices.insert(vecIdx)
-                }
-            }
-            queryToCandidates[q] = candidates
-        }
-
-        // If no candidates, return empty results
-        if allCandidateIndices.isEmpty {
-            return (indices: outputIndices, distances: outputDistances)
-        }
-
-        // Gather unique candidate vectors
-        let candidateList = Array(allCandidateIndices).sorted()
-
-        // Read vectors from structure
-        let vectorsPtr = structure.listVectors.contents().bindMemory(
-            to: Float.self,
-            capacity: structure.totalVectors * dimension
-        )
-        let originalIndicesPtr = structure.vectorIndices.contents().bindMemory(
-            to: UInt32.self,
-            capacity: structure.totalVectors
-        )
-
-        // Create gathered vectors buffer
-        var gatheredVectors: [Float] = []
-        gatheredVectors.reserveCapacity(candidateList.count * dimension)
-        var gatheredOriginalIndices: [UInt32] = []
-        gatheredOriginalIndices.reserveCapacity(candidateList.count)
-
-        for candidateIdx in candidateList {
-            let vecStart = candidateIdx * dimension
-            for d in 0..<dimension {
-                gatheredVectors.append(vectorsPtr[vecStart + d])
-            }
-            gatheredOriginalIndices.append(originalIndicesPtr[candidateIdx])
-        }
-
-        guard let gatheredBuffer = device.makeBuffer(
-            bytes: gatheredVectors,
-            length: gatheredVectors.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: gatheredVectors.count * MemoryLayout<Float>.size)
-        }
-
-        // For each query, search within its candidates
-        // Use fused L2 + top-k on the gathered candidates
-        let params = FusedL2TopKParameters(
-            numQueries: numQueries,
-            numDataset: candidateList.count,
-            dimension: dimension,
-            k: min(k, candidateList.count)
-        )
-
-        let searchResult = try await fusedL2TopK.execute(
-            queries: queries,
-            dataset: gatheredBuffer,
-            parameters: params,
-            config: Metal4FusedL2Config(includeDistances: true)
-        )
-
-        // Map gathered indices back to original indices
-        let resultIndicesPtr = searchResult.indices.contents().bindMemory(
-            to: UInt32.self,
-            capacity: numQueries * k
-        )
-        let resultDistancesPtr = searchResult.distances!.contents().bindMemory(
-            to: Float.self,
-            capacity: numQueries * k
-        )
-
-        for q in 0..<numQueries {
-            for i in 0..<k {
-                let offset = q * k + i
-                let gatheredIdx = resultIndicesPtr[offset]
-                if gatheredIdx != 0xFFFFFFFF && Int(gatheredIdx) < gatheredOriginalIndices.count {
-                    indicesPtr[offset] = gatheredOriginalIndices[Int(gatheredIdx)]
-                    distancesPtr[offset] = resultDistancesPtr[offset]
-                }
-            }
-        }
-
-        return (indices: outputIndices, distances: outputDistances)
-    }
 }
 
 // MARK: - GPU Index Structure

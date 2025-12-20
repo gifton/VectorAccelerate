@@ -6,8 +6,7 @@
 //
 //  This is the main entry point for the GPU index API. It provides:
 //  - Direct GPU buffer ownership (no CPU copy)
-//  - Opaque handle-based vector identification
-//  - Generation-based stale handle detection
+//  - Stable handle-based vector identification (P0.8)
 //  - Lazy deletion with on-demand compaction
 //  - Native GPU distances (L2² for euclidean)
 //  - Support for both Flat and IVF index types
@@ -30,13 +29,18 @@ public typealias VectorMetadata = [String: String]
 /// Unlike wrapper-based approaches, this index owns the vector data directly on
 /// the GPU, eliminating redundant CPU copies.
 ///
+/// ## Stable Handles (P0.8)
+/// Handles remain valid across `compact()` operations. You never need to remap
+/// handles after compaction - the index maintains an internal indirection table
+/// that maps stable IDs to current storage slots.
+///
 /// ## Index Types
 /// - **Flat**: Exhaustive search, best for < 10K vectors
 /// - **IVF**: Inverted file index with clustering, best for > 10K vectors
 ///
 /// ## Features
 /// - **Direct GPU ownership**: Vectors live on GPU, no duplication
-/// - **Opaque handles**: `VectorHandle` instead of string IDs
+/// - **Stable handles**: `VectorHandle` remains valid across compaction
 /// - **Native distances**: Returns L2² for euclidean (no expensive sqrt)
 /// - **Lazy deletion**: Fast removes with on-demand compaction
 /// - **Filtered search**: CPU-side metadata filtering with iterative fetch
@@ -83,13 +87,13 @@ public actor AcceleratedVectorIndex {
     /// GPU buffer storage for vectors.
     private var storage: GPUVectorStorage
 
-    /// Handle allocation and generation tracking.
+    /// Handle allocation and stable ID management.
     private var handleAllocator: HandleAllocator
 
     /// Deletion mask for lazy deletion.
     private var deletionMask: DeletionMask
 
-    /// CPU-side metadata storage.
+    /// CPU-side metadata storage (keyed by stableID).
     private var metadataStore: MetadataStore
 
     /// Fused L2 Top-K kernel for flat search.
@@ -127,7 +131,7 @@ public actor AcceleratedVectorIndex {
             dimension: configuration.dimension,
             capacity: configuration.capacity
         )
-        self.handleAllocator = HandleAllocator(initialCapacity: configuration.capacity)
+        self.handleAllocator = HandleAllocator(initialSlotCapacity: configuration.capacity)
         self.deletionMask = DeletionMask(capacity: configuration.capacity)
         self.metadataStore = MetadataStore(capacity: configuration.capacity / 10)
 
@@ -136,12 +140,14 @@ public actor AcceleratedVectorIndex {
         case .flat:
             self.fusedL2TopKKernel = try await FusedL2TopKKernel(context: context)
 
-        case .ivf(let nlist, let nprobe):
+        case .ivf(let nlist, let nprobe, let minTrainingVectors):
             self.fusedL2TopKKernel = try await FusedL2TopKKernel(context: context)
             self.ivfStructure = IVFStructure(
                 numClusters: nlist,
                 nprobe: nprobe,
-                dimension: configuration.dimension
+                dimension: configuration.dimension,
+                minTrainingVectors: minTrainingVectors,
+                quantization: configuration.quantization
             )
             let ivfConfig = IVFSearchConfiguration(
                 numCentroids: nlist,
@@ -177,7 +183,7 @@ public actor AcceleratedVectorIndex {
             dimension: configuration.dimension,
             capacity: configuration.capacity
         )
-        self.handleAllocator = HandleAllocator(initialCapacity: configuration.capacity)
+        self.handleAllocator = HandleAllocator(initialSlotCapacity: configuration.capacity)
         self.deletionMask = DeletionMask(capacity: configuration.capacity)
         self.metadataStore = MetadataStore(capacity: configuration.capacity / 10)
 
@@ -186,12 +192,14 @@ public actor AcceleratedVectorIndex {
         case .flat:
             self.fusedL2TopKKernel = try await FusedL2TopKKernel(context: context)
 
-        case .ivf(let nlist, let nprobe):
+        case .ivf(let nlist, let nprobe, let minTrainingVectors):
             self.fusedL2TopKKernel = try await FusedL2TopKKernel(context: context)
             self.ivfStructure = IVFStructure(
                 numClusters: nlist,
                 nprobe: nprobe,
-                dimension: configuration.dimension
+                dimension: configuration.dimension,
+                minTrainingVectors: minTrainingVectors,
+                quantization: configuration.quantization
             )
             let ivfConfig = IVFSearchConfiguration(
                 numCentroids: nlist,
@@ -256,6 +264,25 @@ public actor AcceleratedVectorIndex {
         ivfStructure?.isTrained ?? true
     }
 
+    /// Whether search will route to flat search due to the routing threshold.
+    ///
+    /// Returns `true` when:
+    /// - The index is configured as IVF
+    /// - Routing threshold is enabled (> 0)
+    /// - Current vector count is below the threshold
+    ///
+    /// Useful for testing and debugging routing behavior.
+    public var willRouteToFlat: Bool {
+        guard ivfStructure != nil else { return false }  // Already flat
+        guard configuration.routingThreshold > 0 else { return false }  // Routing disabled
+        return handleAllocator.occupiedCount < configuration.routingThreshold
+    }
+
+    /// The routing threshold configuration.
+    public var routingThreshold: Int {
+        configuration.routingThreshold
+    }
+
     // MARK: - Statistics
 
     /// Get statistics about the index.
@@ -313,18 +340,12 @@ public actor AcceleratedVectorIndex {
 
         try await ivf.train(vectors: trainingVectors, context: context)
 
-        // Reassign all vectors to clusters
+        // After training, reassign ALL vectors to their nearest clusters.
+        // IVFStructure.train() clears inverted lists, so we must reassign here.
         for slotIndex in deletionMask {
-            // Skip slots beyond what's actually allocated in storage
             guard slotIndex < storage.allocatedSlots else { continue }
             let vector = try storage.readVector(at: slotIndex)
-            if let handle = handleAllocator.handle(for: UInt32(slotIndex)) {
-                _ = ivf.assignToCluster(
-                    vector: vector,
-                    slotIndex: UInt32(slotIndex),
-                    generation: handle.generation
-                )
-            }
+            _ = ivf.assignToCluster(vector: vector, slotIndex: UInt32(slotIndex))
         }
     }
 
@@ -344,7 +365,7 @@ public actor AcceleratedVectorIndex {
     /// - Parameters:
     ///   - vector: Vector data (must match index dimension)
     ///   - metadata: Optional metadata for filtering
-    /// - Returns: Handle to the inserted vector
+    /// - Returns: Stable handle to the inserted vector
     /// - Throws: `IndexError` if dimension mismatch or GPU error
     public func insert(
         _ vector: consuming [Float],
@@ -361,16 +382,23 @@ public actor AcceleratedVectorIndex {
         try storage.ensureCapacity(storage.allocatedSlots + 1)
         deletionMask.ensureCapacity(storage.allocatedSlots + 1)
 
-        // Allocate handle
+        // Allocate handle (returns handle with new stableID, allocates new slot internally)
         let handle = handleAllocator.allocate()
-        let slotIndex = Int(handle.index)
+
+        // Get the slot for this handle
+        guard let slotIndex = handleAllocator.slot(for: handle) else {
+            throw IndexError.bufferError(
+                operation: "insert",
+                reason: "Failed to get slot for newly allocated handle"
+            )
+        }
 
         // Write vector to GPU
-        try storage.writeVector(vector, at: slotIndex)
+        try storage.writeVector(vector, at: Int(slotIndex))
 
-        // Store metadata if provided
+        // Store metadata if provided (keyed by stableID via handle)
         if let metadata = metadata {
-            metadataStore[handle.index] = metadata
+            metadataStore[handle] = metadata
         }
 
         // Handle IVF-specific logic
@@ -379,12 +407,11 @@ public actor AcceleratedVectorIndex {
                 // Assign to cluster
                 _ = ivf.assignToCluster(
                     vector: vector,
-                    slotIndex: UInt32(slotIndex),
-                    generation: handle.generation
+                    slotIndex: slotIndex
                 )
             } else {
                 // Add to staging
-                ivf.addToStaging(UInt32(slotIndex))
+                ivf.addToStaging(slotIndex)
 
                 // Auto-train if we have enough vectors
                 if autoTrainEnabled && ivf.canTrain {
@@ -404,7 +431,7 @@ public actor AcceleratedVectorIndex {
     /// - Parameters:
     ///   - vectors: Array of vectors (each must match index dimension)
     ///   - metadata: Optional metadata array (must match vectors count if provided)
-    /// - Returns: Array of handles for inserted vectors
+    /// - Returns: Array of stable handles for inserted vectors
     /// - Throws: `IndexError` if dimension mismatch or GPU error
     public func insert(
         _ vectors: [[Float]],
@@ -435,15 +462,22 @@ public actor AcceleratedVectorIndex {
         // Allocate handles
         let handles = handleAllocator.allocate(count: vectors.count)
 
+        // Get start slot for batch write
+        guard let startSlot = handleAllocator.slot(for: handles[0]) else {
+            throw IndexError.bufferError(
+                operation: "insert",
+                reason: "Failed to get slot for batch insert"
+            )
+        }
+
         // Batch write vectors to GPU (optimized)
-        let startSlot = Int(handles[0].index)
-        try storage.writeVectors(vectors, startingAt: startSlot)
+        try storage.writeVectors(vectors, startingAt: Int(startSlot))
 
         // Store metadata
         if let metadata = metadata {
             for (i, meta) in metadata.enumerated() {
                 if let meta = meta {
-                    metadataStore[handles[i].index] = meta
+                    metadataStore[handles[i]] = meta
                 }
             }
         }
@@ -453,16 +487,19 @@ public actor AcceleratedVectorIndex {
             if ivf.isTrained {
                 // Assign each vector to a cluster
                 for (i, vector) in vectors.enumerated() {
-                    _ = ivf.assignToCluster(
-                        vector: vector,
-                        slotIndex: handles[i].index,
-                        generation: handles[i].generation
-                    )
+                    if let slot = handleAllocator.slot(for: handles[i]) {
+                        _ = ivf.assignToCluster(
+                            vector: vector,
+                            slotIndex: slot
+                        )
+                    }
                 }
             } else {
                 // Add all to staging
                 for handle in handles {
-                    ivf.addToStaging(handle.index)
+                    if let slot = handleAllocator.slot(for: handle) {
+                        ivf.addToStaging(slot)
+                    }
                 }
 
                 // Auto-train if we have enough vectors
@@ -480,11 +517,11 @@ public actor AcceleratedVectorIndex {
     /// Retrieve the vector data for a handle.
     ///
     /// - Parameter handle: Handle to the vector
-    /// - Returns: Vector data, or nil if handle is invalid/stale
+    /// - Returns: Vector data, or nil if handle is invalid
     /// - Throws: `IndexError` if GPU read fails
     public func vector(for handle: VectorHandle) throws -> [Float]? {
-        guard handleAllocator.validate(handle) else { return nil }
-        return try storage.readVector(at: Int(handle.index))
+        guard let slot = handleAllocator.slot(for: handle) else { return nil }
+        return try storage.readVector(at: Int(slot))
     }
 
     /// Retrieve multiple vectors by their handles.
@@ -494,8 +531,8 @@ public actor AcceleratedVectorIndex {
     /// - Throws: `IndexError` if GPU read fails
     public func vectors(for handles: [VectorHandle]) throws -> [[Float]?] {
         try handles.map { handle in
-            guard handleAllocator.validate(handle) else { return nil }
-            return try storage.readVector(at: Int(handle.index))
+            guard let slot = handleAllocator.slot(for: handle) else { return nil }
+            return try storage.readVector(at: Int(slot))
         }
     }
 
@@ -504,10 +541,10 @@ public actor AcceleratedVectorIndex {
     /// Get metadata for a handle.
     ///
     /// - Parameter handle: Handle to the vector
-    /// - Returns: Metadata if set, nil otherwise. Returns nil for invalid/stale handles.
+    /// - Returns: Metadata if set, nil otherwise. Returns nil for invalid handles.
     public func metadata(for handle: VectorHandle) -> VectorMetadata? {
         guard handleAllocator.validate(handle) else { return nil }
-        return metadataStore[handle.index]
+        return metadataStore[handle]
     }
 
     /// Update metadata for a handle.
@@ -515,14 +552,14 @@ public actor AcceleratedVectorIndex {
     /// - Parameters:
     ///   - metadata: New metadata (nil to remove)
     ///   - handle: Handle to the vector
-    /// - Throws: `IndexError.invalidInput` if handle is invalid/stale
+    /// - Throws: `IndexError.invalidInput` if handle is invalid
     public func setMetadata(_ metadata: VectorMetadata?, for handle: VectorHandle) throws {
         guard handleAllocator.validate(handle) else {
             throw IndexError.invalidInput(
-                message: "Invalid or stale handle: \(handle)"
+                message: "Invalid handle: \(handle)"
             )
         }
-        metadataStore[handle.index] = metadata
+        metadataStore[handle] = metadata
     }
 
     // MARK: - Remove Operations
@@ -533,20 +570,20 @@ public actor AcceleratedVectorIndex {
     /// Call `compact()` to reclaim space from deleted vectors.
     ///
     /// - Parameter handle: Handle to the vector to remove
-    /// - Throws: `IndexError.invalidInput` if handle is invalid/stale
+    /// - Throws: `IndexError.invalidInput` if handle is invalid
     public func remove(_ handle: VectorHandle) throws {
-        guard handleAllocator.validate(handle) else {
+        guard let slot = handleAllocator.slot(for: handle) else {
             throw IndexError.invalidInput(
-                message: "Invalid or stale handle: \(handle)"
+                message: "Invalid handle: \(handle)"
             )
         }
 
         handleAllocator.markDeleted(handle)
-        deletionMask.markDeleted(Int(handle.index))
-        metadataStore.remove(handle.index)
+        deletionMask.markDeleted(Int(slot))
+        metadataStore.remove(for: handle)
 
         // Remove from IVF structure
-        ivfStructure?.removeVector(slotIndex: handle.index, generation: handle.generation)
+        ivfStructure?.removeVector(slotIndex: slot)
     }
 
     /// Mark multiple vectors as deleted (lazy deletion).
@@ -559,11 +596,11 @@ public actor AcceleratedVectorIndex {
     public func remove(_ handles: [VectorHandle]) -> Int {
         var removedCount = 0
         for handle in handles {
-            if handleAllocator.validate(handle) {
+            if let slot = handleAllocator.slot(for: handle) {
                 handleAllocator.markDeleted(handle)
-                deletionMask.markDeleted(Int(handle.index))
-                metadataStore.remove(handle.index)
-                ivfStructure?.removeVector(slotIndex: handle.index, generation: handle.generation)
+                deletionMask.markDeleted(Int(slot))
+                metadataStore.remove(for: handle)
+                ivfStructure?.removeVector(slotIndex: slot)
                 removedCount += 1
             }
         }
@@ -573,44 +610,39 @@ public actor AcceleratedVectorIndex {
     /// Compact the index to reclaim space from deleted vectors.
     ///
     /// This operation rebuilds the GPU buffer without deleted vectors.
-    /// After compaction, old handles are invalid (generation mismatch).
-    /// Use the returned mapping to update any external handle references.
+    /// With stable handles (P0.8), handles remain valid after compaction -
+    /// you do not need to update any handle references.
     ///
-    /// - Returns: Mapping from old handles to new handles
     /// - Note: This is an expensive operation. Call sparingly when fragmentation is high.
-    @discardableResult
-    public func compact() async throws -> [VectorHandle: VectorHandle] {
-        guard deletionMask.deletedCount > 0 else { return [:] }
+    public func compact() async throws {
+        guard deletionMask.deletedCount > 0 else { return }
 
         // Get keep mask
         let keepMask = deletionMask.keepMask()
 
-        // Compact storage
-        _ = try storage.compact(keepMask: keepMask)
+        // Compact storage and get slot mapping (Int -> Int)
+        let intSlotMapping = try storage.compact(keepMask: keepMask)
 
-        // Compact handle allocator
-        let compactionResult = handleAllocator.compact(keepMask: keepMask)
-
-        // Compact metadata store
-        let uint32Mapping = compactionResult.indexMapping
-        metadataStore.compact(using: uint32Mapping)
-
-        // Compact IVF structure
-        ivfStructure?.compact(using: uint32Mapping)
-
-        // Reset deletion mask
-        deletionMask.resetAfterCompaction(newCapacity: compactionResult.newSlotCount)
-
-        // Build handle mapping for return
-        var handleMapping: [VectorHandle: VectorHandle] = [:]
-        for (oldIdx, newIdx) in uint32Mapping {
-            let newHandle = compactionResult.newHandles[Int(newIdx)]
-            let oldGeneration = newHandle.generation &- 1
-            let oldHandle = VectorHandle(index: oldIdx, generation: oldGeneration)
-            handleMapping[oldHandle] = newHandle
+        // Convert to UInt32 -> UInt32 for handle allocator and IVF
+        var slotMapping: [UInt32: UInt32] = [:]
+        slotMapping.reserveCapacity(intSlotMapping.count)
+        for (oldSlot, newSlot) in intSlotMapping {
+            slotMapping[UInt32(oldSlot)] = UInt32(newSlot)
         }
 
-        return handleMapping
+        // Apply compaction to handle allocator (updates indirection tables)
+        handleAllocator.applyCompaction(
+            slotMapping: slotMapping,
+            newSlotCount: storage.allocatedSlots
+        )
+
+        // Compact IVF structure (updates slot references)
+        ivfStructure?.compact(using: slotMapping)
+
+        // Reset deletion mask
+        deletionMask.resetAfterCompaction(newCapacity: storage.allocatedSlots)
+
+        // Note: MetadataStore doesn't need compaction since it's keyed by stableID
     }
 
     // MARK: - Search Operations
@@ -639,9 +671,21 @@ public actor AcceleratedVectorIndex {
             return []
         }
 
-        // Use IVF search if available and trained
+        // Use IVF search if available and trained, unless below routing threshold
         if let ivf = ivfStructure, ivf.isTrained {
-            return try await searchIVF(query: query, k: k, filter: filter)
+            let vectorCount = handleAllocator.occupiedCount
+            let threshold = configuration.routingThreshold
+
+            // Route to flat search for small datasets if threshold is enabled
+            if threshold > 0 && vectorCount < threshold {
+                VectorLogDebug(
+                    "Routing to flat search: \(vectorCount) vectors < threshold \(threshold)",
+                    category: "Search"
+                )
+                // Fall through to flat search
+            } else {
+                return try await searchIVF(query: query, k: k, filter: filter)
+            }
         }
 
         // Fall back to flat search
@@ -655,6 +699,7 @@ public actor AcceleratedVectorIndex {
     /// Batch search for multiple queries.
     ///
     /// More efficient than individual searches for multiple queries.
+    /// Uses true GPU batching for flat index without filter.
     ///
     /// - Parameters:
     ///   - queries: Array of query vectors
@@ -683,12 +728,29 @@ public actor AcceleratedVectorIndex {
             return queries.map { _ in [] }
         }
 
-        // Use IVF batch search if available and trained
-        if let ivf = ivfStructure, ivf.isTrained, filter == nil {
-            return try await searchIVFBatch(queries: queries, k: k)
+        // Fast path: flat index without filter uses true GPU batch
+        if case .flat = configuration.indexType, filter == nil {
+            return try await searchBatchGPU(queries: queries, k: k)
         }
 
-        // Fall back to sequential search
+        // Use IVF batch search if available and trained, unless below routing threshold
+        if let ivf = ivfStructure, ivf.isTrained, filter == nil {
+            let vectorCount = handleAllocator.occupiedCount
+            let threshold = configuration.routingThreshold
+
+            // Route to flat search for small datasets if threshold is enabled
+            if threshold > 0 && vectorCount < threshold {
+                VectorLogDebug(
+                    "Routing batch to flat search: \(vectorCount) vectors < threshold \(threshold)",
+                    category: "Search"
+                )
+                // Fall through to sequential flat search
+            } else {
+                return try await searchIVFBatch(queries: queries, k: k)
+            }
+        }
+
+        // Fall back to sequential search for IVF or filtered
         var results: [[IndexSearchResult]] = []
         results.reserveCapacity(queries.count)
 
@@ -734,7 +796,7 @@ public actor AcceleratedVectorIndex {
         for slotIndex in deletionMask {
             guard let handle = handleAllocator.handle(for: UInt32(slotIndex)) else { continue }
             let vector = try storage.readVector(at: slotIndex)
-            let metadata = metadataStore[handle.index]
+            let metadata = metadataStore[handle]
             try body(handle, vector, metadata)
         }
     }
@@ -748,7 +810,7 @@ public actor AcceleratedVectorIndex {
 
         for slotIndex in deletionMask {
             guard let handle = handleAllocator.handle(for: UInt32(slotIndex)) else { continue }
-            let metadata = metadataStore[handle.index]
+            let metadata = metadataStore[handle]
             if predicate(metadata) {
                 result.append(handle)
             }
@@ -774,12 +836,20 @@ public actor AcceleratedVectorIndex {
 
     // MARK: - Handle Validation
 
-    /// Check if a handle is valid (not stale).
+    /// Check if a handle is valid.
     ///
     /// - Parameter handle: Handle to validate
     /// - Returns: true if handle is valid for this index
     public func isHandleValid(_ handle: VectorHandle) -> Bool {
         handleAllocator.validate(handle)
+    }
+
+    /// Get the storage slot for a handle (internal use).
+    ///
+    /// - Parameter handle: Handle to look up
+    /// - Returns: Slot index, or nil if handle is invalid
+    public func slot(for handle: VectorHandle) -> UInt32? {
+        handleAllocator.slot(for: handle)
     }
 
     /// Get a valid handle for a slot index (if occupied).
@@ -798,26 +868,17 @@ public actor AcceleratedVectorIndex {
             throw IndexError.gpuNotInitialized(operation: "search")
         }
 
-        let device = context.device.rawDevice
         let effectiveK = min(k, handleAllocator.occupiedCount)
 
-        // Create query buffer
-        let queryBufferSize = configuration.dimension * MemoryLayout<Float>.size
-        guard let queryBuffer = device.makeBuffer(
-            bytes: query,
-            length: queryBufferSize,
-            options: .storageModeShared
-        ) else {
-            throw IndexError.bufferError(
-                operation: "search",
-                reason: "Failed to create query buffer"
-            )
-        }
+        // Create query buffer (from pool for transient allocation)
+        let queryToken = try await context.getBuffer(for: query)
+        let queryBuffer = queryToken.buffer
+        queryBuffer.label = "AcceleratedVectorIndex.query"
 
         // Request more results than needed to account for deleted vectors
         let fetchK = min(effectiveK + deletionMask.deletedCount, storage.allocatedSlots)
 
-        let parameters = FusedL2TopKParameters(
+        let parameters = try FusedL2TopKParameters(
             numQueries: 1,
             numDataset: storage.allocatedSlots,
             dimension: configuration.dimension,
@@ -838,7 +899,7 @@ public actor AcceleratedVectorIndex {
             // Skip deleted vectors
             if deletionMask.isDeleted(rawIndex) { continue }
 
-            // Get valid handle
+            // Get valid handle (maps slot -> stableID)
             guard let handle = handleAllocator.handle(for: UInt32(rawIndex)) else { continue }
 
             results.append(IndexSearchResult(handle: handle, distance: distance))
@@ -859,20 +920,10 @@ public actor AcceleratedVectorIndex {
             throw IndexError.gpuNotInitialized(operation: "search")
         }
 
-        let device = context.device.rawDevice
-
-        // Create query buffer
-        let queryBufferSize = configuration.dimension * MemoryLayout<Float>.size
-        guard let queryBuffer = device.makeBuffer(
-            bytes: query,
-            length: queryBufferSize,
-            options: .storageModeShared
-        ) else {
-            throw IndexError.bufferError(
-                operation: "search",
-                reason: "Failed to create query buffer"
-            )
-        }
+        // Create query buffer (from pool for transient allocation)
+        let queryToken = try await context.getBuffer(for: query)
+        let queryBuffer = queryToken.buffer
+        queryBuffer.label = "AcceleratedVectorIndex.query"
 
         // Iterative fetch strategy: start with 2x, double until we have enough
         // Track which indices we've already seen to avoid duplicates across iterations
@@ -882,7 +933,7 @@ public actor AcceleratedVectorIndex {
         var fetchK = min(k * 2, maxFetch)
 
         while results.count < k {
-            let parameters = FusedL2TopKParameters(
+            let parameters = try FusedL2TopKParameters(
                 numQueries: 1,
                 numDataset: maxFetch,
                 dimension: configuration.dimension,
@@ -906,10 +957,10 @@ public actor AcceleratedVectorIndex {
                 // Skip deleted vectors
                 if deletionMask.isDeleted(rawIndex) { continue }
 
-                // Get valid handle
+                // Get valid handle (maps slot -> stableID)
                 guard let handle = handleAllocator.handle(for: UInt32(rawIndex)) else { continue }
 
-                let meta = metadataStore[handle.index]
+                let meta = metadataStore[handle]
 
                 if filter(handle, meta) {
                     results.append(IndexSearchResult(handle: handle, distance: distance))
@@ -929,6 +980,74 @@ public actor AcceleratedVectorIndex {
         }
 
         return results
+    }
+
+    // MARK: - Private Implementation - GPU Batch Search (Flat Index)
+
+    /// Perform true GPU batch search for flat index.
+    ///
+    /// Uses a single GPU dispatch for all queries, which is more efficient
+    /// than sequential searches when querying with multiple vectors.
+    ///
+    /// - Parameters:
+    ///   - queries: Array of query vectors (all must have matching dimension)
+    ///   - k: Number of results per query
+    /// - Returns: Array of result arrays (one per query)
+    private func searchBatchGPU(queries: [[Float]], k: Int) async throws -> [[IndexSearchResult]] {
+        guard let kernel = fusedL2TopKKernel,
+              let datasetBuffer = storage.buffer else {
+            throw IndexError.gpuNotInitialized(operation: "searchBatchGPU")
+        }
+
+        let numQueries = queries.count
+        let effectiveK = min(k, handleAllocator.occupiedCount)
+
+        // Flatten queries into contiguous buffer (from pool for transient allocation)
+        let flatQueries = queries.flatMap { $0 }
+        let queryToken = try await context.getBuffer(for: flatQueries)
+        let queryBuffer = queryToken.buffer
+        queryBuffer.label = "AcceleratedVectorIndex.batchQueries"
+
+        // Request more results than needed to account for deleted vectors
+        let fetchK = min(effectiveK + deletionMask.deletedCount, storage.allocatedSlots)
+
+        let parameters = try FusedL2TopKParameters(
+            numQueries: numQueries,
+            numDataset: storage.allocatedSlots,
+            dimension: configuration.dimension,
+            k: fetchK
+        )
+
+        let gpuResult = try await kernel.execute(
+            queries: queryBuffer,
+            dataset: datasetBuffer,
+            parameters: parameters
+        )
+
+        // Convert GPU results to IndexSearchResults, filtering deleted vectors
+        var allResults: [[IndexSearchResult]] = []
+        allResults.reserveCapacity(numQueries)
+
+        for queryIdx in 0..<numQueries {
+            var results: [IndexSearchResult] = []
+            results.reserveCapacity(effectiveK)
+
+            for (rawIndex, distance) in gpuResult.results(for: queryIdx) {
+                // Skip deleted vectors
+                if deletionMask.isDeleted(rawIndex) { continue }
+
+                // Get valid handle (maps slot -> stableID)
+                guard let handle = handleAllocator.handle(for: UInt32(rawIndex)) else { continue }
+
+                results.append(IndexSearchResult(handle: handle, distance: distance))
+
+                if results.count >= effectiveK { break }
+            }
+
+            allResults.append(results)
+        }
+
+        return allResults
     }
 
     // MARK: - Private Implementation - IVF Search
@@ -964,12 +1083,12 @@ public actor AcceleratedVectorIndex {
             // Skip deleted vectors
             if deletionMask.isDeleted(rawIndex) { continue }
 
-            // Get valid handle
+            // Get valid handle (maps slot -> stableID)
             guard let handle = handleAllocator.handle(for: UInt32(rawIndex)) else { continue }
 
             // Apply filter if provided
             if let filter = filter {
-                let meta = metadataStore[handle.index]
+                let meta = metadataStore[handle]
                 if !filter(handle, meta) { continue }
             }
 
@@ -1012,7 +1131,7 @@ public actor AcceleratedVectorIndex {
                 // Skip deleted vectors
                 if deletionMask.isDeleted(rawIndex) { continue }
 
-                // Get valid handle
+                // Get valid handle (maps slot -> stableID)
                 guard let handle = handleAllocator.handle(for: UInt32(rawIndex)) else { continue }
 
                 results.append(IndexSearchResult(handle: handle, distance: distance))

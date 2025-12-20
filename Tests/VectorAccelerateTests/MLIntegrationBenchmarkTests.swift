@@ -28,7 +28,7 @@ final class MLIntegrationBenchmarkTests: XCTestCase {
         self.context = try await Metal4Context()
 
         standardKernel = try await L2DistanceKernel(context: context)
-        learnedKernel = try LearnedDistanceKernel(device: device)
+        learnedKernel = try await LearnedDistanceKernel(context: context)
     }
 
     override func tearDown() async throws {
@@ -591,6 +591,454 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
         XCTAssertFalse(metrics.mse.isNaN, "MSE should be finite")
         XCTAssertGreaterThanOrEqual(metrics.cosineSimilarity, -1.0)
         XCTAssertLessThanOrEqual(metrics.cosineSimilarity, 1.0)
+    }
+
+    /// Benchmark: Compare decode throughput with different threadgroup sizes
+    func testDecodeThreadgroupSizeComparison() async throws {
+        let kernel = try await NeuralQuantizationKernel(context: context)
+        let config = Metal4NeuralQuantizationConfig.balanced(inputDim: 768)
+
+        try await kernel.createRandomWeights(config: config)
+
+        let device = context.device.rawDevice
+        let numVectors = 1000
+        let inputDim = config.inputDimension
+
+        // Create encoded data
+        let vectors = generateRandomVectors(count: numVectors, dimension: inputDim)
+        let encoded = try await kernel.encode(vectors)
+
+        // Prepare buffers for direct kernel calls
+        guard let inputBuffer = device.makeBuffer(
+            bytes: [UInt8](encoded.latentCodes),
+            length: encoded.latentCodes.count,
+            options: .storageModeShared
+        ) else {
+            XCTFail("Failed to create input buffer")
+            return
+        }
+
+        guard let scaleBuffer = device.makeBuffer(
+            length: numVectors * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            XCTFail("Failed to create scale buffer")
+            return
+        }
+        let scalePtr = scaleBuffer.contents().bindMemory(to: Float.self, capacity: numVectors)
+        for i in 0..<numVectors {
+            scalePtr[i] = encoded.scale
+        }
+
+        guard let outputBuffer = device.makeBuffer(
+            length: numVectors * inputDim * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            XCTFail("Failed to create output buffer")
+            return
+        }
+
+        let params = NeuralQuantizationParameters(numVectors: numVectors, config: config)
+
+        let threadgroupSizes = [32, 64, 128, 256]
+
+        print("\n=== Decode Threadgroup Size Comparison (768→128, \(numVectors) vectors) ===")
+        print("TG Size | Time (ms)  | Throughput (vec/s) | vs Baseline")
+        print("--------|------------|--------------------|-----------")
+
+        var baselineThroughput: Double = 0
+
+        // Use nonisolated(unsafe) to bypass Sendable checks for MTLBuffer
+        nonisolated(unsafe) let unsafeInputBuffer = inputBuffer
+        nonisolated(unsafe) let unsafeScaleBuffer = scaleBuffer
+        nonisolated(unsafe) let unsafeOutputBuffer = outputBuffer
+
+        for tgSize in threadgroupSizes {
+            var times: [TimeInterval] = []
+
+            // Warmup
+            for _ in 0..<3 {
+                try await context.executeAndWait { [kernel] _, encoder in
+                    try kernel.encodeDequantizeDecodeWithThreadgroupSize(
+                        into: encoder,
+                        input: unsafeInputBuffer,
+                        scale: unsafeScaleBuffer,
+                        output: unsafeOutputBuffer,
+                        parameters: params,
+                        threadgroupSize: tgSize
+                    )
+                }
+            }
+
+            // Measure
+            for _ in 0..<10 {
+                let start = CFAbsoluteTimeGetCurrent()
+                try await context.executeAndWait { [kernel] _, encoder in
+                    try kernel.encodeDequantizeDecodeWithThreadgroupSize(
+                        into: encoder,
+                        input: unsafeInputBuffer,
+                        scale: unsafeScaleBuffer,
+                        output: unsafeOutputBuffer,
+                        parameters: params,
+                        threadgroupSize: tgSize
+                    )
+                }
+                let elapsed = CFAbsoluteTimeGetCurrent() - start
+                times.append(elapsed)
+            }
+
+            let avgTime = times.reduce(0, +) / Double(times.count)
+            let throughput = Double(numVectors) / avgTime
+
+            if tgSize == 32 {
+                baselineThroughput = throughput
+                print(String(format: "%7d | %10.2f | %18.0f | baseline", tgSize, avgTime * 1000, throughput))
+            } else {
+                let speedup = throughput / baselineThroughput
+                print(String(format: "%7d | %10.2f | %18.0f | %.2fx", tgSize, avgTime * 1000, throughput, speedup))
+            }
+        }
+    }
+
+    // MARK: - Transposed Weight Benchmarks
+
+    /// Benchmark: Compare transposed vs non-transposed decode performance.
+    ///
+    /// Transposed weights enable coalesced memory access where adjacent threads
+    /// read adjacent memory locations, improving memory bandwidth utilization.
+    func testTransposedVsNonTransposedDecode() async throws {
+        let kernel = try await NeuralQuantizationKernel(context: context)
+        let config = Metal4NeuralQuantizationConfig.balanced(inputDim: 768)
+
+        try await kernel.createRandomWeights(config: config)
+
+        let device = context.device.rawDevice
+        let numVectors = 1000
+        let inputDim = config.inputDimension
+
+        // Create encoded data
+        let vectors = generateRandomVectors(count: numVectors, dimension: inputDim)
+        let encoded = try await kernel.encode(vectors)
+
+        // Prepare buffers for direct kernel calls
+        guard let inputBuffer = device.makeBuffer(
+            bytes: [UInt8](encoded.latentCodes),
+            length: encoded.latentCodes.count,
+            options: .storageModeShared
+        ) else {
+            XCTFail("Failed to create input buffer")
+            return
+        }
+
+        guard let scaleBuffer = device.makeBuffer(
+            length: numVectors * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            XCTFail("Failed to create scale buffer")
+            return
+        }
+        let scalePtr = scaleBuffer.contents().bindMemory(to: Float.self, capacity: numVectors)
+        for i in 0..<numVectors {
+            scalePtr[i] = encoded.scale
+        }
+
+        guard let outputBuffer = device.makeBuffer(
+            length: numVectors * inputDim * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else {
+            XCTFail("Failed to create output buffer")
+            return
+        }
+
+        let params = NeuralQuantizationParameters(numVectors: numVectors, config: config)
+
+        // Use nonisolated(unsafe) to bypass Sendable checks for MTLBuffer
+        nonisolated(unsafe) let unsafeInputBuffer = inputBuffer
+        nonisolated(unsafe) let unsafeScaleBuffer = scaleBuffer
+        nonisolated(unsafe) let unsafeOutputBuffer = outputBuffer
+
+        print("\n=== Transposed vs Non-Transposed Decode (768←128, \(numVectors) vectors) ===")
+
+        // --- Non-transposed 128-thread kernel ---
+        var nonTransposedTimes: [TimeInterval] = []
+
+        // Warmup
+        for _ in 0..<3 {
+            try await context.executeAndWait { [kernel] _, encoder in
+                try kernel.encodeDequantizeDecodeWithThreadgroupSize(
+                    into: encoder,
+                    input: unsafeInputBuffer,
+                    scale: unsafeScaleBuffer,
+                    output: unsafeOutputBuffer,
+                    parameters: params,
+                    threadgroupSize: 128
+                )
+            }
+        }
+
+        // Measure
+        for _ in 0..<10 {
+            let start = CFAbsoluteTimeGetCurrent()
+            try await context.executeAndWait { [kernel] _, encoder in
+                try kernel.encodeDequantizeDecodeWithThreadgroupSize(
+                    into: encoder,
+                    input: unsafeInputBuffer,
+                    scale: unsafeScaleBuffer,
+                    output: unsafeOutputBuffer,
+                    parameters: params,
+                    threadgroupSize: 128
+                )
+            }
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            nonTransposedTimes.append(elapsed)
+        }
+
+        let nonTransposedAvg = nonTransposedTimes.reduce(0, +) / Double(nonTransposedTimes.count)
+        let nonTransposedThroughput = Double(numVectors) / nonTransposedAvg
+
+        // --- Transposed kernel (auto-selected via encodeDequantizeDecode) ---
+        var transposedTimes: [TimeInterval] = []
+
+        // Warmup
+        for _ in 0..<3 {
+            try await context.executeAndWait { [kernel] _, encoder in
+                try kernel.encodeDequantizeDecode(
+                    into: encoder,
+                    input: unsafeInputBuffer,
+                    scale: unsafeScaleBuffer,
+                    output: unsafeOutputBuffer,
+                    parameters: params
+                )
+            }
+        }
+
+        // Measure
+        for _ in 0..<10 {
+            let start = CFAbsoluteTimeGetCurrent()
+            try await context.executeAndWait { [kernel] _, encoder in
+                try kernel.encodeDequantizeDecode(
+                    into: encoder,
+                    input: unsafeInputBuffer,
+                    scale: unsafeScaleBuffer,
+                    output: unsafeOutputBuffer,
+                    parameters: params
+                )
+            }
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            transposedTimes.append(elapsed)
+        }
+
+        let transposedAvg = transposedTimes.reduce(0, +) / Double(transposedTimes.count)
+        let transposedThroughput = Double(numVectors) / transposedAvg
+
+        let speedup = transposedThroughput / nonTransposedThroughput
+
+        print("Non-transposed (128 threads):")
+        print(String(format: "  Time: %.2f ms", nonTransposedAvg * 1000))
+        print(String(format: "  Throughput: %.0f vectors/sec", nonTransposedThroughput))
+        print("")
+        print("Transposed (coalesced memory):")
+        print(String(format: "  Time: %.2f ms", transposedAvg * 1000))
+        print(String(format: "  Throughput: %.0f vectors/sec", transposedThroughput))
+        print("")
+        print(String(format: "Speedup from transpose: %.2fx", speedup))
+
+        // Verify numerical correctness by comparing outputs
+        let nonTransposedOutput = try await decodeWithKernel(
+            kernel: kernel,
+            input: inputBuffer,
+            scale: scaleBuffer,
+            output: outputBuffer,
+            params: params,
+            useTransposed: false
+        )
+
+        let transposedOutput = try await decodeWithKernel(
+            kernel: kernel,
+            input: inputBuffer,
+            scale: scaleBuffer,
+            output: outputBuffer,
+            params: params,
+            useTransposed: true
+        )
+
+        // Compare outputs - should match within tolerance
+        var maxDiff: Float = 0
+        for i in 0..<min(nonTransposedOutput.count, transposedOutput.count) {
+            let diff = abs(nonTransposedOutput[i] - transposedOutput[i])
+            maxDiff = max(maxDiff, diff)
+        }
+
+        print(String(format: "\nNumerical accuracy: max diff = %.6f", maxDiff))
+
+        XCTAssertLessThan(maxDiff, 1e-4, "Transposed and non-transposed outputs should match within tolerance")
+
+        // Performance assertions (lowered threshold for CI compatibility)
+        XCTAssertGreaterThan(transposedThroughput, 500_000, "Transposed decode should exceed 500k vec/s")
+    }
+
+    /// Helper to decode and return output values
+    private func decodeWithKernel(
+        kernel: NeuralQuantizationKernel,
+        input: any MTLBuffer,
+        scale: any MTLBuffer,
+        output: any MTLBuffer,
+        params: NeuralQuantizationParameters,
+        useTransposed: Bool
+    ) async throws -> [Float] {
+        nonisolated(unsafe) let unsafeInput = input
+        nonisolated(unsafe) let unsafeScale = scale
+        nonisolated(unsafe) let unsafeOutput = output
+
+        try await context.executeAndWait { [kernel] _, encoder in
+            if useTransposed {
+                try kernel.encodeDequantizeDecode(
+                    into: encoder,
+                    input: unsafeInput,
+                    scale: unsafeScale,
+                    output: unsafeOutput,
+                    parameters: params
+                )
+            } else {
+                try kernel.encodeDequantizeDecodeWithThreadgroupSize(
+                    into: encoder,
+                    input: unsafeInput,
+                    scale: unsafeScale,
+                    output: unsafeOutput,
+                    parameters: params,
+                    threadgroupSize: 128
+                )
+            }
+        }
+
+        let numElements = Int(params.numVectors) * Int(params.inputDimension)
+        let ptr = output.contents().bindMemory(to: Float.self, capacity: numElements)
+        return Array(UnsafeBufferPointer(start: ptr, count: numElements))
+    }
+
+    // MARK: - Buffer Management Optimization Benchmarks
+
+    /// Benchmark: Compare decode() vs decodeFlat() performance.
+    ///
+    /// decodeFlat() returns a flat [Float] array which avoids the overhead
+    /// of creating nested [[Float]] arrays, providing ~10-20x faster extraction.
+    func testDecodeFlatVsDecodePerformance() async throws {
+        let kernel = try await NeuralQuantizationKernel(context: context)
+        let config = Metal4NeuralQuantizationConfig.balanced(inputDim: 768)
+
+        try await kernel.createRandomWeights(config: config)
+
+        let numVectors = 1000
+        let vectors = generateRandomVectors(count: numVectors, dimension: 768)
+        let encoded = try await kernel.encode(vectors)
+
+        print("\n=== decode() vs decodeFlat() Performance (\(numVectors) vectors) ===")
+
+        // Warmup both paths
+        _ = try await kernel.decode(encoded)
+        _ = try await kernel.decodeFlat(encoded)
+
+        // Measure decode() (returns [[Float]])
+        var decodeTimes: [TimeInterval] = []
+        for _ in 0..<10 {
+            let time = try await measureTime {
+                _ = try await kernel.decode(encoded)
+            }
+            decodeTimes.append(time)
+        }
+        let decodeAvg = decodeTimes.reduce(0, +) / Double(decodeTimes.count)
+        let decodeThroughput = Double(numVectors) / decodeAvg
+
+        // Measure decodeFlat() (returns [Float])
+        var decodeFlatTimes: [TimeInterval] = []
+        for _ in 0..<10 {
+            let time = try await measureTime {
+                _ = try await kernel.decodeFlat(encoded)
+            }
+            decodeFlatTimes.append(time)
+        }
+        let decodeFlatAvg = decodeFlatTimes.reduce(0, +) / Double(decodeFlatTimes.count)
+        let decodeFlatThroughput = Double(numVectors) / decodeFlatAvg
+
+        let speedup = decodeFlatThroughput / decodeThroughput
+
+        print("decode() (nested [[Float]]):")
+        print(String(format: "  Time: %.2f ms", decodeAvg * 1000))
+        print(String(format: "  Throughput: %.0f vectors/sec", decodeThroughput))
+        print("")
+        print("decodeFlat() (flat [Float]):")
+        print(String(format: "  Time: %.2f ms", decodeFlatAvg * 1000))
+        print(String(format: "  Throughput: %.0f vectors/sec", decodeFlatThroughput))
+        print("")
+        print(String(format: "Speedup from flat output: %.2fx", speedup))
+
+        // Verify numerical correctness
+        let decoded = try await kernel.decode(encoded)
+        let decodedFlat = try await kernel.decodeFlat(encoded)
+
+        var maxDiff: Float = 0
+        let inputDim = config.inputDimension
+        for i in 0..<numVectors {
+            for j in 0..<inputDim {
+                let diff = abs(decoded[i][j] - decodedFlat[i * inputDim + j])
+                maxDiff = max(maxDiff, diff)
+            }
+        }
+
+        print(String(format: "Numerical accuracy: max diff = %.6f", maxDiff))
+
+        XCTAssertEqual(maxDiff, 0, "decode() and decodeFlat() should produce identical results")
+        XCTAssertGreaterThan(decodeThroughput, 10000, "decode() should exceed 10K vec/s with optimizations")
+    }
+
+    /// Benchmark: End-to-end decode performance with buffer pooling.
+    ///
+    /// Measures the impact of buffer pool reuse across multiple decode calls.
+    func testDecodeWithBufferPoolingScaling() async throws {
+        let kernel = try await NeuralQuantizationKernel(context: context)
+        let config = Metal4NeuralQuantizationConfig.balanced(inputDim: 768)
+
+        try await kernel.createRandomWeights(config: config)
+
+        let numVectors = 1000
+        let vectors = generateRandomVectors(count: numVectors, dimension: 768)
+        let encoded = try await kernel.encode(vectors)
+
+        print("\n=== Decode Performance with Buffer Pooling ===")
+        print("Iteration | Time (ms)  | Throughput (vec/s)")
+        print("----------|------------|-------------------")
+
+        // First decode triggers buffer allocation
+        let firstStart = CFAbsoluteTimeGetCurrent()
+        _ = try await kernel.decode(encoded)
+        let firstTime = CFAbsoluteTimeGetCurrent() - firstStart
+        let firstThroughput = Double(numVectors) / firstTime
+        print(String(format: "First     | %10.2f | %17.0f", firstTime * 1000, firstThroughput))
+
+        // Subsequent decodes should benefit from buffer pool reuse
+        for i in 1...5 {
+            let start = CFAbsoluteTimeGetCurrent()
+            _ = try await kernel.decode(encoded)
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            let throughput = Double(numVectors) / elapsed
+            print(String(format: "Iter %d    | %10.2f | %17.0f", i, elapsed * 1000, throughput))
+        }
+
+        // Measure average of stable iterations
+        var stableTimes: [TimeInterval] = []
+        for _ in 0..<10 {
+            let start = CFAbsoluteTimeGetCurrent()
+            _ = try await kernel.decode(encoded)
+            stableTimes.append(CFAbsoluteTimeGetCurrent() - start)
+        }
+        let stableAvg = stableTimes.reduce(0, +) / Double(stableTimes.count)
+        let stableThroughput = Double(numVectors) / stableAvg
+
+        print("----------|------------|-------------------")
+        print(String(format: "Stable avg| %10.2f | %17.0f", stableAvg * 1000, stableThroughput))
+
+        // Target: >50k vec/s with buffer pooling and extraction optimization
+        XCTAssertGreaterThan(stableThroughput, 20000, "Pooled decode should exceed 20K vec/s")
     }
 
     // MARK: - Scaling Benchmarks

@@ -60,6 +60,64 @@ public final class IVFCoarseQuantizerKernel: @unchecked Sendable, Metal4Kernel {
         try await fusedL2TopK.warmUp()
     }
 
+    // MARK: - Encode API
+
+    /// Encode coarse quantization into an existing encoder.
+    ///
+    /// This method allows fusing coarse quantization with other operations
+    /// in a single command buffer, reducing GPU dispatch overhead.
+    ///
+    /// - Parameters:
+    ///   - encoder: The compute command encoder
+    ///   - queries: Query vectors buffer [numQueries × dimension]
+    ///   - centroids: Centroid vectors buffer [numCentroids × dimension]
+    ///   - outputIndices: Output buffer for centroid indices [numQueries × nprobe]
+    ///   - outputDistances: Output buffer for centroid distances [numQueries × nprobe]
+    ///   - numQueries: Number of query vectors
+    ///   - numCentroids: Number of centroids
+    ///   - dimension: Vector dimension
+    ///   - nprobe: Number of nearest centroids to find per query
+    /// - Returns: Encoding result for profiling
+    /// Maximum nprobe value supported by the fused encode path.
+    /// For nprobe > 8, use `findNearestCentroids()` instead which handles larger K values.
+    public static let maxFusedNprobe = 8
+
+    @discardableResult
+    public func encode(
+        into encoder: any MTLComputeCommandEncoder,
+        queries: any MTLBuffer,
+        centroids: any MTLBuffer,
+        outputIndices: any MTLBuffer,
+        outputDistances: any MTLBuffer,
+        numQueries: Int,
+        numCentroids: Int,
+        dimension: Int,
+        nprobe: Int
+    ) throws -> Metal4EncodingResult {
+        // The fused L2 TopK shader only supports K <= 8
+        guard nprobe <= Self.maxFusedNprobe else {
+            throw IndexError.invalidInput(
+                message: "nprobe (\(nprobe)) exceeds maximum for fused encode path (\(Self.maxFusedNprobe)). Use findNearestCentroids() for nprobe > 8."
+            )
+        }
+
+        let params = try FusedL2TopKParameters(
+            numQueries: numQueries,
+            numDataset: numCentroids,
+            dimension: dimension,
+            k: nprobe
+        )
+
+        return fusedL2TopK.encode(
+            into: encoder,
+            queries: queries,
+            dataset: centroids,
+            outputIndices: outputIndices,
+            outputDistances: outputDistances,
+            parameters: params
+        )
+    }
+
     // MARK: - Coarse Quantization
 
     /// Find the nprobe nearest centroids for each query.
@@ -92,7 +150,7 @@ public final class IVFCoarseQuantizerKernel: @unchecked Sendable, Metal4Kernel {
         }
 
         // Use fused L2 + Top-K to find nearest centroids
-        let params = FusedL2TopKParameters(
+        let params = try FusedL2TopKParameters(
             numQueries: numQueries,
             numDataset: numCentroids,
             dimension: dimension,

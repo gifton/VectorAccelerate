@@ -56,6 +56,7 @@ public final class KMeansPipeline: @unchecked Sendable {
     private let assignKernel: KMeansAssignKernel
     private let updateKernel: KMeansUpdateKernel
     private let convergenceKernel: KMeansConvergenceKernel
+    private let kMeansPlusPlusKernel: KMeansPlusPlusKernel
 
     // MARK: - Initialization
 
@@ -77,6 +78,7 @@ public final class KMeansPipeline: @unchecked Sendable {
         self.assignKernel = try await KMeansAssignKernel(context: context)
         self.updateKernel = try await KMeansUpdateKernel(context: context)
         self.convergenceKernel = try await KMeansConvergenceKernel(context: context)
+        self.kMeansPlusPlusKernel = try await KMeansPlusPlusKernel(context: context)
     }
 
     // MARK: - Warm Up
@@ -86,6 +88,7 @@ public final class KMeansPipeline: @unchecked Sendable {
         try await assignKernel.warmUp()
         try await updateKernel.warmUp()
         try await convergenceKernel.warmUp()
+        try await kMeansPlusPlusKernel.warmUp()
     }
 
     // MARK: - Fit
@@ -129,32 +132,33 @@ public final class KMeansPipeline: @unchecked Sendable {
         vectorBuffer.label = "KMeansPipeline.vectors"
 
         // Initialize centroids
-        let centroids: [[Float]]
+        var centroidBuffer: any MTLBuffer
         if let initial = initialCentroids {
             guard initial.count == configuration.numClusters else {
                 throw IndexError.invalidInput(
                     message: "Initial centroids count (\(initial.count)) must match numClusters (\(configuration.numClusters))"
                 )
             }
-            centroids = initial
+            let currentCentroids = initial.flatMap { $0 }
+            guard let buffer = device.makeBuffer(
+                bytes: currentCentroids,
+                length: currentCentroids.count * MemoryLayout<Float>.size,
+                options: .storageModeShared
+            ) else {
+                throw VectorError.bufferAllocationFailed(size: currentCentroids.count * MemoryLayout<Float>.size)
+            }
+            buffer.label = "KMeansPipeline.centroids"
+            centroidBuffer = buffer
         } else {
-            // Use K-means++ initialization from VectorIndex
-            centroids = try initializeCentroidsKMeansPlusPlus(
-                vectors: vectors,
+            // Use GPU-accelerated K-means++ initialization
+            centroidBuffer = try await kMeansPlusPlusKernel.selectCentroidsBuffer(
+                from: vectorBuffer,
+                numVectors: numVectors,
+                dimension: dimension,
                 k: configuration.numClusters
             )
+            centroidBuffer.label = "KMeansPipeline.centroids"
         }
-
-        // Create centroid buffer
-        let currentCentroids = centroids.flatMap { $0 }
-        guard var centroidBuffer = device.makeBuffer(
-            bytes: currentCentroids,
-            length: currentCentroids.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: currentCentroids.count * MemoryLayout<Float>.size)
-        }
-        centroidBuffer.label = "KMeansPipeline.centroids"
 
         // Iteration tracking
         var iterationTimings: [KMeansIterationTiming] = []
@@ -295,31 +299,14 @@ public final class KMeansPipeline: @unchecked Sendable {
         if let initial = initialCentroids {
             centroidBuffer = initial
         } else {
-            // Extract vectors and use K-means++
-            let vectorPtr = vectors.contents().bindMemory(to: Float.self, capacity: numVectors * dimension)
-            var vectorsArray: [[Float]] = []
-            vectorsArray.reserveCapacity(numVectors)
-            for i in 0..<numVectors {
-                var vec: [Float] = []
-                vec.reserveCapacity(dimension)
-                for d in 0..<dimension {
-                    vec.append(vectorPtr[i * dimension + d])
-                }
-                vectorsArray.append(vec)
-            }
-
-            let centroids = try initializeCentroidsKMeansPlusPlus(vectors: vectorsArray, k: numClusters)
-            let flatCentroids = centroids.flatMap { $0 }
-
-            guard let buffer = device.makeBuffer(
-                bytes: flatCentroids,
-                length: flatCentroids.count * MemoryLayout<Float>.size,
-                options: .storageModeShared
-            ) else {
-                throw VectorError.bufferAllocationFailed(size: flatCentroids.count * MemoryLayout<Float>.size)
-            }
-            buffer.label = "KMeansPipeline.centroids"
-            centroidBuffer = buffer
+            // Use GPU-accelerated K-means++ initialization
+            centroidBuffer = try await kMeansPlusPlusKernel.selectCentroidsBuffer(
+                from: vectors,
+                numVectors: numVectors,
+                dimension: dimension,
+                k: numClusters
+            )
+            centroidBuffer.label = "KMeansPipeline.centroids"
         }
 
         // Iteration loop
@@ -433,98 +420,4 @@ public final class KMeansPipeline: @unchecked Sendable {
         )
     }
 
-    // MARK: - Private Helpers
-
-    /// Initialize centroids using K-means++ algorithm.
-    ///
-    /// K-means++ selects initial centroids that are spread out:
-    /// 1. Choose first centroid uniformly at random
-    /// 2. For each subsequent centroid, choose with probability proportional
-    ///    to squared distance from nearest existing centroid
-    private func initializeCentroidsKMeansPlusPlus(
-        vectors: [[Float]],
-        k: Int
-    ) throws -> [[Float]] {
-        let n = vectors.count
-        // Note: dimension d = vectors[0].count is implicit in vector operations
-
-        guard n >= k else {
-            throw IndexError.invalidInput(
-                message: "Not enough vectors (\(n)) for \(k) clusters"
-            )
-        }
-
-        var centroids: [[Float]] = []
-        centroids.reserveCapacity(k)
-
-        // Track which indices have been chosen
-        var chosen = Set<Int>()
-
-        // Step 1: Choose first centroid uniformly at random
-        let firstIdx = Int.random(in: 0..<n)
-        centroids.append(vectors[firstIdx])
-        chosen.insert(firstIdx)
-
-        // Step 2: Choose remaining k-1 centroids
-        for _ in 1..<k {
-            // Compute squared distance from each point to nearest centroid
-            var distances = [Float](repeating: Float.infinity, count: n)
-            var totalWeight: Float = 0
-
-            for i in 0..<n {
-                if chosen.contains(i) {
-                    distances[i] = 0
-                    continue
-                }
-
-                // Find distance to nearest centroid
-                var minDist: Float = .infinity
-                for centroid in centroids {
-                    let dist = squaredL2Distance(vectors[i], centroid)
-                    minDist = min(minDist, dist)
-                }
-                distances[i] = minDist
-                totalWeight += minDist
-            }
-
-            // Choose next centroid with probability proportional to D²
-            guard totalWeight > 0 else {
-                // All remaining points are at centroids, pick any unselected
-                for i in 0..<n where !chosen.contains(i) {
-                    centroids.append(vectors[i])
-                    chosen.insert(i)
-                    break
-                }
-                continue
-            }
-
-            let threshold = Float.random(in: 0..<totalWeight)
-            var cumulative: Float = 0
-            var selectedIdx = 0
-
-            for i in 0..<n {
-                cumulative += distances[i]
-                if cumulative >= threshold {
-                    selectedIdx = i
-                    break
-                }
-            }
-
-            centroids.append(vectors[selectedIdx])
-            chosen.insert(selectedIdx)
-        }
-
-        return centroids
-    }
-
-    /// Compute squared L2 distance between two vectors.
-    @inline(__always)
-    private func squaredL2Distance(_ a: [Float], _ b: [Float]) -> Float {
-        var sum: Float = 0
-        for i in 0..<min(a.count, b.count) {
-            let diff = a[i] - b[i]
-            sum += diff * diff
-        }
-        return sum
-    }
 }

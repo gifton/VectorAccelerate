@@ -2,22 +2,24 @@
 //  MetadataStore.swift
 //  VectorAccelerate
 //
-//  CPU-side sparse metadata storage.
+//  Metadata storage keyed by stable handle IDs.
 //
-//  Provides:
-//  - Sparse storage (only non-nil entries)
-//  - O(1) lookup by slot index
-//  - Compaction alongside vector buffer
+//  With stable handles (P0.8), metadata is keyed by `VectorHandle.stableID`
+//  so it remains valid across compaction (slots may move, stable IDs do not).
 //
 
 import Foundation
 
 // MARK: - Metadata Store
 
-/// Sparse CPU-side metadata storage.
+/// Sparse CPU-side metadata storage keyed by stable ID.
 ///
 /// Uses a dictionary for memory-efficient storage of optional per-vector metadata.
 /// Only stores entries where metadata is actually provided.
+///
+/// ## Stability Across Compaction
+/// Since metadata is keyed by `stableID` (not slot index), no remapping is
+/// needed during compaction. This simplifies lifecycle management.
 ///
 /// ## Memory Efficiency
 /// For an index with 1M vectors where only 10% have metadata:
@@ -31,7 +33,7 @@ struct MetadataStore: Sendable {
 
     // MARK: - Properties
 
-    /// Sparse storage: slot index -> metadata.
+    /// Sparse storage: stableID -> metadata.
     private var storage: [UInt32: VectorMetadata]
 
     /// Number of entries with metadata.
@@ -64,14 +66,14 @@ struct MetadataStore: Sendable {
         self.storage = Dictionary(minimumCapacity: capacity)
     }
 
-    // MARK: - Access
+    // MARK: - Access by stableID
 
-    /// Get metadata for a slot.
+    /// Get metadata for a stable ID.
     ///
-    /// - Parameter slotIndex: Slot index
+    /// - Parameter stableID: Stable identifier
     /// - Returns: Metadata if set, nil otherwise
-    func get(_ slotIndex: UInt32) -> VectorMetadata? {
-        storage[slotIndex]
+    func get(for stableID: UInt32) -> VectorMetadata? {
+        storage[stableID]
     }
 
     /// Get metadata for a handle.
@@ -80,19 +82,19 @@ struct MetadataStore: Sendable {
     /// - Returns: Metadata if set, nil otherwise
     func get(for handle: VectorHandle) -> VectorMetadata? {
         guard handle.isValid else { return nil }
-        return storage[handle.index]
+        return storage[handle.stableID]
     }
 
-    /// Set metadata for a slot.
+    /// Set metadata for a stable ID.
     ///
     /// - Parameters:
     ///   - metadata: Metadata to set (nil to remove)
-    ///   - slotIndex: Slot index
-    mutating func set(_ metadata: VectorMetadata?, for slotIndex: UInt32) {
+    ///   - stableID: Stable identifier
+    mutating func set(_ metadata: VectorMetadata?, for stableID: UInt32) {
         if let metadata = metadata, !metadata.isEmpty {
-            storage[slotIndex] = metadata
+            storage[stableID] = metadata
         } else {
-            storage.removeValue(forKey: slotIndex)
+            storage.removeValue(forKey: stableID)
         }
     }
 
@@ -103,24 +105,24 @@ struct MetadataStore: Sendable {
     ///   - handle: Vector handle
     mutating func set(_ metadata: VectorMetadata?, for handle: VectorHandle) {
         guard handle.isValid else { return }
-        set(metadata, for: handle.index)
+        set(metadata, for: handle.stableID)
     }
 
-    /// Check if a slot has metadata.
+    /// Check if a stable ID has metadata.
     ///
-    /// - Parameter slotIndex: Slot index
-    /// - Returns: true if metadata exists for this slot
-    func hasMetadata(_ slotIndex: UInt32) -> Bool {
-        storage[slotIndex] != nil
+    /// - Parameter stableID: Stable identifier
+    /// - Returns: true if metadata exists
+    func hasMetadata(_ stableID: UInt32) -> Bool {
+        storage[stableID] != nil
     }
 
-    /// Remove metadata for a slot.
+    /// Remove metadata for a stable ID.
     ///
-    /// - Parameter slotIndex: Slot index
+    /// - Parameter stableID: Stable identifier
     /// - Returns: Removed metadata, or nil if none existed
     @discardableResult
-    mutating func remove(_ slotIndex: UInt32) -> VectorMetadata? {
-        storage.removeValue(forKey: slotIndex)
+    mutating func remove(_ stableID: UInt32) -> VectorMetadata? {
+        storage.removeValue(forKey: stableID)
     }
 
     /// Remove metadata for a handle.
@@ -130,81 +132,26 @@ struct MetadataStore: Sendable {
     @discardableResult
     mutating func remove(for handle: VectorHandle) -> VectorMetadata? {
         guard handle.isValid else { return nil }
-        return storage.removeValue(forKey: handle.index)
+        return storage.removeValue(forKey: handle.stableID)
     }
 
     // MARK: - Bulk Operations
 
-    /// Set metadata for multiple slots.
+    /// Set metadata for multiple entries.
     ///
     /// - Parameters:
-    ///   - entries: Array of (slotIndex, metadata) pairs
+    ///   - entries: Array of (stableID, metadata) pairs
     mutating func setMultiple(_ entries: [(UInt32, VectorMetadata?)]) {
-        for (slotIndex, metadata) in entries {
-            set(metadata, for: slotIndex)
+        for (stableID, metadata) in entries {
+            set(metadata, for: stableID)
         }
     }
 
-    /// Get all slot indices that have metadata.
+    /// Get all stable IDs that have metadata.
     ///
-    /// - Returns: Array of slot indices with metadata
-    func slotsWithMetadata() -> [UInt32] {
+    /// - Returns: Array of stable IDs with metadata
+    func stableIDsWithMetadata() -> [UInt32] {
         Array(storage.keys)
-    }
-
-    // MARK: - Compaction
-
-    /// Compact the store using an index mapping.
-    ///
-    /// Remaps all slot indices according to the provided mapping.
-    /// Entries not in the mapping are discarded.
-    ///
-    /// - Parameter indexMapping: Mapping from old slot indices to new indices
-    /// - Returns: New metadata store with remapped indices
-    func compacted(using indexMapping: [UInt32: UInt32]) -> MetadataStore {
-        var newStore = MetadataStore(capacity: indexMapping.count)
-
-        for (oldIndex, metadata) in storage {
-            if let newIndex = indexMapping[oldIndex] {
-                newStore.storage[newIndex] = metadata
-            }
-        }
-
-        return newStore
-    }
-
-    /// Compact in place using an index mapping.
-    ///
-    /// - Parameter indexMapping: Mapping from old slot indices to new indices
-    mutating func compact(using indexMapping: [UInt32: UInt32]) {
-        var newStorage: [UInt32: VectorMetadata] = Dictionary(minimumCapacity: indexMapping.count)
-
-        for (oldIndex, metadata) in storage {
-            if let newIndex = indexMapping[oldIndex] {
-                newStorage[newIndex] = metadata
-            }
-        }
-
-        storage = newStorage
-    }
-
-    /// Compact using a keep mask.
-    ///
-    /// - Parameter keepMask: Boolean array where true = keep the slot
-    /// - Returns: Tuple of (new store, index mapping from old to new)
-    func compacted(keepMask: [Bool]) -> (store: MetadataStore, indexMapping: [UInt32: UInt32]) {
-        var indexMapping: [UInt32: UInt32] = [:]
-        var newIndex: UInt32 = 0
-
-        for oldIndex in 0..<keepMask.count {
-            if keepMask[oldIndex] {
-                indexMapping[UInt32(oldIndex)] = newIndex
-                newIndex += 1
-            }
-        }
-
-        let newStore = compacted(using: indexMapping)
-        return (newStore, indexMapping)
     }
 
     // MARK: - Filtering
@@ -212,16 +159,16 @@ struct MetadataStore: Sendable {
     /// Filter entries matching a predicate.
     ///
     /// - Parameter predicate: Filter function
-    /// - Returns: Array of (slotIndex, metadata) pairs matching the predicate
+    /// - Returns: Array of (stableID, metadata) pairs matching the predicate
     func filter(_ predicate: (UInt32, VectorMetadata) -> Bool) -> [(UInt32, VectorMetadata)] {
-        storage.compactMap { slotIndex, metadata in
-            predicate(slotIndex, metadata) ? (slotIndex, metadata) : nil
+        storage.compactMap { stableID, metadata in
+            predicate(stableID, metadata) ? (stableID, metadata) : nil
         }
     }
 
     /// Get all entries.
     ///
-    /// - Returns: Array of (slotIndex, metadata) pairs
+    /// - Returns: Array of (stableID, metadata) pairs
     func allEntries() -> [(UInt32, VectorMetadata)] {
         storage.map { ($0.key, $0.value) }
     }
@@ -242,10 +189,10 @@ struct MetadataStore: Sendable {
 // MARK: - Subscript Access
 
 extension MetadataStore {
-    /// Subscript access for slot indices.
-    subscript(slotIndex: UInt32) -> VectorMetadata? {
-        get { get(slotIndex) }
-        set { set(newValue, for: slotIndex) }
+    /// Subscript access for stable IDs.
+    subscript(stableID: UInt32) -> VectorMetadata? {
+        get { get(for: stableID) }
+        set { set(newValue, for: stableID) }
     }
 
     /// Subscript access for handles.

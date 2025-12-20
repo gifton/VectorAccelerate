@@ -5,6 +5,8 @@
 VectorAccelerate provides high-performance GPU acceleration for vector operations, serving as the computational backbone for the VectorCore ecosystem. By leveraging Metal 4's compute shaders, unified command encoding, and Apple Silicon's unified memory architecture, VectorAccelerate delivers up to 100x speedups for large-scale vector operations.
 
 > **⚠️ Version 0.3.0**: Requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+). For older OS support, use VectorAccelerate 0.2.x
+> 
+> **⚠️ This package is still experimental, with development and real-world testing in progress** for Production grade Vector operations see VectorCore and VectorIndex's CPU-bound implementation
 
 ## 🎯 Purpose
 
@@ -273,6 +275,25 @@ let filtered = try await index.search(query: queryVector, k: 10) { handle, meta 
 | **Flat** | Small-medium datasets (<100K) | Exact results, ~0.3ms search |
 | **IVF** | Large datasets (100K+) | Approximate, faster at scale |
 
+### Handle Stability
+
+`VectorHandle` instances are **stable** — they remain valid across `compact()` operations:
+
+```swift
+let handle = try await index.insert(embedding)
+
+// Delete some vectors
+try await index.remove(otherHandle)
+
+// Compact to reclaim space
+try await index.compact()
+
+// Original handle still works!
+let vector = try await index.vector(for: handle)  // ✓ Valid
+```
+
+Internally, handles use an indirection table that maps stable IDs to storage slots, so compaction can relocate vectors without invalidating user-held handles.
+
 ### Performance
 
 - **Insert**: ~21K vectors/sec (128D), ~3.7K vectors/sec (768D)
@@ -468,9 +489,11 @@ let manhattan = try await provider.distance(from: v1, to: v2, metric: .manhattan
 | Use Case | Recommended Kernel | Notes |
 |----------|-------------------|-------|
 | Standard top-k | `TopKSelectionKernel` | General purpose |
-| Memory-constrained | `FusedL2TopKKernel` | Avoids full distance matrix |
-| Very large k | `StreamingTopKKernel` | For k > 1000 |
-| SIMD-optimized | `WarpOptimizedSelectionKernel` | Small k values |
+| Memory-constrained | `FusedL2TopKKernel` | Avoids full distance matrix, auto-fallback for K > 8 |
+| Large datasets | `FusedL2TopKKernel` | Uses chunked GPU merge for memory efficiency |
+| SIMD-optimized | `WarpOptimizedSelectionKernel` | Small k values (k ≤ 32) |
+
+> **Note**: `StreamingTopKKernel` is deprecated due to known correctness issues. Use `FusedL2TopKKernel` which automatically handles large datasets via chunked GPU merge.
 
 ### Quantization
 
@@ -531,6 +554,33 @@ Typical speedups over CPU implementations:
 | Matrix Multiply | 2048 × 2048 | 1.8s | 0.03s | 60x |
 | Top-K Selection | 1M, k=100 | 0.9s | 0.02s | 45x |
 | INT8 Quantization | 10M vectors | 2.1s | 0.04s | 52x |
+
+## ⚠️ Known Limitations
+
+### Fused L2 Top-K Kernel
+
+The `FusedL2TopKKernel` uses different strategies based on K:
+
+| K Range | Strategy | Memory |
+|---------|----------|--------|
+| K ≤ 8 | Fused single-pass | O(Q × K) - no distance matrix |
+| 8 < K ≤ 32 | Two-pass with warp selection | O(Q × N) distance matrix |
+| K > 32 | Two-pass with standard selection | O(Q × N) distance matrix |
+| Large N | Chunked GPU merge | Bounded by `maxDistanceMatrixBytes` |
+
+For K > 8, the kernel automatically falls back to a two-pass approach. For very large datasets, it uses chunked processing with GPU-side merge to stay within memory bounds.
+
+### IVF Index (Work in Progress)
+
+The IVF index has known correctness issues being addressed:
+- Batch search may not correctly isolate per-query candidate lists
+- Training with many deletions may cause duplicate entries
+
+For production use, prefer the **flat index** until these are resolved (see `QUALITY_IMPROVEMENT_ROADMAP.md` P0.1-P0.4).
+
+### Metal Shader Compilation
+
+Shaders are validated with `-std=metal3.0` in CI for syntax checking, but the runtime requires **Metal 4** features (macOS 26.0+). This is intentional — Metal 3 syntax is a subset of Metal 4.
 
 ## 🧪 Testing
 

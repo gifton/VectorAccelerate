@@ -7,15 +7,15 @@ import VectorCore
 @preconcurrency import Metal
 
 final class Priority2IntegrationTests: XCTestCase {
-    var metalContext: MetalContext!
+    var metalContext: Metal4Context!
     var batchEngine: BatchDistanceEngine!
 
     override func setUp() async throws {
         guard MetalDevice.isAvailable else {
             throw XCTSkip("Metal not available")
         }
-        metalContext = try await MetalContext()
-        batchEngine = try await BatchDistanceEngine(metalContext: metalContext)
+        metalContext = try await Metal4Context()
+        batchEngine = try await BatchDistanceEngine(context: metalContext)
     }
 
     override func tearDown() async throws {
@@ -23,41 +23,48 @@ final class Priority2IntegrationTests: XCTestCase {
         batchEngine = nil
     }
 
-    // MARK: - SmartBufferPool Tests
+    // MARK: - BufferPool Tests
 
-    func testSmartBufferPoolAllocation() async throws {
-        let pool = SmartBufferPool(device: await metalContext.device)
+    func testBufferPoolAllocation() async throws {
+        let pool = await metalContext.bufferPool
 
         // Test acquiring buffers of various sizes
-        let buffer1 = try await pool.acquire(byteSize: 1024)
-        XCTAssertNotNil(buffer1)
+        let token1 = try await pool.getBuffer(size: 1024)
+        XCTAssertNotNil(token1.buffer)
 
-        let buffer2 = try await pool.acquire(for: Float.self, count: 256)
-        XCTAssertNotNil(buffer2)
+        let token2 = try await pool.getBuffer(for: Float.self, count: 256)
+        XCTAssertNotNil(token2.buffer)
 
         // Test with data initialization
         let testData: [Float] = (0..<128).map { Float($0) }
-        let buffer3 = try await pool.acquire(with: testData)
-        XCTAssertNotNil(buffer3)
+        let token3 = try await pool.getBuffer(with: testData)
+        XCTAssertNotNil(token3.buffer)
 
         // Check statistics
         let stats = await pool.getStatistics()
-        XCTAssertGreaterThan(stats.totalAllocations, 0)
+        XCTAssertGreaterThan(stats.allocationCount, 0)
         print("Buffer pool hit rate: \(stats.hitRate)")
     }
 
-    func testSmartBufferPoolReuse() async throws {
-        let pool = SmartBufferPool(device: await metalContext.device)
+    func testBufferPoolReuse() async throws {
+        let pool = await metalContext.bufferPool
 
-        // Allocate and release multiple buffers
-        for _ in 0..<10 {
-            let buffer = try await pool.acquire(byteSize: 4096)
-            await pool.release(buffer)
-        }
+        // With RAII BufferToken, we need to manually return to demonstrate reuse
+        // Allocate a token, use it, then manually return it
+        let token1 = try await pool.getBuffer(size: 4096)
+        _ = token1.buffer  // Use the buffer
+        token1.returnToPool()  // Explicitly return for immediate reuse
 
-        // Check that buffers are being reused
+        // Wait briefly for async return to complete
+        try await Task.sleep(nanoseconds: 10_000_000)  // 10ms
+
+        // Now allocate again - should get the same buffer (cache hit)
+        let token2 = try await pool.getBuffer(size: 4096)
+        _ = token2.buffer
+
+        // Check that we got a cache hit
         let stats = await pool.getStatistics()
-        XCTAssertGreaterThan(stats.hitRate, 0.5, "Buffer pool should have good reuse rate")
+        XCTAssertGreaterThan(stats.hitCount, 0, "Buffer pool should have cache hits after reuse")
     }
 
     // MARK: - BatchDistanceOperations Tests
@@ -236,7 +243,7 @@ final class Priority2IntegrationTests: XCTestCase {
 
     func testFullPipelineIntegration() async throws {
         // Create a complete pipeline using Priority 2 components
-        let pool = SmartBufferPool(device: await metalContext.device)
+        let pool = await metalContext.bufferPool
 
         // Generate test data
         let dimension = 512
@@ -266,6 +273,6 @@ final class Priority2IntegrationTests: XCTestCase {
 
         // Verify pool statistics show reuse
         let poolStats = await pool.getStatistics()
-        print("Integration test - Buffer pool efficiency: \(poolStats.cacheEfficiency)")
+        print("Integration test - Buffer pool utilization: \(poolStats.memoryUtilization)")
     }
 }

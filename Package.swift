@@ -1,24 +1,36 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 //
-// IMPORTANT: VectorAccelerate 0.3.0+ requires Metal 4 (macOS 26.0+, iOS 26.0+)
-// The platform versions below are SPM placeholders; runtime availability is enforced
-// via @available(macOS 26.0, iOS 26.0, ...) attributes on all public APIs.
-// For older OS support, use VectorAccelerate 0.1.x.
+// ============================================================================
+// METAL 4 ONLY - BREAKING CHANGE
+// ============================================================================
+// VectorAccelerate 0.3.0+ is Metal 4 ONLY and requires:
+//   - macOS 26.0+ (Tahoe)
+//   - iOS 26.0+
+//   - tvOS 26.0+
+//   - visionOS 3.0+
+//
+// There is NO backwards compatibility with older OS versions.
+// For Metal 3 support, use VectorAccelerate 0.2.x or earlier.
+//
+// NOTE: The platform versions below are SPM placeholders because Swift Package
+// Manager does not yet support .v26 enum cases. Runtime availability is enforced
+// via @available attributes. These will be updated when SPM adds support.
+// ============================================================================
 
 import PackageDescription
 
 let package = Package(
     name: "VectorAccelerate",
     platforms: [
-        // Note: Metal 4 requires macOS 26.0+ / iOS 26.0+ at runtime
-        // SPM doesn't yet support these platform versions, so we use placeholders
-        .macOS(.v15),
-        .iOS(.v18),
-        .tvOS(.v18),
-        .watchOS(.v11),
-        .visionOS(.v2)
-        // Note: No Linux support due to Metal dependency
+        // PLACEHOLDER VALUES - Actual requirement is macOS 26.0+ / iOS 26.0+
+        // These will be updated to .macOS(.v26), .iOS(.v26), etc. when SPM supports them
+        .macOS(.v26),
+        .iOS(.v26),
+        .tvOS(.v26),
+        .visionOS(.v26)
+        // watchOS removed - no Metal 4 support (no GPU)
+        // Linux not supported - Metal dependency
     ],
     products: [
         .library(
@@ -38,7 +50,7 @@ let package = Package(
         .target(
             name: "VectorAccelerate",
             dependencies: [
-                .product(name: "VectorCore", package: "VectorCore")
+                .product(name: "VectorCore", package: "VectorCore"),
             ],
             resources: [
                 .process("Metal/Shaders")  // Metal shader files
