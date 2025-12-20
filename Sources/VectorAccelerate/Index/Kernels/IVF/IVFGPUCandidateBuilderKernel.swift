@@ -79,9 +79,16 @@ public struct IVFGPUCandidateResult: Sendable {
 
     /// Get offset range for a specific query.
     public func offsetRange(for queryIndex: Int) -> Range<Int> {
+        guard queryIndex >= 0 && queryIndex < numQueries else {
+            return 0..<0  // Return empty range for invalid query index
+        }
         let ptr = candidateOffsets.contents().bindMemory(to: UInt32.self, capacity: numQueries + 1)
         let start = Int(ptr[queryIndex])
         let end = Int(ptr[queryIndex + 1])
+        // Ensure valid range (end >= start)
+        guard end >= start else {
+            return start..<start  // Return empty range if data is corrupted
+        }
         return start..<end
     }
 }
@@ -411,24 +418,18 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         candidateOffsets.label = "IVFCandidateBuilder.fused.csrOffsets"
 
         // Build CSR offsets on CPU (small data)
+        // The fused kernel provides per-query offsets and counts directly.
+        // CSR format: offset[q] = start of query q's candidates, offset[q+1] = end
         let csrPtr = candidateOffsets.contents().bindMemory(to: UInt32.self, capacity: numQueries + 1)
         let fusedOffsetsPtr = perQueryOffsets.contents().bindMemory(to: UInt32.self, capacity: numQueries)
-        let fusedCountsPtr = perQueryCounts.contents().bindMemory(to: UInt32.self, capacity: numQueries)
 
-        // The fused kernel uses non-deterministic atomic allocation, so we need to sort by offset
-        var queryRanges: [(query: Int, offset: UInt32, count: UInt32)] = []
+        // Build CSR offsets directly from fused kernel output
+        // offset[q] = start position for query q, offset[q+1] = start + count
         for q in 0..<numQueries {
-            queryRanges.append((query: q, offset: fusedOffsetsPtr[q], count: fusedCountsPtr[q]))
+            csrPtr[q] = fusedOffsetsPtr[q]
         }
-        queryRanges.sort { $0.offset < $1.offset }
-
-        // Build proper CSR offsets
-        csrPtr[0] = 0
-        var cumulativeCount: UInt32 = 0
-        for (q, _, count) in queryRanges {
-            cumulativeCount += count
-            csrPtr[q + 1] = cumulativeCount
-        }
+        // Final offset is the total count
+        csrPtr[numQueries] = UInt32(actualTotal)
 
         return IVFGPUCandidateResult(
             candidateIVFIndices: candidateIVFIndices,
