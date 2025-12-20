@@ -889,7 +889,7 @@ final class PipelineHarvesterTests: XCTestCase {
             device: device,
             compiler: compiler,
             outputDirectory: tempDirectory,
-            vectorAccelerateVersion: "0.4.0"
+            vectorAccelerateVersion: "0.3.2"
         )
 
         let keys = [PipelineCacheKey(operation: "harvest_test")]
@@ -898,7 +898,7 @@ final class PipelineHarvesterTests: XCTestCase {
         let manifest = result.manifest
 
         XCTAssertEqual(manifest.version, "1.0.0")
-        XCTAssertEqual(manifest.vectorAccelerateVersion, "0.4.0")
+        XCTAssertEqual(manifest.vectorAccelerateVersion, "0.3.2")
         XCTAssertFalse(manifest.targetGPUFamily.isEmpty)
         XCTAssertFalse(manifest.deviceName.isEmpty)
         XCTAssertNotNil(manifest.generatedAt)
@@ -1065,7 +1065,7 @@ final class HarvestManifestTests: XCTestCase {
         )
 
         let manifest = HarvestManifest(
-            vectorAccelerateVersion: "0.4.0",
+            vectorAccelerateVersion: "0.3.2",
             metalSDKVersion: "4.0",
             targetGPUFamily: "apple9",
             deviceName: "Test Device",
