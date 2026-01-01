@@ -149,10 +149,9 @@ All kernels require a `Metal4Context` for initialization.
   - Batch matrix-vector products
 
 ### Advanced Distance Metrics
-- **Manhattan Distance** (`ManhattanDistanceKernel`) - L1 distance
-- **Chebyshev Distance** (`ChebyshevDistanceKernel`) - L∞ distance
 - **Hamming Distance** (`HammingDistanceKernel`) - Binary vector distances
-- **Minkowski Distance** (`MinkowskiDistanceKernel`) - Generalized Lp distances
+- **Minkowski Distance** (`MinkowskiDistanceKernel`) - Generalized Lp distances (includes L1/Manhattan and L∞/Chebyshev)
+- **Jaccard Distance** (`JaccardDistanceKernel`) - Set similarity for sparse data
 
 ### Experimental ML Features
 - **Learned Distance** (`LearnedDistanceKernel`)
@@ -243,14 +242,14 @@ All kernels require a `Metal4Context` for initialization.
   - Codebook-based compression
   - Asymmetric distance computation
 
-## 🗂️ VectorIndexAcceleration
+## 🗂️ GPU-Accelerated Vector Index
 
 GPU-first vector index for high-performance similarity search.
 
 ### Quick Start
 
 ```swift
-import VectorIndexAcceleration
+import VectorAccelerate
 
 // Create a GPU-accelerated flat index
 let config = IndexConfiguration.flat(dimension: 768, capacity: 10_000)
@@ -316,9 +315,7 @@ targets: [
         name: "YourTarget",
         dependencies: [
             "VectorAccelerate",
-            "VectorCore",
-            // Add if using GPU-accelerated indices:
-            "VectorIndexAcceleration"
+            "VectorCore"
         ]
     )
 ]
@@ -377,14 +374,20 @@ let similarity = try await cosineSim.compute(
 let context = try await Metal4Context()
 let fusedKernel = try await FusedL2TopKKernel(context: context)
 
-let result = try await fusedKernel.compute(
+// Prepare query and dataset vectors
+let queries = [[Float]](repeating: [Float](repeating: 0.5, count: 768), count: 10)
+let dataset = [[Float]](repeating: [Float](repeating: 0.3, count: 768), count: 1000)
+
+let results = try await fusedKernel.findNearestNeighbors(
     queries: queries,
-    database: database,
+    dataset: dataset,
     k: 10
 )
 
 // Result contains top-10 nearest neighbors for each query
-print("Found \(result.indices[0].count) nearest neighbors per query")
+for (queryIndex, neighbors) in results.enumerated() {
+    print("Query \(queryIndex): \(neighbors.count) neighbors found")
+}
 ```
 
 ### Learned Distance (Experimental ML)
@@ -452,7 +455,7 @@ let distances = try await provider.batchDistance(from: v1, to: candidates, metri
 
 ```swift
 // Dispatches to the optimal kernel for each metric
-let provider = await context.universalDistanceProvider()
+let provider = context.universalDistanceProvider()
 
 let euclidean = try await provider.distance(from: v1, to: v2, metric: .euclidean)
 let cosine = try await provider.distance(from: v1, to: v2, metric: .cosine)
@@ -467,8 +470,8 @@ let manhattan = try await provider.distance(from: v1, to: v2, metric: .manhattan
 | `CosineKernelDistanceProvider` | Cosine | Auto-normalization |
 | `DotProductKernelDistanceProvider` | Dot Product | GEMV optimization |
 | `MinkowskiKernelDistanceProvider` | Manhattan, Chebyshev | Configurable p-norm |
-| `JaccardKernelDistanceProvider` | Jaccard | Set similarity |
-| `HammingKernelDistanceProvider` | Hamming | Binary vectors |
+| `JaccardKernelDistanceProvider` | Jaccard | Set similarity (specialized API) |
+| `HammingKernelDistanceProvider` | Hamming | Binary vectors (specialized API) |
 | `UniversalKernelDistanceProvider` | All | Auto-dispatch |
 
 ## 📋 Choosing the Right Kernel
