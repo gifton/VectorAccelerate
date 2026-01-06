@@ -113,6 +113,7 @@ public final class KernelContext: @unchecked Sendable {
             "MinkowskiDistance",
             // Utility operations
             "BasicOperations",
+            "BatchMax",
             "L2Normalization",
             "DataTransformations",
             "StatisticsShaders",
@@ -139,7 +140,11 @@ public final class KernelContext: @unchecked Sendable {
             // HDBSCAN / MST computation (Boruvka's algorithm)
             "BoruvkaMST",
             // UMAP gradient computation
-            "UMAPGradient"
+            "UMAPGradient",
+            // Log-sum-exp and softmax for probability distributions
+            "LogSumExp",
+            // NLP / Topic Modeling
+            "SparseLogTFIDF"
             // NOTE: All shaders now use VA_* prefixed guards to avoid conflicts
             // NOTE: Histogram kernels are in StatisticsShaders.metal
         ]

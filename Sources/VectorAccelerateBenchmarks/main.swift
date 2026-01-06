@@ -152,12 +152,30 @@ Task {
         if args.contains("--index") || args.contains("-i") {
             // Run the new index benchmark harness
             try await IndexBenchmarkRunner.run()
+        } else if args.contains("--swift-topics") || args.contains("-s") {
+            // Run SwiftTopics integration benchmarks
+            if #available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *) {
+                try await runSwiftTopicsBenchmarks()
+            } else {
+                print("SwiftTopics benchmarks require macOS 26.0+")
+            }
+        } else if args.contains("--help") || args.contains("-h") {
+            print("VectorAccelerate Benchmark Suite")
+            print("")
+            print("Usage: VectorAccelerateBenchmarks [OPTIONS]")
+            print("")
+            print("Options:")
+            print("  --index, -i         Run index benchmark harness")
+            print("  --swift-topics, -s  Run SwiftTopics integration benchmarks")
+            print("  --help, -h          Show this help message")
+            print("")
+            print("Default: Run kernel performance benchmarks")
         } else {
             // Run the original kernel benchmarks
             try await BenchmarkRunner.main()
         }
     } catch {
-        print("❌ Fatal error: \(error)")
+        print("Fatal error: \(error)")
     }
     semaphore.signal()
 }
