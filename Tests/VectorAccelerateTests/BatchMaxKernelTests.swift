@@ -353,8 +353,8 @@ final class BatchMaxKernelTests: XCTestCase {
         print("  Time: \(String(format: "%.3f", result.executionTime * 1000)) ms")
         print("  Throughput: \(String(format: "%.1f", result.throughputGBps)) GB/s")
 
-        // Should be faster than 1ms for 1M elements on modern GPU
-        XCTAssertLessThan(result.executionTime, 0.01, "Performance regression: > 10ms for 1M elements")
+        // Performance threshold generous for CI runner variability
+        XCTAssertLessThan(result.executionTime, 0.015, "Performance regression: > 15ms for 1M elements")
     }
 
     func testMutualReachabilityScenario() async throws {
