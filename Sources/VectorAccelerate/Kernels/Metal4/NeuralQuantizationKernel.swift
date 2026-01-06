@@ -111,6 +111,36 @@ public struct NeuralQuantizationParameters: Sendable {
     }
 }
 
+/// Parameters for tiled encode kernel (matches Metal TiledEncodeParams struct).
+///
+/// Used with `neural_encode_tiled_kernel` for high-performance encoding
+/// via tiled GEMM with weight caching.
+public struct TiledEncodeParameters: Sendable {
+    public var numVectors: UInt32       // N - total vectors to encode
+    public var inputDimension: UInt32   // D - input dim (e.g., 768)
+    public var latentDimension: UInt32  // L - latent dim (e.g., 128)
+    public var stride: UInt32           // Input stride (usually = inputDimension)
+    public var vectorsPerTG: UInt32     // Vectors per threadgroup (e.g., 32)
+    public var useActivation: UInt8     // Apply ReLU
+    private var padding: (UInt8, UInt8, UInt8) = (0, 0, 0)
+
+    /// Default vectors per threadgroup for tiled encoding
+    public static let defaultVectorsPerTG: Int = 32
+
+    public init(
+        numVectors: Int,
+        config: Metal4NeuralQuantizationConfig,
+        vectorsPerTG: Int = defaultVectorsPerTG
+    ) {
+        self.numVectors = UInt32(numVectors)
+        self.inputDimension = UInt32(config.inputDimension)
+        self.latentDimension = UInt32(config.latentDimension)
+        self.stride = UInt32(config.inputDimension)
+        self.vectorsPerTG = UInt32(vectorsPerTG)
+        self.useActivation = config.useActivation ? 1 : 0
+    }
+}
+
 // MARK: - Result Types
 
 /// Result from neural encoding.
@@ -219,8 +249,26 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     private var optimizedDecodePipeline128: (any MTLComputePipelineState)?
     private var optimizedDecodePipeline256: (any MTLComputePipelineState)?
 
-    /// Transposed weight decode pipeline (coalesced memory access)
+    /// Vectorized transposed decode pipeline (float4 ops + coalesced memory)
     private var optimizedDecodeTransposedPipeline: (any MTLComputePipelineState)?
+
+    /// Tiled GEMM encode pipeline for high-throughput encoding
+    private var tiledEncodePipeline: (any MTLComputePipelineState)?
+
+    /// Tiled GEMM encode + quantize pipeline (Phase 2)
+    private var tiledEncodeQuantizePipeline: (any MTLComputePipelineState)?
+
+    /// Tiled GEMM encode + quantize pipeline V2 with dual accumulators (Phase 3)
+    private var tiledEncodeQuantizeV2Pipeline: (any MTLComputePipelineState)?
+
+    /// Whether tiled encode kernel is available
+    private let hasTiledEncode: Bool
+
+    /// Whether tiled encode + quantize kernel is available
+    private let hasTiledEncodeQuantize: Bool
+
+    /// Whether tiled encode + quantize V2 kernel (dual accumulators) is available
+    private let hasTiledEncodeQuantizeV2: Bool
 
     /// Best threadgroup size determined during initialization
     private let bestThreadgroupSize: Int
@@ -311,18 +359,57 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             }
         }
 
-        // Load transposed weight variant (coalesced memory access)
+        // Load vectorized transposed decode kernel (float4 ops + coalesced memory)
         var hasTransposed = false
-        if let funcTransposed = library.makeFunction(name: "neural_dequantize_decode_2d_transposed_kernel") {
+        if let funcTransposed = library.makeFunction(name: "neural_dequantize_decode_2d_transposed_v2_kernel") {
             do {
                 self.optimizedDecodeTransposedPipeline = try await device.makeComputePipelineState(function: funcTransposed)
                 hasTransposed = true
-                VectorLogDebug("Loaded transposed weight decode kernel", category: "NeuralQuantization")
+                VectorLogDebug("Loaded vectorized transposed decode kernel", category: "NeuralQuantization")
             } catch {
                 VectorLogDebug("Failed to compile transposed decode kernel: \(error)", category: "NeuralQuantization")
             }
         }
         self.hasTransposedDecode = hasTransposed
+
+        // Load tiled GEMM encode kernel for high-throughput encoding
+        var hasTiled = false
+        if let funcTiled = library.makeFunction(name: "neural_encode_tiled_kernel") {
+            do {
+                self.tiledEncodePipeline = try await device.makeComputePipelineState(function: funcTiled)
+                hasTiled = true
+                VectorLogDebug("Loaded tiled GEMM encode kernel", category: "NeuralQuantization")
+            } catch {
+                VectorLogDebug("Failed to compile tiled encode kernel: \(error)", category: "NeuralQuantization")
+            }
+        }
+        self.hasTiledEncode = hasTiled
+
+        // Load tiled GEMM encode + quantize kernel (Phase 2)
+        var hasTiledQuantize = false
+        if let funcTiledQuantize = library.makeFunction(name: "neural_encode_quantize_tiled_kernel") {
+            do {
+                self.tiledEncodeQuantizePipeline = try await device.makeComputePipelineState(function: funcTiledQuantize)
+                hasTiledQuantize = true
+                VectorLogDebug("Loaded tiled GEMM encode+quantize kernel", category: "NeuralQuantization")
+            } catch {
+                VectorLogDebug("Failed to compile tiled encode+quantize kernel: \(error)", category: "NeuralQuantization")
+            }
+        }
+        self.hasTiledEncodeQuantize = hasTiledQuantize
+
+        // Load tiled GEMM encode + quantize V2 kernel with dual accumulators (Phase 3)
+        var hasTiledQuantizeV2 = false
+        if let funcTiledQuantizeV2 = library.makeFunction(name: "neural_encode_quantize_tiled_v2_kernel") {
+            do {
+                self.tiledEncodeQuantizeV2Pipeline = try await device.makeComputePipelineState(function: funcTiledQuantizeV2)
+                hasTiledQuantizeV2 = true
+                VectorLogDebug("Loaded tiled GEMM encode+quantize V2 kernel (dual accumulators)", category: "NeuralQuantization")
+            } catch {
+                VectorLogDebug("Failed to compile tiled encode+quantize V2 kernel: \(error)", category: "NeuralQuantization")
+            }
+        }
+        self.hasTiledEncodeQuantizeV2 = hasTiledQuantizeV2
 
         self.useOptimizedDecode = loadedAny
 
@@ -617,6 +704,202 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         )
     }
 
+    /// Encode vectors using tiled GEMM kernel (float output, high throughput).
+    ///
+    /// This uses the optimized tiled kernel that caches weight tiles in threadgroup
+    /// memory, achieving 10-50x speedup over the naive per-vector encoder.
+    ///
+    /// - Parameters:
+    ///   - encoder: Metal compute command encoder
+    ///   - input: Input vectors buffer [N, D]
+    ///   - output: Output latent vectors buffer [N, L] (float, not quantized)
+    ///   - parameters: Tiled encode parameters
+    /// - Returns: Encoding result with dispatch configuration
+    @discardableResult
+    public func encodeTiledEncode(
+        into encoder: any MTLComputeCommandEncoder,
+        input: any MTLBuffer,
+        output: any MTLBuffer,
+        parameters: TiledEncodeParameters
+    ) throws -> Metal4EncodingResult {
+        guard let encoderWeights = encoderWeights else {
+            throw VectorError.invalidOperation("Encoder weights not loaded")
+        }
+
+        guard let pipeline = tiledEncodePipeline else {
+            throw VectorError.invalidOperation("Tiled encode kernel not available")
+        }
+
+        encoder.setComputePipelineState(pipeline)
+        encoder.label = "NeuralEncodeTiled"
+
+        encoder.setBuffer(input, offset: 0, index: 0)
+        encoder.setBuffer(encoderWeights.buffer, offset: 0, index: 1)
+        encoder.setBuffer(output, offset: 0, index: 2)
+        encoder.setBuffer(encoderBias?.buffer, offset: 0, index: 3)
+
+        var params = parameters
+        encoder.setBytes(&params, length: MemoryLayout<TiledEncodeParameters>.size, index: 4)
+
+        // Dispatch configuration:
+        // - 256 threads per threadgroup
+        // - Each threadgroup processes vectorsPerTG vectors
+        let numVectors = Int(parameters.numVectors)
+        let vectorsPerTG = Int(parameters.vectorsPerTG)
+        let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
+        let threadgroups = MTLSize(
+            width: (numVectors + vectorsPerTG - 1) / vectorsPerTG,
+            height: 1,
+            depth: 1
+        )
+
+        encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
+
+        return Metal4EncodingResult(
+            pipelineName: "neural_encode_tiled_kernel",
+            threadgroups: threadgroups,
+            threadsPerThreadgroup: threadsPerThreadgroup
+        )
+    }
+
+    /// Check if tiled encode kernel is available.
+    public var isTiledEncodeAvailable: Bool {
+        hasTiledEncode
+    }
+
+    /// Encode vectors and quantize to INT8 using tiled GEMM kernel.
+    ///
+    /// This uses the optimized tiled kernel that caches weight tiles in threadgroup
+    /// memory and outputs INT8 quantized latent codes with per-vector scales.
+    /// Combines the GEMM computation and quantization in a single pass for efficiency.
+    ///
+    /// - Parameters:
+    ///   - encoder: Metal compute command encoder
+    ///   - input: Input vectors buffer [N, D]
+    ///   - output: Output latent codes buffer [N, L] (INT8)
+    ///   - scale: Output scales buffer [N] (Float)
+    ///   - parameters: Tiled encode parameters
+    /// - Returns: Encoding result with dispatch configuration
+    @discardableResult
+    public func encodeTiledEncodeQuantize(
+        into encoder: any MTLComputeCommandEncoder,
+        input: any MTLBuffer,
+        output: any MTLBuffer,
+        scale: any MTLBuffer,
+        parameters: TiledEncodeParameters
+    ) throws -> Metal4EncodingResult {
+        guard let encoderWeights = encoderWeights else {
+            throw VectorError.invalidOperation("Encoder weights not loaded")
+        }
+
+        guard let pipeline = tiledEncodeQuantizePipeline else {
+            throw VectorError.invalidOperation("Tiled encode+quantize kernel not available")
+        }
+
+        encoder.setComputePipelineState(pipeline)
+        encoder.label = "NeuralEncodeTiledQuantize"
+
+        encoder.setBuffer(input, offset: 0, index: 0)
+        encoder.setBuffer(encoderWeights.buffer, offset: 0, index: 1)
+        encoder.setBuffer(output, offset: 0, index: 2)
+        encoder.setBuffer(scale, offset: 0, index: 3)
+        encoder.setBuffer(encoderBias?.buffer, offset: 0, index: 4)
+
+        var params = parameters
+        encoder.setBytes(&params, length: MemoryLayout<TiledEncodeParameters>.size, index: 5)
+
+        // Dispatch configuration:
+        // - 256 threads per threadgroup
+        // - Each threadgroup processes vectorsPerTG vectors
+        let numVectors = Int(parameters.numVectors)
+        let vectorsPerTG = Int(parameters.vectorsPerTG)
+        let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
+        let threadgroups = MTLSize(
+            width: (numVectors + vectorsPerTG - 1) / vectorsPerTG,
+            height: 1,
+            depth: 1
+        )
+
+        encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
+
+        return Metal4EncodingResult(
+            pipelineName: "neural_encode_quantize_tiled_kernel",
+            threadgroups: threadgroups,
+            threadsPerThreadgroup: threadsPerThreadgroup
+        )
+    }
+
+    /// Check if tiled encode+quantize kernel is available.
+    public var isTiledEncodeQuantizeAvailable: Bool {
+        hasTiledEncodeQuantize
+    }
+
+    /// Encode vectors and quantize to INT8 using tiled GEMM V2 kernel with dual accumulators.
+    ///
+    /// This kernel extends Phase 2's tiled encoder with dual accumulator sets to hide
+    /// 3-4 cycle FMA latency on Apple Silicon. Expected speedup: 1.5-2x over V1.
+    ///
+    /// - Parameters:
+    ///   - encoder: Metal compute command encoder
+    ///   - input: Input vectors buffer [N, D]
+    ///   - output: Output latent codes buffer [N, L] (INT8)
+    ///   - scale: Output scales buffer [N] (Float)
+    ///   - parameters: Tiled encode parameters
+    /// - Returns: Encoding result with dispatch configuration
+    @discardableResult
+    public func encodeTiledEncodeQuantizeV2(
+        into encoder: any MTLComputeCommandEncoder,
+        input: any MTLBuffer,
+        output: any MTLBuffer,
+        scale: any MTLBuffer,
+        parameters: TiledEncodeParameters
+    ) throws -> Metal4EncodingResult {
+        guard let encoderWeights = encoderWeights else {
+            throw VectorError.invalidOperation("Encoder weights not loaded")
+        }
+
+        guard let pipeline = tiledEncodeQuantizeV2Pipeline else {
+            throw VectorError.invalidOperation("Tiled encode+quantize V2 kernel not available")
+        }
+
+        encoder.setComputePipelineState(pipeline)
+        encoder.label = "NeuralEncodeTiledQuantizeV2"
+
+        encoder.setBuffer(input, offset: 0, index: 0)
+        encoder.setBuffer(encoderWeights.buffer, offset: 0, index: 1)
+        encoder.setBuffer(output, offset: 0, index: 2)
+        encoder.setBuffer(scale, offset: 0, index: 3)
+        encoder.setBuffer(encoderBias?.buffer, offset: 0, index: 4)
+
+        var params = parameters
+        encoder.setBytes(&params, length: MemoryLayout<TiledEncodeParameters>.size, index: 5)
+
+        // Dispatch configuration (same as V1):
+        // - 256 threads per threadgroup
+        // - Each threadgroup processes vectorsPerTG vectors
+        let numVectors = Int(parameters.numVectors)
+        let vectorsPerTG = Int(parameters.vectorsPerTG)
+        let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
+        let threadgroups = MTLSize(
+            width: (numVectors + vectorsPerTG - 1) / vectorsPerTG,
+            height: 1,
+            depth: 1
+        )
+
+        encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
+
+        return Metal4EncodingResult(
+            pipelineName: "neural_encode_quantize_tiled_v2_kernel",
+            threadgroups: threadgroups,
+            threadsPerThreadgroup: threadsPerThreadgroup
+        )
+    }
+
+    /// Check if tiled encode+quantize V2 kernel (dual accumulators) is available.
+    public var isTiledEncodeQuantizeV2Available: Bool {
+        hasTiledEncodeQuantizeV2
+    }
+
     // MARK: - Decode API
 
     /// Decode latent codes (float) back to full vectors.
@@ -695,7 +978,10 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         )
     }
 
-    /// Dequantize and decode using transposed weights (coalesced memory access).
+    /// Dequantize and decode using transposed weights with vectorized kernel.
+    ///
+    /// Uses float4 vectorization + coalesced memory access for optimal performance.
+    /// Each thread computes 4 adjacent outputs; 32 threads = 128 outputs per threadgroup.
     private func encodeDequantizeDecodeTransposed(
         into encoder: any MTLComputeCommandEncoder,
         input: any MTLBuffer,
@@ -720,19 +1006,19 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         var params = parameters
         encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
 
-        // 128-thread dispatch (same as best non-transposed)
-        let threadgroupSize = 128
-        let threadsPerThreadgroup = MTLSize(width: 1, height: threadgroupSize, depth: 1)
+        // Dispatch: 32 threads × 4 outputs/thread = 128 outputs per threadgroup
+        let threadsPerThreadgroup = MTLSize(width: 1, height: 32, depth: 1)
+        let outputsPerThreadgroup = 128
         let threadgroups = MTLSize(
             width: numVectors,
-            height: (outputDim + threadgroupSize - 1) / threadgroupSize,
+            height: (outputDim + outputsPerThreadgroup - 1) / outputsPerThreadgroup,
             depth: 1
         )
 
         encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
 
         return Metal4EncodingResult(
-            pipelineName: "neural_dequantize_decode_2d_transposed_kernel",
+            pipelineName: "neural_dequantize_decode_2d_transposed_v2_kernel",
             threadgroups: threadgroups,
             threadsPerThreadgroup: threadsPerThreadgroup
         )
