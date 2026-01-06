@@ -241,6 +241,7 @@ config.secret.json
 # Project Specific
 # ================
 # Add any project-specific patterns here
+articles/
 VectorAccelerateBenchmarks.xcodeproj/
 VectorAccelerate.xcodeproj/
 .benchmark/
