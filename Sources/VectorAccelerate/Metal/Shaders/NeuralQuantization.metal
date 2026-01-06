@@ -826,28 +826,28 @@ kernel void neural_dequantize_decode_2d_tg256_kernel(
     outputVectors[vectorIdx * inputDim + outIdx] = sum;
 }
 
-// MARK: - Transposed Weight Variants
-//
-// These kernels use transposed decoder weights for coalesced memory access.
-// Original weights: [inputDim, latentDim] - adjacent threads read non-adjacent memory
-// Transposed weights: [latentDim, inputDim] - adjacent threads read adjacent memory (coalesced!)
-//
-// Memory access pattern comparison:
-// - Original:   w[outIdx * latentDim + i] - stride by 1 across latentDim (non-coalesced across threads)
-// - Transposed: w[i * inputDim + outIdx]  - stride by 1 across inputDim (coalesced across threads!)
+// MARK: - Vectorized Transposed Decode
 
-/// 128-thread transposed weight variant: best performer with coalesced memory access.
+/// Vectorized transposed decode: processes 4 outputs per thread with float4 operations.
 ///
-/// Key optimization: Decoder weights pre-transposed to [latentDim, inputDim] layout.
-/// For each latent dimension i, all threads read adjacent memory locations.
+/// Key optimizations over the original transposed kernel:
+/// 1. Each thread computes 4 adjacent output dimensions (4x work per thread)
+/// 2. Weight loads are float4 and coalesced (adjacent threads access adjacent memory)
+/// 3. float4 FMA operations provide 4x compute throughput vs scalar
+/// 4. Same threadgroup memory reuse for dequantized latent codes
 ///
-/// Weight access pattern (transposed):
-///   weight[i * inputDim + outIdx] where adjacent threads have adjacent outIdx
-///   → Adjacent threads access adjacent memory = coalesced reads!
+/// Performance comparison (128-dim latent):
+/// - Original transposed: 128 scalar iterations, 128 scalar loads
+/// - This kernel: 32 iterations, 128 float4 loads (4x fewer iterations, same memory)
+///
+/// Memory access pattern for 4 outputs at thread t:
+///   outBase = tgp.y * 128 + t * 4
+///   For latent[i]: loads weights[i*inputDim + outBase : +4] as float4
+///   Adjacent threads (t, t+1) load adjacent float4s = coalesced!
 ///
 /// Grid dispatch: threadgroups = (numVectors, ceil(inputDim/128), 1)
-///                threadsPerThreadgroup = (1, 128, 1)
-kernel void neural_dequantize_decode_2d_transposed_kernel(
+///                threadsPerThreadgroup = (1, 32, 1)
+kernel void neural_dequantize_decode_2d_transposed_v2_kernel(
     device const char*  latentCodes     [[buffer(0)]],  // [N, latentDim] int8
     device const float* scales          [[buffer(1)]],  // [N]
     device const float* decoderWeightsT [[buffer(2)]],  // [latentDim, inputDim] TRANSPOSED
@@ -855,8 +855,7 @@ kernel void neural_dequantize_decode_2d_transposed_kernel(
     device const float* decoderBias     [[buffer(4)]],  // [inputDim] or null
     constant NeuralQuantParams& params  [[buffer(5)]],
     uint3 tptg [[thread_position_in_threadgroup]],
-    uint3 tgp  [[threadgroup_position_in_grid]],
-    uint3 tgs  [[threads_per_threadgroup]]
+    uint3 tgp  [[threadgroup_position_in_grid]]
 ) {
     const uint vectorIdx = tgp.x;
     if (vectorIdx >= params.numVectors) {
@@ -866,63 +865,153 @@ kernel void neural_dequantize_decode_2d_transposed_kernel(
     const uint inputDim  = params.inputDimension;
     const uint latentDim = params.latentDimension;
 
-    // Threadgroup cache for dequantized latent (max 128 dims)
-    threadgroup float tgLatent[128];
-    threadgroup float tgScale = 0.0f;
+    // Threadgroup cache for dequantized latent codes
+    // Using float4 storage for efficient loading
+    threadgroup float4 tgLatent4[32];  // Supports up to 128-dim latent
+    threadgroup float tgScale;
 
-    // Load scale cooperatively
-    if (tptg.x == 0 && tptg.y == 0) {
+    // ========== Phase 1: Cooperative Latent Loading ==========
+
+    // Load scale (single thread)
+    if (tptg.y == 0) {
         tgScale = scales[vectorIdx];
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     const float scale = tgScale;
+    const uint latentDim4 = (latentDim + 3) >> 2;  // Ceil division by 4
 
-    // Dequantize latent codes to threadgroup memory
-    // With 128 threads, each thread loads one latent value (for latentDim <= 128)
-    if (tptg.y < latentDim) {
-        const char code = latentCodes[vectorIdx * latentDim + tptg.y];
-        tgLatent[tptg.y] = float(code) * scale;
+    // Each of first 32 threads loads one float4 of latent codes
+    if (tptg.y < latentDim4) {
+        const uint codeOffset = vectorIdx * latentDim + tptg.y * 4;
+        // Handle potential out-of-bounds for non-multiple-of-4 latent dims
+        if (tptg.y * 4 + 3 < latentDim) {
+            const char4 c = *((device const char4*)(latentCodes + codeOffset));
+            tgLatent4[tptg.y] = float4(c) * scale;
+        } else {
+            // Partial load for last chunk if latentDim not multiple of 4
+            float4 partial = float4(0.0f);
+            for (uint j = 0; j < 4 && tptg.y * 4 + j < latentDim; ++j) {
+                partial[j] = float(latentCodes[codeOffset + j]) * scale;
+            }
+            tgLatent4[tptg.y] = partial;
+        }
     }
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Compute output index
-    const uint outIdx = tgp.y * 128 + tptg.y;
+    // ========== Phase 2: Compute 4 Outputs Per Thread ==========
 
-    if (outIdx >= inputDim) {
+    // Each thread computes 4 adjacent outputs
+    // 32 threads × 4 outputs = 128 outputs per threadgroup
+    const uint outBase = tgp.y * 128 + tptg.y * 4;
+
+    // Early exit if all 4 outputs are out of bounds
+    if (outBase >= inputDim) {
         return;
     }
 
-    // Initialize with bias if present
-    float sum = decoderBias ? decoderBias[outIdx] : 0.0f;
+    // Determine how many outputs this thread actually computes (1-4)
+    const uint numOutputs = min(4u, inputDim - outBase);
 
-    // KEY OPTIMIZATION: Transposed weight access pattern
-    // For transposed layout [latentDim, inputDim]:
-    // Weight for (latentIdx, outputIdx) at: latentIdx * inputDim + outputIdx
-    // Adjacent threads (adjacent outIdx) read adjacent memory = coalesced!
+    // Initialize accumulators with bias
+    float4 acc;
+    if (decoderBias) {
+        // Safe load of bias values
+        acc.x = (numOutputs > 0) ? decoderBias[outBase + 0] : 0.0f;
+        acc.y = (numOutputs > 1) ? decoderBias[outBase + 1] : 0.0f;
+        acc.z = (numOutputs > 2) ? decoderBias[outBase + 2] : 0.0f;
+        acc.w = (numOutputs > 3) ? decoderBias[outBase + 3] : 0.0f;
+    } else {
+        acc = float4(0.0f);
+    }
+
+    // ========== Phase 3: Vectorized Matrix-Vector Product ==========
+    //
+    // Process 4 latent dimensions per iteration using float4 operations.
+    // For 128-dim latent: 32 iterations (vs 128 in scalar kernel = 4x fewer!)
+    //
+    // Memory access pattern: Adjacent threads load adjacent float4s = coalesced!
 
     if (latentDim == 128) {
-        // Fully unrolled for 128-dim latent
+        // Fully unrolled for 128-dim (common case)
         #pragma unroll
-        for (uint i = 0; i < 128; ++i) {
-            float w = decoderWeightsT[i * inputDim + outIdx];  // Coalesced read!
-            sum += tgLatent[i] * w;
+        for (uint i4 = 0; i4 < 32; ++i4) {
+            const uint i = i4 * 4;
+
+            // Load 4 latent values (broadcast to all 4 outputs)
+            const float4 lat = tgLatent4[i4];
+
+            // Load 4×4 weights as 4 float4s (COALESCED!)
+            // Adjacent threads load adjacent float4s in memory
+            const float4 w0 = *((device const float4*)(decoderWeightsT + (i + 0) * inputDim + outBase));
+            const float4 w1 = *((device const float4*)(decoderWeightsT + (i + 1) * inputDim + outBase));
+            const float4 w2 = *((device const float4*)(decoderWeightsT + (i + 2) * inputDim + outBase));
+            const float4 w3 = *((device const float4*)(decoderWeightsT + (i + 3) * inputDim + outBase));
+
+            // 4 float4 FMAs: each latent contributes to all 4 outputs
+            // acc[j] += lat.x*w0[j] + lat.y*w1[j] + lat.z*w2[j] + lat.w*w3[j]
+            acc = fma(float4(lat.x), w0, acc);
+            acc = fma(float4(lat.y), w1, acc);
+            acc = fma(float4(lat.z), w2, acc);
+            acc = fma(float4(lat.w), w3, acc);
         }
     } else if (latentDim == 64) {
-        // Fully unrolled for 64-dim latent
+        // Fully unrolled for 64-dim
         #pragma unroll
-        for (uint i = 0; i < 64; ++i) {
-            float w = decoderWeightsT[i * inputDim + outIdx];  // Coalesced read!
-            sum += tgLatent[i] * w;
+        for (uint i4 = 0; i4 < 16; ++i4) {
+            const uint i = i4 * 4;
+            const float4 lat = tgLatent4[i4];
+
+            const float4 w0 = *((device const float4*)(decoderWeightsT + (i + 0) * inputDim + outBase));
+            const float4 w1 = *((device const float4*)(decoderWeightsT + (i + 1) * inputDim + outBase));
+            const float4 w2 = *((device const float4*)(decoderWeightsT + (i + 2) * inputDim + outBase));
+            const float4 w3 = *((device const float4*)(decoderWeightsT + (i + 3) * inputDim + outBase));
+
+            acc = fma(float4(lat.x), w0, acc);
+            acc = fma(float4(lat.y), w1, acc);
+            acc = fma(float4(lat.z), w2, acc);
+            acc = fma(float4(lat.w), w3, acc);
         }
     } else {
-        // Generic path
-        for (uint i = 0; i < latentDim; ++i) {
-            float w = decoderWeightsT[i * inputDim + outIdx];  // Coalesced read!
-            sum += tgLatent[i] * w;
+        // Generic path for other latent dimensions
+        for (uint i4 = 0; i4 < latentDim4; ++i4) {
+            const uint i = i4 * 4;
+            const float4 lat = tgLatent4[i4];
+
+            // Handle last iteration if latentDim not multiple of 4
+            const uint validLatent = min(4u, latentDim - i);
+
+            if (validLatent >= 1) {
+                const float4 w0 = *((device const float4*)(decoderWeightsT + (i + 0) * inputDim + outBase));
+                acc = fma(float4(lat.x), w0, acc);
+            }
+            if (validLatent >= 2) {
+                const float4 w1 = *((device const float4*)(decoderWeightsT + (i + 1) * inputDim + outBase));
+                acc = fma(float4(lat.y), w1, acc);
+            }
+            if (validLatent >= 3) {
+                const float4 w2 = *((device const float4*)(decoderWeightsT + (i + 2) * inputDim + outBase));
+                acc = fma(float4(lat.z), w2, acc);
+            }
+            if (validLatent >= 4) {
+                const float4 w3 = *((device const float4*)(decoderWeightsT + (i + 3) * inputDim + outBase));
+                acc = fma(float4(lat.w), w3, acc);
+            }
         }
     }
 
-    outputVectors[vectorIdx * inputDim + outIdx] = sum;
+    // ========== Phase 4: Write Outputs ==========
+
+    // Write outputs (handle boundary for non-multiple-of-4 inputDim)
+    device float* outPtr = outputVectors + vectorIdx * inputDim + outBase;
+    if (numOutputs == 4) {
+        // Fast path: write all 4 as float4
+        *((device float4*)outPtr) = acc;
+    } else {
+        // Boundary: write individual floats
+        if (numOutputs > 0) outPtr[0] = acc.x;
+        if (numOutputs > 1) outPtr[1] = acc.y;
+        if (numOutputs > 2) outPtr[2] = acc.z;
+    }
 }

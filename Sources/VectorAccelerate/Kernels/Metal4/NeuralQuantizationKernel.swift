@@ -219,7 +219,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     private var optimizedDecodePipeline128: (any MTLComputePipelineState)?
     private var optimizedDecodePipeline256: (any MTLComputePipelineState)?
 
-    /// Transposed weight decode pipeline (coalesced memory access)
+    /// Vectorized transposed decode pipeline (float4 ops + coalesced memory)
     private var optimizedDecodeTransposedPipeline: (any MTLComputePipelineState)?
 
     /// Best threadgroup size determined during initialization
@@ -311,13 +311,13 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             }
         }
 
-        // Load transposed weight variant (coalesced memory access)
+        // Load vectorized transposed decode kernel (float4 ops + coalesced memory)
         var hasTransposed = false
-        if let funcTransposed = library.makeFunction(name: "neural_dequantize_decode_2d_transposed_kernel") {
+        if let funcTransposed = library.makeFunction(name: "neural_dequantize_decode_2d_transposed_v2_kernel") {
             do {
                 self.optimizedDecodeTransposedPipeline = try await device.makeComputePipelineState(function: funcTransposed)
                 hasTransposed = true
-                VectorLogDebug("Loaded transposed weight decode kernel", category: "NeuralQuantization")
+                VectorLogDebug("Loaded vectorized transposed decode kernel", category: "NeuralQuantization")
             } catch {
                 VectorLogDebug("Failed to compile transposed decode kernel: \(error)", category: "NeuralQuantization")
             }
@@ -695,7 +695,10 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         )
     }
 
-    /// Dequantize and decode using transposed weights (coalesced memory access).
+    /// Dequantize and decode using transposed weights with vectorized kernel.
+    ///
+    /// Uses float4 vectorization + coalesced memory access for optimal performance.
+    /// Each thread computes 4 adjacent outputs; 32 threads = 128 outputs per threadgroup.
     private func encodeDequantizeDecodeTransposed(
         into encoder: any MTLComputeCommandEncoder,
         input: any MTLBuffer,
@@ -720,19 +723,19 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         var params = parameters
         encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
 
-        // 128-thread dispatch (same as best non-transposed)
-        let threadgroupSize = 128
-        let threadsPerThreadgroup = MTLSize(width: 1, height: threadgroupSize, depth: 1)
+        // Dispatch: 32 threads × 4 outputs/thread = 128 outputs per threadgroup
+        let threadsPerThreadgroup = MTLSize(width: 1, height: 32, depth: 1)
+        let outputsPerThreadgroup = 128
         let threadgroups = MTLSize(
             width: numVectors,
-            height: (outputDim + threadgroupSize - 1) / threadgroupSize,
+            height: (outputDim + outputsPerThreadgroup - 1) / outputsPerThreadgroup,
             depth: 1
         )
 
         encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
 
         return Metal4EncodingResult(
-            pipelineName: "neural_dequantize_decode_2d_transposed_kernel",
+            pipelineName: "neural_dequantize_decode_2d_transposed_v2_kernel",
             threadgroups: threadgroups,
             threadsPerThreadgroup: threadsPerThreadgroup
         )
