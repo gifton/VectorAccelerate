@@ -55,7 +55,8 @@ Create `Sources/VectorAccelerate/metal-compiler-plugin.json`:
     "flags": [
         "-gline-tables-only",
         "-frecord-sources",
-        "-std=metal3.2"
+        "-std=metal4.0",
+        "-mmacosx-version-min=26.0"
     ],
     "include-paths": [
         "Metal/Shaders"
@@ -67,7 +68,8 @@ Create `Sources/VectorAccelerate/metal-compiler-plugin.json`:
 **Flag Explanation:**
 - `-gline-tables-only`: Minimal debug info for line-level debugging
 - `-frecord-sources`: Embeds shader source for Xcode viewing
-- `-std=metal3.2`: Metal Shading Language version (adjust as needed)
+- `-std=metal4.0`: Metal Shading Language 4.0 (required for Metal 4 features)
+- `-mmacosx-version-min=26.0`: Target macOS 26 (Tahoe) for Metal 4 support
 
 ### Step 3: Update KernelContext for Debug Library Loading
 

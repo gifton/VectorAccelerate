@@ -3,7 +3,8 @@
     "flags": [
         "-gline-tables-only",
         "-frecord-sources",
-        "-std=metal3.2"
+        "-std=metal4.0",
+        "-mmacosx-version-min=26.0"
     ],
     "include-paths": [
         "Metal/Shaders"
