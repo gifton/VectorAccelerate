@@ -42,7 +42,9 @@ let package = Package(
     ],
     dependencies: [
         // VectorCore for base protocols and types
-        .package(url: "https://github.com/gifton/VectorCore", from: "0.1.6")
+        .package(url: "https://github.com/gifton/VectorCore", from: "0.1.6"),
+        // MetalCompilerPlugin for debuggable Metal shaders (enables Xcode Metal Debugger)
+        .package(url: "https://github.com/schwa/MetalCompilerPlugin", branch: "main")
     ],
     targets: [
         // MARK: - Core GPU Acceleration
@@ -52,12 +54,20 @@ let package = Package(
             dependencies: [
                 .product(name: "VectorCore", package: "VectorCore"),
             ],
+            exclude: [
+                "metal-compiler-plugin.json"  // Build-time config for MetalCompilerPlugin, not a runtime resource
+            ],
             resources: [
                 .process("Metal/Shaders")  // Metal shader files
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
                 .enableUpcomingFeature("ExistentialAny")
+            ],
+            plugins: [
+                // Compiles Metal shaders with debug symbols for Xcode Metal Debugger
+                // Creates debug.metallib alongside SPM's default.metallib
+                .plugin(name: "MetalCompilerPlugin", package: "MetalCompilerPlugin")
             ]
         ),
 
