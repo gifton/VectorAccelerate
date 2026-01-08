@@ -28,7 +28,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # macOS 26 runner has Xcode 26 as default - no setup needed
+      - name: Download Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Validate Metal Shaders
         run: |
@@ -112,6 +113,12 @@ jobs:
           echo "- macOS: $(sw_vers -productVersion)" >> $GITHUB_STEP_SUMMARY
           echo "- CPU: $(sysctl -n machdep.cpu.brand_string)" >> $GITHUB_STEP_SUMMARY
 
+      - name: Download Metal Toolchain
+        run: |
+          # MetalCompilerPlugin requires the Metal Toolchain which may not be
+          # pre-installed on GitHub runners. Download it before building.
+          xcodebuild -downloadComponent MetalToolchain
+
       - name: Cache SPM
         uses: actions/cache@v5
         with:
@@ -172,6 +179,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: Restore SPM Cache
         uses: actions/cache@v5
         with:
@@ -208,6 +218,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Cache SPM
         uses: actions/cache@v5
@@ -250,6 +263,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Restore SPM Cache
         uses: actions/cache@v5
