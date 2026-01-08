@@ -70,39 +70,133 @@ public final class KernelContext: @unchecked Sendable {
         return context
     }
 
-    /// Load Metal library with fallback support for different environments
-    /// Tries multiple approaches: default library, package bundle, runtime compilation
-    public static func loadMetalLibrary(device: any MTLDevice) -> (any MTLLibrary)? {
-        // 1. Try default library (works in app bundles)
-        if let library = device.makeDefaultLibrary() {
-            return library
-        }
+    // MARK: - Bundle Resolution
 
-        // 2. Try loading from package bundle (SPM resources)
+    /// Finds the VectorAccelerate resource bundle using multiple fallback strategies.
+    ///
+    /// This handles transitive dependency scenarios where `Bundle.module` may not
+    /// resolve correctly (e.g., `App → PackageB → VectorAccelerate`).
+    ///
+    /// Strategies tried in order:
+    /// 1. `Bundle.module` - works for direct SPM consumption
+    /// 2. `Bundle(for: KernelContext.self)` - works for frameworks/transitive deps
+    /// 3. Search all loaded bundles for one containing our resources
+    /// 4. Known bundle identifiers as last resort
+    private static func findVectorAccelerateBundle() -> Bundle? {
+        // Strategy 1: Bundle.module (works for direct SPM consumption)
         #if SWIFT_PACKAGE
-        if let libraryURL = Bundle.module.url(forResource: "default", withExtension: "metallib"),
-           let library = try? device.makeLibrary(URL: libraryURL) {
-            return library
-        }
-
-        // 3. Try loading Metal source files from bundle and compile at runtime
-        if let library = compileMetalSourcesFromBundle(device: device) {
-            return library
+        let moduleBundle = Bundle.module
+        if moduleBundle.url(forResource: "default", withExtension: "metallib") != nil ||
+           moduleBundle.url(forResource: "L2Distance", withExtension: "metal") != nil {
+            return moduleBundle
         }
         #endif
+
+        // Strategy 2: Bundle containing this class (works for frameworks/transitive deps)
+        let classBundle = Bundle(for: KernelContext.self)
+        if classBundle.url(forResource: "default", withExtension: "metallib") != nil ||
+           classBundle.url(forResource: "L2Distance", withExtension: "metal") != nil {
+            return classBundle
+        }
+
+        // Strategy 3: Search all loaded bundles for one containing our resources
+        for bundle in Bundle.allBundles + Bundle.allFrameworks {
+            if bundle.url(forResource: "default", withExtension: "metallib") != nil ||
+               bundle.url(forResource: "L2Distance", withExtension: "metal") != nil {
+                return bundle
+            }
+        }
+
+        // Strategy 4: Known bundle identifiers as last resort
+        let knownIdentifiers = [
+            "VectorAccelerate_VectorAccelerate",  // SPM-generated identifier
+            "com.gifton.VectorAccelerate"         // Potential custom identifier
+        ]
+        for identifier in knownIdentifiers {
+            if let bundle = Bundle(identifier: identifier),
+               (bundle.url(forResource: "default", withExtension: "metallib") != nil ||
+                bundle.url(forResource: "L2Distance", withExtension: "metal") != nil) {
+                return bundle
+            }
+        }
 
         return nil
     }
 
-    /// Compile Metal shader sources from bundle resources
+    // MARK: - Metal Library Loading
+
+    /// Load Metal library with fallback support for different environments.
     ///
-    /// Note: This runtime compilation supports core shaders only. For full Metal4 kernel
-    /// support (matrix ops, quantization, etc.), use a pre-compiled metallib or Xcode project.
-    private static func compileMetalSourcesFromBundle(device: any MTLDevice) -> (any MTLLibrary)? {
-        #if SWIFT_PACKAGE
-        // Load core shader files that can be safely combined without symbol conflicts
-        // Additional shaders (matrix ops, quantization) require pre-compiled metallib
-        // due to complex dependencies and potential symbol collisions
+    /// Tries multiple approaches in order of preference:
+    /// 1. Device's default library (app bundle with compiled metal)
+    /// 2. debug.metallib - compiled with MetalCompilerPlugin (DEBUG builds only, has shader source for debugging)
+    /// 3. default.metallib - SPM auto-compiled (optimized, no debug symbols)
+    /// 4. Runtime compilation from .metal source files (fallback for edge cases)
+    ///
+    /// - Parameter device: The Metal device to create the library for
+    /// - Returns: The loaded Metal library, or nil if all approaches fail
+    public static func loadMetalLibrary(device: any MTLDevice) -> (any MTLLibrary)? {
+        // 1. Try device's default library (works in app bundles)
+        if let library = device.makeDefaultLibrary() {
+            return library
+        }
+
+        // 2. Find VectorAccelerate's resource bundle using robust resolution
+        guard let resourceBundle = findVectorAccelerateBundle() else {
+            #if DEBUG
+            print("[VectorAccelerate] Warning: Could not locate VectorAccelerate resource bundle")
+            #endif
+            return nil
+        }
+
+        #if DEBUG
+        print("[VectorAccelerate] Found resource bundle: \(resourceBundle.bundlePath)")
+        #endif
+
+        // 3. In DEBUG builds, prefer debug.metallib for Xcode Metal Debugger support
+        //    This library contains shader source via -frecord-sources flag
+        #if DEBUG
+        if let libraryURL = resourceBundle.url(forResource: "debug", withExtension: "metallib"),
+           let library = try? device.makeLibrary(URL: libraryURL) {
+            print("[VectorAccelerate] Loaded debug.metallib with shader debugging support")
+            return library
+        }
+        #endif
+
+        // 4. Try default.metallib (SPM auto-compiled, optimized, no debug symbols)
+        if let libraryURL = resourceBundle.url(forResource: "default", withExtension: "metallib"),
+           let library = try? device.makeLibrary(URL: libraryURL) {
+            #if DEBUG
+            print("[VectorAccelerate] Loaded default.metallib (no debug symbols)")
+            #endif
+            return library
+        }
+
+        // 5. Fallback: Runtime compile from .metal sources (development/edge cases only)
+        if let library = compileMetalSourcesFromBundle(device: device, bundle: resourceBundle) {
+            #if DEBUG
+            print("[VectorAccelerate] Compiled Metal shaders at runtime from bundle resources")
+            #endif
+            return library
+        }
+
+        return nil
+    }
+
+    /// Compile Metal shader sources from bundle resources.
+    ///
+    /// This is a fallback for edge cases where pre-compiled metallib is unavailable.
+    /// Runtime compilation supports all shaders but has higher startup latency.
+    ///
+    /// - Parameters:
+    ///   - device: The Metal device to create the library for
+    ///   - bundle: The bundle containing .metal source files
+    /// - Returns: The compiled Metal library, or nil if compilation fails
+    private static func compileMetalSourcesFromBundle(
+        device: any MTLDevice,
+        bundle: Bundle
+    ) -> (any MTLLibrary)? {
+        // Load shader files that can be safely combined without symbol conflicts
         let shaderFiles = [
             // Core distance kernels
             "L2Distance",
@@ -178,7 +272,7 @@ public final class KernelContext: @unchecked Sendable {
         """
 
         for fileName in shaderFiles {
-            if let url = Bundle.module.url(forResource: fileName, withExtension: "metal"),
+            if let url = bundle.url(forResource: fileName, withExtension: "metal"),
                let source = try? String(contentsOf: url, encoding: .utf8) {
                 // Strip duplicate includes and namespace declarations
                 var cleanedSource = source
@@ -231,12 +325,11 @@ public final class KernelContext: @unchecked Sendable {
             return library
         } catch {
             // Compilation failed - log error details
-            print("Warning: Failed to compile Metal shaders from bundle: \(error)")
+            #if DEBUG
+            print("[VectorAccelerate] Warning: Failed to compile Metal shaders from bundle: \(error)")
+            #endif
             return nil
         }
-        #else
-        return nil
-        #endif
     }
 
     /// Get the shared Metal library (loads if needed)
