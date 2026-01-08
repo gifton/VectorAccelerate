@@ -13,9 +13,10 @@ on:
 # VectorAccelerate 0.3.0+ is Metal 4 ONLY and requires the macOS 26 runner
 # which provides Xcode 26 with iOS 26, macOS 26, tvOS 26, and visionOS 3 SDKs.
 # ============================================================================
-
-env:
-  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+# NOTE: Do NOT set DEVELOPER_DIR globally. The macos-26 runner has Xcode 26 as
+# default at /Applications/Xcode_26.0.1.app/. Setting DEVELOPER_DIR to a
+# non-existent path breaks Metal toolchain detection.
+# ============================================================================
 
 jobs:
   metal-shaders:
@@ -221,9 +222,13 @@ jobs:
       - name: Build for iOS
         run: |
           set -eo pipefail
+          # -skipPackagePluginValidation: Required because xcodebuild incorrectly
+          # tries to validate SPM build plugins (like MetalCompilerPlugin) against
+          # the iOS target, when they only run on the macOS host.
           xcodebuild -scheme VectorAccelerate \
             -destination 'generic/platform=iOS' \
             -sdk iphoneos \
+            -skipPackagePluginValidation \
             build 2>&1 | tee build-ios.log
           echo "## Build (iOS)" >> $GITHUB_STEP_SUMMARY
           echo "✅ iOS build succeeded" >> $GITHUB_STEP_SUMMARY
