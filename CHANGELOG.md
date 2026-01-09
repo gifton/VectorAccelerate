@@ -5,6 +5,24 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-01-09
+
+### Added
+
+- **GPUHealthMonitor** — New actor for tracking GPU health and managing automatic CPU fallbacks
+  - Per-operation failure tracking with configurable thresholds
+  - Degradation levels: none → minor → moderate → severe
+  - Automatic operation disabling after repeated failures
+  - Time-based recovery with configurable disable duration
+  - Configurable presets: default, aggressive, lenient
+  - Thread-safe actor-based design consistent with VA patterns
+
+### Changed
+
+- Updated library version references to 0.3.5
+
+---
+
 ## [0.3.0] - 2025-12-05
 
 ### Added

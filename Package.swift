@@ -44,7 +44,7 @@ let package = Package(
         // VectorCore for base protocols and types
         .package(url: "https://github.com/gifton/VectorCore", from: "0.1.6"),
         // MetalCompilerPlugin for debuggable Metal shaders (enables Xcode Metal Debugger)
-        .package(url: "https://github.com/schwa/MetalCompilerPlugin", branch: "main")
+        .package(url: "https://github.com/schwa/MetalCompilerPlugin", from: "0.1.5")
     ],
     targets: [
         // MARK: - Core GPU Acceleration
