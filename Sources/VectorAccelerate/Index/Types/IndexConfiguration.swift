@@ -8,6 +8,149 @@
 import Foundation
 import VectorCore
 
+// MARK: - WAL Configuration
+
+/// Sync mode for WAL durability/performance tradeoff.
+///
+/// Matches the sync modes available in WriteAheadLog.
+public enum WALSyncMode: Sendable, Equatable {
+    /// Sync after every write (slowest, safest).
+    /// Best for critical data where durability is paramount.
+    case immediate
+
+    /// Sync periodically (balanced).
+    /// Good balance between performance and durability.
+    case periodic
+
+    /// Sync after batch threshold (fastest, less safe).
+    /// Best for high-throughput scenarios with tolerance for data loss.
+    case batch
+}
+
+/// Configuration for Write-Ahead Log integration.
+///
+/// The WAL provides crash recovery by logging operations before they are applied.
+/// This ensures durability at the cost of additional disk I/O.
+///
+/// ## Usage
+/// ```swift
+/// // Disabled (default) - no WAL overhead
+/// let config = IndexConfiguration.flat(dimension: 768, capacity: 10_000)
+///
+/// // Enabled with default settings
+/// let configWithWAL = IndexConfiguration(
+///     dimension: 768,
+///     walConfiguration: .enabled(directory: walDirectory)
+/// )
+///
+/// // Enabled with custom sync mode
+/// let configDurable = IndexConfiguration(
+///     dimension: 768,
+///     walConfiguration: .enabled(directory: walDirectory, syncMode: .immediate)
+/// )
+///
+/// // Enabled with auto-checkpoint
+/// let configAutoCheckpoint = IndexConfiguration(
+///     dimension: 768,
+///     walConfiguration: .enabled(
+///         directory: walDirectory,
+///         autoCheckpointThreshold: 500,
+///         autoCompactThreshold: 5_000_000
+///     )
+/// )
+/// ```
+public struct WALConfiguration: Sendable, Equatable {
+    /// Whether WAL is enabled
+    public let enabled: Bool
+
+    /// Directory for WAL segment files
+    public let directory: URL?
+
+    /// Sync mode for durability/performance tradeoff
+    public let syncMode: WALSyncMode
+
+    /// Number of operations before auto-checkpoint (0 = disabled).
+    ///
+    /// When enabled, the index automatically creates a checkpoint after this many
+    /// operations have been logged to the WAL. This provides regular recovery points.
+    public let autoCheckpointThreshold: Int
+
+    /// Maximum WAL size in bytes before auto-compaction (0 = disabled).
+    ///
+    /// When enabled, the index automatically compacts the WAL after checkpoint
+    /// if the total WAL size exceeds this threshold.
+    public let autoCompactThreshold: Int
+
+    /// Create disabled WAL configuration (default).
+    ///
+    /// No WAL files are created and no durability guarantees are provided.
+    public static let disabled = WALConfiguration(
+        enabled: false,
+        directory: nil,
+        syncMode: .periodic,
+        autoCheckpointThreshold: 0,
+        autoCompactThreshold: 0
+    )
+
+    /// Create enabled WAL configuration.
+    ///
+    /// - Parameters:
+    ///   - directory: Directory for WAL segment files
+    ///   - syncMode: Sync mode (default: .periodic for balanced performance/durability)
+    ///   - autoCheckpointThreshold: Operations before auto-checkpoint (default: 0 = disabled)
+    ///   - autoCompactThreshold: WAL size in bytes before auto-compaction (default: 0 = disabled)
+    /// - Returns: Enabled WAL configuration
+    public static func enabled(
+        directory: URL,
+        syncMode: WALSyncMode = .periodic,
+        autoCheckpointThreshold: Int = 0,
+        autoCompactThreshold: Int = 0
+    ) -> WALConfiguration {
+        WALConfiguration(
+            enabled: true,
+            directory: directory,
+            syncMode: syncMode,
+            autoCheckpointThreshold: autoCheckpointThreshold,
+            autoCompactThreshold: autoCompactThreshold
+        )
+    }
+
+    /// Create WAL configuration.
+    ///
+    /// - Parameters:
+    ///   - enabled: Whether WAL is enabled
+    ///   - directory: Directory for WAL segment files (required if enabled)
+    ///   - syncMode: Sync mode for durability/performance tradeoff
+    ///   - autoCheckpointThreshold: Operations before auto-checkpoint (0 = disabled)
+    ///   - autoCompactThreshold: WAL size in bytes before auto-compaction (0 = disabled)
+    public init(
+        enabled: Bool,
+        directory: URL?,
+        syncMode: WALSyncMode,
+        autoCheckpointThreshold: Int = 0,
+        autoCompactThreshold: Int = 0
+    ) {
+        self.enabled = enabled
+        self.directory = directory
+        self.syncMode = syncMode
+        self.autoCheckpointThreshold = autoCheckpointThreshold
+        self.autoCompactThreshold = autoCompactThreshold
+    }
+
+    /// Convert to WriteAheadLog.Configuration.
+    ///
+    /// Used internally when creating the WAL instance.
+    internal func toWALConfiguration() -> WriteAheadLog.Configuration {
+        let walSyncMode: WriteAheadLog.SyncMode
+        switch syncMode {
+        case .immediate: walSyncMode = .immediate
+        case .periodic: walSyncMode = .periodic
+        case .batch: walSyncMode = .batch
+        }
+        return WriteAheadLog.Configuration(syncMode: walSyncMode)
+    }
+}
+
 // MARK: - Vector Quantization
 
 /// Vector quantization method for memory reduction in IVF indexes.
@@ -120,6 +263,11 @@ public struct IndexConfiguration: Sendable, Equatable {
     /// Only applicable to IVF indexes. Ignored for flat indexes.
     public let quantization: VectorQuantization
 
+    /// Write-ahead log configuration for crash recovery.
+    ///
+    /// Default is `.disabled` (no WAL). Enable for durability.
+    public let walConfiguration: WALConfiguration
+
     // MARK: - Index Type
 
     /// Type of index structure.
@@ -151,13 +299,15 @@ public struct IndexConfiguration: Sendable, Equatable {
     ///   - indexType: Index type (default: flat)
     ///   - routingThreshold: Vector count below which IVF falls back to flat search (default: 10,000)
     ///   - quantization: Vector quantization method (default: none)
+    ///   - walConfiguration: WAL configuration for crash recovery (default: disabled)
     public init(
         dimension: Int,
         metric: SupportedDistanceMetric = .euclidean,
         capacity: Int = 10_000,
         indexType: IndexType = .flat,
         routingThreshold: Int = 10_000,
-        quantization: VectorQuantization = .none
+        quantization: VectorQuantization = .none,
+        walConfiguration: WALConfiguration = .disabled
     ) {
         self.dimension = dimension
         self.metric = metric
@@ -165,6 +315,7 @@ public struct IndexConfiguration: Sendable, Equatable {
         self.indexType = indexType
         self.routingThreshold = routingThreshold
         self.quantization = quantization
+        self.walConfiguration = walConfiguration
     }
 
     // MARK: - Factory Methods

@@ -32,9 +32,11 @@ public struct IndexAccelerationConfiguration: Sendable {
 
     /// Minimum number of candidate vectors to consider GPU acceleration.
     /// Below this threshold, CPU is typically faster due to GPU overhead.
+    @available(*, deprecated, message: "Use GPUDecisionEngine for adaptive routing. See toGPUActivationThresholds().")
     public var minimumCandidatesForGPU: Int
 
     /// Minimum total operations (queries * candidates * dimension) for GPU.
+    @available(*, deprecated, message: "Use GPUDecisionEngine for adaptive routing. See toGPUActivationThresholds().")
     public var minimumOperationsForGPU: Int
 
     /// Maximum batch size for GPU operations (memory constraint).
@@ -142,4 +144,38 @@ public struct IndexAccelerationConfiguration: Sendable {
         enableProfiling: true,
         logDecisions: true
     )
+
+    // MARK: - Migration Helpers
+
+    /// Converts this configuration to GPUActivationThresholds for use with GPUDecisionEngine.
+    ///
+    /// Use this method to migrate from the deprecated threshold-based configuration
+    /// to the adaptive GPUDecisionEngine pattern.
+    ///
+    /// ```swift
+    /// let oldConfig = IndexAccelerationConfiguration.aggressive
+    /// let thresholds = oldConfig.toGPUActivationThresholds()
+    /// let engine = GPUDecisionEngine(thresholds: thresholds)
+    /// ```
+    public func toGPUActivationThresholds() -> GPUActivationThresholds {
+        GPUActivationThresholds(
+            minVectorsForGPU: minimumCandidatesForGPU,
+            minCandidatesForGPU: minimumCandidatesForGPU,
+            minKForGPU: 10,
+            maxKForGPU: maxBatchSize / 10,
+            minOperationsForGPU: minimumOperationsForGPU
+        )
+    }
+
+    /// Creates a GPUDecisionEngine configured with thresholds derived from this configuration.
+    ///
+    /// This is a convenience method for migrating to the new adaptive routing pattern.
+    ///
+    /// ```swift
+    /// let config = IndexAccelerationConfiguration.aggressive
+    /// let engine = config.createDecisionEngine()
+    /// ```
+    public func createDecisionEngine() -> GPUDecisionEngine {
+        GPUDecisionEngine(thresholds: toGPUActivationThresholds())
+    }
 }

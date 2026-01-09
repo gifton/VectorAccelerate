@@ -91,6 +91,51 @@ public struct GPUIndexStats: Sendable, Equatable {
     /// IVF-specific statistics (nil for flat indexes).
     public let ivfStats: IVFStats?
 
+    /// WAL statistics (nil if WAL is disabled).
+    public let walStats: WALStats?
+
+    /// WAL statistics for monitoring.
+    public struct WALStats: Sendable, Equatable {
+        /// Number of WAL segment files.
+        public let segmentCount: Int
+
+        /// Total size of WAL files in bytes.
+        public let totalSizeBytes: Int
+
+        /// Total number of entries across all segments.
+        public let entryCount: Int
+
+        /// Current sequence number (total operations logged).
+        public let currentSequence: UInt64
+
+        /// Last checkpoint sequence number.
+        public let lastCheckpointSequence: UInt64
+
+        /// Whether there are unflushed writes.
+        public let isDirty: Bool
+
+        /// Entries since last checkpoint.
+        public var entriesSinceCheckpoint: UInt64 {
+            currentSequence - lastCheckpointSequence
+        }
+
+        public init(
+            segmentCount: Int,
+            totalSizeBytes: Int,
+            entryCount: Int,
+            currentSequence: UInt64,
+            lastCheckpointSequence: UInt64,
+            isDirty: Bool
+        ) {
+            self.segmentCount = segmentCount
+            self.totalSizeBytes = totalSizeBytes
+            self.entryCount = entryCount
+            self.currentSequence = currentSequence
+            self.lastCheckpointSequence = lastCheckpointSequence
+            self.isDirty = isDirty
+        }
+    }
+
     /// IVF-specific statistics.
     public struct IVFStats: Sendable, Equatable {
         /// Number of clusters (nlist).
@@ -137,7 +182,8 @@ public struct GPUIndexStats: Sendable, Equatable {
         gpuVectorMemoryBytes: Int,
         gpuIndexStructureBytes: Int = 0,
         cpuMetadataMemoryBytes: Int = 0,
-        ivfStats: IVFStats? = nil
+        ivfStats: IVFStats? = nil,
+        walStats: WALStats? = nil
     ) {
         self.vectorCount = vectorCount
         self.allocatedSlots = allocatedSlots
@@ -150,6 +196,7 @@ public struct GPUIndexStats: Sendable, Equatable {
         self.gpuIndexStructureBytes = gpuIndexStructureBytes
         self.cpuMetadataMemoryBytes = cpuMetadataMemoryBytes
         self.ivfStats = ivfStats
+        self.walStats = walStats
     }
 }
 

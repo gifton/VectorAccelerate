@@ -220,4 +220,46 @@ final class HandleAllocator: @unchecked Sendable {
         nextSlot = 0
         occupiedCount = 0
     }
+
+    // MARK: - Recovery Support
+
+    /// Check if a stable ID already exists (for idempotent replay).
+    ///
+    /// - Parameter stableID: The stable ID to check
+    /// - Returns: true if the stable ID exists and is not tombstoned
+    func hasStableID(_ stableID: UInt32) -> Bool {
+        guard stableID < stableIDToSlot.count else { return false }
+        return stableIDToSlot[Int(stableID)] != Self.tombstone
+    }
+
+    /// Allocate a handle with a specific stable ID (for WAL replay).
+    ///
+    /// Used during recovery to recreate handles with their original IDs.
+    /// If the stable ID already exists, returns nil.
+    ///
+    /// - Parameter stableID: The stable ID to allocate
+    /// - Returns: The allocated handle and slot, or nil if ID already exists
+    func allocateWithStableID(_ stableID: UInt32) -> (handle: VectorHandle, slot: UInt32)? {
+        // Expand stableIDToSlot array if needed
+        while stableIDToSlot.count <= Int(stableID) {
+            stableIDToSlot.append(Self.tombstone)
+        }
+
+        // Check if already allocated
+        if stableIDToSlot[Int(stableID)] != Self.tombstone {
+            return nil  // Already exists
+        }
+
+        // Allocate slot
+        let slot = nextSlot
+        nextSlot &+= 1
+        ensureSlotCapacity(Int(nextSlot))
+
+        // Set up mappings
+        stableIDToSlot[Int(stableID)] = slot
+        slotToStableID[Int(slot)] = stableID
+
+        occupiedCount += 1
+        return (VectorHandle(stableID: stableID), slot)
+    }
 }

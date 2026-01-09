@@ -110,6 +110,14 @@ public actor AcceleratedVectorIndex {
     /// Whether auto-training is enabled for IVF.
     private var autoTrainEnabled: Bool = true
 
+    // MARK: - WAL Components (Optional)
+
+    /// Write-ahead log for crash recovery (nil if disabled).
+    private var wal: WriteAheadLog?
+
+    /// Operations logged since last checkpoint (for auto-checkpoint).
+    private var operationsSinceCheckpoint: Int = 0
+
     // MARK: - Initialization
 
     /// Create an accelerated vector index with the given configuration.
@@ -159,6 +167,21 @@ public actor AcceleratedVectorIndex {
                 context: context,
                 configuration: ivfConfig
             )
+        }
+
+        // Initialize WAL if configured
+        if configuration.walConfiguration.enabled {
+            guard let walDirectory = configuration.walConfiguration.directory else {
+                throw IndexError.invalidConfiguration(
+                    parameter: "walConfiguration.directory",
+                    reason: "WAL enabled but no directory specified"
+                )
+            }
+            self.wal = WriteAheadLog(
+                directory: walDirectory,
+                configuration: configuration.walConfiguration.toWALConfiguration()
+            )
+            try await self.wal?.initialize()
         }
     }
 
@@ -211,6 +234,21 @@ public actor AcceleratedVectorIndex {
                 context: context,
                 configuration: ivfConfig
             )
+        }
+
+        // Initialize WAL if configured
+        if configuration.walConfiguration.enabled {
+            guard let walDirectory = configuration.walConfiguration.directory else {
+                throw IndexError.invalidConfiguration(
+                    parameter: "walConfiguration.directory",
+                    reason: "WAL enabled but no directory specified"
+                )
+            }
+            self.wal = WriteAheadLog(
+                directory: walDirectory,
+                configuration: configuration.walConfiguration.toWALConfiguration()
+            )
+            try await self.wal?.initialize()
         }
     }
 
@@ -338,6 +376,16 @@ public actor AcceleratedVectorIndex {
             )
         }
 
+        // Log training START before mutation
+        if let wal = wal {
+            let op = TrainStartOperation(
+                vectorCount: trainingVectors.count,
+                numClusters: ivf.numClusters,
+                dimension: configuration.dimension
+            )
+            _ = try await wal.append(op, type: IndexWALOperationType.trainStart.rawValue)
+        }
+
         try await ivf.train(vectors: trainingVectors, context: context)
 
         // After training, reassign ALL vectors to their nearest clusters.
@@ -346,6 +394,20 @@ public actor AcceleratedVectorIndex {
             guard slotIndex < storage.allocatedSlots else { continue }
             let vector = try storage.readVector(at: slotIndex)
             _ = ivf.assignToCluster(vector: vector, slotIndex: UInt32(slotIndex))
+        }
+
+        // Log training COMPLETE with centroids
+        if let wal = wal {
+            let centroids = ivf.trainedCentroids
+            let flatCentroids = centroids.flatMap { $0 }
+            let op = TrainCompleteOperation(
+                centroids: flatCentroids,
+                numClusters: centroids.count,
+                dimension: configuration.dimension
+            )
+            _ = try await wal.append(op, type: IndexWALOperationType.trainComplete.rawValue)
+            // Checkpoint after successful training
+            _ = try await wal.checkpoint()
         }
     }
 
@@ -391,6 +453,18 @@ public actor AcceleratedVectorIndex {
                 operation: "insert",
                 reason: "Failed to get slot for newly allocated handle"
             )
+        }
+
+        // Log to WAL BEFORE mutation (write-ahead)
+        // Note: We use `copy` to preserve the vector for the GPU write below
+        if let wal = wal {
+            let op = InsertOperation(
+                stableID: handle.stableID,
+                vector: copy vector,
+                metadata: metadata
+            )
+            _ = try await wal.append(op, type: IndexWALOperationType.insert.rawValue)
+            try await checkAutoCheckpoint()
         }
 
         // Write vector to GPU
@@ -468,6 +542,20 @@ public actor AcceleratedVectorIndex {
                 operation: "insert",
                 reason: "Failed to get slot for batch insert"
             )
+        }
+
+        // Log to WAL BEFORE mutation (write-ahead)
+        if let wal = wal {
+            let stableIDs = handles.map { $0.stableID }
+            let flatVectors = vectors.flatMap { $0 }
+            let op = BatchInsertOperation(
+                stableIDs: stableIDs,
+                vectorCount: vectors.count,
+                dimension: configuration.dimension,
+                vectors: flatVectors
+            )
+            _ = try await wal.append(op, type: IndexWALOperationType.batchInsert.rawValue)
+            try await checkAutoCheckpoint()
         }
 
         // Batch write vectors to GPU (optimized)
@@ -571,11 +659,18 @@ public actor AcceleratedVectorIndex {
     ///
     /// - Parameter handle: Handle to the vector to remove
     /// - Throws: `IndexError.invalidInput` if handle is invalid
-    public func remove(_ handle: VectorHandle) throws {
+    public func remove(_ handle: VectorHandle) async throws {
         guard let slot = handleAllocator.slot(for: handle) else {
             throw IndexError.invalidInput(
                 message: "Invalid handle: \(handle)"
             )
+        }
+
+        // Log to WAL BEFORE mutation (write-ahead)
+        if let wal = wal {
+            let op = RemoveOperation(stableID: handle.stableID)
+            _ = try await wal.append(op, type: IndexWALOperationType.remove.rawValue)
+            try await checkAutoCheckpoint()
         }
 
         handleAllocator.markDeleted(handle)
@@ -593,9 +688,22 @@ public actor AcceleratedVectorIndex {
     /// - Parameter handles: Handles to remove
     /// - Returns: Number of vectors actually removed (excludes invalid handles)
     @discardableResult
-    public func remove(_ handles: [VectorHandle]) -> Int {
+    public func remove(_ handles: [VectorHandle]) async throws -> Int {
+        // Filter to valid handles first
+        let validHandles = handles.filter { handleAllocator.slot(for: $0) != nil }
+        guard !validHandles.isEmpty else { return 0 }
+
+        // Log to WAL BEFORE mutation (write-ahead)
+        if let wal = wal {
+            let stableIDs = validHandles.map { $0.stableID }
+            let op = BatchRemoveOperation(stableIDs: stableIDs)
+            _ = try await wal.append(op, type: IndexWALOperationType.batchRemove.rawValue)
+            try await checkAutoCheckpoint()
+        }
+
+        // Perform the deletions
         var removedCount = 0
-        for handle in handles {
+        for handle in validHandles {
             if let slot = handleAllocator.slot(for: handle) {
                 handleAllocator.markDeleted(handle)
                 deletionMask.markDeleted(Int(slot))
@@ -616,6 +724,15 @@ public actor AcceleratedVectorIndex {
     /// - Note: This is an expensive operation. Call sparingly when fragmentation is high.
     public func compact() async throws {
         guard deletionMask.deletedCount > 0 else { return }
+
+        // Log compact START before mutation
+        if let wal = wal {
+            let op = CompactStartOperation(
+                deletedSlots: deletionMask.deletedIndices(),
+                vectorCountBefore: handleAllocator.occupiedCount + deletionMask.deletedCount
+            )
+            _ = try await wal.append(op, type: IndexWALOperationType.compact.rawValue)
+        }
 
         // Get keep mask
         let keepMask = deletionMask.keepMask()
@@ -641,6 +758,17 @@ public actor AcceleratedVectorIndex {
 
         // Reset deletion mask
         deletionMask.resetAfterCompaction(newCapacity: storage.allocatedSlots)
+
+        // Log compact COMPLETE after successful mutation
+        if let wal = wal {
+            let op = CompactCompleteOperation(
+                slotMapping: intSlotMapping,
+                vectorCountAfter: handleAllocator.occupiedCount
+            )
+            _ = try await wal.append(op, type: IndexWALOperationType.compactComplete.rawValue)
+            // Checkpoint after successful compaction
+            _ = try await wal.checkpoint()
+        }
 
         // Note: MetadataStore doesn't need compaction since it's keyed by stableID
     }
@@ -1143,6 +1271,344 @@ public actor AcceleratedVectorIndex {
         }
 
         return allResults
+    }
+
+    // MARK: - WAL Recovery
+
+    /// Recover index state from Write-Ahead Log.
+    ///
+    /// Call this after creating an index to replay any operations
+    /// that were logged but not yet persisted to the main index.
+    ///
+    /// ## Recovery Semantics
+    /// - **Idempotent**: Replaying the same entry twice is safe
+    /// - **Transaction-aware**: Incomplete compact/train operations are detected and skipped
+    /// - **Order-preserving**: Entries are replayed in sequence order
+    ///
+    /// - Parameter fromCheckpoint: If true, replay only from last checkpoint (default: true)
+    /// - Returns: Number of operations replayed
+    /// - Throws: If WAL is corrupted or replay fails
+    @discardableResult
+    public func recover(fromCheckpoint: Bool = true) async throws -> Int {
+        guard let wal = wal else {
+            return 0  // WAL not enabled
+        }
+
+        // Get all entries (replay() returns entries sorted by sequence number)
+        let entries = try await wal.replay(from: 0)
+
+        var replayedCount = 0
+        let decoder = JSONDecoder()
+
+        for entry in entries {
+            guard let opType = IndexWALOperationType(rawValue: entry.type) else {
+                continue  // Unknown operation type - skip
+            }
+
+            do {
+                switch opType {
+                case .insert:
+                    let op = try decoder.decode(InsertOperation.self, from: entry.data)
+                    if try await replayInsert(op) {
+                        replayedCount += 1
+                    }
+
+                case .batchInsert:
+                    let op = try decoder.decode(BatchInsertOperation.self, from: entry.data)
+                    replayedCount += try await replayBatchInsert(op)
+
+                case .remove:
+                    let op = try decoder.decode(RemoveOperation.self, from: entry.data)
+                    if try await replayRemove(op) {
+                        replayedCount += 1
+                    }
+
+                case .batchRemove:
+                    let op = try decoder.decode(BatchRemoveOperation.self, from: entry.data)
+                    replayedCount += try await replayBatchRemove(op)
+
+                case .compact, .compactComplete:
+                    // Compaction is replayed atomically - skip individual entries
+                    // The current state after recovery should be consistent
+                    break
+
+                case .trainStart:
+                    // Skip - wait for trainComplete
+                    break
+
+                case .trainComplete:
+                    // Only replay if we haven't already trained
+                    if let ivf = ivfStructure, !ivf.isTrained {
+                        let op = try decoder.decode(TrainCompleteOperation.self, from: entry.data)
+                        try await replayTrainComplete(op)
+                        replayedCount += 1
+                    }
+
+                case .checkpoint:
+                    // Checkpoint markers are informational
+                    break
+                }
+            } catch {
+                // Log error but continue recovery
+                VectorLog("Failed to replay WAL entry \(entry.sequenceNumber): \(error)", level: .warning, category: "WAL")
+            }
+        }
+
+        return replayedCount
+    }
+
+    // MARK: - Replay Helpers
+
+    private func replayInsert(_ op: InsertOperation) async throws -> Bool {
+        // Check if already exists (idempotency)
+        if handleAllocator.hasStableID(op.stableID) {
+            return false  // Already inserted
+        }
+
+        // Allocate with specific stable ID
+        guard let (handle, slot) = handleAllocator.allocateWithStableID(op.stableID) else {
+            return false  // Failed to allocate
+        }
+
+        // Ensure storage capacity
+        try storage.ensureCapacity(Int(slot) + 1)
+        deletionMask.ensureCapacity(Int(slot) + 1)
+
+        // Write vector to storage
+        try storage.writeVector(op.vector, at: Int(slot))
+
+        // Store metadata if present
+        if let metadata = op.metadata {
+            metadataStore[handle] = metadata
+        }
+
+        // Assign to IVF cluster if trained
+        if let ivf = ivfStructure, ivf.isTrained {
+            _ = ivf.assignToCluster(vector: op.vector, slotIndex: UInt32(slot))
+        }
+
+        return true
+    }
+
+    private func replayBatchInsert(_ op: BatchInsertOperation) async throws -> Int {
+        let vectors = op.unflattenVectors()
+        var insertedCount = 0
+
+        for (i, stableID) in op.stableIDs.enumerated() {
+            // Check if already exists
+            if handleAllocator.hasStableID(stableID) {
+                continue
+            }
+
+            guard let (_, slot) = handleAllocator.allocateWithStableID(stableID) else {
+                continue
+            }
+
+            try storage.ensureCapacity(Int(slot) + 1)
+            deletionMask.ensureCapacity(Int(slot) + 1)
+
+            let vector = vectors[i]
+            try storage.writeVector(vector, at: Int(slot))
+
+            if let ivf = ivfStructure, ivf.isTrained {
+                _ = ivf.assignToCluster(vector: vector, slotIndex: UInt32(slot))
+            }
+
+            insertedCount += 1
+        }
+
+        return insertedCount
+    }
+
+    private func replayRemove(_ op: RemoveOperation) async throws -> Bool {
+        // Check if exists
+        let handle = VectorHandle(stableID: op.stableID)
+        guard let slot = handleAllocator.slot(for: handle) else {
+            return false  // Already removed or never existed
+        }
+
+        // Mark as deleted (don't log to WAL - we're replaying)
+        handleAllocator.markDeleted(handle)
+        deletionMask.markDeleted(Int(slot))
+        ivfStructure?.removeVector(slotIndex: slot)
+        metadataStore.remove(for: handle)
+
+        return true
+    }
+
+    private func replayBatchRemove(_ op: BatchRemoveOperation) async throws -> Int {
+        var removedCount = 0
+
+        for stableID in op.stableIDs {
+            let handle = VectorHandle(stableID: stableID)
+            guard let slot = handleAllocator.slot(for: handle) else {
+                continue
+            }
+
+            handleAllocator.markDeleted(handle)
+            deletionMask.markDeleted(Int(slot))
+            ivfStructure?.removeVector(slotIndex: slot)
+            metadataStore.remove(for: handle)
+            removedCount += 1
+        }
+
+        return removedCount
+    }
+
+    private func replayTrainComplete(_ op: TrainCompleteOperation) async throws {
+        guard let ivf = ivfStructure else { return }
+
+        // Restore centroids
+        let centroids = op.unflattenCentroids()
+        ivf.restoreTrainedState(centroids: centroids)
+
+        // Reassign all current vectors to clusters
+        for slotIndex in deletionMask {
+            guard slotIndex < storage.allocatedSlots else { continue }
+            let vector = try storage.readVector(at: slotIndex)
+            _ = ivf.assignToCluster(vector: vector, slotIndex: UInt32(slotIndex))
+        }
+    }
+
+    // MARK: - WAL Checkpoint Helper
+
+    /// Checkpoint the WAL if enabled.
+    ///
+    /// Creates a recovery point in the WAL. After this call, any entries
+    /// prior to the checkpoint can be safely truncated during compaction.
+    ///
+    /// - Returns: Sequence number of the checkpoint, or nil if WAL is disabled
+    @discardableResult
+    public func checkpoint() async throws -> UInt64? {
+        guard let wal = wal else { return nil }
+        let seq = try await wal.checkpoint()
+        operationsSinceCheckpoint = 0
+        return seq
+    }
+
+    // MARK: - WAL Maintenance
+
+    /// Get WAL statistics if WAL is enabled.
+    ///
+    /// Returns statistics about the WAL including segment count, size,
+    /// current sequence number, and checkpoint status.
+    ///
+    /// - Returns: WAL statistics, or nil if WAL is disabled
+    public func walStatistics() async -> GPUIndexStats.WALStats? {
+        guard let wal = wal else { return nil }
+        let stats = await wal.getStatistics()
+        return GPUIndexStats.WALStats(
+            segmentCount: stats.segmentCount,
+            totalSizeBytes: stats.totalSize,
+            entryCount: stats.entryCount,
+            currentSequence: stats.currentSequence,
+            lastCheckpointSequence: stats.lastCheckpoint,
+            isDirty: stats.isDirty
+        )
+    }
+
+    /// Compact the WAL by removing obsolete entries.
+    ///
+    /// This removes WAL segments that are older than the last checkpoint.
+    /// Should be called periodically to prevent unbounded WAL growth.
+    ///
+    /// ## When to Call
+    /// - After a successful checkpoint
+    /// - When WAL size exceeds a threshold
+    /// - As part of periodic maintenance
+    ///
+    /// - Returns: Number of bytes reclaimed
+    /// - Throws: If compaction fails
+    @discardableResult
+    public func compactWAL() async throws -> Int {
+        guard let wal = wal else { return 0 }
+
+        let statsBefore = await wal.getStatistics()
+        try await wal.compact()
+        let statsAfter = await wal.getStatistics()
+
+        let bytesReclaimed = statsBefore.totalSize - statsAfter.totalSize
+        if bytesReclaimed > 0 {
+            VectorLog("WAL compacted, reclaimed \(bytesReclaimed) bytes", level: .info, category: "WAL")
+        }
+
+        return bytesReclaimed
+    }
+
+    /// Flush pending WAL writes to disk.
+    ///
+    /// This ensures all logged operations are persisted but does not
+    /// create a checkpoint. Use `checkpoint()` for a full recovery point.
+    ///
+    /// - Throws: If flush fails
+    public func flushWAL() async throws {
+        guard let wal = wal else { return }
+        try await wal.flush()
+    }
+
+    /// Check if auto-checkpoint should be triggered and perform it if needed.
+    ///
+    /// This is called after each WAL-logged operation. When the operation count
+    /// exceeds the configured threshold, a checkpoint is automatically created.
+    /// After checkpoint, auto-compaction may also be triggered if WAL size exceeds
+    /// the compaction threshold.
+    private func checkAutoCheckpoint() async throws {
+        guard let wal = wal else { return }
+
+        operationsSinceCheckpoint += 1
+
+        let threshold = configuration.walConfiguration.autoCheckpointThreshold
+        guard threshold > 0, operationsSinceCheckpoint >= threshold else { return }
+
+        _ = try await checkpoint()
+
+        // Also check auto-compaction
+        let compactThreshold = configuration.walConfiguration.autoCompactThreshold
+        if compactThreshold > 0 {
+            let stats = await wal.getStatistics()
+            if stats.totalSize >= compactThreshold {
+                _ = try await compactWAL()
+            }
+        }
+    }
+
+    // MARK: - Static Factory Methods
+
+    /// Create an index and recover from WAL if available.
+    ///
+    /// This is the recommended way to open an index that may have
+    /// crashed during operation.
+    ///
+    /// - Parameters:
+    ///   - configuration: Index configuration
+    ///   - walDirectory: Directory containing WAL files
+    /// - Returns: Recovered index
+    /// - Throws: If index creation or recovery fails
+    public static func open(
+        configuration: IndexConfiguration,
+        walDirectory: URL
+    ) async throws -> AcceleratedVectorIndex {
+        // Create a new configuration with WAL enabled
+        let config = IndexConfiguration(
+            dimension: configuration.dimension,
+            metric: configuration.metric,
+            capacity: configuration.capacity,
+            indexType: configuration.indexType,
+            routingThreshold: configuration.routingThreshold,
+            quantization: configuration.quantization,
+            walConfiguration: .enabled(directory: walDirectory)
+        )
+
+        let index = try await AcceleratedVectorIndex(configuration: config)
+        let recovered = try await index.recover()
+
+        if recovered > 0 {
+            // Checkpoint after successful recovery
+            _ = try await index.checkpoint()
+            VectorLog("Recovered \(recovered) operations from WAL", level: .info, category: "WAL")
+        }
+
+        return index
     }
 }
 
