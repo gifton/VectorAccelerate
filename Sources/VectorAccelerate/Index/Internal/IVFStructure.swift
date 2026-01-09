@@ -147,6 +147,13 @@ final class IVFStructure: @unchecked Sendable {
         return sqrt(variance)
     }
 
+    /// Get a copy of the trained centroids.
+    ///
+    /// - Returns: Array of centroid vectors, or empty array if not trained
+    var trainedCentroids: [[Float]] {
+        centroids
+    }
+
     /// Whether quantization is enabled for this index.
     var isQuantized: Bool {
         quantization != .none
@@ -509,6 +516,22 @@ final class IVFStructure: @unchecked Sendable {
     /// Check if vectors are stored in quantized format.
     var hasQuantizedVectors: Bool {
         quantizedStorage != nil && (quantizedStorage?.vectorCount ?? 0) > 0
+    }
+
+    // MARK: - Recovery Support
+
+    /// Restore trained state from WAL recovery data.
+    ///
+    /// Used during WAL replay to restore centroids without re-running K-Means.
+    ///
+    /// - Parameters:
+    ///   - restoredCentroids: The centroids to restore
+    func restoreTrainedState(centroids restoredCentroids: [[Float]]) {
+        self.centroids = restoredCentroids
+        self.invertedLists = Array(repeating: [], count: restoredCentroids.count)
+        self.stagingSlots.removeAll()
+        self.trainingState = .trained
+        self.gpuStructureDirty = true
     }
 
     // MARK: - Statistics

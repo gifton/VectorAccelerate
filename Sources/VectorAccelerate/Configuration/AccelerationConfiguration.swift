@@ -8,9 +8,19 @@ import Foundation
 /// Main configuration for acceleration engine
 public struct AccelerationConfiguration: Sendable {
     public let bufferConfig: BufferPoolConfiguration
+
+    /// Minimum operation count before considering CPU path.
+    @available(*, deprecated, message: "Use GPUDecisionEngine for adaptive routing instead")
     public let cpuThreshold: Int
+
+    /// Minimum operation count before considering GPU path.
+    @available(*, deprecated, message: "Use GPUDecisionEngine for adaptive routing instead")
     public let gpuThreshold: Int
+
+    /// Minimum operation count before considering hybrid CPU+GPU path.
+    @available(*, deprecated, message: "Use GPUDecisionEngine for adaptive routing instead")
     public let hybridThreshold: Int
+
     public let adaptiveThresholds: Bool
     public let preferredDevice: PreferredDevice
 
@@ -79,6 +89,41 @@ public struct AccelerationConfiguration: Sendable {
         adaptiveThresholds: false,
         preferredDevice: .cpu
     )
+
+    // MARK: - Migration Helpers
+
+    /// Converts this configuration to GPUActivationThresholds for use with GPUDecisionEngine.
+    ///
+    /// Use this method to migrate from the deprecated threshold-based configuration
+    /// to the adaptive GPUDecisionEngine pattern.
+    ///
+    /// ```swift
+    /// let oldConfig = AccelerationConfiguration.performance
+    /// let thresholds = oldConfig.toGPUActivationThresholds()
+    /// let engine = GPUDecisionEngine(thresholds: thresholds)
+    /// ```
+    public func toGPUActivationThresholds() -> GPUActivationThresholds {
+        GPUActivationThresholds(
+            minVectorsForGPU: cpuThreshold,
+            minCandidatesForGPU: gpuThreshold / 10,  // Scale down for candidate-specific threshold
+            minKForGPU: 10,
+            maxKForGPU: 1000,
+            minOperationsForGPU: gpuThreshold,
+            maxGPUMemoryMB: bufferConfig.maxTotalSize / (1024 * 1024)
+        )
+    }
+
+    /// Creates a GPUDecisionEngine configured with thresholds derived from this configuration.
+    ///
+    /// This is a convenience method for migrating to the new adaptive routing pattern.
+    ///
+    /// ```swift
+    /// let config = AccelerationConfiguration.performance
+    /// let engine = config.createDecisionEngine()
+    /// ```
+    public func createDecisionEngine() -> GPUDecisionEngine {
+        GPUDecisionEngine(thresholds: toGPUActivationThresholds())
+    }
 }
 
 /// Execution path for operations

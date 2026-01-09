@@ -12,19 +12,31 @@ public actor BatchDistanceEngine {
     private let context: Metal4Context
     private let bufferPool: BufferPool
 
-    // Performance thresholds
+    // Performance thresholds (fallback when decisionEngine is nil)
     private let gpuThreshold = 1000  // Use GPU for batches > 1000 vectors
     private let simdThreshold = 100  // Use SIMD for batches > 100 vectors
 
-    public init(context: Metal4Context) async throws {
+    /// Optional decision engine for adaptive GPU/CPU routing
+    private let decisionEngine: GPUDecisionEngine?
+
+    /// Create with a Metal4Context and optional decision engine.
+    ///
+    /// - Parameters:
+    ///   - context: The Metal4Context for GPU operations
+    ///   - decisionEngine: Optional decision engine for adaptive routing (recommended for production)
+    public init(context: Metal4Context, decisionEngine: GPUDecisionEngine? = nil) async throws {
         self.context = context
         self.bufferPool = context.bufferPool
+        self.decisionEngine = decisionEngine
     }
 
-    /// Create with default context
-    public init() async throws {
+    /// Create with default context and optional decision engine.
+    ///
+    /// - Parameter decisionEngine: Optional decision engine for adaptive routing
+    public init(decisionEngine: GPUDecisionEngine? = nil) async throws {
         self.context = try await Metal4Context()
         self.bufferPool = context.bufferPool
+        self.decisionEngine = decisionEngine
     }
 
     // MARK: - Batch Euclidean Distance
@@ -40,7 +52,20 @@ public actor BatchDistanceEngine {
             throw VectorError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
         }
 
-        let shouldUseGPU = useGPU ?? (candidates.count >= gpuThreshold)
+        let shouldUseGPU: Bool
+        if let explicit = useGPU {
+            shouldUseGPU = explicit
+        } else if let engine = decisionEngine {
+            shouldUseGPU = await engine.shouldUseGPU(
+                operation: .l2Distance,
+                vectorCount: candidates.count,
+                candidateCount: candidates.count,
+                k: 1,
+                dimension: query.count
+            )
+        } else {
+            shouldUseGPU = candidates.count >= gpuThreshold
+        }
 
         if shouldUseGPU {
             return try await batchEuclideanDistanceGPU(query: query, candidates: candidates)
@@ -141,7 +166,20 @@ public actor BatchDistanceEngine {
             throw VectorError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
         }
 
-        let shouldUseGPU = useGPU ?? (candidates.count >= gpuThreshold)
+        let shouldUseGPU: Bool
+        if let explicit = useGPU {
+            shouldUseGPU = explicit
+        } else if let engine = decisionEngine {
+            shouldUseGPU = await engine.shouldUseGPU(
+                operation: .cosineSimilarity,
+                vectorCount: candidates.count,
+                candidateCount: candidates.count,
+                k: 1,
+                dimension: query.count
+            )
+        } else {
+            shouldUseGPU = candidates.count >= gpuThreshold
+        }
 
         if shouldUseGPU {
             return try await batchCosineSimilarityGPU(query: query, candidates: candidates)
@@ -254,7 +292,20 @@ public actor BatchDistanceEngine {
             throw VectorError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
         }
 
-        let shouldUseGPU = useGPU ?? (candidates.count >= gpuThreshold)
+        let shouldUseGPU: Bool
+        if let explicit = useGPU {
+            shouldUseGPU = explicit
+        } else if let engine = decisionEngine {
+            shouldUseGPU = await engine.shouldUseGPU(
+                operation: .dotProduct,
+                vectorCount: candidates.count,
+                candidateCount: candidates.count,
+                k: 1,
+                dimension: query.count
+            )
+        } else {
+            shouldUseGPU = candidates.count >= gpuThreshold
+        }
 
         if shouldUseGPU {
             return try await batchDotProductGPU(query: query, candidates: candidates)
@@ -327,7 +378,20 @@ public actor BatchDistanceEngine {
             throw VectorError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
         }
 
-        let shouldUseGPU = useGPU ?? (candidates.count >= gpuThreshold)
+        let shouldUseGPU: Bool
+        if let explicit = useGPU {
+            shouldUseGPU = explicit
+        } else if let engine = decisionEngine {
+            shouldUseGPU = await engine.shouldUseGPU(
+                operation: .manhattanDistance,
+                vectorCount: candidates.count,
+                candidateCount: candidates.count,
+                k: 1,
+                dimension: query.count
+            )
+        } else {
+            shouldUseGPU = candidates.count >= gpuThreshold
+        }
 
         if shouldUseGPU {
             return try await batchManhattanDistanceGPU(query: query, candidates: candidates)

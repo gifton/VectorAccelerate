@@ -23,22 +23,32 @@ public struct BatchConfiguration: Sendable {
     public let maxBatchSize: Int
     public let memoryLimit: Int  // Bytes
     public let enablePipelining: Bool
-    public let gpuThreshold: Int  // Minimum batch size for GPU
-    
+
+    /// Minimum batch size for GPU (fallback when decisionEngine is nil)
+    @available(*, deprecated, message: "Use decisionEngine for adaptive GPU routing")
+    public let gpuThreshold: Int
+
+    /// Optional decision engine for adaptive GPU/CPU routing.
+    /// When provided, GPU decisions are delegated to the engine.
+    /// When nil, falls back to gpuThreshold.
+    public let decisionEngine: GPUDecisionEngine?
+
     public init(
         strategy: BatchStrategy = .adaptive,
         maxBatchSize: Int = 10000,
         memoryLimit: Int = 512 * 1024 * 1024,  // 512MB
         enablePipelining: Bool = true,
-        gpuThreshold: Int = 100
+        gpuThreshold: Int = 100,
+        decisionEngine: GPUDecisionEngine? = nil
     ) {
         self.strategy = strategy
         self.maxBatchSize = maxBatchSize
         self.memoryLimit = memoryLimit
         self.enablePipelining = enablePipelining
         self.gpuThreshold = gpuThreshold
+        self.decisionEngine = decisionEngine
     }
-    
+
     public static let `default` = BatchConfiguration()
     public static let memory = BatchConfiguration(
         strategy: .streaming(chunkSize: 1000),
@@ -147,7 +157,7 @@ public actor BatchProcessor {
             )
             
         case .adaptive:
-            let adaptedStrategy = adaptStrategy(for: data.count, itemSize: operation.estimatedMemoryPerItem)
+            let adaptedStrategy = await adaptStrategy(for: data.count, itemSize: operation.estimatedMemoryPerItem)
             return try await executeWithStrategy(
                 data: data,
                 operation: operation,
@@ -282,21 +292,36 @@ public actor BatchProcessor {
         return .parallel(maxConcurrency: 4)
     }
     
-    private func adaptStrategy(for count: Int, itemSize: Int) -> BatchStrategy {
+    private func adaptStrategy(for count: Int, itemSize: Int, dimension: Int = 128) async -> BatchStrategy {
         // Similar to selectStrategy but with more nuanced decisions
         let totalMemory = count * itemSize
         let cores = ProcessInfo.processInfo.activeProcessorCount
-        
+
         // Memory-constrained
         if totalMemory > configuration.memoryLimit * 2 {
             return .streaming(chunkSize: configuration.memoryLimit / itemSize)
         }
-        
-        // CPU-bound small batch
-        if count < configuration.gpuThreshold {
+
+        // Determine if parallel processing is worthwhile
+        let shouldUseParallel: Bool
+        if let engine = configuration.decisionEngine {
+            // Use decision engine to determine if GPU/parallel processing is beneficial
+            shouldUseParallel = await engine.shouldUseGPU(
+                operation: .batchSearch,
+                vectorCount: count,
+                candidateCount: count,
+                k: 1,
+                dimension: dimension
+            )
+        } else {
+            // Fallback to hardcoded threshold
+            shouldUseParallel = count >= configuration.gpuThreshold
+        }
+
+        if !shouldUseParallel {
             return .sequential
         }
-        
+
         // Optimal parallel processing
         let optimalConcurrency = min(cores, count / 100)
         return .parallel(maxConcurrency: max(1, optimalConcurrency))
