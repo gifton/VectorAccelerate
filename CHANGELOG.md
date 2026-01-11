@@ -5,6 +5,22 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.6] - 2026-01-10
+
+### Fixed
+
+- **Metal Library Loading for SPM Transitive Dependencies** — Fixed a critical bug where `device.makeDefaultLibrary()` would return the host app's metallib instead of VectorAccelerate's bundled metallib when used as a transitive SPM dependency (e.g., `App -> PackageB -> VectorAccelerate`)
+  - Added `isVectorAccelerateLibrary()` validation to verify loaded libraries contain expected shader functions
+  - Changed loading order to prioritize VectorAccelerate's bundle before falling back to `makeDefaultLibrary()`
+  - `Metal4ShaderCompiler.getDefaultLibrary()` now delegates to `KernelContext.getSharedLibrary()` for consistent behavior
+  - Affected kernels: All GPU kernels (L2 normalization, distance calculations, cosine similarity, etc.)
+
+### Changed
+
+- Updated library version references to 0.3.6
+
+---
+
 ## [0.3.5] - 2026-01-09
 
 ### Added
