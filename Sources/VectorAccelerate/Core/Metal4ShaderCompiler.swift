@@ -434,26 +434,22 @@ public actor Metal4ShaderCompiler {
 
     /// Get the default library, loading it if necessary.
     ///
-    /// This method attempts to load the library in order:
-    /// 1. Return cached default library if available
-    /// 2. Try device's default library (app bundle)
-    /// 3. Try KernelContext's shared library (SPM/runtime compiled)
+    /// This method delegates to `KernelContext.getSharedLibrary()` which handles
+    /// transitive SPM dependency scenarios correctly by:
+    /// 1. Prioritizing VectorAccelerate's bundled metallib
+    /// 2. Validating that loaded libraries contain VectorAccelerate functions
+    /// 3. Only using `makeDefaultLibrary()` as a last resort with validation
     ///
     /// - Returns: The default Metal library
-    /// - Throws: `VectorError.shaderNotFound` if no library is available
+    /// - Throws: `VectorError.libraryCreationFailed` if no valid library is available
     public func getDefaultLibrary() async throws -> any MTLLibrary {
         // Return cached if available
         if let library = defaultLibrary {
             return library
         }
 
-        // Try device's default library first
-        if let library = device.makeDefaultLibrary() {
-            self.defaultLibrary = library
-            return library
-        }
-
-        // Fall back to KernelContext's shared library (handles SPM/runtime)
+        // Delegate to KernelContext which handles transitive dependency issues
+        // by prioritizing VectorAccelerate's bundle and validating libraries
         let library = try KernelContext.getSharedLibrary(for: device)
         self.defaultLibrary = library
         return library
@@ -465,11 +461,12 @@ public actor Metal4ShaderCompiler {
     }
 
     /// Load default library from bundle
+    ///
+    /// - Note: This method delegates to `KernelContext.getSharedLibrary()` which
+    ///   handles SPM transitive dependencies correctly by prioritizing
+    ///   VectorAccelerate's bundled metallib over `device.makeDefaultLibrary()`.
     public func loadDefaultLibrary() async throws {
-        // Try to get default library from device
-        guard let library = device.makeDefaultLibrary() else {
-            throw VectorError.shaderNotFound(name: "Default library not found")
-        }
+        let library = try KernelContext.getSharedLibrary(for: device)
         self.defaultLibrary = library
     }
 

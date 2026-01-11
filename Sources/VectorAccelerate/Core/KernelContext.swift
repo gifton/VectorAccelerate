@@ -123,63 +123,92 @@ public final class KernelContext: @unchecked Sendable {
         return nil
     }
 
+    // MARK: - Library Validation
+
+    /// Validates that a Metal library contains VectorAccelerate shader functions.
+    ///
+    /// This prevents accidentally using the host app's metallib when VectorAccelerate
+    /// is consumed as a transitive SPM dependency. The host app's metallib would be
+    /// returned by `device.makeDefaultLibrary()` but wouldn't contain our kernels.
+    ///
+    /// - Parameter library: The Metal library to validate
+    /// - Returns: `true` if the library contains core VectorAccelerate kernel functions
+    private static func isVectorAccelerateLibrary(_ library: any MTLLibrary) -> Bool {
+        // Check for core VectorAccelerate kernel functions
+        // If these exist, it's definitely our library
+        return library.makeFunction(name: "l2_distance_kernel") != nil &&
+               library.makeFunction(name: "dot_product_kernel") != nil
+    }
+
     // MARK: - Metal Library Loading
 
     /// Load Metal library with fallback support for different environments.
     ///
-    /// Tries multiple approaches in order of preference:
-    /// 1. Device's default library (app bundle with compiled metal)
-    /// 2. debug.metallib - compiled with MetalCompilerPlugin (DEBUG builds only, has shader source for debugging)
-    /// 3. default.metallib - SPM auto-compiled (optimized, no debug symbols)
-    /// 4. Runtime compilation from .metal source files (fallback for edge cases)
+    /// **Important**: This method prioritizes VectorAccelerate's bundled metallib to handle
+    /// transitive SPM dependency scenarios correctly. When VectorAccelerate is used as a
+    /// dependency (e.g., `App -> PackageB -> VectorAccelerate`), `device.makeDefaultLibrary()`
+    /// would incorrectly return the host app's metallib instead of ours.
+    ///
+    /// Loading order:
+    /// 1. VectorAccelerate's bundle (debug.metallib in DEBUG, default.metallib otherwise)
+    /// 2. Runtime compilation from .metal source files (fallback)
+    /// 3. Device's default library WITH VALIDATION (only when VectorAccelerate is the main app)
     ///
     /// - Parameter device: The Metal device to create the library for
     /// - Returns: The loaded Metal library, or nil if all approaches fail
     public static func loadMetalLibrary(device: any MTLDevice) -> (any MTLLibrary)? {
-        // 1. Try device's default library (works in app bundles)
-        if let library = device.makeDefaultLibrary() {
-            return library
+        // 1. Find VectorAccelerate's resource bundle FIRST
+        //    This ensures we use our own metallib even when used as a dependency
+        if let resourceBundle = findVectorAccelerateBundle() {
+            #if DEBUG
+            print("[VectorAccelerate] Found resource bundle: \(resourceBundle.bundlePath)")
+            #endif
+
+            // 2. In DEBUG builds, prefer debug.metallib for Xcode Metal Debugger support
+            //    This library contains shader source via -frecord-sources flag
+            #if DEBUG
+            if let libraryURL = resourceBundle.url(forResource: "debug", withExtension: "metallib"),
+               let library = try? device.makeLibrary(URL: libraryURL),
+               isVectorAccelerateLibrary(library) {
+                print("[VectorAccelerate] Loaded debug.metallib with shader debugging support")
+                return library
+            }
+            #endif
+
+            // 3. Try default.metallib from our bundle
+            if let libraryURL = resourceBundle.url(forResource: "default", withExtension: "metallib"),
+               let library = try? device.makeLibrary(URL: libraryURL),
+               isVectorAccelerateLibrary(library) {
+                #if DEBUG
+                print("[VectorAccelerate] Loaded default.metallib from bundle")
+                #endif
+                return library
+            }
+
+            // 4. Fallback: Runtime compile from .metal sources
+            if let library = compileMetalSourcesFromBundle(device: device, bundle: resourceBundle),
+               isVectorAccelerateLibrary(library) {
+                #if DEBUG
+                print("[VectorAccelerate] Compiled Metal shaders at runtime from bundle resources")
+                #endif
+                return library
+            }
         }
 
-        // 2. Find VectorAccelerate's resource bundle using robust resolution
-        guard let resourceBundle = findVectorAccelerateBundle() else {
+        // 5. Last resort: Try device's default library WITH VALIDATION
+        //    Only succeeds if it actually contains VectorAccelerate functions
+        //    (i.e., when VectorAccelerate IS the main app, like in tests)
+        if let library = device.makeDefaultLibrary(),
+           isVectorAccelerateLibrary(library) {
             #if DEBUG
-            print("[VectorAccelerate] Warning: Could not locate VectorAccelerate resource bundle")
+            print("[VectorAccelerate] Using validated default library (VectorAccelerate is main app)")
             #endif
-            return nil
+            return library
         }
 
         #if DEBUG
-        print("[VectorAccelerate] Found resource bundle: \(resourceBundle.bundlePath)")
+        print("[VectorAccelerate] Warning: Could not load VectorAccelerate Metal library")
         #endif
-
-        // 3. In DEBUG builds, prefer debug.metallib for Xcode Metal Debugger support
-        //    This library contains shader source via -frecord-sources flag
-        #if DEBUG
-        if let libraryURL = resourceBundle.url(forResource: "debug", withExtension: "metallib"),
-           let library = try? device.makeLibrary(URL: libraryURL) {
-            print("[VectorAccelerate] Loaded debug.metallib with shader debugging support")
-            return library
-        }
-        #endif
-
-        // 4. Try default.metallib (SPM auto-compiled, optimized, no debug symbols)
-        if let libraryURL = resourceBundle.url(forResource: "default", withExtension: "metallib"),
-           let library = try? device.makeLibrary(URL: libraryURL) {
-            #if DEBUG
-            print("[VectorAccelerate] Loaded default.metallib (no debug symbols)")
-            #endif
-            return library
-        }
-
-        // 5. Fallback: Runtime compile from .metal sources (development/edge cases only)
-        if let library = compileMetalSourcesFromBundle(device: device, bundle: resourceBundle) {
-            #if DEBUG
-            print("[VectorAccelerate] Compiled Metal shaders at runtime from bundle resources")
-            #endif
-            return library
-        }
-
         return nil
     }
 
