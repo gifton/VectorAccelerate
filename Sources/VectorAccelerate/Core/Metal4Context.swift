@@ -274,7 +274,7 @@ public actor Metal4Context: AccelerationProvider {
 
         // Submit via queue (Metal 4 pattern)
         // In Metal 4: commandQueue.commit([commandBuffer])
-        commandBuffer.commit()
+        await commandBuffer.commitAndWait()
 
         if configuration.enableProfiling {
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime

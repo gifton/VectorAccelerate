@@ -376,13 +376,8 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable, Metal4Kern
         encoder.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
         encoder.endEncoding()
         
-        // Wait for completion using continuation (handler must be added before commit)
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            commandBuffer.addCompletedHandler { _ in
-                continuation.resume()
-            }
-            commandBuffer.commit()
-        }
+        // Wait for completion
+        await commandBuffer.commitAndWait()
 
         let gpuExecutionTime = CACurrentMediaTime() - gpuStartTime
         

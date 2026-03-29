@@ -114,7 +114,7 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
             }
             encoder.setComputePipelineState(pipeline)
             encoder.endEncoding()
-            commandBuffer.commit()
+            await commandBuffer.commitAndWait()
         }
     }
 
