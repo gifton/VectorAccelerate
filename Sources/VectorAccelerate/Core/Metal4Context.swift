@@ -218,6 +218,13 @@ public actor Metal4Context: AccelerationProvider {
         } catch {
             self.defaultLibrary = nil
         }
+
+        // Eagerly pre-compile and cache critical path pipelines
+        // This ensures hot paths don't incur compilation latency
+        let cache = self.pipelineCache
+        Task {
+            await cache.warmUp(keys: PipelineCacheKey.commonKeys)
+        }
     }
 
     // MARK: - Command Buffer Creation
