@@ -179,23 +179,13 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
         dimension: Int,
         startTime: CFTimeInterval
     ) async throws -> KMeansAssignmentResult {
-        let device = context.device.rawDevice
-
         // Allocate output buffers
-        guard let assignmentsBuffer = device.makeBuffer(
-            length: numVectors * MemoryLayout<UInt32>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: numVectors * MemoryLayout<UInt32>.size)
-        }
+        let assignmentsToken = try await context.getBuffer(size: numVectors * MemoryLayout<UInt32>.size)
+        let assignmentsBuffer = assignmentsToken.buffer
         assignmentsBuffer.label = "KMeansAssign.assignments"
 
-        guard let distancesBuffer = device.makeBuffer(
-            length: numVectors * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: numVectors * MemoryLayout<Float>.size)
-        }
+        let distancesToken = try await context.getBuffer(size: numVectors * MemoryLayout<Float>.size)
+        let distancesBuffer = distancesToken.buffer
         distancesBuffer.label = "KMeansAssign.distances"
 
         // Select pipeline variant based on device capabilities
@@ -254,13 +244,16 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
         encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
         encoder.endEncoding()
 
+        assignmentsToken.keepAlive(until: commandBuffer)
+        distancesToken.keepAlive(until: commandBuffer)
+
         await commandBuffer.commitAndWait()
 
         let executionTime = CACurrentMediaTime() - startTime
 
         return KMeansAssignmentResult(
-            assignments: assignmentsBuffer,
-            distances: distancesBuffer,
+            assignmentsToken: assignmentsToken,
+            distancesToken: distancesToken,
             numVectors: numVectors,
             executionTime: executionTime
         )
@@ -326,24 +319,14 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
 
         // Create vector buffer
         let flatVectors = vectors.flatMap { $0 }
-        guard let vectorBuffer = device.makeBuffer(
-            bytes: flatVectors,
-            length: flatVectors.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatVectors.count * MemoryLayout<Float>.size)
-        }
+        let vectorToken = try await context.getBuffer(for: flatVectors)
+        let vectorBuffer = vectorToken.buffer
         vectorBuffer.label = "KMeansAssign.vectors"
 
         // Create centroid buffer
         let flatCentroids = centroids.flatMap { $0 }
-        guard let centroidBuffer = device.makeBuffer(
-            bytes: flatCentroids,
-            length: flatCentroids.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatCentroids.count * MemoryLayout<Float>.size)
-        }
+        let centroidToken = try await context.getBuffer(for: flatCentroids)
+        let centroidBuffer = centroidToken.buffer
         centroidBuffer.label = "KMeansAssign.centroids"
 
         // Execute
@@ -354,6 +337,11 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
             numCentroids: centroids.count,
             dimension: dimension
         )
+
+        // Keep tokens alive
+        // (assign itself creates new tokens for outputs, but inputs should be held until assign completes)
+        // Since assign is an async call that awaits GPU completion, vectorToken and centroidToken
+        // naturally stay alive in this scope until assign returns.
 
         // Extract results
         let assignPtr = result.assignments.contents().bindMemory(to: UInt32.self, capacity: vectors.count)
@@ -376,16 +364,10 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
         assignments: any MTLBuffer,
         numVectors: Int,
         numCentroids: Int
-    ) async throws -> any MTLBuffer {
-        let device = context.device.rawDevice
-
+    ) async throws -> BufferToken {
         // Allocate counts buffer
-        guard let countsBuffer = device.makeBuffer(
-            length: numCentroids * MemoryLayout<UInt32>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: numCentroids * MemoryLayout<UInt32>.size)
-        }
+        let countsToken = try await context.getBuffer(size: numCentroids * MemoryLayout<UInt32>.size)
+        let countsBuffer = countsToken.buffer
         countsBuffer.label = "KMeansAssign.counts"
 
         // Initialize to zero
@@ -403,6 +385,6 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
             }
         }
 
-        return countsBuffer
+        return countsToken
     }
 }

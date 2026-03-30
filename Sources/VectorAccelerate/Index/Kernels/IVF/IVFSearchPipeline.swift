@@ -122,13 +122,8 @@ public final class IVFSearchPipeline: @unchecked Sendable {
 
         // Flatten centroids
         let flatCentroids = centroids.flatMap { $0 }
-        guard let centroidBuffer = device.makeBuffer(
-            bytes: flatCentroids,
-            length: flatCentroids.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatCentroids.count * MemoryLayout<Float>.size)
-        }
+        let centroidToken = try await context.getBuffer(for: flatCentroids)
+        let centroidBuffer = centroidToken.buffer
         centroidBuffer.label = "IVFSearchPipeline.centroids"
 
         // Build CSR structure for lists
@@ -159,43 +154,26 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         }
 
         // Create GPU buffers
-        let vectorBuffer: (any MTLBuffer)?
+        let vectorToken: BufferToken
         if flatVectors.isEmpty {
-            vectorBuffer = device.makeBuffer(length: 4, options: .storageModeShared)
+            vectorToken = try await context.getBuffer(size: 4)
         } else {
-            vectorBuffer = device.makeBuffer(
-                bytes: flatVectors,
-                length: flatVectors.count * MemoryLayout<Float>.size,
-                options: .storageModeShared
-            )
+            vectorToken = try await context.getBuffer(for: flatVectors)
         }
-        guard let vectors = vectorBuffer else {
-            throw VectorError.bufferAllocationFailed(size: flatVectors.count * MemoryLayout<Float>.size)
-        }
+        let vectors = vectorToken.buffer
         vectors.label = "IVFSearchPipeline.listVectors"
 
-        let indexBuffer: (any MTLBuffer)?
+        let indexToken: BufferToken
         if vectorIndices.isEmpty {
-            indexBuffer = device.makeBuffer(length: 4, options: .storageModeShared)
+            indexToken = try await context.getBuffer(size: 4)
         } else {
-            indexBuffer = device.makeBuffer(
-                bytes: vectorIndices,
-                length: vectorIndices.count * MemoryLayout<UInt32>.size,
-                options: .storageModeShared
-            )
+            indexToken = try await context.getBuffer(for: vectorIndices)
         }
-        guard let indices = indexBuffer else {
-            throw VectorError.bufferAllocationFailed(size: vectorIndices.count * MemoryLayout<UInt32>.size)
-        }
+        let indices = indexToken.buffer
         indices.label = "IVFSearchPipeline.vectorIndices"
 
-        guard let offsetBuffer = device.makeBuffer(
-            bytes: listOffsets,
-            length: listOffsets.count * MemoryLayout<UInt32>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: listOffsets.count * MemoryLayout<UInt32>.size)
-        }
+        let offsetToken = try await context.getBuffer(for: listOffsets)
+        let offsetBuffer = offsetToken.buffer
         offsetBuffer.label = "IVFSearchPipeline.listOffsets"
 
         return IVFGPUIndexStructure(
@@ -353,13 +331,8 @@ public final class IVFSearchPipeline: @unchecked Sendable {
 
         // Create query buffer
         let flatQueries = queries.flatMap { $0 }
-        guard let queryBuffer = device.makeBuffer(
-            bytes: flatQueries,
-            length: flatQueries.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatQueries.count * MemoryLayout<Float>.size)
-        }
+        let queryToken = try await context.getBuffer(for: flatQueries)
+        let queryBuffer = queryToken.buffer
         queryBuffer.label = "IVFSearchPipeline.queries"
 
         var fusedSearchTime: TimeInterval = 0
@@ -372,14 +345,12 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         let coarseIndicesSize = numQueries * nprobe * MemoryLayout<UInt32>.size
         let coarseDistancesSize = numQueries * nprobe * MemoryLayout<Float>.size
 
-        guard let coarseListIndices = device.makeBuffer(length: coarseIndicesSize, options: .storageModeShared) else {
-            throw VectorError.bufferAllocationFailed(size: coarseIndicesSize)
-        }
+        let coarseListIndicesToken = try await context.getBuffer(size: coarseIndicesSize)
+        let coarseListIndices = coarseListIndicesToken.buffer
         coarseListIndices.label = "IVFSearchPipeline.coarseListIndices"
 
-        guard let coarseListDistances = device.makeBuffer(length: coarseDistancesSize, options: .storageModeShared) else {
-            throw VectorError.bufferAllocationFailed(size: coarseDistancesSize)
-        }
+        let coarseListDistancesToken = try await context.getBuffer(size: coarseDistancesSize)
+        let coarseListDistances = coarseListDistancesToken.buffer
         coarseListDistances.label = "IVFSearchPipeline.coarseListDistances"
 
         // IVF list search output buffers
@@ -387,14 +358,12 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         let outputIndicesSize = outputCount * MemoryLayout<UInt32>.size
         let outputDistancesSize = outputCount * MemoryLayout<Float>.size
 
-        guard let outputIndices = device.makeBuffer(length: outputIndicesSize, options: .storageModeShared) else {
-            throw VectorError.bufferAllocationFailed(size: outputIndicesSize)
-        }
+        let outputIndicesToken = try await context.getBuffer(size: outputIndicesSize)
+        let outputIndices = outputIndicesToken.buffer
         outputIndices.label = "IVFListSearch.outputIndices"
 
-        guard let outputDistances = device.makeBuffer(length: outputDistancesSize, options: .storageModeShared) else {
-            throw VectorError.bufferAllocationFailed(size: outputDistancesSize)
-        }
+        let outputDistancesToken = try await context.getBuffer(size: outputDistancesSize)
+        let outputDistances = outputDistancesToken.buffer
         outputDistances.label = "IVFListSearch.outputDistances"
 
         // Build IVF list search parameters

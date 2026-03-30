@@ -148,34 +148,24 @@ public final class KMeansConvergenceKernel: @unchecked Sendable, Metal4Kernel {
         let dimension = oldCentroids[0].count
         let numCentroids = oldCentroids.count
 
-        let device = context.device.rawDevice
-
         // Create buffers
         let flatOld = oldCentroids.flatMap { $0 }
-        guard let oldBuffer = device.makeBuffer(
-            bytes: flatOld,
-            length: flatOld.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatOld.count * MemoryLayout<Float>.size)
-        }
+        let oldToken = try await context.getBuffer(for: flatOld)
+        let oldBuffer = oldToken.buffer
 
         let flatNew = newCentroids.flatMap { $0 }
-        guard let newBuffer = device.makeBuffer(
-            bytes: flatNew,
-            length: flatNew.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatNew.count * MemoryLayout<Float>.size)
-        }
+        let newToken = try await context.getBuffer(for: flatNew)
+        let newBuffer = newToken.buffer
 
-        return try await checkConvergence(
+        let result = try await checkConvergence(
             oldCentroids: oldBuffer,
             newCentroids: newBuffer,
             numCentroids: numCentroids,
             dimension: dimension,
             threshold: threshold
         )
+        
+        return result
     }
 
     /// Compute inertia (sum of squared distances to centroids).

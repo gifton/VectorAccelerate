@@ -122,17 +122,15 @@ public final class KMeansPipeline: @unchecked Sendable {
 
         // Create vector buffer
         let flatVectors = vectors.flatMap { $0 }
-        guard let vectorBuffer = device.makeBuffer(
-            bytes: flatVectors,
-            length: flatVectors.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatVectors.count * MemoryLayout<Float>.size)
-        }
+        let vectorToken = try await context.getBuffer(for: flatVectors)
+        let vectorBuffer = vectorToken.buffer
         vectorBuffer.label = "KMeansPipeline.vectors"
 
         // Initialize centroids
         var centroidBuffer: any MTLBuffer
+        // Keep centroid token alive as long as centroidBuffer is used
+        var centroidToken: BufferToken? = nil
+        
         if let initial = initialCentroids {
             guard initial.count == configuration.numClusters else {
                 throw IndexError.invalidInput(
@@ -140,14 +138,10 @@ public final class KMeansPipeline: @unchecked Sendable {
                 )
             }
             let currentCentroids = initial.flatMap { $0 }
-            guard let buffer = device.makeBuffer(
-                bytes: currentCentroids,
-                length: currentCentroids.count * MemoryLayout<Float>.size,
-                options: .storageModeShared
-            ) else {
-                throw VectorError.bufferAllocationFailed(size: currentCentroids.count * MemoryLayout<Float>.size)
-            }
+            let bufferToken = try await context.getBuffer(for: currentCentroids)
+            let buffer = bufferToken.buffer
             buffer.label = "KMeansPipeline.centroids"
+            centroidToken = bufferToken
             centroidBuffer = buffer
         } else {
             // Use GPU-accelerated K-means++ initialization
@@ -166,6 +160,7 @@ public final class KMeansPipeline: @unchecked Sendable {
         var iteration = 0
         var assignmentResult: KMeansAssignmentResult?
         var countsBuffer: (any MTLBuffer)?
+        var countsToken: BufferToken? = nil
 
         // Main iteration loop
         while iteration < configuration.maxIterations && !converged {
@@ -182,7 +177,7 @@ public final class KMeansPipeline: @unchecked Sendable {
 
             // Step 2: Update centroids
             let updateStart = CACurrentMediaTime()
-            let (newCentroidBuffer, newCountsBuffer, emptyClusters) = try await updateKernel.update(
+            let (newCentroidToken, newCountsToken, emptyClusters) = try await updateKernel.update(
                 vectors: vectorBuffer,
                 assignments: assignmentResult!.assignments,
                 currentCentroids: centroidBuffer,
@@ -195,11 +190,11 @@ public final class KMeansPipeline: @unchecked Sendable {
             // Handle empty clusters
             if emptyClusters > 0 {
                 _ = updateKernel.handleEmptyClusters(
-                    centroids: newCentroidBuffer,
+                    centroids: newCentroidToken.buffer,
                     vectors: vectorBuffer,
                     assignments: assignmentResult!.assignments,
                     distances: assignmentResult!.distances,
-                    counts: newCountsBuffer,
+                    counts: newCountsToken.buffer,
                     numVectors: numVectors,
                     numCentroids: configuration.numClusters,
                     dimension: dimension
@@ -210,7 +205,7 @@ public final class KMeansPipeline: @unchecked Sendable {
             let convStart = CACurrentMediaTime()
             let convResult = try await convergenceKernel.checkConvergence(
                 oldCentroids: centroidBuffer,
-                newCentroids: newCentroidBuffer,
+                newCentroids: newCentroidToken.buffer,
                 numCentroids: configuration.numClusters,
                 dimension: dimension,
                 threshold: configuration.convergenceThreshold
@@ -231,8 +226,10 @@ public final class KMeansPipeline: @unchecked Sendable {
             }
 
             // Update for next iteration
-            centroidBuffer = newCentroidBuffer
-            countsBuffer = newCountsBuffer
+            centroidToken = newCentroidToken
+            centroidBuffer = newCentroidToken.buffer
+            countsToken = newCountsToken
+            countsBuffer = newCountsToken.buffer
             iteration += 1
         }
 
@@ -249,11 +246,13 @@ public final class KMeansPipeline: @unchecked Sendable {
 
         // Ensure we have counts
         if countsBuffer == nil {
-            countsBuffer = try await assignKernel.computeClusterCounts(
+            let token = try await assignKernel.computeClusterCounts(
                 assignments: assignmentResult!.assignments,
                 numVectors: numVectors,
                 numCentroids: configuration.numClusters
             )
+            countsToken = token
+            countsBuffer = token.buffer
         }
 
         let totalTime = CACurrentMediaTime() - startTime
@@ -263,9 +262,12 @@ public final class KMeansPipeline: @unchecked Sendable {
         )
 
         return KMeansResult(
-            centroids: centroidBuffer,
-            assignments: assignmentResult!.assignments,
-            clusterCounts: countsBuffer!,
+            centroidsToken: centroidToken,
+            centroidsBuffer: centroidBuffer,
+            assignmentsToken: assignmentResult!.assignmentsToken,
+            assignmentsBuffer: assignmentResult!.assignments,
+            clusterCountsToken: countsToken,
+            clusterCountsBuffer: countsBuffer!,
             numClusters: configuration.numClusters,
             numVectors: numVectors,
             dimension: dimension,
@@ -330,7 +332,7 @@ public final class KMeansPipeline: @unchecked Sendable {
 
             // Update
             let updateStart = CACurrentMediaTime()
-            let (newCentroidBuffer, newCountsBuffer, emptyClusters) = try await updateKernel.update(
+            let (newCentroidToken, newCountsToken, emptyClusters) = try await updateKernel.update(
                 vectors: vectors,
                 assignments: assignmentResult!.assignments,
                 currentCentroids: centroidBuffer,
@@ -342,11 +344,11 @@ public final class KMeansPipeline: @unchecked Sendable {
 
             if emptyClusters > 0 {
                 _ = updateKernel.handleEmptyClusters(
-                    centroids: newCentroidBuffer,
+                    centroids: newCentroidToken.buffer,
                     vectors: vectors,
                     assignments: assignmentResult!.assignments,
                     distances: assignmentResult!.distances,
-                    counts: newCountsBuffer,
+                    counts: newCountsToken.buffer,
                     numVectors: numVectors,
                     numCentroids: numClusters,
                     dimension: dimension
@@ -357,7 +359,7 @@ public final class KMeansPipeline: @unchecked Sendable {
             let convStart = CACurrentMediaTime()
             let convResult = try await convergenceKernel.checkConvergence(
                 oldCentroids: centroidBuffer,
-                newCentroids: newCentroidBuffer,
+                newCentroids: newCentroidToken.buffer,
                 numCentroids: numClusters,
                 dimension: dimension,
                 threshold: configuration.convergenceThreshold
@@ -376,8 +378,8 @@ public final class KMeansPipeline: @unchecked Sendable {
                 ))
             }
 
-            centroidBuffer = newCentroidBuffer
-            countsBuffer = newCountsBuffer
+            centroidBuffer = newCentroidToken.buffer
+            countsBuffer = newCountsToken.buffer
             iteration += 1
         }
 
@@ -392,11 +394,12 @@ public final class KMeansPipeline: @unchecked Sendable {
         }
 
         if countsBuffer == nil {
-            countsBuffer = try await assignKernel.computeClusterCounts(
+            let countsToken = try await assignKernel.computeClusterCounts(
                 assignments: assignmentResult!.assignments,
                 numVectors: numVectors,
                 numCentroids: numClusters
             )
+            countsBuffer = countsToken.buffer
         }
 
         let totalTime = CACurrentMediaTime() - startTime
@@ -406,9 +409,12 @@ public final class KMeansPipeline: @unchecked Sendable {
         )
 
         return KMeansResult(
-            centroids: centroidBuffer,
-            assignments: assignmentResult!.assignments,
-            clusterCounts: countsBuffer!,
+            centroidsToken: nil,
+            centroidsBuffer: centroidBuffer,
+            assignmentsToken: nil,
+            assignmentsBuffer: assignmentResult!.assignments,
+            clusterCountsToken: nil,
+            clusterCountsBuffer: countsBuffer!,
             numClusters: numClusters,
             numVectors: numVectors,
             dimension: dimension,

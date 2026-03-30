@@ -82,24 +82,14 @@ public final class KMeansUpdateKernel: @unchecked Sendable, Metal4Kernel {
         numVectors: Int,
         numCentroids: Int,
         dimension: Int
-    ) async throws -> (centroids: any MTLBuffer, counts: any MTLBuffer, emptyClusters: Int) {
-        let device = context.device.rawDevice
-
+    ) async throws -> (centroidsToken: BufferToken, countsToken: BufferToken, emptyClusters: Int) {
         // Allocate output buffers
-        guard let newCentroidsBuffer = device.makeBuffer(
-            length: numCentroids * dimension * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: numCentroids * dimension * MemoryLayout<Float>.size)
-        }
+        let newCentroidsToken = try await context.getBuffer(size: numCentroids * dimension * MemoryLayout<Float>.size)
+        let newCentroidsBuffer = newCentroidsToken.buffer
         newCentroidsBuffer.label = "KMeansUpdate.newCentroids"
 
-        guard let countsBuffer = device.makeBuffer(
-            length: numCentroids * MemoryLayout<UInt32>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: numCentroids * MemoryLayout<UInt32>.size)
-        }
+        let countsToken = try await context.getBuffer(size: numCentroids * MemoryLayout<UInt32>.size)
+        let countsBuffer = countsToken.buffer
         countsBuffer.label = "KMeansUpdate.counts"
 
         // Get pointers
@@ -151,7 +141,7 @@ public final class KMeansUpdateKernel: @unchecked Sendable, Metal4Kernel {
             }
         }
 
-        return (newCentroidsBuffer, countsBuffer, emptyClusters)
+        return (centroidsToken: newCentroidsToken, countsToken: countsToken, emptyClusters: emptyClusters)
     }
 
     /// Update centroids from Float arrays.
@@ -174,38 +164,21 @@ public final class KMeansUpdateKernel: @unchecked Sendable, Metal4Kernel {
         let numCentroids = currentCentroids.count
         let numVectors = vectors.count
 
-        let device = context.device.rawDevice
-
         // Create buffers
         let flatVectors = vectors.flatMap { $0 }
-        guard let vectorBuffer = device.makeBuffer(
-            bytes: flatVectors,
-            length: flatVectors.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatVectors.count * MemoryLayout<Float>.size)
-        }
+        let vectorToken = try await context.getBuffer(for: flatVectors)
+        let vectorBuffer = vectorToken.buffer
 
         let assignUInt32 = assignments.map { UInt32($0) }
-        guard let assignBuffer = device.makeBuffer(
-            bytes: assignUInt32,
-            length: assignUInt32.count * MemoryLayout<UInt32>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: assignUInt32.count * MemoryLayout<UInt32>.size)
-        }
+        let assignToken = try await context.getBuffer(for: assignUInt32)
+        let assignBuffer = assignToken.buffer
 
         let flatCentroids = currentCentroids.flatMap { $0 }
-        guard let centroidBuffer = device.makeBuffer(
-            bytes: flatCentroids,
-            length: flatCentroids.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatCentroids.count * MemoryLayout<Float>.size)
-        }
+        let centroidToken = try await context.getBuffer(for: flatCentroids)
+        let centroidBuffer = centroidToken.buffer
 
         // Execute update
-        let (newCentroidsBuffer, countsBuffer, emptyClusters) = try await update(
+        let (newCentroidsToken, countsToken, emptyClusters) = try await update(
             vectors: vectorBuffer,
             assignments: assignBuffer,
             currentCentroids: centroidBuffer,
@@ -213,6 +186,9 @@ public final class KMeansUpdateKernel: @unchecked Sendable, Metal4Kernel {
             numCentroids: numCentroids,
             dimension: dimension
         )
+
+        let newCentroidsBuffer = newCentroidsToken.buffer
+        let countsBuffer = countsToken.buffer
 
         // Extract results
         let newPtr = newCentroidsBuffer.contents().bindMemory(to: Float.self, capacity: numCentroids * dimension)
