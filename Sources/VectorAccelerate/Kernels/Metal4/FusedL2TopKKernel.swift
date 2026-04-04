@@ -235,7 +235,6 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
     // MARK: - Fallback Kernels
 
     /// Two-pass fallback (distance matrix materialization)
-    private let l2DistanceKernel: L2DistanceKernel
     private let topKSelectionKernel: TopKSelectionKernel
     private let warpSelectionKernel: WarpOptimizedSelectionKernel
 
@@ -244,6 +243,9 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
     /// If unavailable (e.g. older metallib), chunked fallback will use CPU merge.
     private let topKMergeKernel: TopKMergeKernel?
 
+    /// Direct all-pairs L2 pipeline for fallback paths
+    private let allPairsL2Pipeline: any MTLComputePipelineState
+
     // MARK: - Strategy Constants
 
     /// Hard limit of the current fused shader implementation (K_PRIVATE)
@@ -251,6 +253,21 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
 
     /// Selection threshold for warp-optimized top-k
     private static let warpOptimizedMaxK: Int = 32
+
+    /// Matches the Metal `L2DistanceParams` struct layout in L2Distance.metal.
+    ///
+    /// Used by `encodeAllPairsL2` to drive the legacy `l2_distance_kernel` shader
+    /// directly, bypassing `L2DistanceKernel` (which now only supports 1:1 pairing).
+    private struct AllPairsL2Params {
+        var numQueries: UInt32
+        var numDatabase: UInt32
+        var dimension: UInt32
+        var strideQuery: UInt32
+        var strideDatabase: UInt32
+        var strideOutput: UInt32
+        var computeSqrt: UInt8
+        var padding: (UInt8, UInt8, UInt8) = (0, 0, 0)
+    }
 
     // MARK: - Initialization
 
@@ -276,8 +293,15 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         self.fusedPipeline = try await device.makeComputePipelineState(function: fusedFunc)
         self.streamingUpdatePipeline = try await device.makeComputePipelineState(function: streamingFunc)
 
+        // All-pairs L2 distance pipeline (used by two-pass fallback paths)
+        guard let allPairsL2Func = library.makeFunction(name: "l2_distance_kernel") else {
+            throw VectorError.shaderNotFound(
+                name: "All-pairs L2 distance kernel. Ensure L2Distance.metal is compiled."
+            )
+        }
+        self.allPairsL2Pipeline = try await device.makeComputePipelineState(function: allPairsL2Func)
+
         // Fallback kernels (used automatically for K > 8)
-        self.l2DistanceKernel = try await L2DistanceKernel(context: context)
         self.topKSelectionKernel = try await TopKSelectionKernel(context: context)
         self.warpSelectionKernel = try await WarpOptimizedSelectionKernel(context: context)
 
@@ -748,21 +772,16 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         outIndices.label = "FusedL2TopK.fallback.indices"
         outValues.label = "FusedL2TopK.fallback.values"
 
-        let l2Params = L2DistanceParameters(
-            numQueries: numQueries,
-            numDatabase: numDataset,
-            dimension: dimension,
-            computeSqrt: false // match fused kernel: squared L2
-        )
-
         try await context.executeAndWait { [self] _, encoder in
             // 1) Distance matrix
-            self.l2DistanceKernel.encode(
+            self.encodeAllPairsL2(
                 into: encoder,
                 queries: queries,
                 database: dataset,
                 distances: distanceMatrix,
-                parameters: l2Params
+                numQueries: numQueries,
+                numDatabase: numDataset,
+                dimension: dimension
             )
 
             // 2) Barrier before selection
@@ -891,13 +910,6 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
                 chunkIndices.label = "FusedL2TopK.chunked.chunkIndices"
                 chunkValues.label = "FusedL2TopK.chunked.chunkValues"
 
-                let l2Params = L2DistanceParameters(
-                    numQueries: numQueries,
-                    numDatabase: thisChunkSize,
-                    dimension: dimension,
-                    computeSqrt: false
-                )
-
                 let databaseOffsetBytes = chunkStart * dimension * MemoryLayout<Float>.size
                 let mergeParams = TopKMergeParameters(
                     numQueries: numQueries,
@@ -914,15 +926,15 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
 
                 try await context.executeAndWait { [self] _, encoder in
                     // 1) Distances for this chunk (database offset avoids copy)
-                    self.l2DistanceKernel.encode(
+                    self.encodeAllPairsL2(
                         into: encoder,
                         queries: queries,
-                        queryOffset: 0,
                         database: dataset,
                         databaseOffset: databaseOffsetBytes,
                         distances: distanceMatrix,
-                        distancesOffset: 0,
-                        parameters: l2Params
+                        numQueries: numQueries,
+                        numDatabase: thisChunkSize,
+                        dimension: dimension
                     )
 
                     encoder.memoryBarrier(scope: .buffers)
@@ -1019,26 +1031,19 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
             outIndices.label = "FusedL2TopK.chunked.indices"
             outValues.label = "FusedL2TopK.chunked.values"
 
-            let l2Params = L2DistanceParameters(
-                numQueries: numQueries,
-                numDatabase: thisChunkSize,
-                dimension: dimension,
-                computeSqrt: false
-            )
-
             let databaseOffsetBytes = chunkStart * dimension * MemoryLayout<Float>.size
 
             try await context.executeAndWait { [self] _, encoder in
                 // 1) Distance matrix for this chunk (database offset avoids copy)
-                self.l2DistanceKernel.encode(
+                self.encodeAllPairsL2(
                     into: encoder,
                     queries: queries,
-                    queryOffset: 0,
                     database: dataset,
                     databaseOffset: databaseOffsetBytes,
                     distances: distanceMatrix,
-                    distancesOffset: 0,
-                    parameters: l2Params
+                    numQueries: numQueries,
+                    numDatabase: thisChunkSize,
+                    dimension: dimension
                 )
 
                 encoder.memoryBarrier(scope: .buffers)
@@ -1154,6 +1159,64 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
     }
 
     // MARK: - Private Helpers
+
+    /// Encode all-pairs L2 distance computation using the legacy shader.
+    ///
+    /// This is used by the two-pass fallback when K > `fusedMaxK`. The shader
+    /// computes squared L2 distances for every (query, database) pair and writes
+    /// a full `[numQueries x numDatabase]` distance matrix.
+    ///
+    /// - Parameters:
+    ///   - encoder: Active compute command encoder.
+    ///   - queries: Query vectors buffer `[numQueries x dimension]`.
+    ///   - queryOffset: Byte offset into the queries buffer.
+    ///   - database: Database vectors buffer `[numDatabase x dimension]`.
+    ///   - databaseOffset: Byte offset into the database buffer.
+    ///   - distances: Output distance matrix buffer.
+    ///   - distancesOffset: Byte offset into the distances buffer.
+    ///   - numQueries: Number of query vectors.
+    ///   - numDatabase: Number of database vectors.
+    ///   - dimension: Vector dimension.
+    private func encodeAllPairsL2(
+        into encoder: any MTLComputeCommandEncoder,
+        queries: any MTLBuffer,
+        queryOffset: Int = 0,
+        database: any MTLBuffer,
+        databaseOffset: Int = 0,
+        distances: any MTLBuffer,
+        distancesOffset: Int = 0,
+        numQueries: Int,
+        numDatabase: Int,
+        dimension: Int
+    ) {
+        encoder.setComputePipelineState(allPairsL2Pipeline)
+        encoder.setBuffer(queries, offset: queryOffset, index: 0)
+        encoder.setBuffer(database, offset: databaseOffset, index: 1)
+        encoder.setBuffer(distances, offset: distancesOffset, index: 2)
+
+        var params = AllPairsL2Params(
+            numQueries: UInt32(numQueries),
+            numDatabase: UInt32(numDatabase),
+            dimension: UInt32(dimension),
+            strideQuery: UInt32(dimension),
+            strideDatabase: UInt32(dimension),
+            strideOutput: UInt32(numDatabase),
+            computeSqrt: 0 // squared L2 for fused kernel consistency
+        )
+        encoder.setBytes(&params, length: MemoryLayout<AllPairsL2Params>.size, index: 3)
+
+        // 2D dispatch: one thread per (query, database) pair.
+        // The shader uses tid.x = queryIdx, tid.y = dbIdx with bounds checking.
+        let w = allPairsL2Pipeline.threadExecutionWidth
+        let maxThreads = allPairsL2Pipeline.maxTotalThreadsPerThreadgroup
+        let threadsPerTG = MTLSizeMake(min(w, numQueries), min(maxThreads / w, numDatabase), 1)
+        let threadgroups = MTLSizeMake(
+            (numQueries + threadsPerTG.width - 1) / threadsPerTG.width,
+            (numDatabase + threadsPerTG.height - 1) / threadsPerTG.height,
+            1
+        )
+        encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerTG)
+    }
 
     private func createBuffer<V: VectorProtocol>(
         from vectors: [V],

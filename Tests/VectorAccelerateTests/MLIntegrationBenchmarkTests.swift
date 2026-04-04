@@ -55,12 +55,58 @@ final class MLIntegrationBenchmarkTests: XCTestCase {
         return CFAbsoluteTimeGetCurrent() - start
     }
 
+    /// Compute all-pairs L2 distances using the 1:1 batch encode API
+    func computeL2AllPairs(
+        kernel: L2DistanceKernel,
+        queries: [[Float]],
+        database: [[Float]],
+        computeSqrt: Bool = true
+    ) async throws -> [[Float]] {
+        let numQ = queries.count
+        let numD = database.count
+        let dim = queries[0].count
+        let totalPairs = numQ * numD
+
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(totalPairs * dim)
+        for q in queries {
+            for _ in 0..<numD { flatQueries.append(contentsOf: q) }
+        }
+        var flatTargets = [Float]()
+        flatTargets.reserveCapacity(totalPairs * dim)
+        for _ in 0..<numQ {
+            for d in database { flatTargets.append(contentsOf: d) }
+        }
+
+        let qToken = try await context.getBuffer(for: flatQueries)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let outToken = try await context.getBuffer(size: totalPairs * MemoryLayout<Float>.size)
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            kernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken, targetsToken: tToken, distancesToken: outToken,
+                numQueries: totalPairs, dimension: dim, computeSqrt: computeSqrt
+            )
+        }
+
+        let flat = outToken.copyData(as: Float.self, count: totalPairs)
+        var results = [[Float]]()
+        results.reserveCapacity(numQ)
+        for i in 0..<numQ {
+            results.append(Array(flat[i * numD ..< (i + 1) * numD]))
+        }
+        return results
+    }
+
     // MARK: - Standard vs Learned Distance Benchmarks
 
     /// Benchmark: Standard L2 distance for 768-dimensional vectors
     func testStandardL2Distance768() async throws {
-        let numQueries = 100
-        let numDatabase = 1000
+        // Reduced: 1:1 replication creates N*M*D flat buffers, capped at 64 MB pool bucket
+        let numQueries = 10
+        let numDatabase = 500
         let dimension = 768
 
         let queries = generateRandomVectors(count: numQueries, dimension: dimension)
@@ -68,7 +114,8 @@ final class MLIntegrationBenchmarkTests: XCTestCase {
 
         // Warmup
         for _ in 0..<3 {
-            _ = try await standardKernel.compute(
+            _ = try await computeL2AllPairs(
+                kernel: standardKernel,
                 queries: queries,
                 database: database
             )
@@ -78,7 +125,8 @@ final class MLIntegrationBenchmarkTests: XCTestCase {
         var times: [TimeInterval] = []
         for _ in 0..<10 {
             let time = try await measureTime {
-                _ = try await self.standardKernel.compute(
+                _ = try await self.computeL2AllPairs(
+                    kernel: self.standardKernel,
                     queries: queries,
                     database: database
                 )
@@ -96,13 +144,38 @@ final class MLIntegrationBenchmarkTests: XCTestCase {
         let localKernel = standardKernel!
         let localQueries = queries
         let localDatabase = database
+        let localContext = context!
         measure {
             let expectation = self.expectation(description: "Benchmark")
             Task.detached {
-                _ = try? await localKernel.compute(
-                    queries: localQueries,
-                    database: localDatabase
-                )
+                let numQ = localQueries.count
+                let numD = localDatabase.count
+                let dim = localQueries[0].count
+                let totalPairs = numQ * numD
+
+                var flatQ = [Float]()
+                flatQ.reserveCapacity(totalPairs * dim)
+                for q in localQueries {
+                    for _ in 0..<numD { flatQ.append(contentsOf: q) }
+                }
+                var flatT = [Float]()
+                flatT.reserveCapacity(totalPairs * dim)
+                for _ in 0..<numQ {
+                    for d in localDatabase { flatT.append(contentsOf: d) }
+                }
+
+                let qToken = try await localContext.getBuffer(for: flatQ)
+                let tToken = try await localContext.getBuffer(for: flatT)
+                let outToken = try await localContext.getBuffer(size: totalPairs * MemoryLayout<Float>.size)
+
+                try await localContext.executeAndWait { commandBuffer, encoder in
+                    localKernel.encode(
+                        into: encoder,
+                        commandBuffer: commandBuffer,
+                        queriesToken: qToken, targetsToken: tToken, distancesToken: outToken,
+                        numQueries: totalPairs, dimension: dim, computeSqrt: true
+                    )
+                }
                 expectation.fulfill()
             }
             wait(for: [expectation], timeout: 10)
@@ -275,10 +348,12 @@ final class MLIntegrationBenchmarkTests: XCTestCase {
 
     /// Compare standard vs learned distance at various database sizes
     func testScalingComparison() async throws {
-        let numQueries = 100
+        // Reduced query count: 1:1 replication creates N*M*D flat buffers,
+        // constrained by 64 MB max buffer pool bucket size
+        let numQueries = 10
         let inputDim = 768
         let outputDim = 128
-        let databaseSizes = [100, 500, 1000, 5000, 10000]
+        let databaseSizes = [100, 500, 1000]
 
         let queries = generateRandomVectors(count: numQueries, dimension: inputDim)
 
@@ -298,7 +373,8 @@ final class MLIntegrationBenchmarkTests: XCTestCase {
             var standardTimes: [TimeInterval] = []
             for _ in 0..<5 {
                 let time = try await measureTime {
-                    _ = try await self.standardKernel.compute(
+                    _ = try await self.computeL2AllPairs(
+                        kernel: self.standardKernel,
                         queries: queries,
                         database: database
                     )

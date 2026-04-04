@@ -67,9 +67,27 @@ public actor L2KernelDistanceProvider: DistanceProvider {
 
         let a = vector1.toArray()
         let b = vector2.toArray()
+        let dimension: Int = a.count
 
-        let distances = try await kernel.compute(queries: [a], database: [b], computeSqrt: true)
-        return distances[0][0]
+        let qToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.size)
+        let tToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.size)
+        let outToken = try await context.getBuffer(size: MemoryLayout<Float>.size)
+        qToken.write(data: a)
+        tToken.write(data: b)
+
+        try await context.executeAndWait { [kernel] commandBuffer, encoder in
+            kernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken,
+                targetsToken: tToken,
+                distancesToken: outToken,
+                numQueries: 1,
+                dimension: dimension
+            )
+        }
+
+        return outToken.copyData(as: Float.self, count: 1)[0]
     }
 
     public func batchDistance<T: VectorProtocol>(
@@ -84,14 +102,34 @@ public actor L2KernelDistanceProvider: DistanceProvider {
         guard !candidates.isEmpty else { return [] }
 
         let queryArray = query.toArray()
-        let candidateArrays = candidates.map { $0.toArray() }
+        let dimension: Int = queryArray.count
+        let n: Int = candidates.count
 
-        let distances = try await kernel.compute(
-            queries: [queryArray],
-            database: candidateArrays,
-            computeSqrt: true
-        )
-        return distances[0]
+        // Replicate query for 1:1 pairing with each candidate
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(n * dimension)
+        for _ in 0..<n { flatQueries.append(contentsOf: queryArray) }
+        let flatTargets: [Float] = candidates.flatMap { $0.toArray() }
+
+        let qToken = try await context.getBuffer(size: flatQueries.count * MemoryLayout<Float>.size)
+        let tToken = try await context.getBuffer(size: flatTargets.count * MemoryLayout<Float>.size)
+        let outToken = try await context.getBuffer(size: n * MemoryLayout<Float>.size)
+        qToken.write(data: flatQueries)
+        tToken.write(data: flatTargets)
+
+        try await context.executeAndWait { [kernel] commandBuffer, encoder in
+            kernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken,
+                targetsToken: tToken,
+                distancesToken: outToken,
+                numQueries: n,
+                dimension: dimension
+            )
+        }
+
+        return outToken.copyData(as: Float.self, count: n)
     }
 }
 
@@ -128,15 +166,29 @@ public actor CosineKernelDistanceProvider: DistanceProvider {
 
         let a = vector1.toArray()
         let b = vector2.toArray()
+        let dimension: Int = a.count
+
+        let qToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.size)
+        let tToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.size)
+        let outToken = try await context.getBuffer(size: MemoryLayout<Float>.size)
+        qToken.write(data: a)
+        tToken.write(data: b)
 
         // outputDistance: true returns 1 - similarity (distance form)
-        let distances = try await kernel.compute(
-            queries: [a],
-            database: [b],
-            outputDistance: true,
-            inputsNormalized: false
-        )
-        return distances[0][0]
+        try await context.executeAndWait { [kernel] commandBuffer, encoder in
+            kernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken,
+                targetsToken: tToken,
+                similaritiesToken: outToken,
+                numQueries: 1,
+                dimension: dimension,
+                outputDistance: true
+            )
+        }
+
+        return outToken.copyData(as: Float.self, count: 1)[0]
     }
 
     public func batchDistance<T: VectorProtocol>(
@@ -151,15 +203,36 @@ public actor CosineKernelDistanceProvider: DistanceProvider {
         guard !candidates.isEmpty else { return [] }
 
         let queryArray = query.toArray()
-        let candidateArrays = candidates.map { $0.toArray() }
+        let dimension: Int = queryArray.count
+        let n: Int = candidates.count
 
-        let distances = try await kernel.compute(
-            queries: [queryArray],
-            database: candidateArrays,
-            outputDistance: true,
-            inputsNormalized: false
-        )
-        return distances[0]
+        // Replicate query for 1:1 pairing with each candidate
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(n * dimension)
+        for _ in 0..<n { flatQueries.append(contentsOf: queryArray) }
+        let flatTargets: [Float] = candidates.flatMap { $0.toArray() }
+
+        let qToken = try await context.getBuffer(size: flatQueries.count * MemoryLayout<Float>.size)
+        let tToken = try await context.getBuffer(size: flatTargets.count * MemoryLayout<Float>.size)
+        let outToken = try await context.getBuffer(size: n * MemoryLayout<Float>.size)
+        qToken.write(data: flatQueries)
+        tToken.write(data: flatTargets)
+
+        // outputDistance: true returns 1 - similarity (distance form)
+        try await context.executeAndWait { [kernel] commandBuffer, encoder in
+            kernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken,
+                targetsToken: tToken,
+                similaritiesToken: outToken,
+                numQueries: n,
+                dimension: dimension,
+                outputDistance: true
+            )
+        }
+
+        return outToken.copyData(as: Float.self, count: n)
     }
 }
 
@@ -470,18 +543,52 @@ public actor UniversalKernelDistanceProvider: DistanceProvider {
         switch metric {
         case .euclidean:
             let kernel = try await getL2Kernel()
-            let distances = try await kernel.compute(queries: [a], database: [b], computeSqrt: true)
-            return distances[0][0]
+            let dimension: Int = a.count
+
+            let qToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.size)
+            let tToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.size)
+            let outToken = try await context.getBuffer(size: MemoryLayout<Float>.size)
+            qToken.write(data: a)
+            tToken.write(data: b)
+
+            try await context.executeAndWait { commandBuffer, encoder in
+                kernel.encode(
+                    into: encoder,
+                    commandBuffer: commandBuffer,
+                    queriesToken: qToken,
+                    targetsToken: tToken,
+                    distancesToken: outToken,
+                    numQueries: 1,
+                    dimension: dimension
+                )
+            }
+
+            return outToken.copyData(as: Float.self, count: 1)[0]
 
         case .cosine:
             let kernel = try await getCosineKernel()
-            let distances = try await kernel.compute(
-                queries: [a],
-                database: [b],
-                outputDistance: true,
-                inputsNormalized: false
-            )
-            return distances[0][0]
+            let dimension: Int = a.count
+
+            let qToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.size)
+            let tToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.size)
+            let outToken = try await context.getBuffer(size: MemoryLayout<Float>.size)
+            qToken.write(data: a)
+            tToken.write(data: b)
+
+            try await context.executeAndWait { commandBuffer, encoder in
+                kernel.encode(
+                    into: encoder,
+                    commandBuffer: commandBuffer,
+                    queriesToken: qToken,
+                    targetsToken: tToken,
+                    similaritiesToken: outToken,
+                    numQueries: 1,
+                    dimension: dimension,
+                    outputDistance: true
+                )
+            }
+
+            return outToken.copyData(as: Float.self, count: 1)[0]
 
         case .dotProduct:
             let kernel = try await getDotKernel()
@@ -511,22 +618,66 @@ public actor UniversalKernelDistanceProvider: DistanceProvider {
         switch metric {
         case .euclidean:
             let kernel = try await getL2Kernel()
-            let distances = try await kernel.compute(
-                queries: [queryArray],
-                database: candidateArrays,
-                computeSqrt: true
-            )
-            return distances[0]
+            let dimension: Int = queryArray.count
+            let n: Int = candidateArrays.count
+
+            // Replicate query for 1:1 pairing with each candidate
+            var flatQueries = [Float]()
+            flatQueries.reserveCapacity(n * dimension)
+            for _ in 0..<n { flatQueries.append(contentsOf: queryArray) }
+            let flatTargets: [Float] = candidateArrays.flatMap { $0 }
+
+            let qToken = try await context.getBuffer(size: flatQueries.count * MemoryLayout<Float>.size)
+            let tToken = try await context.getBuffer(size: flatTargets.count * MemoryLayout<Float>.size)
+            let outToken = try await context.getBuffer(size: n * MemoryLayout<Float>.size)
+            qToken.write(data: flatQueries)
+            tToken.write(data: flatTargets)
+
+            try await context.executeAndWait { commandBuffer, encoder in
+                kernel.encode(
+                    into: encoder,
+                    commandBuffer: commandBuffer,
+                    queriesToken: qToken,
+                    targetsToken: tToken,
+                    distancesToken: outToken,
+                    numQueries: n,
+                    dimension: dimension
+                )
+            }
+
+            return outToken.copyData(as: Float.self, count: n)
 
         case .cosine:
             let kernel = try await getCosineKernel()
-            let distances = try await kernel.compute(
-                queries: [queryArray],
-                database: candidateArrays,
-                outputDistance: true,
-                inputsNormalized: false
-            )
-            return distances[0]
+            let dimension: Int = queryArray.count
+            let n: Int = candidateArrays.count
+
+            // Replicate query for 1:1 pairing with each candidate
+            var flatQueries = [Float]()
+            flatQueries.reserveCapacity(n * dimension)
+            for _ in 0..<n { flatQueries.append(contentsOf: queryArray) }
+            let flatTargets: [Float] = candidateArrays.flatMap { $0 }
+
+            let qToken = try await context.getBuffer(size: flatQueries.count * MemoryLayout<Float>.size)
+            let tToken = try await context.getBuffer(size: flatTargets.count * MemoryLayout<Float>.size)
+            let outToken = try await context.getBuffer(size: n * MemoryLayout<Float>.size)
+            qToken.write(data: flatQueries)
+            tToken.write(data: flatTargets)
+
+            try await context.executeAndWait { commandBuffer, encoder in
+                kernel.encode(
+                    into: encoder,
+                    commandBuffer: commandBuffer,
+                    queriesToken: qToken,
+                    targetsToken: tToken,
+                    similaritiesToken: outToken,
+                    numQueries: n,
+                    dimension: dimension,
+                    outputDistance: true
+                )
+            }
+
+            return outToken.copyData(as: Float.self, count: n)
 
         case .dotProduct:
             let kernel = try await getDotKernel()
