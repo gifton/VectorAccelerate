@@ -39,227 +39,86 @@ This is why GPU matters.
 
 ---
 
-## The Technique: Generic L2 Kernel
+## The Technique: Hierarchical SIMD Reduction
 
-Let's examine the generic L2 kernel that handles any dimension:
+In version 0.4.1, VectorAccelerate moved from naive per-thread atomics to a **Hierarchical Reduction** model. This is the gold standard for Apple Silicon, maximizing throughput by reducing global memory contention.
+
+Let's examine the 4-phase architecture:
 
 ```metal
-// 📍 See: Sources/VectorAccelerate/Metal/Shaders/L2Distance.metal:34-91
+// 📍 See: Sources/VectorAccelerate/Metal/Shaders/DistanceShaders.metal
 
-kernel void l2_distance_kernel(
-    device const float* queryVectors [[buffer(0)]],
-    device const float* databaseVectors [[buffer(1)]],
+kernel void l2_distance(
+    device const float* queries [[buffer(0)]],
+    device const float* targets [[buffer(1)]],
     device float* distances [[buffer(2)]],
-    constant L2DistanceParams& params [[buffer(3)]],
-    uint3 tid [[thread_position_in_grid]]
+    // ... position attributes ...
 ) {
-    const uint queryIdx = tid.x;
-    const uint dbIdx = tid.y;
-
-    // Bounds checking (required when using dispatchThreads)
-    if (queryIdx >= params.numQueries || dbIdx >= params.numDatabase) {
-        return;
+    // PHASE 1: Local float4 Accumulation
+    // Threads load 128-bit chunks from the UMA bus into registers.
+    float sq_diff = 0.0;
+    for (uint i = lid; i < vec_dim; i += threads_per_tg) {
+        float4 diff = q4[i] - t4[i];
+        sq_diff += dot(diff, diff);
     }
 
-    // Calculate vector pointers using strides
-    device const float* query = queryVectors + (queryIdx * params.strideQuery);
-    device const float* database = databaseVectors + (dbIdx * params.strideDatabase);
+    // PHASE 2: SIMD-group reduction
+    // High-speed parallel sum across 32 threads using hardware shuffle.
+    float simd_result = simd_sum(sq_diff);
 
-    // Use a float4 accumulator to improve ILP and vectorize
-    float4 sum4 = float4(0.0f);
-    const uint dimension = params.dimension;
-
-    // Process 4 elements at a time
-    const uint simd_blocks = dimension / 4;
-    const uint remainder = dimension % 4;
-
-    device const float4* query4 = (device const float4*)query;
-    device const float4* database4 = (device const float4*)database;
-
-    for (uint i = 0; i < simd_blocks; ++i) {
-        float4 diff = query4[i] - database4[i];
-        // Fused multiply-add for precision and performance
-        sum4 = fma(diff, diff, sum4);
+    // PHASE 3: Threadgroup Consolidation
+    // Cross-warp sum using high-speed shared memory.
+    threadgroup float shared_sums[32]; 
+    if (simd_lane_id == 0) {
+        shared_sums[simd_group_id] = simd_result;
     }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Horizontal reduction of the vector accumulator
-    float sum = sum4.x + sum4.y + sum4.z + sum4.w;
-
-    // Handle remaining elements
-    if (remainder > 0) {
-        device const float* query_tail = query + (simd_blocks * 4);
-        device const float* database_tail = database + (simd_blocks * 4);
-
-        for (uint i = 0; i < remainder; ++i) {
-            float diff = query_tail[i] - database_tail[i];
-            sum = fma(diff, diff, sum);
+    // PHASE 4: Exactly ONE write per result
+    // Consolidation into a single result with zero contention.
+    if (lid == 0) {
+        float final_sum = 0.0;
+        for (uint i = 0; i < active_simd_groups; i++) {
+            final_sum += shared_sums[i];
         }
+        distances[query_idx] = final_sum;
     }
-
-    // Apply sqrt if requested
-    float distance = params.computeSqrt ? sqrt(sum) : sum;
-
-    // Store result
-    const uint outputIdx = queryIdx * params.strideOutput + dbIdx;
-    distances[outputIdx] = distance;
 }
 ```
 
 ### Key Optimizations Explained
 
-#### 1. float4 Vectorization
+#### 1. Warp-Level Parallelism (`simd_sum`)
 
-```metal
-float4 diff = query4[i] - database4[i];
-```
+Instead of each thread trying to write to global memory, we use the `simd_sum()` instruction. This allows 32 threads to sum their results in a single GPU cycle without using memory at all.
 
-Instead of processing one float at a time, we process 4. This:
-- Reduces loop iterations by 4×
-- Enables better instruction pipelining
-- Matches GPU memory transaction sizes
+#### 2. Shared Memory Consolidation
 
-#### 2. Fused Multiply-Add (FMA)
+For massive threadgroups, we use `threadgroup` memory to bridge the gap between SIMD-groups. This ensures that even if we have 1024 threads working on one vector, only **one** global memory write occurs at the end.
 
-```metal
-sum4 = fma(diff, diff, sum4);
-// Equivalent to: sum4 = diff * diff + sum4
-// But FMA:
-// - Uses single instruction (faster)
-// - Has better numerical precision
-// - Enables better pipelining
-```
+#### 3. Register Reuse
 
-#### 3. Loop + Remainder Pattern
-
-```metal
-const uint simd_blocks = dimension / 4;
-const uint remainder = dimension % 4;
-
-// Main loop: fast float4 path
-for (uint i = 0; i < simd_blocks; ++i) { ... }
-
-// Cleanup: handle odd dimensions
-for (uint i = 0; i < remainder; ++i) { ... }
-```
-
-This handles non-multiple-of-4 dimensions correctly while keeping the fast path vectorized.
+By pulling chunks into `float4` and accumulating locally, we saturate the 128-bit memory bus while keeping the hottest data in the absolute fastest part of the GPU: the registers.
 
 ---
 
-## The Technique: Dimension-Optimized Kernels
+## The Technique: Dynamic Threadgroup Sizing
 
-For common embedding dimensions, VectorAccelerate provides hand-optimized kernels:
-
-```metal
-// 📍 See: Sources/VectorAccelerate/Metal/Shaders/L2Distance.metal:97-147
-
-// Optimized for D=384 (MiniLM, Sentence-BERT)
-kernel void l2_distance_384_kernel(
-    device const float* queryVectors [[buffer(0)]],
-    device const float* databaseVectors [[buffer(1)]],
-    device float* distances [[buffer(2)]],
-    constant L2DistanceParams& params [[buffer(3)]],
-    uint3 tid [[thread_position_in_grid]]
-) {
-    const uint queryIdx = tid.x;
-    const uint dbIdx = tid.y;
-
-    if (queryIdx >= params.numQueries || dbIdx >= params.numDatabase) {
-        return;
-    }
-
-    // Hardcoded stride for optimal address calculation
-    device const float4* query4 = (device const float4*)(queryVectors + queryIdx * 384);
-    device const float4* database4 = (device const float4*)(databaseVectors + dbIdx * 384);
-
-    // Two interleaved accumulators for Instruction-Level Parallelism
-    float4 acc0 = float4(0.0f);
-    float4 acc1 = float4(0.0f);
-
-    // Unrolled by 8: 96 iterations become 12 loops
-    for (uint i = 0; i < 96; i += 8) {
-        float4 diff0 = query4[i+0] - database4[i+0];
-        float4 diff1 = query4[i+1] - database4[i+1];
-        float4 diff2 = query4[i+2] - database4[i+2];
-        float4 diff3 = query4[i+3] - database4[i+3];
-        float4 diff4 = query4[i+4] - database4[i+4];
-        float4 diff5 = query4[i+5] - database4[i+5];
-        float4 diff6 = query4[i+6] - database4[i+6];
-        float4 diff7 = query4[i+7] - database4[i+7];
-
-        // Interleaved accumulation hides FMA latency
-        acc0 = fma(diff0, diff0, acc0);
-        acc1 = fma(diff1, diff1, acc1);
-        acc0 = fma(diff2, diff2, acc0);
-        acc1 = fma(diff3, diff3, acc1);
-        acc0 = fma(diff4, diff4, acc0);
-        acc1 = fma(diff5, diff5, acc1);
-        acc0 = fma(diff6, diff6, acc0);
-        acc1 = fma(diff7, diff7, acc1);
-    }
-
-    // Final reduction
-    float4 total_acc = acc0 + acc1;
-    float sum = total_acc.x + total_acc.y + total_acc.z + total_acc.w;
-
-    float distance = params.computeSqrt ? sqrt(sum) : sum;
-    distances[queryIdx * params.strideOutput + dbIdx] = distance;
-}
-```
-
-### Why Multiple Accumulators?
-
-```
-Single accumulator:
-  fma(diff0, diff0, acc)  ← Must wait for acc to be ready
-  fma(diff1, diff1, acc)  ← Must wait for previous fma
-  fma(diff2, diff2, acc)  ← Must wait for previous fma
-  ...
-  Latency-bound! Each FMA waits for the previous.
-
-Two accumulators (interleaved):
-  fma(diff0, diff0, acc0)  ← acc0 starts computing
-  fma(diff1, diff1, acc1)  ← acc1 starts while acc0 computes
-  fma(diff2, diff2, acc0)  ← acc0 is ready now
-  fma(diff3, diff3, acc1)  ← acc1 is ready now
-  ...
-  Throughput-bound! FMAs execute in parallel.
-```
-
-### Dimension Coverage
-
-| Dimension | float4 blocks | Unroll factor | Accumulators |
-|-----------|--------------|---------------|--------------|
-| 384 | 96 | 8 | 2 |
-| 512 | 128 | 8 | 2 |
-| 768 | 192 | 12 | 3 |
-| 1536 | 384 | 16 | 4 |
-
----
-
-## Pipeline Selection in Swift
-
-The Swift wrapper automatically selects the optimal kernel:
+Hardcoded threadgroup sizes are fragile. 0.4.1 dispatchers calculate them dynamically:
 
 ```swift
-// 📍 See: Sources/VectorAccelerate/Kernels/Metal4/L2DistanceKernel.swift:203-218
+// 📍 See: Sources/VectorAccelerate/Kernels/Metal4/L2DistanceKernel.swift
 
-/// Select the optimal pipeline for a given dimension.
-private func selectPipeline(for dimension: UInt32) -> (pipeline: any MTLComputePipelineState, name: String) {
-    switch dimension {
-    case 384:
-        return (pipeline384, "l2_distance_384_kernel")
-    case 512:
-        return (pipeline512, "l2_distance_512_kernel")
-    case 768:
-        return (pipeline768, "l2_distance_768_kernel")
-    case 1536:
-        return (pipeline1536, "l2_distance_1536_kernel")
-    default:
-        return (genericPipeline, "l2_distance_kernel")
-    }
-}
+// Query the hardware's execution width (always 32 on Apple Silicon)
+let w = pipelineState.threadExecutionWidth
+let h = pipelineState.maxTotalThreadsPerThreadgroup / w
+let threadsPerThreadgroup = MTLSizeMake(w, h, 1)
+
+// Dispatch exactly one threadgroup per vector pair
+let threadgroups = MTLSizeMake(numQueries, numDatabase, 1)
 ```
+
+This ensures the kernel automatically runs at peak occupancy whether it's on an iPhone (A-series) or a Mac Studio (M-Ultra).
 
 ---
 
@@ -363,15 +222,9 @@ let distances = try await kernel.compute(
 ### Low-Level Buffer API
 
 ```swift
-// For maximum control, use the buffer API
-let queryBuffer = try context.bufferFactory.makeBuffer(
-    from: flatQueries,
-    label: "queries"
-)
-let dbBuffer = try context.bufferFactory.makeBuffer(
-    from: flatDatabase,
-    label: "database"
-)
+// For maximum control, use the buffer API with pooling
+let queryToken = try await context.getBuffer(for: flatQueries)
+let dbToken = try await context.getBuffer(for: flatDatabase)
 
 let parameters = L2DistanceParameters(
     numQueries: 100,
@@ -381,8 +234,8 @@ let parameters = L2DistanceParameters(
 )
 
 let distanceBuffer = try await kernel.execute(
-    queries: queryBuffer,
-    database: dbBuffer,
+    queries: queryToken.buffer,
+    database: dbToken.buffer,
     parameters: parameters
 )
 ```

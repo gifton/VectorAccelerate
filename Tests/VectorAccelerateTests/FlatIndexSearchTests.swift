@@ -125,18 +125,18 @@ final class FlatIndexSearchTests: XCTestCase {
         // Verify ascending order
         for i in 1..<results.count {
             XCTAssertLessThanOrEqual(
-                results[i - 1].distance,
-                results[i].distance,
+                results.results[i - 1].distance,
+                results.results[i].distance,
                 "Results must be sorted by distance ascending"
             )
         }
 
         // Verify expected order: 0.25, 1, 4, 9, 16
-        XCTAssertEqual(results[0].distance, 0.25, accuracy: 0.001)
-        XCTAssertEqual(results[1].distance, 1.0, accuracy: 0.001)
-        XCTAssertEqual(results[2].distance, 4.0, accuracy: 0.001)
-        XCTAssertEqual(results[3].distance, 9.0, accuracy: 0.001)
-        XCTAssertEqual(results[4].distance, 16.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[0].distance, 0.25, accuracy: 0.001)
+        XCTAssertEqual(results.results[1].distance, 1.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[2].distance, 4.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[3].distance, 9.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[4].distance, 16.0, accuracy: 0.001)
     }
 
     /// Verify ordering is maintained with negative values.
@@ -159,14 +159,14 @@ final class FlatIndexSearchTests: XCTestCase {
         let results = try await index.search(query: query, k: 4)
 
         // First result should be exact match
-        XCTAssertEqual(results[0].distance, 0.0, accuracy: 0.0001)
+        XCTAssertEqual(results.results[0].distance, 0.0, accuracy: 0.0001)
 
         // Next two should both have distance 1
-        XCTAssertEqual(results[1].distance, 1.0, accuracy: 0.001)
-        XCTAssertEqual(results[2].distance, 1.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[1].distance, 1.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[2].distance, 1.0, accuracy: 0.001)
 
         // Last should have distance 4
-        XCTAssertEqual(results[3].distance, 4.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[3].distance, 4.0, accuracy: 0.001)
     }
 
     // MARK: - Filtered Search Tests
@@ -193,9 +193,9 @@ final class FlatIndexSearchTests: XCTestCase {
         XCTAssertEqual(results.count, 3, "Should find exactly 3 category A vectors")
 
         // Verify distances are from category A vectors: 1, 9, 25
-        XCTAssertEqual(results[0].distance, 1.0, accuracy: 0.001)
-        XCTAssertEqual(results[1].distance, 9.0, accuracy: 0.001)
-        XCTAssertEqual(results[2].distance, 25.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[0].distance, 1.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[1].distance, 9.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[2].distance, 25.0, accuracy: 0.001)
     }
 
     /// Filtered search where no vectors match the predicate.
@@ -237,8 +237,8 @@ final class FlatIndexSearchTests: XCTestCase {
         }
 
         XCTAssertEqual(results.count, 2, "Should find 2 vectors without metadata")
-        XCTAssertEqual(results[0].distance, 4.0, accuracy: 0.001)  // [2,0,0,0]
-        XCTAssertEqual(results[1].distance, 16.0, accuracy: 0.001) // [4,0,0,0]
+        XCTAssertEqual(results.results[0].distance, 4.0, accuracy: 0.001)  // [2,0,0,0]
+        XCTAssertEqual(results.results[1].distance, 16.0, accuracy: 0.001) // [4,0,0,0]
     }
 
     /// Filtered search with highly selective filter (tests iterative fetch).
@@ -262,8 +262,8 @@ final class FlatIndexSearchTests: XCTestCase {
         XCTAssertEqual(results.count, 2, "Should find only the 2 rare vectors")
 
         // Should be the first two (indices 0 and 1)
-        XCTAssertEqual(results[0].distance, 0.0, accuracy: 0.001)  // [0,0,0,0]
-        XCTAssertEqual(results[1].distance, 1.0, accuracy: 0.001)  // [1,0,0,0]
+        XCTAssertEqual(results.results[0].distance, 0.0, accuracy: 0.001)  // [0,0,0,0]
+        XCTAssertEqual(results.results[1].distance, 1.0, accuracy: 0.001)  // [1,0,0,0]
     }
 
     /// Filter that uses handle information.
@@ -278,9 +278,8 @@ final class FlatIndexSearchTests: XCTestCase {
 
         let query: [Float] = [0.0, 0.0, 0.0, 0.0]
 
-        // Only accept even-stableID handles (by checking handle.stableID directly)
-        // Even stableIDs 0-18 = 10 vectors (0, 2, 4, 6, 8, 10, 12, 14, 16, 18)
-        // Ask for k=3, should find 3 even-stableID vectors
+        // Only accept even-stableID handles
+        // Asked for k=3, should find 3 even-stableID vectors
         let results = try await index.search(query: query, k: 3) { handle, _ in
             handle.stableID % 2 == 0
         }
@@ -289,13 +288,12 @@ final class FlatIndexSearchTests: XCTestCase {
 
         // Verify all returned handles have even stableIDs
         for result in results {
-            XCTAssertEqual(result.handle.stableID % 2, 0, "Handle \(result.handle.stableID) should be even")
+            XCTAssertEqual(result.id.stableID % 2, 0, "Handle \(result.id.stableID) should be even")
         }
 
         // Verify results are ordered by distance (closest first)
-        // Even stableIDs by distance: 0 (d=0), 2 (d=4), 4 (d=16), ...
         for i in 1..<results.count {
-            XCTAssertLessThanOrEqual(results[i-1].distance, results[i].distance)
+            XCTAssertLessThanOrEqual(results.results[i-1].distance, results.results[i].distance)
         }
     }
 
@@ -324,13 +322,13 @@ final class FlatIndexSearchTests: XCTestCase {
         XCTAssertEqual(results.count, 3, "Should have results for each query")
 
         // First query should find [1,0,0,0] with distance 0
-        XCTAssertEqual(results[0][0].distance, 0.0, accuracy: 0.0001)
+        XCTAssertEqual(results[0].results[0].distance, 0.0, accuracy: 0.0001)
 
         // Second query should find [0,1,0,0] with distance 0
-        XCTAssertEqual(results[1][0].distance, 0.0, accuracy: 0.0001)
+        XCTAssertEqual(results[1].results[0].distance, 0.0, accuracy: 0.0001)
 
         // Third query should have non-zero distance to both nearest
-        XCTAssertGreaterThan(results[2][0].distance, 0.0)
+        XCTAssertGreaterThan(results[2].results[0].distance, 0.0)
     }
 
     /// Batch search with varying result counts.
@@ -397,7 +395,7 @@ final class FlatIndexSearchTests: XCTestCase {
         let batchResults = try await index.search(queries: queries, k: 5)
 
         // Run sequential search for each query
-        var sequentialResults: [[IndexSearchResult]] = []
+        var sequentialResults: [SearchResults<VectorHandle>] = []
         for query in queries {
             let result = try await index.search(query: query, k: 5)
             sequentialResults.append(result)
@@ -411,9 +409,9 @@ final class FlatIndexSearchTests: XCTestCase {
                            "Query \(i): result count should match")
 
             for j in 0..<batchResults[i].count {
-                XCTAssertEqual(batchResults[i][j].handle, sequentialResults[i][j].handle,
+                XCTAssertEqual(batchResults[i].results[j].id, sequentialResults[i].results[j].id,
                                "Query \(i) result \(j): handle should match")
-                XCTAssertEqual(batchResults[i][j].distance, sequentialResults[i][j].distance,
+                XCTAssertEqual(batchResults[i].results[j].distance, sequentialResults[i].results[j].distance,
                                accuracy: 0.0001,
                                "Query \(i) result \(j): distance should match")
             }
@@ -451,7 +449,7 @@ final class FlatIndexSearchTests: XCTestCase {
         let deletedHandles = Set([handles[2], handles[5], handles[8]])
         for queryResults in results {
             for result in queryResults {
-                XCTAssertFalse(deletedHandles.contains(result.handle),
+                XCTAssertFalse(deletedHandles.contains(result.id),
                                "Deleted handle should not appear in batch search results")
             }
         }
@@ -487,9 +485,9 @@ final class FlatIndexSearchTests: XCTestCase {
         let batchResults = try await index.search(queries: queries, k: k)
         let batchTime = CFAbsoluteTimeGetCurrent() - batchStart
 
-        // Time sequential search (simulated by calling search for each query)
+        // Time sequential search
         let sequentialStart = CFAbsoluteTimeGetCurrent()
-        var sequentialResults: [[IndexSearchResult]] = []
+        var sequentialResults: [SearchResults<VectorHandle>] = []
         for query in queries {
             let result = try await index.search(query: query, k: k)
             sequentialResults.append(result)
@@ -507,7 +505,7 @@ final class FlatIndexSearchTests: XCTestCase {
         XCTAssertLessThan(batchTime, 2.0, "Batch search should complete quickly")
         XCTAssertLessThan(sequentialTime, 5.0, "Sequential search should complete in reasonable time")
 
-        // Print performance comparison for debugging (not an assertion)
+        // Print performance comparison for debugging
         print("Batch search (\(queryCount) queries): \(batchTime * 1000)ms")
         print("Sequential search (\(queryCount) queries): \(sequentialTime * 1000)ms")
     }
@@ -541,10 +539,10 @@ final class FlatIndexSearchTests: XCTestCase {
         XCTAssertEqual(results.count, 3)
 
         // Nearest should be vector with [5,0,0,...] (distance = 0)
-        XCTAssertEqual(results[0].distance, 0.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[0].distance, 0.0, accuracy: 0.001)
 
         // Next should be [4,0,...] or [6,0,...] (distance = 1)
-        XCTAssertEqual(results[1].distance, 1.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[1].distance, 1.0, accuracy: 0.001)
     }
 
     /// Verify 768-dim search performance doesn't timeout.
@@ -562,7 +560,7 @@ final class FlatIndexSearchTests: XCTestCase {
 
         _ = try await index.insert(vectors)
 
-        // Time the search (use k=5 to avoid GPU kernel edge case with k > 8)
+        // Time the search
         let query = (0..<dimension).map { _ in Float.random(in: -1...1) }
 
         let start = CFAbsoluteTimeGetCurrent()
@@ -590,10 +588,8 @@ final class FlatIndexSearchTests: XCTestCase {
 
         XCTAssertEqual(results.count, 1)
 
-        // L2 = sqrt(3² + 4²) = sqrt(9 + 16) = sqrt(25) = 5.0
         // L2² = 3² + 4² = 9 + 16 = 25.0
-        // The API returns L2² (squared distance)
-        XCTAssertEqual(results[0].distance, 25.0, accuracy: 0.001,
+        XCTAssertEqual(results.results[0].distance, 25.0, accuracy: 0.001,
                        "Distance should be L2² (25), not L2 (5)")
     }
 
@@ -611,7 +607,7 @@ final class FlatIndexSearchTests: XCTestCase {
         let results = try await index.search(query: query, k: 1)
 
         // L2² = 1² + 2² + 3² + 4² = 1 + 4 + 9 + 16 = 30
-        XCTAssertEqual(results[0].distance, 30.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[0].distance, 30.0, accuracy: 0.001)
     }
 
     /// Verify L2² for two non-origin points.
@@ -627,7 +623,7 @@ final class FlatIndexSearchTests: XCTestCase {
         let query: [Float] = [4.0, 6.0, 8.0]
         let results = try await index.search(query: query, k: 1)
 
-        XCTAssertEqual(results[0].distance, 50.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[0].distance, 50.0, accuracy: 0.001)
     }
 
     /// Exact match should have distance 0.
@@ -641,7 +637,7 @@ final class FlatIndexSearchTests: XCTestCase {
         // Query with exact same vector
         let results = try await index.search(query: vector, k: 1)
 
-        XCTAssertEqual(results[0].distance, 0.0, accuracy: 0.0001,
+        XCTAssertEqual(results.results[0].distance, 0.0, accuracy: 0.0001,
                        "Exact match should have distance 0")
     }
 
@@ -661,14 +657,14 @@ final class FlatIndexSearchTests: XCTestCase {
         XCTAssertEqual(results.count, 1)
 
         // distance is L2² = 25.0
-        XCTAssertEqual(results[0].distance, 25.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[0].distance, 25.0, accuracy: 0.001)
 
         // euclideanDistance is sqrt(L2²) = 5.0
-        XCTAssertEqual(results[0].euclideanDistance, 5.0, accuracy: 0.001,
+        XCTAssertEqual(results.results[0].euclideanDistance, 5.0, accuracy: 0.001,
                        "euclideanDistance should be sqrt(distance)")
 
         // Verify the relationship
-        XCTAssertEqual(results[0].euclideanDistance, sqrt(results[0].distance), accuracy: 0.0001,
+        XCTAssertEqual(results.results[0].euclideanDistance, sqrt(results.results[0].distance), accuracy: 0.0001,
                        "euclideanDistance must equal sqrt(distance)")
     }
 
@@ -694,7 +690,7 @@ final class FlatIndexSearchTests: XCTestCase {
         XCTAssertEqual(results.count, 2, "Should only find 2 remaining vectors")
 
         // Verify deleted handle is not in results
-        let resultHandles = Set(results.map { $0.handle })
+        let resultHandles = Set(results.results.map { $0.id })
         XCTAssertFalse(resultHandles.contains(handle1), "Deleted vector should not appear in results")
         XCTAssertTrue(resultHandles.contains(handle2))
         XCTAssertTrue(resultHandles.contains(handle3))

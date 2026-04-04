@@ -296,10 +296,10 @@ public actor IndexBenchmarkHarness {
         var latencySamples: [TimeInterval] = []
         latencySamples.reserveCapacity(configuration.numQueries * configuration.measurementIterations)
 
-        var allResults: [[[IndexSearchResult]]] = []
+        var allResults: [[SearchResults<VectorHandle>]] = []
 
         for _ in 0..<configuration.measurementIterations {
-            var iterationResults: [[IndexSearchResult]] = []
+            var iterationResults: [SearchResults<VectorHandle>] = []
 
             for query in queries {
                 let start = CACurrentMediaTime()
@@ -619,7 +619,7 @@ public actor IndexBenchmarkHarness {
     }
 
     private func calculateRecall(
-        results: [[IndexSearchResult]],
+        results: [SearchResults<VectorHandle>],
         groundTruth: [[Int]],
         index: AcceleratedVectorIndex
     ) async -> Float {
@@ -631,7 +631,7 @@ public actor IndexBenchmarkHarness {
             // Convert handles to slots for comparison using public API
             var resultSlots = Set<UInt32>()
             for result in searchResults {
-                if let slot = await index.slot(for: result.handle) {
+                if let slot = await index.slot(for: result.id) {
                     resultSlots.insert(slot)
                 }
             }

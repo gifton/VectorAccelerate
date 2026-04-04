@@ -51,7 +51,7 @@ final class GPUCandidateBuilderValidationTests: XCTestCase {
         for query in queries {
             let results = try await flatIndex.search(query: query, k: k)
             // Use stableID for comparison (consistent across index instances)
-            let stableIDs = Set(results.map { $0.handle.stableID })
+            let stableIDs = Set(results.results.map { $0.id.stableID })
             groundTruth.append(stableIDs)
         }
 
@@ -78,9 +78,9 @@ final class GPUCandidateBuilderValidationTests: XCTestCase {
         var totalResultsReturned = 0
         for (i, query) in queries.enumerated() {
             let results = try await ivfIndexGPU.search(query: query, k: k)
-            totalResultsReturned += results.count
+            totalResultsReturned += results.results.count
             // Use stableID for comparison (consistent across index instances)
-            let resultIDs = Set(results.map { $0.handle.stableID })
+            let resultIDs = Set(results.results.map { $0.id.stableID })
             let intersection = resultIDs.intersection(groundTruth[i])
             recallGPU += Float(intersection.count) / Float(k)
         }
@@ -137,7 +137,7 @@ final class GPUCandidateBuilderValidationTests: XCTestCase {
         for query in queries {
             let results = try await flatIndex.search(query: query, k: k)
             // Use stableID for comparison (consistent across index instances)
-            let stableIDs = Set(results.map { $0.handle.stableID })
+            let stableIDs = Set(results.results.map { $0.id.stableID })
             groundTruth.append(stableIDs)
         }
 
@@ -161,7 +161,7 @@ final class GPUCandidateBuilderValidationTests: XCTestCase {
             for (i, query) in queries.enumerated() {
                 let results = try await ivfIndex.search(query: query, k: k)
                 // Use stableID for comparison (consistent across index instances)
-                let resultIDs = Set(results.map { $0.handle.stableID })
+                let resultIDs = Set(results.results.map { $0.id.stableID })
                 let intersection = resultIDs.intersection(groundTruth[i])
                 recall += Float(intersection.count) / Float(k)
             }

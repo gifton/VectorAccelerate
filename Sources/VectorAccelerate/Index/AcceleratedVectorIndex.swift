@@ -73,6 +73,33 @@ public typealias VectorMetadata = [String: String]
 /// let results = try await index.search(query: queryVector, k: 10)
 /// ```
 public actor AcceleratedVectorIndex {
+    public typealias Vector = DynamicVector
+    public typealias ID = VectorHandle
+
+    // MARK: - Collection Properties
+
+    /// All identifiers in the collection.
+    public var allIDs: [VectorHandle] {
+        allHandles()
+    }
+
+    /// Retrieve multiple vectors by identifiers.
+    public func vectors(for ids: [VectorHandle]) async throws -> [VectorHandle: [Float]] {
+        var result: [VectorHandle: [Float]] = [:]
+        result.reserveCapacity(ids.count)
+        for id in ids {
+            if let v = try readVectorData(for: id) {
+                result[id] = v
+            }
+        }
+        return result
+    }
+
+    /// Retrieve a vector data by its identifier.
+    public func readVectorData(for handle: VectorHandle) throws -> [Float]? {
+        guard let slot = handleAllocator.slot(for: handle) else { return nil }
+        return try storage.readVector(at: Int(slot))
+    }
 
     // MARK: - Configuration
 
@@ -608,8 +635,7 @@ public actor AcceleratedVectorIndex {
     /// - Returns: Vector data, or nil if handle is invalid
     /// - Throws: `IndexError` if GPU read fails
     public func vector(for handle: VectorHandle) throws -> [Float]? {
-        guard let slot = handleAllocator.slot(for: handle) else { return nil }
-        return try storage.readVector(at: Int(slot))
+        try readVectorData(for: handle)
     }
 
     /// Retrieve multiple vectors by their handles.
@@ -618,10 +644,7 @@ public actor AcceleratedVectorIndex {
     /// - Returns: Array of optional vectors (nil for invalid handles)
     /// - Throws: `IndexError` if GPU read fails
     public func vectors(for handles: [VectorHandle]) throws -> [[Float]?] {
-        try handles.map { handle in
-            guard let slot = handleAllocator.slot(for: handle) else { return nil }
-            return try storage.readVector(at: Int(slot))
-        }
+        try handles.map { try readVectorData(for: $0) }
     }
 
     // MARK: - Metadata Operations
@@ -787,7 +810,7 @@ public actor AcceleratedVectorIndex {
         query: consuming [Float],
         k: Int,
         filter: (@Sendable (VectorHandle, VectorMetadata?) -> Bool)? = nil
-    ) async throws -> [IndexSearchResult] {
+    ) async throws -> SearchResults<VectorHandle> {
         guard query.count == configuration.dimension else {
             throw IndexError.dimensionMismatch(
                 expected: configuration.dimension,
@@ -796,7 +819,7 @@ public actor AcceleratedVectorIndex {
         }
 
         guard handleAllocator.occupiedCount > 0 else {
-            return []
+            return SearchResults()
         }
 
         // Use IVF search if available and trained, unless below routing threshold
@@ -839,7 +862,7 @@ public actor AcceleratedVectorIndex {
         queries: [[Float]],
         k: Int,
         filter: (@Sendable (VectorHandle, VectorMetadata?) -> Bool)? = nil
-    ) async throws -> [[IndexSearchResult]] {
+    ) async throws -> [SearchResults<VectorHandle>] {
         guard !queries.isEmpty else { return [] }
 
         // Validate dimensions
@@ -853,7 +876,7 @@ public actor AcceleratedVectorIndex {
         }
 
         guard handleAllocator.occupiedCount > 0 else {
-            return queries.map { _ in [] }
+            return queries.map { _ in SearchResults() }
         }
 
         // Fast path: flat index without filter uses true GPU batch
@@ -879,15 +902,15 @@ public actor AcceleratedVectorIndex {
         }
 
         // Fall back to sequential search for IVF or filtered
-        var results: [[IndexSearchResult]] = []
-        results.reserveCapacity(queries.count)
+        var allResults: [SearchResults<VectorHandle>] = []
+        allResults.reserveCapacity(queries.count)
 
         for query in queries {
             let result = try await search(query: query, k: k, filter: filter)
-            results.append(result)
+            allResults.append(result)
         }
 
-        return results
+        return allResults
     }
 
     // MARK: - Index Introspection
@@ -990,7 +1013,8 @@ public actor AcceleratedVectorIndex {
 
     // MARK: - Private Implementation - Flat Search
 
-    private func searchUnfiltered(query: [Float], k: Int) async throws -> [IndexSearchResult] {
+    private func searchUnfiltered(query: [Float], k: Int) async throws -> SearchResults<VectorHandle> {
+        let startTime = DispatchTime.now().uptimeNanoseconds
         guard let kernel = fusedL2TopKKernel,
               let datasetBuffer = storage.buffer else {
             throw IndexError.gpuNotInitialized(operation: "search")
@@ -1030,19 +1054,26 @@ public actor AcceleratedVectorIndex {
             // Get valid handle (maps slot -> stableID)
             guard let handle = handleAllocator.handle(for: UInt32(rawIndex)) else { continue }
 
-            results.append(IndexSearchResult(handle: handle, distance: distance))
+            results.append(IndexSearchResult(id: handle, distance: distance))
 
             if results.count >= effectiveK { break }
         }
 
-        return results
+        let endTime = DispatchTime.now().uptimeNanoseconds
+        return SearchResults(
+            results: results,
+            candidatesSearched: storage.allocatedSlots,
+            searchTimeNanos: endTime - startTime,
+            isExhaustive: true
+        )
     }
 
     private func searchFiltered(
         query: [Float],
         k: Int,
         filter: @Sendable (VectorHandle, VectorMetadata?) -> Bool
-    ) async throws -> [IndexSearchResult] {
+    ) async throws -> SearchResults<VectorHandle> {
+        let startTime = DispatchTime.now().uptimeNanoseconds
         guard let kernel = fusedL2TopKKernel,
               let datasetBuffer = storage.buffer else {
             throw IndexError.gpuNotInitialized(operation: "search")
@@ -1091,7 +1122,7 @@ public actor AcceleratedVectorIndex {
                 let meta = metadataStore[handle]
 
                 if filter(handle, meta) {
-                    results.append(IndexSearchResult(handle: handle, distance: distance))
+                    results.append(IndexSearchResult(id: handle, distance: distance))
                     if results.count >= k { break }
                 }
             }
@@ -1107,7 +1138,13 @@ public actor AcceleratedVectorIndex {
             fetchK = nextFetchK
         }
 
-        return results
+        let endTime = DispatchTime.now().uptimeNanoseconds
+        return SearchResults(
+            results: results,
+            candidatesSearched: seenIndices.count,
+            searchTimeNanos: endTime - startTime,
+            isExhaustive: true
+        )
     }
 
     // MARK: - Private Implementation - GPU Batch Search (Flat Index)
@@ -1120,8 +1157,8 @@ public actor AcceleratedVectorIndex {
     /// - Parameters:
     ///   - queries: Array of query vectors (all must have matching dimension)
     ///   - k: Number of results per query
-    /// - Returns: Array of result arrays (one per query)
-    private func searchBatchGPU(queries: [[Float]], k: Int) async throws -> [[IndexSearchResult]] {
+    /// - Returns: Array of SearchResults (one per query)
+    private func searchBatchGPU(queries: [[Float]], k: Int) async throws -> [SearchResults<VectorHandle>] {
         guard let kernel = fusedL2TopKKernel,
               let datasetBuffer = storage.buffer else {
             throw IndexError.gpuNotInitialized(operation: "searchBatchGPU")
@@ -1153,8 +1190,8 @@ public actor AcceleratedVectorIndex {
         )
 
         // Convert GPU results to IndexSearchResults, filtering deleted vectors
-        var allResults: [[IndexSearchResult]] = []
-        allResults.reserveCapacity(numQueries)
+        var allSearchResults: [SearchResults<VectorHandle>] = []
+        allSearchResults.reserveCapacity(numQueries)
 
         for queryIdx in 0..<numQueries {
             var results: [IndexSearchResult] = []
@@ -1167,15 +1204,20 @@ public actor AcceleratedVectorIndex {
                 // Get valid handle (maps slot -> stableID)
                 guard let handle = handleAllocator.handle(for: UInt32(rawIndex)) else { continue }
 
-                results.append(IndexSearchResult(handle: handle, distance: distance))
+                results.append(IndexSearchResult(id: handle, distance: distance))
 
                 if results.count >= effectiveK { break }
             }
 
-            allResults.append(results)
+            allSearchResults.append(SearchResults(
+                results: results,
+                candidatesSearched: storage.allocatedSlots,
+                searchTimeNanos: nil, // Shared time
+                isExhaustive: true
+            ))
         }
 
-        return allResults
+        return allSearchResults
     }
 
     // MARK: - Private Implementation - IVF Search
@@ -1184,7 +1226,8 @@ public actor AcceleratedVectorIndex {
         query: [Float],
         k: Int,
         filter: (@Sendable (VectorHandle, VectorMetadata?) -> Bool)?
-    ) async throws -> [IndexSearchResult] {
+    ) async throws -> SearchResults<VectorHandle> {
+        let startTime = DispatchTime.now().uptimeNanoseconds
         guard let ivf = ivfStructure,
               let pipeline = ivfSearchPipeline else {
             throw IndexError.gpuNotInitialized(operation: "searchIVF")
@@ -1220,15 +1263,21 @@ public actor AcceleratedVectorIndex {
                 if !filter(handle, meta) { continue }
             }
 
-            results.append(IndexSearchResult(handle: handle, distance: distance))
+            results.append(IndexSearchResult(id: handle, distance: distance))
 
             if results.count >= k { break }
         }
 
-        return results
+        let endTime = DispatchTime.now().uptimeNanoseconds
+        return SearchResults(
+            results: results,
+            candidatesSearched: handleAllocator.occupiedCount, // Approx
+            searchTimeNanos: endTime - startTime,
+            isExhaustive: false
+        )
     }
 
-    private func searchIVFBatch(queries: [[Float]], k: Int) async throws -> [[IndexSearchResult]] {
+    private func searchIVFBatch(queries: [[Float]], k: Int) async throws -> [SearchResults<VectorHandle>] {
         guard let ivf = ivfStructure,
               let pipeline = ivfSearchPipeline else {
             throw IndexError.gpuNotInitialized(operation: "searchIVFBatch")
@@ -1248,8 +1297,8 @@ public actor AcceleratedVectorIndex {
         )
 
         // Convert all results
-        var allResults: [[IndexSearchResult]] = []
-        allResults.reserveCapacity(queries.count)
+        var allSearchResults: [SearchResults<VectorHandle>] = []
+        allSearchResults.reserveCapacity(queries.count)
 
         for queryIdx in 0..<queries.count {
             var results: [IndexSearchResult] = []
@@ -1262,15 +1311,20 @@ public actor AcceleratedVectorIndex {
                 // Get valid handle (maps slot -> stableID)
                 guard let handle = handleAllocator.handle(for: UInt32(rawIndex)) else { continue }
 
-                results.append(IndexSearchResult(handle: handle, distance: distance))
+                results.append(IndexSearchResult(id: handle, distance: distance))
 
                 if results.count >= k { break }
             }
 
-            allResults.append(results)
+            allSearchResults.append(SearchResults(
+                results: results,
+                candidatesSearched: handleAllocator.occupiedCount,
+                searchTimeNanos: nil,
+                isExhaustive: false
+            ))
         }
 
-        return allResults
+        return allSearchResults
     }
 
     // MARK: - WAL Recovery

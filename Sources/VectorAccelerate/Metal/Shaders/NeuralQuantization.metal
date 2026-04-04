@@ -1510,7 +1510,7 @@ kernel void neural_dequantize_decode_2d_transposed_v2_kernel(
     // Threadgroup cache for dequantized latent codes
     // Using float4 storage for efficient loading
     threadgroup float4 tgLatent4[32];  // Supports up to 128-dim latent
-    threadgroup float tgScale;
+    threadgroup float tgScale = 0.0f;
 
     // ========== Phase 1: Cooperative Latent Loading ==========
 

@@ -130,6 +130,19 @@ public final class BufferToken: @unchecked Sendable {
         dataCount = data.count
         lock.unlock()
     }
+
+    /// Keep the token alive until the specified command buffer completes.
+    ///
+    /// This anchors the token to the GPU's execution lifecycle, preventing
+    /// the buffer from returning to the pool until the GPU has physically
+    /// finished processing the command buffer.
+    public func keepAlive(until commandBuffer: any MTLCommandBuffer) {
+        commandBuffer.addCompletedHandler { [self] _ in
+            // Capture self to ensure deinit (and thus returnToPool) 
+            // only happens after completion
+            _ = self
+        }
+    }
 }
 
 /// Size-based bucket for buffer organization

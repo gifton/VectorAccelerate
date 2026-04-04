@@ -129,17 +129,26 @@ public actor BufferPool {
 
 ### Using BufferToken
 
+VectorAccelerate 0.4.1 uses an **RAII-style** buffer management with safety anchoring:
+
 ```swift
-// RAII-style buffer management
+// 📍 See: Sources/VectorAccelerate/Core/BufferPool.swift
+
 func computeDistances() async throws {
-    // Get buffer from pool
+    // 1. Get buffer from pool (RAII)
     let outputToken = try await context.getBuffer(size: outputSize)
 
-    // Use buffer
-    try await kernel.execute(output: outputToken.buffer)
-
-    // Return to pool when done (or let token deinitialize)
-    await context.bufferPool.returnBuffer(outputToken)
+    // 2. Execute GPU work
+    try await context.executeAndWait { commandBuffer, encoder in
+        kernel.encode(output: outputToken.buffer, ...)
+        
+        // 3. CRITICAL: Anchor the token to the command buffer
+        // This prevents the token from returning to the pool until 
+        // the GPU has actually finished its work.
+        outputToken.keepAlive(until: commandBuffer)
+    }
+    
+    // 4. Token returns to pool when it goes out of Swift scope
 }
 ```
 

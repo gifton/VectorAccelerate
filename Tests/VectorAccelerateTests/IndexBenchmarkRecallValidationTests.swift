@@ -6,6 +6,7 @@
 //
 
 import XCTest
+import VectorCore
 @testable import VectorAccelerate
 
 final class IndexBenchmarkRecallValidationTests: XCTestCase {
@@ -44,8 +45,8 @@ final class IndexBenchmarkRecallValidationTests: XCTestCase {
         print("Got results:")
 
         var resultSlots: [UInt32] = []
-        for (i, result) in results.enumerated() {
-            if let slot = await index.slot(for: result.handle) {
+        for (i, result) in results.results.enumerated() {
+            if let slot = await index.slot(for: result.id) {
                 resultSlots.append(slot)
                 print("  [\(i)] slot=\(slot), distance=\(result.distance)")
             }
@@ -99,8 +100,8 @@ final class IndexBenchmarkRecallValidationTests: XCTestCase {
         for query in queries {
             let results = try await flatIndex.search(query: query, k: k)
             var slots: [UInt32] = []
-            for result in results {
-                if let slot = await flatIndex.slot(for: result.handle) {
+            for result in results.results {
+                if let slot = await flatIndex.slot(for: result.id) {
                     slots.append(slot)
                 }
             }
@@ -129,8 +130,8 @@ final class IndexBenchmarkRecallValidationTests: XCTestCase {
             for (i, query) in queries.enumerated() {
                 let results = try await ivfIndex.search(query: query, k: k)
                 var resultSlots: Set<UInt32> = []
-                for result in results {
-                    if let slot = await ivfIndex.slot(for: result.handle) {
+                for result in results.results {
+                    if let slot = await ivfIndex.slot(for: result.id) {
                         resultSlots.insert(slot)
                     }
                 }
@@ -201,8 +202,8 @@ final class IndexBenchmarkRecallValidationTests: XCTestCase {
                 // Ground truth from flat
                 let gtResults = try await flatIndex.search(query: query, k: k)
                 var gtSlots: Set<UInt32> = []
-                for result in gtResults {
-                    if let slot = await flatIndex.slot(for: result.handle) {
+                for result in gtResults.results {
+                    if let slot = await flatIndex.slot(for: result.id) {
                         gtSlots.insert(slot)
                     }
                 }
@@ -210,8 +211,8 @@ final class IndexBenchmarkRecallValidationTests: XCTestCase {
                 // IVF results
                 let ivfResults = try await ivfIndex.search(query: query, k: k)
                 var ivfSlots: Set<UInt32> = []
-                for result in ivfResults {
-                    if let slot = await ivfIndex.slot(for: result.handle) {
+                for result in ivfResults.results {
+                    if let slot = await ivfIndex.slot(for: result.id) {
                         ivfSlots.insert(slot)
                     }
                 }
@@ -335,8 +336,8 @@ final class IndexBenchmarkRecallValidationTests: XCTestCase {
         for query in queries {
             let results = try await index.search(query: query, k: k)
             var slots: [UInt32] = []
-            for result in results {
-                if let slot = await index.slot(for: result.handle) {
+            for result in results.results {
+                if let slot = await index.slot(for: result.id) {
                     slots.append(slot)
                 }
             }
@@ -348,8 +349,8 @@ final class IndexBenchmarkRecallValidationTests: XCTestCase {
         var batchQueryResults: [[UInt32]] = []
         for queryResults in batchResults {
             var slots: [UInt32] = []
-            for result in queryResults {
-                if let slot = await index.slot(for: result.handle) {
+            for result in queryResults.results {
+                if let slot = await index.slot(for: result.id) {
                     slots.append(slot)
                 }
             }

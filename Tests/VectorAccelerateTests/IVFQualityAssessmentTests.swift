@@ -9,6 +9,7 @@
 //
 
 import XCTest
+import VectorCore
 @testable import VectorAccelerate
 
 final class IVFQualityAssessmentTests: XCTestCase {
@@ -54,7 +55,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
         var groundTruth: [[UInt32]] = []
         for query in queries {
             let results = try await flatIndex.search(query: query, k: k)
-            groundTruth.append(results.map { $0.handle.stableID })
+            groundTruth.append(results.results.map { $0.id.stableID })
         }
 
         // Test different nprobe values
@@ -90,7 +91,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
             var totalRecall: Float = 0
             for (i, query) in queries.enumerated() {
                 let results = try await ivfIndex.search(query: query, k: k)
-                let resultIndices = Set(results.map { $0.handle.stableID })
+                let resultIndices = Set(results.results.map { $0.id.stableID })
                 let gtSet = Set(groundTruth[i])
                 let intersection = resultIndices.intersection(gtSet)
                 totalRecall += Float(intersection.count) / Float(k)
@@ -199,11 +200,11 @@ final class IVFQualityAssessmentTests: XCTestCase {
 
                 // Ground truth (use index for comparison)
                 let gtResults = try await flatIndex.search(query: query, k: k)
-                let gtIndices = Set(gtResults.map { $0.handle.stableID })
+                let gtIndices = Set(gtResults.results.map { $0.id.stableID })
 
                 // IVF results
                 let ivfResults = try await ivfIndex.search(query: query, k: k)
-                let ivfIndices = Set(ivfResults.map { $0.handle.stableID })
+                let ivfIndices = Set(ivfResults.results.map { $0.id.stableID })
 
                 let intersection = ivfIndices.intersection(gtIndices)
                 totalRecall += Float(intersection.count) / Float(k)
@@ -253,8 +254,6 @@ final class IVFQualityAssessmentTests: XCTestCase {
                 routingThreshold: 0  // Disable flat search fallback
             )
             let ivfIndex = try await AcceleratedVectorIndex(configuration: ivfConfig)
-
-            _ = try await flatIndex.insert(data)
             _ = try await ivfIndex.insert(data)
 
             // Generate random queries (independent of dataset)
@@ -264,7 +263,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
             var groundTruth: [Set<UInt32>] = []
             for query in queries {
                 let gtResults = try await flatIndex.search(query: query, k: k)
-                groundTruth.append(Set(gtResults.map { $0.handle.stableID }))
+                groundTruth.append(Set(gtResults.results.map { $0.id.stableID }))
             }
 
             // Benchmark flat (pure timing, no recall calculation)
@@ -277,7 +276,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
 
             // Benchmark IVF (pure timing)
             let ivfStart = CFAbsoluteTimeGetCurrent()
-            var ivfResults: [[IndexSearchResult]] = []
+            var ivfResults: [SearchResults<VectorHandle>] = []
             for query in queries {
                 let results = try await ivfIndex.search(query: query, k: k)
                 ivfResults.append(results)
@@ -288,7 +287,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
             // Calculate recall AFTER timing
             var totalRecall: Float = 0
             for (i, results) in ivfResults.enumerated() {
-                let ivfIndices = Set(results.map { $0.handle.stableID })
+                let ivfIndices = Set(results.results.map { $0.id.stableID })
                 let intersection = ivfIndices.intersection(groundTruth[i])
                 totalRecall += Float(intersection.count) / Float(k)
             }
@@ -324,12 +323,6 @@ final class IVFQualityAssessmentTests: XCTestCase {
         var gen = TestDataGenerator(seed: 777)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
 
-        // Print dataset statistics
-        let stats = TestDataGenerator.statistics(for: dataset)
-        print("Data distribution: UNIFORM RANDOM")
-        print(stats.description)
-        print(String(repeating: "-", count: 70))
-
         // Flat index for ground truth
         let flatConfig = IndexConfiguration.flat(dimension: dimension, capacity: datasetSize * 2)
         let flatIndex = try await AcceleratedVectorIndex(configuration: flatConfig)
@@ -354,14 +347,14 @@ final class IVFQualityAssessmentTests: XCTestCase {
         var groundTruth: [Set<UInt32>] = []
         for q in queries {
             let gt = try await flatIndex.search(query: q, k: kLarge)
-            groundTruth.append(Set(gt.map { $0.handle.stableID }))
+            groundTruth.append(Set(gt.results.map { $0.id.stableID }))
         }
 
         // IVF results and recall
         var totalRecall: Float = 0
         for (i, q) in queries.enumerated() {
             let res = try await ivfIndex.search(query: q, k: kLarge)
-            let idxSet = Set(res.map { $0.handle.stableID })
+            let idxSet = Set(res.results.map { $0.id.stableID })
             let inter = idxSet.intersection(groundTruth[i])
             totalRecall += Float(inter.count) / Float(kLarge)
         }

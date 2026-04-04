@@ -5,6 +5,39 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-04-04
+
+### Added
+- **VectorCore 0.2.0 Integration:** Updated dependency and aligned with new standardized search result types.
+- **Enhanced Search API:** `AcceleratedVectorIndex.search` now returns `SearchResults<VectorHandle>`, providing rich metadata including search timing and candidate counts.
+- **Normalized Cosine Optimization:** Leveraged the new `IndexableVector.isNormalized` hint from VectorCore to bypass redundant GPU norm calculations in `CosineKernelDistanceProvider`.
+- **Vector384Optimized Support:** Full integration with VectorCore's new optimized 384D type for high-performance MiniLM/BERT workflows.
+
+---
+
+## [0.4.0] - 2026-04-03
+
+### Added
+- **Hierarchical SIMD Reductions:** Overhauled L2 and Cosine kernels using a 4-phase reduction model (`Local -> Warp -> Threadgroup -> Global`), maximizing 128-bit memory bus saturation.
+- **Tiled Shared Memory KMeans:** New hardware-adaptive assignment kernel that dynamically scales tiles to fit within Apple Silicon's 32KB shared memory limit.
+- **Cooperative Gather Topology:** High-performance 2-pass K-Means update orchestration that eliminates global atomic contention during centroid re-calculation.
+- **Tiled GEMM Neural Encoder:** New state-of-the-art encoder (Phase 5) using a Full-D register loop and shared memory padding to achieve 10-50x speedups by eliminating bank conflicts.
+- **Vectorized Transposed Decoder:** Optimized dequantization path (Phase 4) using dual-accumulator latency hiding and dimension-specialized variants for a 2x throughput gain.
+- **Eager Pipeline Pre-compilation:** Background pre-compilation of critical path kernels during `Metal4Context` initialization to eliminate first-use latency.
+- **Advanced Distance Metrics:** GPU-accelerated kernels for Manhattan, Chebyshev, Minkowski, and Jaccard distances.
+
+### Changed
+- **Enforced Asynchronous Execution:** All GPU operations now utilize `await commitAndWait()` to suspend Swift tasks without blocking OS threads.
+- **Buffer Pool Integration:** Transitioned all hot-path kernels to use the new `BufferPool` ring-buffer strategy, removing allocation overhead from compute loops.
+- **Standardized Kernel Signatures:** Refactored all Metal 4 kernels to use consistent attribute dimensionality, ensuring compatibility with the latest Apple Silicon compilers.
+- **Enhanced Buffer Safety:** Implemented `BufferToken` lifecycle anchoring via `.keepAlive(until:)` to synchronize memory reclamation with physical GPU completion.
+
+### Fixed
+- **Empty Cluster Stability:** Improved K-Means update logic to preserve existing centroids for clusters with zero assignments, preventing NaN corruption.
+- **Minkowski Overflow:** Fixed numerical instability in high-power Minkowski distances by implementing log-space exponent clamping.
+
+---
+
 ## [0.3.6] - 2026-01-10
 
 ### Fixed

@@ -67,9 +67,33 @@ public actor L2KernelDistanceProvider: DistanceProvider {
 
         let a = vector1.toArray()
         let b = vector2.toArray()
+        let dimension: Int = a.count
 
-        let distances = try await kernel.compute(queries: [a], database: [b], computeSqrt: true)
-        return distances[0][0]
+        let qToken = try await context.getBuffer(for: a)
+        let tToken = try await context.getBuffer(for: b)
+        let outToken = try await context.getBuffer(size: MemoryLayout<Float>.size)
+
+        let parameters = L2DistanceParameters(
+            numQueries: 1,
+            numDatabase: 1,
+            dimension: dimension,
+            computeSqrt: true
+        )
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            kernel.encode(
+                into: encoder,
+                queries: qToken.buffer,
+                database: tToken.buffer,
+                distances: outToken.buffer,
+                parameters: parameters
+            )
+            qToken.keepAlive(until: commandBuffer)
+            tToken.keepAlive(until: commandBuffer)
+            outToken.keepAlive(until: commandBuffer)
+        }
+
+        return outToken.copyData(as: Float.self, count: 1)[0]
     }
 
     public func batchDistance<T: VectorProtocol>(
@@ -84,14 +108,36 @@ public actor L2KernelDistanceProvider: DistanceProvider {
         guard !candidates.isEmpty else { return [] }
 
         let queryArray = query.toArray()
-        let candidateArrays = candidates.map { $0.toArray() }
+        let dimension: Int = queryArray.count
+        let n: Int = candidates.count
 
-        let distances = try await kernel.compute(
-            queries: [queryArray],
-            database: candidateArrays,
+        let flatTargets: [Float] = candidates.flatMap { $0.toArray() }
+
+        let qToken = try await context.getBuffer(for: queryArray)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let outToken = try await context.getBuffer(size: n * MemoryLayout<Float>.size)
+
+        let parameters = L2DistanceParameters(
+            numQueries: 1,
+            numDatabase: n,
+            dimension: dimension,
             computeSqrt: true
         )
-        return distances[0]
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            kernel.encode(
+                into: encoder,
+                queries: qToken.buffer,
+                database: tToken.buffer,
+                distances: outToken.buffer,
+                parameters: parameters
+            )
+            qToken.keepAlive(until: commandBuffer)
+            tToken.keepAlive(until: commandBuffer)
+            outToken.keepAlive(until: commandBuffer)
+        }
+
+        return outToken.copyData(as: Float.self, count: n)
     }
 }
 
@@ -100,19 +146,22 @@ public actor L2KernelDistanceProvider: DistanceProvider {
 /// VectorCore DistanceProvider backed by Metal4 CosineSimilarityKernel.
 ///
 /// Provides GPU-accelerated cosine distance/similarity computation with optional
-/// input normalization.
+/// input normalization leveraging IndexableVector hints.
 public actor CosineKernelDistanceProvider: DistanceProvider {
     private let kernel: CosineSimilarityKernel
+    private let dotProductKernel: DotProductKernel
     private let context: Metal4Context
 
     public init() async throws {
         self.context = try await Metal4Context()
         self.kernel = try await CosineSimilarityKernel(context: context)
+        self.dotProductKernel = try await DotProductKernel(context: context)
     }
 
     public init(context: Metal4Context) async throws {
         self.context = context
         self.kernel = try await CosineSimilarityKernel(context: context)
+        self.dotProductKernel = try await DotProductKernel(context: context)
     }
 
     public var underlyingKernel: CosineSimilarityKernel { kernel }
@@ -128,15 +177,44 @@ public actor CosineKernelDistanceProvider: DistanceProvider {
 
         let a = vector1.toArray()
         let b = vector2.toArray()
+        let dimension: Int = a.count
 
-        // outputDistance: true returns 1 - similarity (distance form)
-        let distances = try await kernel.compute(
-            queries: [a],
-            database: [b],
-            outputDistance: true,
-            inputsNormalized: false
-        )
-        return distances[0][0]
+        // Check if we can use optimized dot product path (requires both vectors to be normalized)
+        let isNormalized = (vector1 as? any IndexableVector)?.isNormalized == true &&
+                           (vector2 as? any IndexableVector)?.isNormalized == true
+
+        let qToken = try await context.getBuffer(for: a)
+        let tToken = try await context.getBuffer(for: b)
+        let outToken = try await context.getBuffer(size: MemoryLayout<Float>.size)
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            if isNormalized {
+                // For normalized vectors, cosine distance = 1 - dot product
+                let params = DotProductParameters(numQueries: 1, numDatabase: 1, dimension: dimension)
+                self.dotProductKernel.encode(into: encoder, queries: qToken.buffer, database: tToken.buffer, output: outToken.buffer, parameters: params)
+            } else {
+                let params = CosineSimilarityParameters(
+                    numQueries: 1,
+                    numDatabase: 1,
+                    dimension: dimension,
+                    outputDistance: true
+                )
+                self.kernel.encode(
+                    into: encoder,
+                    queries: qToken.buffer,
+                    database: tToken.buffer,
+                    output: outToken.buffer,
+                    parameters: params
+                )
+            }
+            qToken.keepAlive(until: commandBuffer)
+            tToken.keepAlive(until: commandBuffer)
+            outToken.keepAlive(until: commandBuffer)
+        }
+
+        let result = outToken.copyData(as: Float.self, count: 1)[0]
+        // If we used dot product, result is the similarity, so we return 1 - result
+        return isNormalized ? (1.0 - result) : result
     }
 
     public func batchDistance<T: VectorProtocol>(
@@ -151,15 +229,53 @@ public actor CosineKernelDistanceProvider: DistanceProvider {
         guard !candidates.isEmpty else { return [] }
 
         let queryArray = query.toArray()
-        let candidateArrays = candidates.map { $0.toArray() }
+        let dimension: Int = queryArray.count
+        let n: Int = candidates.count
 
-        let distances = try await kernel.compute(
-            queries: [queryArray],
-            database: candidateArrays,
-            outputDistance: true,
-            inputsNormalized: false
-        )
-        return distances[0]
+        // Optimization: check if all candidates are pre-normalized
+        let queryNormalized = (query as? any IndexableVector)?.isNormalized == true
+        let allCandidatesNormalized = candidates.allSatisfy { ($0 as? any IndexableVector)?.isNormalized == true }
+        let useDotProduct = queryNormalized && allCandidatesNormalized
+
+        let qToken = try await context.getBuffer(for: queryArray)
+        let tToken = try await context.getBuffer(size: n * dimension * MemoryLayout<Float>.size)
+        let outToken = try await context.getBuffer(size: n * MemoryLayout<Float>.size)
+
+        let destination = tToken.buffer.contents().bindMemory(to: Float.self, capacity: n * dimension)
+        for (i, candidate) in candidates.enumerated() {
+            let offset = i * dimension
+            candidate.withUnsafeBufferPointer { srcPtr in
+                guard let srcBase = srcPtr.baseAddress else { return }
+                destination.advanced(by: offset).update(from: srcBase, count: dimension)
+            }
+        }
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            if useDotProduct {
+                let params = DotProductParameters(numQueries: 1, numDatabase: n, dimension: dimension)
+                self.dotProductKernel.encode(into: encoder, queries: qToken.buffer, database: tToken.buffer, output: outToken.buffer, parameters: params)
+            } else {
+                let params = CosineSimilarityParameters(
+                    numQueries: 1,
+                    numDatabase: n,
+                    dimension: dimension,
+                    outputDistance: true
+                )
+                self.kernel.encode(
+                    into: encoder,
+                    queries: qToken.buffer,
+                    database: tToken.buffer,
+                    output: outToken.buffer,
+                    parameters: params
+                )
+            }
+            qToken.keepAlive(until: commandBuffer)
+            tToken.keepAlive(until: commandBuffer)
+            outToken.keepAlive(until: commandBuffer)
+        }
+
+        let results = outToken.copyData(as: Float.self, count: n)
+        return useDotProduct ? results.map { 1.0 - $0 } : results
     }
 }
 
@@ -397,7 +513,7 @@ public actor HammingKernelDistanceProvider {
 ///
 /// ## Supported Metrics
 /// - `.euclidean` → L2DistanceKernel (with dimension optimizations)
-/// - `.cosine` → CosineSimilarityKernel
+/// - `.cosine` → CosineSimilarityKernel (optimized via DotProduct if pre-normalized)
 /// - `.dotProduct` → DotProductKernel
 /// - `.manhattan` → MinkowskiDistanceKernel (p=1)
 /// - `.chebyshev` → MinkowskiDistanceKernel (p=∞)
@@ -470,18 +586,73 @@ public actor UniversalKernelDistanceProvider: DistanceProvider {
         switch metric {
         case .euclidean:
             let kernel = try await getL2Kernel()
-            let distances = try await kernel.compute(queries: [a], database: [b], computeSqrt: true)
-            return distances[0][0]
+            let dimension: Int = a.count
+
+            let qToken = try await context.getBuffer(for: a)
+            let tToken = try await context.getBuffer(for: b)
+            let outToken = try await context.getBuffer(size: MemoryLayout<Float>.size)
+
+            let params = L2DistanceParameters(
+                numQueries: 1,
+                numDatabase: 1,
+                dimension: dimension,
+                computeSqrt: true
+            )
+
+            try await context.executeAndWait { commandBuffer, encoder in
+                kernel.encode(
+                    into: encoder,
+                    queries: qToken.buffer,
+                    database: tToken.buffer,
+                    distances: outToken.buffer,
+                    parameters: params
+                )
+                qToken.keepAlive(until: commandBuffer)
+                tToken.keepAlive(until: commandBuffer)
+                outToken.keepAlive(until: commandBuffer)
+            }
+
+            return outToken.copyData(as: Float.self, count: 1)[0]
 
         case .cosine:
-            let kernel = try await getCosineKernel()
-            let distances = try await kernel.compute(
-                queries: [a],
-                database: [b],
-                outputDistance: true,
-                inputsNormalized: false
-            )
-            return distances[0][0]
+            // Optimization: Use dot product if both are pre-normalized
+            let isNormalized = (vector1 as? any IndexableVector)?.isNormalized == true &&
+                               (vector2 as? any IndexableVector)?.isNormalized == true
+            
+            if isNormalized {
+                let kernel = try await getDotKernel()
+                let products = try await kernel.compute(queries: [a], database: [b])
+                return 1.0 - products[0][0]
+            } else {
+                let kernel = try await getCosineKernel()
+                let dimension: Int = a.count
+
+                let qToken = try await context.getBuffer(for: a)
+                let tToken = try await context.getBuffer(for: b)
+                let outToken = try await context.getBuffer(size: MemoryLayout<Float>.size)
+
+                let params = CosineSimilarityParameters(
+                    numQueries: 1,
+                    numDatabase: 1,
+                    dimension: dimension,
+                    outputDistance: true
+                )
+
+                try await context.executeAndWait { commandBuffer, encoder in
+                    kernel.encode(
+                        into: encoder,
+                        queries: qToken.buffer,
+                        database: tToken.buffer,
+                        output: outToken.buffer,
+                        parameters: params
+                    )
+                    qToken.keepAlive(until: commandBuffer)
+                    tToken.keepAlive(until: commandBuffer)
+                    outToken.keepAlive(until: commandBuffer)
+                }
+
+                return outToken.copyData(as: Float.self, count: 1)[0]
+            }
 
         case .dotProduct:
             let kernel = try await getDotKernel()
@@ -506,31 +677,82 @@ public actor UniversalKernelDistanceProvider: DistanceProvider {
         guard !candidates.isEmpty else { return [] }
 
         let queryArray = query.toArray()
-        let candidateArrays = candidates.map { $0.toArray() }
+        let dimension: Int = queryArray.count
+        let n: Int = candidates.count
 
         switch metric {
         case .euclidean:
             let kernel = try await getL2Kernel()
-            let distances = try await kernel.compute(
-                queries: [queryArray],
-                database: candidateArrays,
+            let flatTargets: [Float] = candidates.flatMap { $0.toArray() }
+
+            let qToken = try await context.getBuffer(for: queryArray)
+            let tToken = try await context.getBuffer(for: flatTargets)
+            let outToken = try await context.getBuffer(size: n * MemoryLayout<Float>.size)
+
+            let params = L2DistanceParameters(
+                numQueries: 1,
+                numDatabase: n,
+                dimension: dimension,
                 computeSqrt: true
             )
-            return distances[0]
+
+            try await context.executeAndWait { commandBuffer, encoder in
+                kernel.encode(
+                    into: encoder,
+                    queries: qToken.buffer,
+                    database: tToken.buffer,
+                    distances: outToken.buffer,
+                    parameters: params
+                )
+                qToken.keepAlive(until: commandBuffer)
+                tToken.keepAlive(until: commandBuffer)
+                outToken.keepAlive(until: commandBuffer)
+            }
+
+            return outToken.copyData(as: Float.self, count: n)
 
         case .cosine:
-            let kernel = try await getCosineKernel()
-            let distances = try await kernel.compute(
-                queries: [queryArray],
-                database: candidateArrays,
-                outputDistance: true,
-                inputsNormalized: false
-            )
-            return distances[0]
+            let queryNormalized = (query as? any IndexableVector)?.isNormalized == true
+            let allCandidatesNormalized = candidates.allSatisfy { ($0 as? any IndexableVector)?.isNormalized == true }
+            
+            if queryNormalized && allCandidatesNormalized {
+                let kernel = try await getDotKernel()
+                let products = try await kernel.compute(queries: [queryArray], database: candidates.map { $0.toArray() })
+                return products[0].map { 1.0 - $0 }
+            } else {
+                let kernel = try await getCosineKernel()
+                let flatTargets: [Float] = candidates.flatMap { $0.toArray() }
+
+                let qToken = try await context.getBuffer(for: queryArray)
+                let tToken = try await context.getBuffer(for: flatTargets)
+                let outToken = try await context.getBuffer(size: n * MemoryLayout<Float>.size)
+
+                let params = CosineSimilarityParameters(
+                    numQueries: 1,
+                    numDatabase: n,
+                    dimension: dimension,
+                    outputDistance: true
+                )
+
+                try await context.executeAndWait { commandBuffer, encoder in
+                    kernel.encode(
+                        into: encoder,
+                        queries: qToken.buffer,
+                        database: tToken.buffer,
+                        output: outToken.buffer,
+                        parameters: params
+                    )
+                    qToken.keepAlive(until: commandBuffer)
+                    tToken.keepAlive(until: commandBuffer)
+                    outToken.keepAlive(until: commandBuffer)
+                }
+
+                return outToken.copyData(as: Float.self, count: n)
+            }
 
         case .dotProduct:
             let kernel = try await getDotKernel()
-            let products = try await kernel.compute(queries: [queryArray], database: candidateArrays)
+            let products = try await kernel.compute(queries: [queryArray], database: candidates.map { $0.toArray() })
             return products[0].map { -$0 }
 
         case .manhattan:
@@ -538,7 +760,7 @@ public actor UniversalKernelDistanceProvider: DistanceProvider {
             let config = Metal4MinkowskiConfig(p: 1.0)
             let result = try await kernel.computeDistances(
                 queries: [queryArray],
-                dataset: candidateArrays,
+                dataset: candidates.map { $0.toArray() },
                 config: config
             )
             return result.asMatrix()[0]
@@ -548,7 +770,7 @@ public actor UniversalKernelDistanceProvider: DistanceProvider {
             let config = Metal4MinkowskiConfig(p: 100.0)
             let result = try await kernel.computeDistances(
                 queries: [queryArray],
-                dataset: candidateArrays,
+                dataset: candidates.map { $0.toArray() },
                 config: config
             )
             return result.asMatrix()[0]
