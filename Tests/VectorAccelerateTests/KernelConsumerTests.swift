@@ -13,6 +13,7 @@
 
 import XCTest
 @testable import VectorAccelerate
+@preconcurrency import Metal
 import VectorCore
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
@@ -120,10 +121,8 @@ final class KernelConsumerTests: XCTestCase {
             [0.0, 0.0, 1.0]   // Distance = sqrt(2)
         ]
 
-        let distances = try await kernel.compute(
-            queries: queries,
-            database: database,
-            computeSqrt: true
+        let distances = try await computeL2AllPairs(
+            kernel: kernel, queries: queries, database: database, computeSqrt: true
         )
 
         XCTAssertEqual(distances.count, 1)
@@ -143,11 +142,8 @@ final class KernelConsumerTests: XCTestCase {
             [-1.0, 0.0, 0.0]   // Similarity = -1.0 (opposite)
         ]
 
-        let similarities = try await kernel.compute(
-            queries: queries,
-            database: database,
-            outputDistance: false,
-            inputsNormalized: false
+        let similarities = try await computeCosineAllPairs(
+            kernel: kernel, queries: queries, database: database, outputDistance: false
         )
 
         XCTAssertEqual(similarities[0][0], 1.0, accuracy: 1e-4)
@@ -245,13 +241,15 @@ final class KernelConsumerTests: XCTestCase {
     func testKernelWithDynamicVector() async throws {
         let kernel = try await L2DistanceKernel(context: context)
 
-        let query = DynamicVector([1.0, 0.0, 0.0])
-        let database = [
-            DynamicVector([1.0, 0.0, 0.0]),
-            DynamicVector([0.0, 1.0, 0.0])
+        let queries: [[Float]] = [[1.0, 0.0, 0.0]]
+        let database: [[Float]] = [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0]
         ]
 
-        let distances = try await kernel.compute(queries: [query], database: database)
+        let distances = try await computeL2AllPairs(
+            kernel: kernel, queries: queries, database: database
+        )
 
         XCTAssertEqual(distances[0][0], 0.0, accuracy: 1e-5)
         XCTAssertEqual(distances[0][1], sqrt(2), accuracy: 1e-4)
@@ -301,18 +299,105 @@ final class KernelConsumerTests: XCTestCase {
         XCTAssertEqual(neighbors[0][0].0, 0)  // Index 0 should be closest
     }
 
-    // MARK: - Dimension Optimization Tests
+    // MARK: - Kernel Conformance Tests
 
-    func testL2KernelDimensionOptimizations() async throws {
+    func testL2KernelConformsToMetal4Kernel() async throws {
         let kernel = try await L2DistanceKernel(context: context)
 
-        // L2DistanceKernel has optimized paths for these dimensions
-        XCTAssertTrue(kernel.hasOptimizedPipeline(for: 384))
-        XCTAssertTrue(kernel.hasOptimizedPipeline(for: 512))
-        XCTAssertTrue(kernel.hasOptimizedPipeline(for: 768))
-        XCTAssertTrue(kernel.hasOptimizedPipeline(for: 1536))
+        // L2DistanceKernel conforms to Metal4Kernel
+        XCTAssertTrue(kernel is any Metal4Kernel)
+        XCTAssertEqual(kernel.name, "L2DistanceKernel")
+    }
 
-        // Non-optimized dimension should still work
-        XCTAssertFalse(kernel.hasOptimizedPipeline(for: 100))
+    // MARK: - Helper Methods
+
+    /// Compute all-pairs L2 distances using the 1:1 batch encode API
+    private func computeL2AllPairs(
+        kernel: L2DistanceKernel,
+        queries: [[Float]],
+        database: [[Float]],
+        computeSqrt: Bool = true
+    ) async throws -> [[Float]] {
+        let numQ = queries.count
+        let numD = database.count
+        let dim = queries[0].count
+        let totalPairs = numQ * numD
+
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(totalPairs * dim)
+        for q in queries {
+            for _ in 0..<numD { flatQueries.append(contentsOf: q) }
+        }
+        var flatTargets = [Float]()
+        flatTargets.reserveCapacity(totalPairs * dim)
+        for _ in 0..<numQ {
+            for d in database { flatTargets.append(contentsOf: d) }
+        }
+
+        let qToken = try await context.getBuffer(for: flatQueries)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let outToken = try await context.getBuffer(size: totalPairs * MemoryLayout<Float>.size)
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            kernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken, targetsToken: tToken, distancesToken: outToken,
+                numQueries: totalPairs, dimension: dim, computeSqrt: computeSqrt
+            )
+        }
+
+        let flat = outToken.copyData(as: Float.self, count: totalPairs)
+        var results = [[Float]]()
+        results.reserveCapacity(numQ)
+        for i in 0..<numQ {
+            results.append(Array(flat[i * numD ..< (i + 1) * numD]))
+        }
+        return results
+    }
+
+    /// Compute all-pairs cosine similarity using the 1:1 batch encode API
+    private func computeCosineAllPairs(
+        kernel: CosineSimilarityKernel,
+        queries: [[Float]],
+        database: [[Float]],
+        outputDistance: Bool = false
+    ) async throws -> [[Float]] {
+        let numQ = queries.count
+        let numD = database.count
+        let dim = queries[0].count
+        let totalPairs = numQ * numD
+
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(totalPairs * dim)
+        for q in queries {
+            for _ in 0..<numD { flatQueries.append(contentsOf: q) }
+        }
+        var flatTargets = [Float]()
+        flatTargets.reserveCapacity(totalPairs * dim)
+        for _ in 0..<numQ {
+            for d in database { flatTargets.append(contentsOf: d) }
+        }
+
+        let qToken = try await context.getBuffer(for: flatQueries)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let outToken = try await context.getBuffer(size: totalPairs * MemoryLayout<Float>.size)
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            kernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken, targetsToken: tToken, similaritiesToken: outToken,
+                numQueries: totalPairs, dimension: dim, outputDistance: outputDistance
+            )
+        }
+
+        let flat = outToken.copyData(as: Float.self, count: totalPairs)
+        var results = [[Float]]()
+        results.reserveCapacity(numQ)
+        for i in 0..<numQ {
+            results.append(Array(flat[i * numD ..< (i + 1) * numD]))
+        }
+        return results
     }
 }

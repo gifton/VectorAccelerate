@@ -714,13 +714,8 @@ public final class LearnedDistanceKernel: @unchecked Sendable, Metal4Kernel {
             normalizeEncoder.endEncoding()
         }
 
-        // Wait for completion using continuation (handler must be added before commit)
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            commandBuffer.addCompletedHandler { _ in
-                continuation.resume()
-            }
-            commandBuffer.commit()
-        }
+        // Wait for completion
+        await commandBuffer.commitAndWait()
 
         // Extract results
         let outputPointer = outputBuffer.contents().bindMemory(

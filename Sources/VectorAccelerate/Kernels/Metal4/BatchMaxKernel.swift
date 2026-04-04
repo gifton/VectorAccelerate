@@ -23,8 +23,10 @@ import VectorCore
 
 /// Result from batch max operation.
 public struct BatchMaxResult: Sendable {
+    /// Token representing the output buffer. Keeps the buffer alive.
+    public let outputToken: BufferToken
     /// Output buffer containing element-wise maximum
-    public let output: any MTLBuffer
+    public var output: any MTLBuffer { outputToken.buffer }
     /// Number of elements processed
     public let count: Int
     /// Execution time in seconds
@@ -210,17 +212,15 @@ public final class BatchMaxKernel: @unchecked Sendable, Metal4Kernel, FusibleKer
         c: any MTLBuffer,
         count: Int
     ) async throws -> BatchMaxResult {
-        let device = context.device.rawDevice
         let outputSize = count * MemoryLayout<Float>.size
 
-        guard let outputBuffer = device.makeBuffer(length: outputSize, options: .storageModeShared) else {
-            throw VectorError.bufferAllocationFailed(size: outputSize)
-        }
-        outputBuffer.label = "BatchMax.output"
+        let outputToken = try await context.getBuffer(size: outputSize)
+        outputToken.buffer.label = "BatchMax.output"
 
         let startTime = CACurrentMediaTime()
-        try await context.executeAndWait { [self] _, encoder in
-            self.encode(into: encoder, a: a, b: b, c: c, output: outputBuffer, count: count)
+        try await context.executeAndWait { [self] commandBuffer, encoder in
+            self.encode(into: encoder, a: a, b: b, c: c, output: outputToken.buffer, count: count)
+            outputToken.keepAlive(until: commandBuffer)
         }
         let executionTime = CACurrentMediaTime() - startTime
 
@@ -229,7 +229,7 @@ public final class BatchMaxKernel: @unchecked Sendable, Metal4Kernel, FusibleKer
         let throughputGBps = Double(totalBytes) / (1e9 * executionTime)
 
         return BatchMaxResult(
-            output: outputBuffer,
+            outputToken: outputToken,
             count: count,
             executionTime: executionTime,
             throughputGBps: throughputGBps
@@ -256,31 +256,23 @@ public final class BatchMaxKernel: @unchecked Sendable, Metal4Kernel, FusibleKer
             throw VectorError.invalidInput("Input arrays are empty")
         }
 
-        let device = context.device.rawDevice
         let count = a.count
 
-        guard let aBuffer = a.withUnsafeBytes({ bytes in
-            device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
-        }) else {
-            throw VectorError.bufferAllocationFailed(size: count * MemoryLayout<Float>.size)
-        }
-        aBuffer.label = "BatchMax.a"
+        let aToken = try await context.getBuffer(for: a)
+        aToken.buffer.label = "BatchMax.a"
 
-        guard let bBuffer = b.withUnsafeBytes({ bytes in
-            device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
-        }) else {
-            throw VectorError.bufferAllocationFailed(size: count * MemoryLayout<Float>.size)
-        }
-        bBuffer.label = "BatchMax.b"
+        let bToken = try await context.getBuffer(for: b)
+        bToken.buffer.label = "BatchMax.b"
 
-        guard let cBuffer = c.withUnsafeBytes({ bytes in
-            device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
-        }) else {
-            throw VectorError.bufferAllocationFailed(size: count * MemoryLayout<Float>.size)
-        }
-        cBuffer.label = "BatchMax.c"
+        let cToken = try await context.getBuffer(for: c)
+        cToken.buffer.label = "BatchMax.c"
 
-        return try await max3(a: aBuffer, b: bBuffer, c: cBuffer, count: count)
+        let result = try await max3(a: aToken.buffer, b: bToken.buffer, c: cToken.buffer, count: count)
+        
+        // Ensure input tokens are kept alive until GPU operation is done.
+        // The inner max3 does an executeAndWait, so when it returns, the GPU is done.
+        // By holding aToken, bToken, cToken here until it returns, they are safe.
+        return result
     }
 
     // MARK: - Two-Array Maximum (Encode API)
@@ -354,17 +346,15 @@ public final class BatchMaxKernel: @unchecked Sendable, Metal4Kernel, FusibleKer
         b: any MTLBuffer,
         count: Int
     ) async throws -> BatchMaxResult {
-        let device = context.device.rawDevice
         let outputSize = count * MemoryLayout<Float>.size
 
-        guard let outputBuffer = device.makeBuffer(length: outputSize, options: .storageModeShared) else {
-            throw VectorError.bufferAllocationFailed(size: outputSize)
-        }
-        outputBuffer.label = "BatchMax.output"
+        let outputToken = try await context.getBuffer(size: outputSize)
+        outputToken.buffer.label = "BatchMax.output"
 
         let startTime = CACurrentMediaTime()
-        try await context.executeAndWait { [self] _, encoder in
-            self.encodeMax2(into: encoder, a: a, b: b, output: outputBuffer, count: count)
+        try await context.executeAndWait { [self] commandBuffer, encoder in
+            self.encodeMax2(into: encoder, a: a, b: b, output: outputToken.buffer, count: count)
+            outputToken.keepAlive(until: commandBuffer)
         }
         let executionTime = CACurrentMediaTime() - startTime
 
@@ -373,7 +363,7 @@ public final class BatchMaxKernel: @unchecked Sendable, Metal4Kernel, FusibleKer
         let throughputGBps = Double(totalBytes) / (1e9 * executionTime)
 
         return BatchMaxResult(
-            output: outputBuffer,
+            outputToken: outputToken,
             count: count,
             executionTime: executionTime,
             throughputGBps: throughputGBps
@@ -392,24 +382,17 @@ public final class BatchMaxKernel: @unchecked Sendable, Metal4Kernel, FusibleKer
             throw VectorError.invalidInput("Input arrays are empty")
         }
 
-        let device = context.device.rawDevice
         let count = a.count
 
-        guard let aBuffer = a.withUnsafeBytes({ bytes in
-            device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
-        }) else {
-            throw VectorError.bufferAllocationFailed(size: count * MemoryLayout<Float>.size)
-        }
-        aBuffer.label = "BatchMax.a"
+        let aToken = try await context.getBuffer(for: a)
+        aToken.buffer.label = "BatchMax.a"
 
-        guard let bBuffer = b.withUnsafeBytes({ bytes in
-            device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
-        }) else {
-            throw VectorError.bufferAllocationFailed(size: count * MemoryLayout<Float>.size)
-        }
-        bBuffer.label = "BatchMax.b"
+        let bToken = try await context.getBuffer(for: b)
+        bToken.buffer.label = "BatchMax.b"
 
-        return try await max2(a: aBuffer, b: bBuffer, count: count)
+        let result = try await max2(a: aToken.buffer, b: bToken.buffer, count: count)
+        
+        return result
     }
 
     // MARK: - In-Place Operations

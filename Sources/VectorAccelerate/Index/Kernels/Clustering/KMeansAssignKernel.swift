@@ -5,8 +5,7 @@
 //  Metal 4 kernel for K-Means point assignment phase.
 //
 //  Assigns each vector to its nearest centroid using GPU-accelerated
-//  distance computation. Supports both optimized SIMD-tiled kernels
-//  and fallback FusedL2TopK path.
+//  tiled distance computation. Optimized for Apple Silicon SIMD-group architecture.
 //
 
 import Foundation
@@ -18,26 +17,6 @@ import VectorCore
 // MARK: - K-Means Assign Kernel
 
 /// Metal 4 kernel for K-Means point assignment.
-///
-/// Assigns each vector to its nearest centroid using GPU-accelerated
-/// distance computation. This is the E-step of the EM algorithm.
-///
-/// ## Kernel Selection
-/// - **SIMD-Tiled (Default)**: Uses optimized simdgroup-cooperative kernels with
-///   tiled memory access for ~10-20x speedup on typical PQ training workloads.
-/// - **FusedL2TopK (Fallback)**: Uses generic fused L2 + Top-K kernel with k=1.
-///
-/// ## Usage
-/// ```swift
-/// let kernel = try await KMeansAssignKernel(context: context)
-/// let result = try await kernel.assign(
-///     vectors: vectorBuffer,
-///     centroids: centroidBuffer,
-///     numVectors: 10000,
-///     numCentroids: 256,
-///     dimension: 128
-/// )
-/// ```
 public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Protocol Properties
@@ -50,52 +29,31 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
     /// Fallback kernel using FusedL2TopK with k=1
     private let fusedL2TopK: FusedL2TopKKernel
 
-    /// Optimized SIMD-tiled pipeline (512 threads per threadgroup)
-    private var simdTiled512Pipeline: (any MTLComputePipelineState)?
+    /// Optimized Tiled Assignment pipeline
+    private var tiledAssignmentPipeline: (any MTLComputePipelineState)?
 
-    /// Optimized SIMD-tiled pipeline (256 threads per threadgroup)
-    private var simdTiled256Pipeline: (any MTLComputePipelineState)?
-
-    /// Whether to use the optimized SIMD-tiled kernels
+    /// Whether to use the optimized tiled kernels
     private let useOptimizedKernels: Bool
-
-    // MARK: - Constants
-
-    /// Vectors per threadgroup for 512-thread variant
-    private static let vectorsPerTG512 = 16
-
-    /// Vectors per threadgroup for 256-thread variant
-    private static let vectorsPerTG256 = 8
 
     // MARK: - Initialization
 
     /// Create a K-Means assignment kernel.
-    ///
-    /// - Parameter context: The Metal 4 context to use
     public init(context: Metal4Context) async throws {
         self.context = context
         self.fusedL2TopK = try await FusedL2TopKKernel(context: context)
 
-        // Try to load optimized SIMD-tiled kernels
+        // Try to load optimized tiled assignment kernel
         var loadedOptimized = false
         do {
             let library = try await context.shaderCompiler.getDefaultLibrary()
 
-            if let function512 = library.makeFunction(name: "assign_to_centroids_simd_tiled_512") {
-                self.simdTiled512Pipeline = try await context.device.rawDevice.makeComputePipelineState(function: function512)
-            }
-
-            if let function256 = library.makeFunction(name: "assign_to_centroids_simd_tiled_256") {
-                self.simdTiled256Pipeline = try await context.device.rawDevice.makeComputePipelineState(function: function256)
-            }
-
-            loadedOptimized = (simdTiled512Pipeline != nil || simdTiled256Pipeline != nil)
-
-            if loadedOptimized {
-                VectorLogDebug("Loaded optimized SIMD-tiled KMeans kernels", category: "KMeansAssign")
+            if let function = library.makeFunction(name: "kmeans_assign_points") {
+                self.tiledAssignmentPipeline = try await context.device.rawDevice.makeComputePipelineState(function: function)
+                loadedOptimized = true
+                VectorLogDebug("Loaded high-performance tiled KMeans kernel", category: "KMeansAssign")
             }
         } catch {
-            VectorLogDebug("Failed to load optimized kernels, using fallback: \(error)", category: "KMeansAssign")
+            VectorLogDebug("Failed to load optimized kernel, using fallback: \(error)", category: "KMeansAssign")
         }
 
         self.useOptimizedKernels = loadedOptimized
@@ -105,30 +63,11 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
 
     public func warmUp() async throws {
         try await fusedL2TopK.warmUp()
-
-        // Warm up optimized kernels with a small dispatch if available
-        if let pipeline = simdTiled512Pipeline ?? simdTiled256Pipeline {
-            guard let commandBuffer = context.commandQueue.makeCommandBuffer(),
-                  let encoder = commandBuffer.makeComputeCommandEncoder() else {
-                return
-            }
-            encoder.setComputePipelineState(pipeline)
-            encoder.endEncoding()
-            commandBuffer.commit()
-        }
     }
 
     // MARK: - Assignment
 
     /// Assign vectors to nearest centroids.
-    ///
-    /// - Parameters:
-    ///   - vectors: Vector buffer [numVectors × dimension]
-    ///   - centroids: Centroid buffer [numCentroids × dimension]
-    ///   - numVectors: Number of vectors to assign
-    ///   - numCentroids: Number of centroids (K)
-    ///   - dimension: Vector dimension
-    /// - Returns: Assignment result with cluster assignments and distances
     public func assign(
         vectors: any MTLBuffer,
         centroids: any MTLBuffer,
@@ -138,21 +77,19 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
     ) async throws -> KMeansAssignmentResult {
         let startTime = CACurrentMediaTime()
 
-        guard numVectors > 0 else {
-            throw IndexError.invalidInput(message: "numVectors must be positive")
-        }
-        guard numCentroids > 0 else {
-            throw IndexError.invalidInput(message: "numCentroids must be positive")
+        guard numVectors > 0, numCentroids > 0 else {
+            throw IndexError.invalidInput(message: "numVectors and numCentroids must be positive")
         }
 
-        // Use optimized SIMD-tiled kernels when available
-        if useOptimizedKernels {
-            return try await assignSimdTiled(
+        // Use optimized tiled kernel when available
+        if useOptimizedKernels, let pipeline = tiledAssignmentPipeline {
+            return try await assignTiled(
                 vectors: vectors,
                 centroids: centroids,
                 numVectors: numVectors,
                 numCentroids: numCentroids,
                 dimension: dimension,
+                pipeline: pipeline,
                 startTime: startTime
             )
         }
@@ -168,99 +105,86 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
         )
     }
 
-    // MARK: - Optimized SIMD-Tiled Assignment
+    // MARK: - Optimized Tiled Assignment
 
-    /// Assign vectors using the optimized SIMD-tiled kernels.
-    private func assignSimdTiled(
+    /// Assign vectors using the optimized tiled shared memory kernel.
+    private func assignTiled(
         vectors: any MTLBuffer,
         centroids: any MTLBuffer,
         numVectors: Int,
         numCentroids: Int,
         dimension: Int,
+        pipeline: any MTLComputePipelineState,
         startTime: CFTimeInterval
     ) async throws -> KMeansAssignmentResult {
-        let device = context.device.rawDevice
-
         // Allocate output buffers
-        guard let assignmentsBuffer = device.makeBuffer(
-            length: numVectors * MemoryLayout<UInt32>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: numVectors * MemoryLayout<UInt32>.size)
-        }
+        let assignmentsToken = try await context.getBuffer(size: numVectors * MemoryLayout<UInt32>.size)
+        let assignmentsBuffer = assignmentsToken.buffer
         assignmentsBuffer.label = "KMeansAssign.assignments"
 
-        guard let distancesBuffer = device.makeBuffer(
-            length: numVectors * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: numVectors * MemoryLayout<Float>.size)
-        }
+        let distancesToken = try await context.getBuffer(size: numVectors * MemoryLayout<Float>.size)
+        let distancesBuffer = distancesToken.buffer
         distancesBuffer.label = "KMeansAssign.distances"
-
-        // Select pipeline variant based on device capabilities
-        let pipeline: any MTLComputePipelineState
-        let threadsPerThreadgroup: MTLSize
-        let vectorsPerTG: Int
-
-        if let pipeline512 = simdTiled512Pipeline,
-           pipeline512.maxTotalThreadsPerThreadgroup >= 512 {
-            pipeline = pipeline512
-            threadsPerThreadgroup = MTLSize(width: 512, height: 1, depth: 1)
-            vectorsPerTG = Self.vectorsPerTG512
-        } else if let pipeline256 = simdTiled256Pipeline {
-            pipeline = pipeline256
-            threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
-            vectorsPerTG = Self.vectorsPerTG256
-        } else {
-            // Fall back to FusedL2TopK if no optimized kernel available
-            return try await assignFusedL2TopK(
-                vectors: vectors,
-                centroids: centroids,
-                numVectors: numVectors,
-                numCentroids: numCentroids,
-                dimension: dimension,
-                startTime: startTime
-            )
-        }
-
-        // Calculate threadgroups
-        let tgCount = (numVectors + vectorsPerTG - 1) / vectorsPerTG
-        let threadgroups = MTLSize(width: tgCount, height: 1, depth: 1)
-
-        // Prepare args struct
-        var args = KMeansAssignShaderArgs(
-            dimension: dimension,
-            numVectors: numVectors,
-            numCentroids: numCentroids
-        )
 
         // Create command buffer and encoder
         guard let commandBuffer = context.commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeComputeCommandEncoder() else {
             throw IndexError.bufferError(
-                operation: "assignSimdTiled",
+                operation: "assignTiled",
                 reason: "Failed to create command buffer or encoder"
             )
         }
 
         encoder.setComputePipelineState(pipeline)
+        
+        // Bind buffers at absolute offset 0 for UMA zero-copy
         encoder.setBuffer(vectors, offset: 0, index: 0)
         encoder.setBuffer(centroids, offset: 0, index: 1)
         encoder.setBuffer(assignmentsBuffer, offset: 0, index: 2)
         encoder.setBuffer(distancesBuffer, offset: 0, index: 3)
-        encoder.setBytes(&args, length: MemoryLayout<KMeansAssignShaderArgs>.stride, index: 4)
 
-        encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
+        var nVecs = UInt32(numVectors)
+        var nCents = UInt32(numCentroids)
+        var dim = UInt32(dimension)
+        
+        encoder.setBytes(&nVecs, length: MemoryLayout<UInt32>.size, index: 4)
+        encoder.setBytes(&nCents, length: MemoryLayout<UInt32>.size, index: 5)
+        encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 6)
+
+        // Apple Silicon Memory Safety: Calculate dynamic tile capacity (limit to 32KB shared memory)
+        let maxSharedMem = pipeline.device.maxThreadgroupMemoryLength
+        let bytesPerCentroid = dimension * MemoryLayout<Float>.stride
+        
+        // Capacitance logic: Aim for 32 centroids per tile, but mathematically bound by hardware 32KB limit
+        let safeCentroidsPerTile = maxSharedMem / bytesPerCentroid
+        let tileCapacity = max(1, min(32, safeCentroidsPerTile)) 
+        
+        var tCap = UInt32(tileCapacity)
+        encoder.setBytes(&tCap, length: MemoryLayout<UInt32>.size, index: 7)
+        
+        let threadgroupMemoryLength = tileCapacity * bytesPerCentroid
+        encoder.setThreadgroupMemoryLength(threadgroupMemoryLength, index: 0)
+
+        // Dynamic Grid Configuration: Align threadgroups with SIMD-group width (32)
+        let w = pipeline.threadExecutionWidth
+        let threadsPerThreadgroup = MTLSizeMake(w, 1, 1)
+        let numThreadgroupsX = (numVectors + w - 1) / w
+        let threadgroupsPerGrid = MTLSizeMake(numThreadgroupsX, 1, 1)
+
+        encoder.dispatchThreadgroups(threadgroupsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
         encoder.endEncoding()
+
+        // Anchor lifetimes to command buffer completion
+        assignmentsToken.keepAlive(until: commandBuffer)
+        distancesToken.keepAlive(until: commandBuffer)
 
         await commandBuffer.commitAndWait()
 
         let executionTime = CACurrentMediaTime() - startTime
 
         return KMeansAssignmentResult(
-            assignments: assignmentsBuffer,
-            distances: distancesBuffer,
+            assignmentsToken: assignmentsToken,
+            distancesToken: distancesToken,
             numVectors: numVectors,
             executionTime: executionTime
         )
@@ -268,7 +192,6 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
 
     // MARK: - Fallback FusedL2TopK Assignment
 
-    /// Assign vectors using FusedL2TopK with k=1 (fallback path).
     private func assignFusedL2TopK(
         vectors: any MTLBuffer,
         centroids: any MTLBuffer,
@@ -281,7 +204,7 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
             numQueries: numVectors,
             numDataset: numCentroids,
             dimension: dimension,
-            k: 1  // We only need the nearest centroid
+            k: 1
         )
 
         let result = try await fusedL2TopK.execute(
@@ -301,12 +224,8 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
         )
     }
 
-    /// Assign vectors from Float arrays.
-    ///
-    /// - Parameters:
-    ///   - vectors: Vector data as 2D Float array
-    ///   - centroids: Centroid data as 2D Float array
-    /// - Returns: Tuple of (assignments, distances)
+    // MARK: - High-Level Array API
+
     public func assign(
         vectors: [[Float]],
         centroids: [[Float]]
@@ -317,45 +236,20 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
         }
 
         let dimension = vectors[0].count
-        guard vectors.allSatisfy({ $0.count == dimension }),
-              centroids.allSatisfy({ $0.count == dimension }) else {
-            throw IndexError.invalidInput(message: "All vectors must have same dimension")
-        }
-
-        let device = context.device.rawDevice
-
-        // Create vector buffer
         let flatVectors = vectors.flatMap { $0 }
-        guard let vectorBuffer = device.makeBuffer(
-            bytes: flatVectors,
-            length: flatVectors.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatVectors.count * MemoryLayout<Float>.size)
-        }
-        vectorBuffer.label = "KMeansAssign.vectors"
-
-        // Create centroid buffer
+        let vectorToken = try await context.getBuffer(for: flatVectors)
+        
         let flatCentroids = centroids.flatMap { $0 }
-        guard let centroidBuffer = device.makeBuffer(
-            bytes: flatCentroids,
-            length: flatCentroids.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatCentroids.count * MemoryLayout<Float>.size)
-        }
-        centroidBuffer.label = "KMeansAssign.centroids"
+        let centroidToken = try await context.getBuffer(for: flatCentroids)
 
-        // Execute
         let result = try await assign(
-            vectors: vectorBuffer,
-            centroids: centroidBuffer,
+            vectors: vectorToken.buffer,
+            centroids: centroidToken.buffer,
             numVectors: vectors.count,
             numCentroids: centroids.count,
             dimension: dimension
         )
 
-        // Extract results
         let assignPtr = result.assignments.contents().bindMemory(to: UInt32.self, capacity: vectors.count)
         let distPtr = result.distances.contents().bindMemory(to: Float.self, capacity: vectors.count)
 
@@ -365,36 +259,20 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
         return (assignments, distances)
     }
 
-    /// Compute cluster counts from assignments.
-    ///
-    /// - Parameters:
-    ///   - assignments: Assignment buffer [numVectors]
-    ///   - numVectors: Number of vectors
-    ///   - numCentroids: Number of centroids
-    /// - Returns: Buffer with count per cluster [numCentroids]
+    // MARK: - Cluster Counts
+
     public func computeClusterCounts(
         assignments: any MTLBuffer,
         numVectors: Int,
         numCentroids: Int
-    ) async throws -> any MTLBuffer {
-        let device = context.device.rawDevice
-
-        // Allocate counts buffer
-        guard let countsBuffer = device.makeBuffer(
-            length: numCentroids * MemoryLayout<UInt32>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: numCentroids * MemoryLayout<UInt32>.size)
-        }
+    ) async throws -> BufferToken {
+        let countsToken = try await context.getBuffer(size: numCentroids * MemoryLayout<UInt32>.size)
+        let countsBuffer = countsToken.buffer
         countsBuffer.label = "KMeansAssign.counts"
 
-        // Initialize to zero
         let countsPtr = countsBuffer.contents().bindMemory(to: UInt32.self, capacity: numCentroids)
-        for i in 0..<numCentroids {
-            countsPtr[i] = 0
-        }
+        for i in 0..<numCentroids { countsPtr[i] = 0 }
 
-        // Count assignments (CPU for now - could be GPU with atomics)
         let assignPtr = assignments.contents().bindMemory(to: UInt32.self, capacity: numVectors)
         for i in 0..<numVectors {
             let cluster = Int(assignPtr[i])
@@ -403,6 +281,6 @@ public final class KMeansAssignKernel: @unchecked Sendable, Metal4Kernel {
             }
         }
 
-        return countsBuffer
+        return countsToken
     }
 }

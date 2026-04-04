@@ -4,7 +4,7 @@
 
 VectorAccelerate provides high-performance GPU acceleration for vector operations, serving as the computational backbone for the VectorCore ecosystem. By leveraging Metal 4's compute shaders, unified command encoding, and Apple Silicon's unified memory architecture, VectorAccelerate delivers up to 100x speedups for large-scale vector operations.
 
-> **⚠️ Version 0.3.0**: Requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+). For older OS support, use VectorAccelerate 0.2.x
+> **⚠️ Version 0.4.0**: Requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+). For older OS support, use VectorAccelerate 0.2.x
 > 
 > **⚠️ This package is still experimental, with development and real-world testing in progress** for Production grade Vector operations see VectorCore and VectorIndex's CPU-bound implementation
 
@@ -307,7 +307,7 @@ Add VectorAccelerate to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/gifton/VectorAccelerate.git", from: "0.3.0"),
+    .package(url: "https://github.com/gifton/VectorAccelerate.git", from: "0.4.0"),
     .package(url: "https://github.com/gifton/VectorCore.git", from: "0.1.6")
 ],
 targets: [
@@ -321,7 +321,7 @@ targets: [
 ]
 ```
 
-> **Note**: Version 0.3.0+ requires Metal 4. For macOS 15 / iOS 18 support, use version 0.1.x.
+> **Note**: Version 0.4.0+ requires Metal 4. For macOS 15 / iOS 18 support, use version 0.1.x.
 
 ## 🎓 Getting Started
 
@@ -540,11 +540,14 @@ VectorAccelerate/
 
 ### Performance Optimizations
 
-1. **Dimension-Specific Kernels**: Hand-tuned for 512, 768, 1536 dimensions
-2. **Tiled Algorithms**: 32×32×8 tiles optimized for Apple Silicon cache
-3. **SIMD Operations**: Leveraging float4 and simdgroup matrix operations
-4. **Fused Kernels**: Combined distance + selection for reduced memory bandwidth
-5. **Async Pipeline Creation**: Non-blocking kernel initialization
+1. **Hierarchical SIMD Reductions**: Overhauled L2 and Cosine kernels using a 4-phase reduction model (`Local -> Warp -> Threadgroup -> Global`), maximizing 128-bit memory bus saturation and eliminating global atomic stalls.
+2. **Tiled Shared Memory Algorithms**: KMeans assignment dynamically scales centroid tiles to fit within hardware limits (32KB), using register-cached compute loops to reduce global memory pressure by 32x.
+3. **2-Pass GPU Orchestration**: K-Means update logic uses a "Cooperative Gather" topology, collaboratively summing dimensions via SIMD-group operations for maximum throughput.
+4. **Enforced Asynchronous Execution**: Fully non-blocking execution model using `await commitAndWait()` and Swift 6 concurrency, ensuring zero OS thread stalls during GPU work.
+5. **Dynamic Buffer Pooling**: Ring-buffer strategy with Power-of-2 bucketing eliminates allocation overhead in hot loops, with `BufferToken` anchoring for safe asynchronous memory reclamation.
+6. **Eager Pipeline Pre-compilation**: Background pre-compilation of critical path kernels during initialization to eliminate cold-start latency.
+7. **Tiled GEMM Neural Encoder**: High-performance 2-pass neural encoder using a Full-D register loop and shared memory padding to eliminate bank conflicts and global atomic bottlenecks.
+8. **Vectorized Transposed Decoder**: Optimized dequantization path using dual-accumulator latency hiding and dimension-specific loop unrolling for a 2x throughput gain.
 
 ## 📊 Performance
 
@@ -627,4 +630,4 @@ VectorAccelerate is available under the MIT license. See [LICENSE](LICENSE) for 
 
 ---
 
-**Requirements**: VectorAccelerate 0.3.0+ requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+) and Apple Silicon. For older OS versions, use VectorAccelerate 0.1.x.
+**Requirements**: VectorAccelerate 0.4.0+ requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+) and Apple Silicon. For older OS versions, use VectorAccelerate 0.1.x.

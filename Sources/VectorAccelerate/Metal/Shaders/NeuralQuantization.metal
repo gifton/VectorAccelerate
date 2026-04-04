@@ -98,34 +98,26 @@ inline float computeScale(thread float* vec, uint dim) {
 
 // MARK: - Encode Kernel (float -> float latent)
 
-/// Encode input vectors to latent space (float output).
-///
-/// Useful for inspecting latent representations before quantization.
-///
-/// Grid dispatch: (numVectors, latentDimension, 1)
 kernel void neural_encode_kernel(
-    device const float* inputVectors [[buffer(0)]],     // [N, D]
-    device const float* encoderWeights [[buffer(1)]],   // [L, D]
-    device float* latentVectors [[buffer(2)]],          // [N, L]
-    device const float* encoderBias [[buffer(3)]],      // [L] or null
+    device const float* inputVectors [[buffer(0)]],
+    device const float* encoderWeights [[buffer(1)]],
+    device float* latentVectors [[buffer(2)]],
+    device const float* encoderBias [[buffer(3)]],
     constant NeuralQuantParams& params [[buffer(4)]],
     uint2 tid [[thread_position_in_grid]]
 ) {
     const uint vectorIdx = tid.x;
-    const uint latentIdx = tid.y;
+    const uint latentDimIdx = tid.y;
 
-    if (vectorIdx >= params.numVectors || latentIdx >= params.latentDimension) {
+    if (vectorIdx >= params.numVectors || latentDimIdx >= params.latentDimension) {
         return;
     }
 
-    // Get input vector
-    device const float* input = inputVectors + (vectorIdx * params.stride);
-    device const float* weightRow = encoderWeights + (latentIdx * params.inputDimension);
+    device const float* input = inputVectors + (vectorIdx * params.inputDimension);
+    device const float* weightRow = encoderWeights + (latentDimIdx * params.inputDimension);
 
-    // Compute dot product for this output dimension
-    const uint inputDim = params.inputDimension;
-    const uint simd_blocks = inputDim / 4;
-
+    // Optimized dot product
+    const uint simd_blocks = params.inputDimension / 4;
     device const float4* input4 = (device const float4*)input;
     device const float4* weight4 = (device const float4*)weightRow;
 
@@ -135,41 +127,31 @@ kernel void neural_encode_kernel(
     }
     float sum = acc.x + acc.y + acc.z + acc.w;
 
-    for (uint i = simd_blocks * 4; i < inputDim; ++i) {
+    // Remainder
+    for (uint i = simd_blocks * 4; i < params.inputDimension; ++i) {
         sum = fma(input[i], weightRow[i], sum);
     }
 
-    // Add bias if present
     if (encoderBias) {
-        sum += encoderBias[latentIdx];
+        sum += encoderBias[latentDimIdx];
     }
 
-    // Apply ReLU activation
+    // ReLU
     if (params.useActivation) {
         sum = max(sum, 0.0f);
     }
 
-    // Store result
-    latentVectors[vectorIdx * params.latentDimension + latentIdx] = sum;
+    latentVectors[vectorIdx * params.latentDimension + latentDimIdx] = sum;
 }
 
-// MARK: - Encode + Quantize Kernel (float -> INT8)
+// MARK: - Encode + Quantize Kernel (float -> INT8 latent)
 
-/// Encode and quantize to INT8 in one pass.
-///
-/// For each vector:
-/// 1. Project through encoder weights
-/// 2. Apply optional ReLU activation
-/// 3. Compute per-vector scale factor
-/// 4. Quantize to INT8
-///
-/// Grid dispatch: (numVectors, 1, 1)
 kernel void neural_encode_quantize_kernel(
-    device const float* inputVectors [[buffer(0)]],     // [N, D]
-    device const float* encoderWeights [[buffer(1)]],   // [L, D]
-    device char* latentCodes [[buffer(2)]],             // [N, L] as INT8
-    device float* scales [[buffer(3)]],                 // [N] per-vector scale
-    device const float* encoderBias [[buffer(4)]],      // [L] or null
+    device const float* inputVectors [[buffer(0)]],
+    device const float* encoderWeights [[buffer(1)]],
+    device char* latentCodes [[buffer(2)]],
+    device float* scales [[buffer(3)]],
+    device const float* encoderBias [[buffer(4)]],
     constant NeuralQuantParams& params [[buffer(5)]],
     uint tid [[thread_position_in_grid]]
 ) {
@@ -177,91 +159,61 @@ kernel void neural_encode_quantize_kernel(
         return;
     }
 
-    const uint vectorIdx = tid;
-    device const float* input = inputVectors + (vectorIdx * params.stride);
+    device const float* input = inputVectors + (tid * params.inputDimension);
+    
+    // We can't easily allocate dynamic latent on stack for large L
+    // but Phase 4 optimization handles L=64, 128
+    float latent[128]; // Max supported for now
+    uint latentDim = min(params.latentDimension, 128u);
 
-    const uint inputDim = params.inputDimension;
-    const uint latentDim = params.latentDimension;
+    projectToLatent(input, encoderWeights, latent, params.inputDimension, latentDim);
 
-    // Thread-local storage for latent vector (max 256 dimensions)
-    float latent[256];
-    const uint effectiveLatentDim = min(latentDim, 256u);
-
-    // Encode: project through encoder weights
-    for (uint j = 0; j < effectiveLatentDim; ++j) {
-        device const float* weightRow = encoderWeights + (j * inputDim);
-
-        const uint simd_blocks = inputDim / 4;
-        device const float4* input4 = (device const float4*)input;
-        device const float4* weight4 = (device const float4*)weightRow;
-
-        float4 acc = float4(0.0f);
-        for (uint i = 0; i < simd_blocks; ++i) {
-            acc = fma(input4[i], weight4[i], acc);
+    if (encoderBias) {
+        for (uint i = 0; i < latentDim; ++i) {
+            latent[i] += encoderBias[i];
         }
-        float sum = acc.x + acc.y + acc.z + acc.w;
-
-        for (uint i = simd_blocks * 4; i < inputDim; ++i) {
-            sum = fma(input[i], weightRow[i], sum);
-        }
-
-        // Add bias if present
-        if (encoderBias) {
-            sum += encoderBias[j];
-        }
-
-        latent[j] = sum;
     }
 
-    // Apply ReLU activation
     if (params.useActivation) {
-        applyReLU(latent, effectiveLatentDim);
+        applyReLU(latent, latentDim);
     }
 
-    // Optionally normalize
     if (params.normalizeLatent) {
-        normalizeVector(latent, effectiveLatentDim);
+        normalizeVector(latent, latentDim);
     }
 
-    // Compute scale for INT8 quantization
-    float scale = computeScale(latent, effectiveLatentDim);
-    scales[vectorIdx] = scale;
+    float scale = computeScale(latent, latentDim);
+    scales[tid] = scale;
 
-    // Quantize to INT8
     float invScale = 1.0f / scale;
-    device char* output = latentCodes + (vectorIdx * latentDim);
-    for (uint i = 0; i < effectiveLatentDim; ++i) {
-        float quantized = round(latent[i] * invScale);
-        output[i] = (char)clamp(quantized, -127.0f, 127.0f);
+    device char* output = latentCodes + (tid * latentDim);
+    for (uint i = 0; i < latentDim; ++i) {
+        output[i] = (char)clamp(round(latent[i] * invScale), -127.0f, 127.0f);
     }
 }
 
-// MARK: - Decode Kernel (float latent -> float output)
+// MARK: - Decode Kernel (float latent -> float)
 
-/// Decode latent vectors (float) to output vectors.
-///
-/// Grid dispatch: (numVectors, inputDimension, 1)
 kernel void neural_decode_kernel(
-    device const float* latentVectors [[buffer(0)]],    // [N, L]
-    device const float* decoderWeights [[buffer(1)]],   // [D, L]
-    device float* outputVectors [[buffer(2)]],          // [N, D]
-    device const float* decoderBias [[buffer(3)]],      // [D] or null
+    device const float* latentVectors [[buffer(0)]],
+    device const float* decoderWeights [[buffer(1)]],
+    device float* outputVectors [[buffer(2)]],
+    device const float* decoderBias [[buffer(3)]],
     constant NeuralQuantParams& params [[buffer(4)]],
     uint2 tid [[thread_position_in_grid]]
 ) {
     const uint vectorIdx = tid.x;
-    const uint outputIdx = tid.y;
+    const uint outputDimIdx = tid.y;
 
-    if (vectorIdx >= params.numVectors || outputIdx >= params.inputDimension) {
+    if (vectorIdx >= params.numVectors || outputDimIdx >= params.inputDimension) {
         return;
     }
 
     device const float* latent = latentVectors + (vectorIdx * params.latentDimension);
-    device const float* weightRow = decoderWeights + (outputIdx * params.latentDimension);
+    device const float* weightRow = decoderWeights + (outputDimIdx * params.latentDimension);
 
-    const uint latentDim = params.latentDimension;
-    const uint simd_blocks = latentDim / 4;
-
+    // Optimized dot product
+    const uint simd_blocks = params.latentDimension / 4;
     device const float4* latent4 = (device const float4*)latent;
     device const float4* weight4 = (device const float4*)weightRow;
 
@@ -271,29 +223,26 @@ kernel void neural_decode_kernel(
     }
     float sum = acc.x + acc.y + acc.z + acc.w;
 
-    for (uint i = simd_blocks * 4; i < latentDim; ++i) {
+    // Remainder
+    for (uint i = simd_blocks * 4; i < params.latentDimension; ++i) {
         sum = fma(latent[i], weightRow[i], sum);
     }
 
-    // Add bias if present
     if (decoderBias) {
-        sum += decoderBias[outputIdx];
+        sum += decoderBias[outputDimIdx];
     }
 
-    outputVectors[vectorIdx * params.inputDimension + outputIdx] = sum;
+    outputVectors[vectorIdx * params.inputDimension + outputDimIdx] = sum;
 }
 
-// MARK: - Dequantize + Decode Kernel (INT8 -> float output)
+// MARK: - Dequantize + Decode Kernel (INT8 latent -> float)
 
-/// Dequantize INT8 latent codes and decode to full vectors in one pass.
-///
-/// Grid dispatch: (numVectors, 1, 1)
 kernel void neural_dequantize_decode_kernel(
-    device const char* latentCodes [[buffer(0)]],       // [N, L] as INT8
-    device const float* scales [[buffer(1)]],           // [N] per-vector scale
-    device const float* decoderWeights [[buffer(2)]],   // [D, L]
-    device float* outputVectors [[buffer(3)]],          // [N, D]
-    device const float* decoderBias [[buffer(4)]],      // [D] or null
+    device const char* latentCodes [[buffer(0)]],
+    device const float* scales [[buffer(1)]],
+    device const float* decoderWeights [[buffer(2)]],
+    device float* outputVectors [[buffer(3)]],
+    device const float* decoderBias [[buffer(4)]],
     constant NeuralQuantParams& params [[buffer(5)]],
     uint tid [[thread_position_in_grid]]
 ) {
@@ -301,43 +250,26 @@ kernel void neural_dequantize_decode_kernel(
         return;
     }
 
-    const uint vectorIdx = tid;
-    const uint latentDim = params.latentDimension;
-    const uint outputDim = params.inputDimension;
+    device const char* codes = latentCodes + (tid * params.latentDimension);
+    float scale = scales[tid];
 
-    device const char* codes = latentCodes + (vectorIdx * latentDim);
-    float scale = scales[vectorIdx];
+    // Reconstruction buffer
+    float latent[128]; // Max supported
+    uint latentDim = min(params.latentDimension, 128u);
 
-    // Thread-local storage for dequantized latent
-    float latent[256];
-    const uint effectiveLatentDim = min(latentDim, 256u);
-
-    // Dequantize
-    for (uint i = 0; i < effectiveLatentDim; ++i) {
+    for (uint i = 0; i < latentDim; ++i) {
         latent[i] = float(codes[i]) * scale;
     }
 
-    // Decode: project through decoder weights
-    device float* output = outputVectors + (vectorIdx * outputDim);
-
-    for (uint j = 0; j < outputDim; ++j) {
+    device float* output = outputVectors + (tid * params.inputDimension);
+    for (uint j = 0; j < params.inputDimension; ++j) {
         device const float* weightRow = decoderWeights + (j * latentDim);
-
+        
         float sum = 0.0f;
-
-        // SIMD-optimized for latent dimension
-        const uint simd_blocks = effectiveLatentDim / 4;
-        for (uint i = 0; i < simd_blocks; ++i) {
-            float4 l = float4(latent[i*4], latent[i*4+1], latent[i*4+2], latent[i*4+3]);
-            float4 w = float4(weightRow[i*4], weightRow[i*4+1], weightRow[i*4+2], weightRow[i*4+3]);
-            sum += dot(l, w);
-        }
-
-        for (uint i = simd_blocks * 4; i < effectiveLatentDim; ++i) {
+        for (uint i = 0; i < latentDim; ++i) {
             sum = fma(latent[i], weightRow[i], sum);
         }
 
-        // Add bias if present
         if (decoderBias) {
             sum += decoderBias[j];
         }
@@ -346,651 +278,87 @@ kernel void neural_dequantize_decode_kernel(
     }
 }
 
-// MARK: - Tiled GEMM Encoder (Phase 1)
+// MARK: - Dimension-Optimized Encoders
 
-/// Parameters for tiled encode kernel
-struct TiledEncodeParams {
-    uint32_t numVectors;       // N - total vectors to encode
-    uint32_t inputDimension;   // D - input dim (e.g., 768)
-    uint32_t latentDimension;  // L - latent dim (e.g., 128)
-    uint32_t stride;           // Input stride (usually = inputDimension)
-    uint32_t vectorsPerTG;     // Vectors per threadgroup (e.g., 32)
-    uint8_t  useActivation;    // Apply ReLU
-    uint8_t  padding[3];       // Alignment padding
-};
-
-/// Tiled GEMM encoder with weight caching in threadgroup memory.
-///
-/// This kernel achieves 10-50x speedup over the naive encoder by:
-/// 1. Caching weight tiles in threadgroup memory (read once, use 32x)
-/// 2. Processing multiple vectors per threadgroup cooperatively
-/// 3. Amortizing weight bandwidth across vectors
-///
-/// Memory layout:
-/// - Weight tile: [TILE_L][TILE_D] = 16×64 = 4KB in threadgroup memory
-/// - Each threadgroup processes VECTORS_PER_TG=32 vectors
-/// - 256 threads cooperate on tile loading and computation
-///
-/// Grid dispatch: threadgroups = (ceil(numVectors/32), 1, 1)
-///                threadsPerThreadgroup = (256, 1, 1)
-///
-/// Output: Float latent vectors (not quantized - Phase 2 adds quantization)
-kernel void neural_encode_tiled_kernel(
-    device const float* inputVectors      [[buffer(0)]],  // [N, D]
-    device const float* encoderWeights    [[buffer(1)]],  // [L, D] row-major
-    device float* latentVectors           [[buffer(2)]],  // [N, L] float output
-    device const float* encoderBias       [[buffer(3)]],  // [L] or null
-    constant TiledEncodeParams& params    [[buffer(4)]],
-    uint3 tgp  [[threadgroup_position_in_grid]],
-    uint  tii  [[thread_index_in_threadgroup]]
+/// Optimized encoder for 768 -> 128
+kernel void neural_encode_768_to_128_kernel(
+    device const float* inputVectors [[buffer(0)]],
+    device const float* encoderWeights [[buffer(1)]],
+    device char* latentCodes [[buffer(2)]],
+    device float* scales [[buffer(3)]],
+    device const float* encoderBias [[buffer(4)]],
+    constant NeuralQuantParams& params [[buffer(5)]],
+    uint tid [[thread_position_in_grid]]
 ) {
-    // ========== Configuration ==========
-    // These are compile-time constants for the kernel
-    constexpr uint TILE_L = 16;          // Latent dimensions per tile
-    constexpr uint TILE_D = 64;          // Input dimensions per tile
-    constexpr uint VECTORS_PER_TG = 32;  // Vectors per threadgroup
-    constexpr uint THREADS_PER_TG = 256; // Threads per threadgroup
-    constexpr uint THREADS_PER_VECTOR = THREADS_PER_TG / VECTORS_PER_TG;  // 8
-    constexpr uint LATENT_PER_THREAD = TILE_L / THREADS_PER_VECTOR;       // 2
+    if (tid >= params.numVectors) {
+        return;
+    }
 
-    // ========== Threadgroup Memory ==========
-    // Weight tile: [TILE_L][TILE_D] = 16×64×4 = 4KB
-    threadgroup float weightTile[TILE_L][TILE_D];
+    constexpr uint INPUT_DIM = 768;
+    constexpr uint LATENT_DIM = 128;
+    constexpr uint INPUT_BLOCKS = INPUT_DIM / 4;
 
-    // ========== Thread Assignment ==========
-    // 256 threads / 32 vectors = 8 threads per vector
-    // Each thread computes LATENT_PER_THREAD=2 latent dims per L-tile
-    const uint localVectorIdx = tii / THREADS_PER_VECTOR;   // 0-31
-    const uint globalVectorIdx = tgp.x * VECTORS_PER_TG + localVectorIdx;
-    const uint laneInVector = tii % THREADS_PER_VECTOR;     // 0-7
+    device const float* input = inputVectors + (tid * INPUT_DIM);
+    device const float4* input4 = (device const float4*)input;
 
-    // Early exit for out-of-bounds vectors
-    // Note: All threads in TG participate in tile loading, so we must be careful
-    // Only skip computation, not tile loading
-    const bool validVector = globalVectorIdx < params.numVectors;
+    float latent[LATENT_DIM];
 
-    // This thread computes latent indices: laneInVector * LATENT_PER_THREAD + (0 to LATENT_PER_THREAD-1)
-    // For 8 threads per vector, LATENT_PER_THREAD=2: thread 0 → dims 0,1; thread 1 → dims 2,3; etc.
-    const uint latentOffset = laneInVector * LATENT_PER_THREAD;
+    // Encode with loop unrolling for 128 outputs
+    for (uint j = 0; j < LATENT_DIM; j += 4) {
+        device const float4* w0 = (device const float4*)(encoderWeights + (j+0) * INPUT_DIM);
+        device const float4* w1 = (device const float4*)(encoderWeights + (j+1) * INPUT_DIM);
+        device const float4* w2 = (device const float4*)(encoderWeights + (j+2) * INPUT_DIM);
+        device const float4* w3 = (device const float4*)(encoderWeights + (j+3) * INPUT_DIM);
 
-    // Get input pointer for this thread's vector
-    device const float* input = inputVectors + globalVectorIdx * params.stride;
+        float4 acc0 = float4(0.0f);
+        float4 acc1 = float4(0.0f);
+        float4 acc2 = float4(0.0f);
+        float4 acc3 = float4(0.0f);
 
-    const uint inputDim = params.inputDimension;
-    const uint latentDim = params.latentDimension;
-
-    // ========== Iterate Over L-Tiles ==========
-    // For 128-dim latent with TILE_L=16: 8 iterations
-    for (uint tileL = 0; tileL < latentDim; tileL += TILE_L) {
-        // Accumulators for this L-tile (reset for each L-tile)
-        float acc[LATENT_PER_THREAD];
-        for (uint i = 0; i < LATENT_PER_THREAD; ++i) {
-            acc[i] = 0.0f;
+        for (uint i = 0; i < INPUT_BLOCKS; ++i) {
+            float4 in = input4[i];
+            acc0 = fma(in, w0[i], acc0);
+            acc1 = fma(in, w1[i], acc1);
+            acc2 = fma(in, w2[i], acc2);
+            acc3 = fma(in, w3[i], acc3);
         }
 
-        // ========== Iterate Over D-Tiles ==========
-        // For 768-dim input with TILE_D=64: 12 iterations
-        for (uint tileD = 0; tileD < inputDim; tileD += TILE_D) {
+        latent[j+0] = acc0.x + acc0.y + acc0.z + acc0.w;
+        latent[j+1] = acc1.x + acc1.y + acc1.z + acc1.w;
+        latent[j+2] = acc2.x + acc2.y + acc2.z + acc2.w;
+        latent[j+3] = acc3.x + acc3.y + acc3.z + acc3.w;
 
-            // ========== Cooperative Tile Load ==========
-            // 256 threads load 16×64 = 1024 elements = 4 elements per thread
-            constexpr uint TILE_ELEMENTS = TILE_L * TILE_D;
-            constexpr uint ELEMS_PER_THREAD = TILE_ELEMENTS / THREADS_PER_TG;  // 4
-
-            for (uint e = 0; e < ELEMS_PER_THREAD; ++e) {
-                const uint flatIdx = tii + e * THREADS_PER_TG;
-                const uint row = flatIdx / TILE_D;  // 0-15 (L dimension)
-                const uint col = flatIdx % TILE_D;  // 0-63 (D dimension)
-
-                const uint globalL = tileL + row;
-                const uint globalD = tileD + col;
-
-                // Bounds check and load
-                if (globalL < latentDim && globalD < inputDim) {
-                    weightTile[row][col] = encoderWeights[globalL * inputDim + globalD];
-                } else {
-                    weightTile[row][col] = 0.0f;
-                }
-            }
-
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-
-            // ========== Compute with Cached Tile ==========
-            // Only compute if this thread has a valid vector
-            if (validVector) {
-                // For each latent dimension this thread is responsible for
-                for (uint localL = 0; localL < LATENT_PER_THREAD; ++localL) {
-                    const uint tileRow = latentOffset + localL;
-
-                    // Skip if this latent dim is out of bounds
-                    if (tileL + tileRow >= latentDim) continue;
-
-                    // Accumulate: sum over D-tile
-                    float sum = 0.0f;
-
-                    // Vectorized inner loop: process 4 elements at a time
-                    const uint validD = min(TILE_D, inputDim - tileD);
-                    const uint d4 = validD / 4;
-
-                    for (uint d = 0; d < d4; ++d) {
-                        const uint dBase = d * 4;
-                        const uint globalD = tileD + dBase;
-
-                        // Load 4 input values
-                        const float4 in4 = *((device const float4*)(input + globalD));
-
-                        // Load 4 weight values from tile
-                        const float4 w4 = float4(
-                            weightTile[tileRow][dBase + 0],
-                            weightTile[tileRow][dBase + 1],
-                            weightTile[tileRow][dBase + 2],
-                            weightTile[tileRow][dBase + 3]
-                        );
-
-                        sum += dot(in4, w4);
-                    }
-
-                    // Handle remainder
-                    for (uint d = d4 * 4; d < validD; ++d) {
-                        const uint globalD = tileD + d;
-                        sum += input[globalD] * weightTile[tileRow][d];
-                    }
-
-                    acc[localL] += sum;
-                }
-            }
-
-            threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (encoderBias) {
+            latent[j+0] += encoderBias[j+0];
+            latent[j+1] += encoderBias[j+1];
+            latent[j+2] += encoderBias[j+2];
+            latent[j+3] += encoderBias[j+3];
         }
+    }
 
-        // ========== Write Results for This L-Tile ==========
-        if (validVector) {
-            device float* output = latentVectors + globalVectorIdx * latentDim;
-
-            for (uint localL = 0; localL < LATENT_PER_THREAD; ++localL) {
-                const uint globalL = tileL + latentOffset + localL;
-
-                if (globalL < latentDim) {
-                    float val = acc[localL];
-
-                    // Add bias if present
-                    if (encoderBias) {
-                        val += encoderBias[globalL];
-                    }
-
-                    // Apply ReLU activation
-                    if (params.useActivation) {
-                        val = max(val, 0.0f);
-                    }
-
-                    output[globalL] = val;
-                }
-            }
+    // ReLU
+    if (params.useActivation) {
+        for (uint i = 0; i < LATENT_DIM; ++i) {
+            latent[i] = max(latent[i], 0.0f);
         }
+    }
+
+    // Compute scale and quantize
+    float maxAbs = 0.0f;
+    for (uint i = 0; i < LATENT_DIM; ++i) {
+        maxAbs = max(maxAbs, abs(latent[i]));
+    }
+    float scale = max(maxAbs / 127.0f, VA_EPSILON);
+    scales[tid] = scale;
+
+    float invScale = 1.0f / scale;
+    device char* output = latentCodes + (tid * LATENT_DIM);
+    for (uint i = 0; i < LATENT_DIM; ++i) {
+        output[i] = (char)clamp(round(latent[i] * invScale), -127.0f, 127.0f);
     }
 }
 
-// MARK: - Tiled GEMM Encoder with INT8 Quantization (Phase 2)
-
-/// Tiled GEMM encoder with INT8 quantization output.
-///
-/// Extends the tiled encoder (Phase 1) to output INT8 latent codes with per-vector scales.
-/// Combines weight caching benefits of tiled kernel with quantization in one pass.
-///
-/// Key differences from Phase 1:
-/// 1. Accumulates full latent vectors in threadgroup memory (not just per-tile)
-/// 2. Computes per-vector scale factor via parallel reduction
-/// 3. Quantizes to INT8 and writes to output
-///
-/// Memory layout:
-/// - Weight tile: [TILE_L][TILE_D] = 16×64 = 4KB
-/// - Latent accumulators: [VECTORS_PER_TG][LATENT_DIM] = 32×128 = 16KB
-/// - Scale reduction: [VECTORS_PER_TG][THREADS_PER_VECTOR] = 32×8 = 1KB
-/// - Total: ~21KB (well under 32KB limit)
-///
-/// Grid dispatch: threadgroups = (ceil(numVectors/32), 1, 1)
-///                threadsPerThreadgroup = (256, 1, 1)
-kernel void neural_encode_quantize_tiled_kernel(
-    device const float* inputVectors      [[buffer(0)]],  // [N, D]
-    device const float* encoderWeights    [[buffer(1)]],  // [L, D] row-major
-    device char* latentCodes              [[buffer(2)]],  // [N, L] INT8 output
-    device float* scales                  [[buffer(3)]],  // [N] per-vector scale
-    device const float* encoderBias       [[buffer(4)]],  // [L] or null
-    constant TiledEncodeParams& params    [[buffer(5)]],
-    uint3 tgp  [[threadgroup_position_in_grid]],
-    uint  tii  [[thread_index_in_threadgroup]]
-) {
-    // ========== Configuration ==========
-    constexpr uint TILE_L = 16;          // Latent dimensions per tile
-    constexpr uint TILE_D = 64;          // Input dimensions per tile
-    constexpr uint VECTORS_PER_TG = 32;  // Vectors per threadgroup
-    constexpr uint THREADS_PER_TG = 256; // Threads per threadgroup
-    constexpr uint THREADS_PER_VECTOR = THREADS_PER_TG / VECTORS_PER_TG;  // 8
-    constexpr uint LATENT_PER_THREAD = TILE_L / THREADS_PER_VECTOR;       // 2
-    constexpr uint MAX_LATENT_DIM = 128; // Maximum supported latent dimension
-
-    // ========== Threadgroup Memory ==========
-    // Weight tile: [TILE_L][TILE_D] = 16×64×4 = 4KB
-    threadgroup float weightTile[TILE_L][TILE_D];
-
-    // Latent accumulators: [VECTORS_PER_TG][MAX_LATENT_DIM] = 32×128×4 = 16KB
-    threadgroup float latentAccum[VECTORS_PER_TG][MAX_LATENT_DIM];
-
-    // Partial max values for reduction: [VECTORS_PER_TG][THREADS_PER_VECTOR] = 32×8×4 = 1KB
-    threadgroup float partialMax[VECTORS_PER_TG][THREADS_PER_VECTOR];
-
-    // Per-vector scales
-    threadgroup float tgScales[VECTORS_PER_TG];
-
-    // ========== Thread Assignment ==========
-    const uint localVectorIdx = tii / THREADS_PER_VECTOR;   // 0-31
-    const uint globalVectorIdx = tgp.x * VECTORS_PER_TG + localVectorIdx;
-    const uint laneInVector = tii % THREADS_PER_VECTOR;     // 0-7
-
-    const bool validVector = globalVectorIdx < params.numVectors;
-
-    // Get input pointer
-    device const float* input = inputVectors + globalVectorIdx * params.stride;
-
-    const uint inputDim = params.inputDimension;
-    const uint latentDim = params.latentDimension;
-    const uint effectiveLatentDim = min(latentDim, MAX_LATENT_DIM);
-
-    // ========== Phase 1: Initialize Accumulators ==========
-    // Each thread initializes its portion of the latent accumulator
-    for (uint l = laneInVector; l < effectiveLatentDim; l += THREADS_PER_VECTOR) {
-        latentAccum[localVectorIdx][l] = 0.0f;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // ========== Phase 2: Tiled GEMM (same as Phase 1 kernel) ==========
-    for (uint tileL = 0; tileL < latentDim; tileL += TILE_L) {
-        // Local accumulators for this L-tile
-        float acc[LATENT_PER_THREAD];
-        for (uint i = 0; i < LATENT_PER_THREAD; ++i) {
-            acc[i] = 0.0f;
-        }
-
-        const uint latentOffset = laneInVector * LATENT_PER_THREAD;
-
-        // Iterate over D-tiles
-        for (uint tileD = 0; tileD < inputDim; tileD += TILE_D) {
-            // Cooperative tile load
-            constexpr uint TILE_ELEMENTS = TILE_L * TILE_D;
-            constexpr uint ELEMS_PER_THREAD = TILE_ELEMENTS / THREADS_PER_TG;
-
-            for (uint e = 0; e < ELEMS_PER_THREAD; ++e) {
-                const uint flatIdx = tii + e * THREADS_PER_TG;
-                const uint row = flatIdx / TILE_D;
-                const uint col = flatIdx % TILE_D;
-
-                const uint globalL = tileL + row;
-                const uint globalD = tileD + col;
-
-                if (globalL < latentDim && globalD < inputDim) {
-                    weightTile[row][col] = encoderWeights[globalL * inputDim + globalD];
-                } else {
-                    weightTile[row][col] = 0.0f;
-                }
-            }
-
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-
-            // Compute with cached tile
-            if (validVector) {
-                for (uint localL = 0; localL < LATENT_PER_THREAD; ++localL) {
-                    const uint tileRow = latentOffset + localL;
-
-                    if (tileL + tileRow >= latentDim) continue;
-
-                    float sum = 0.0f;
-
-                    const uint validD = min(TILE_D, inputDim - tileD);
-                    const uint d4 = validD / 4;
-
-                    for (uint d = 0; d < d4; ++d) {
-                        const uint dBase = d * 4;
-                        const uint globalD = tileD + dBase;
-
-                        const float4 in4 = *((device const float4*)(input + globalD));
-                        const float4 w4 = float4(
-                            weightTile[tileRow][dBase + 0],
-                            weightTile[tileRow][dBase + 1],
-                            weightTile[tileRow][dBase + 2],
-                            weightTile[tileRow][dBase + 3]
-                        );
-
-                        sum += dot(in4, w4);
-                    }
-
-                    for (uint d = d4 * 4; d < validD; ++d) {
-                        const uint globalD = tileD + d;
-                        sum += input[globalD] * weightTile[tileRow][d];
-                    }
-
-                    acc[localL] += sum;
-                }
-            }
-
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-        }
-
-        // Store results to threadgroup accumulator (not device memory)
-        if (validVector) {
-            for (uint localL = 0; localL < LATENT_PER_THREAD; ++localL) {
-                const uint globalL = tileL + latentOffset + localL;
-
-                if (globalL < latentDim) {
-                    float val = acc[localL];
-
-                    // Add bias if present
-                    if (encoderBias) {
-                        val += encoderBias[globalL];
-                    }
-
-                    // Apply ReLU activation
-                    if (params.useActivation) {
-                        val = max(val, 0.0f);
-                    }
-
-                    latentAccum[localVectorIdx][globalL] = val;
-                }
-            }
-        }
-    }
-
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // ========== Phase 3: Scale Computation via Parallel Reduction ==========
-    // Each thread computes max over its assigned latent dims
-    float localMax = 0.0f;
-    if (validVector) {
-        for (uint l = laneInVector; l < effectiveLatentDim; l += THREADS_PER_VECTOR) {
-            localMax = max(localMax, abs(latentAccum[localVectorIdx][l]));
-        }
-    }
-
-    // Store to partial max array
-    partialMax[localVectorIdx][laneInVector] = localMax;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // Lane 0 does final reduction for each vector
-    if (laneInVector == 0 && validVector) {
-        float maxAbs = 0.0f;
-        for (uint i = 0; i < THREADS_PER_VECTOR; ++i) {
-            maxAbs = max(maxAbs, partialMax[localVectorIdx][i]);
-        }
-        tgScales[localVectorIdx] = max(maxAbs / 127.0f, VA_EPSILON);
-    }
-
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // ========== Phase 4: Quantize and Write Output ==========
-    if (validVector) {
-        const float scale = tgScales[localVectorIdx];
-        const float invScale = 1.0f / scale;
-
-        device char* output = latentCodes + globalVectorIdx * latentDim;
-
-        // Each thread quantizes its assigned latent dims
-        for (uint l = laneInVector; l < effectiveLatentDim; l += THREADS_PER_VECTOR) {
-            float val = latentAccum[localVectorIdx][l];
-            float quantized = round(val * invScale);
-            output[l] = (char)clamp(quantized, -127.0f, 127.0f);
-        }
-
-        // Lane 0 writes the scale
-        if (laneInVector == 0) {
-            scales[globalVectorIdx] = scale;
-        }
-    }
-}
-
-// MARK: - Tiled GEMM Encoder with Dual Accumulators (Phase 3)
-
-/// Optimized tiled GEMM encoder with dual accumulators for latency hiding.
-///
-/// This kernel extends Phase 2's tiled encoder with:
-/// 1. Dual accumulator sets to hide 3-4 cycle FMA latency on Apple Silicon
-/// 2. Processing 8 D-elements per iteration (vs 4 in V1) with interleaved FMAs
-/// 3. Same threadgroup memory layout and cooperative patterns as V1
-///
-/// Performance improvement comes from:
-/// - While sum0 += dot(in0, w0) computes, load in1/w1 can proceed
-/// - While sum1 += dot(in1, w1) computes, the result of sum0 is ready
-/// - Effectively doubles compute throughput by filling FMA pipeline bubbles
-///
-/// Expected speedup: 1.5-2x over Phase 2 (V1) kernel
-///
-/// Grid dispatch: threadgroups = (ceil(numVectors/32), 1, 1)
-///                threadsPerThreadgroup = (256, 1, 1)
-kernel void neural_encode_quantize_tiled_v2_kernel(
-    device const float* inputVectors      [[buffer(0)]],  // [N, D]
-    device const float* encoderWeights    [[buffer(1)]],  // [L, D] row-major
-    device char* latentCodes              [[buffer(2)]],  // [N, L] INT8 output
-    device float* scales                  [[buffer(3)]],  // [N] per-vector scale
-    device const float* encoderBias       [[buffer(4)]],  // [L] or null
-    constant TiledEncodeParams& params    [[buffer(5)]],
-    uint3 tgp  [[threadgroup_position_in_grid]],
-    uint  tii  [[thread_index_in_threadgroup]]
-) {
-    // ========== Configuration ==========
-    constexpr uint TILE_L = 16;          // Latent dimensions per tile
-    constexpr uint TILE_D = 64;          // Input dimensions per tile
-    constexpr uint VECTORS_PER_TG = 32;  // Vectors per threadgroup
-    constexpr uint THREADS_PER_TG = 256; // Threads per threadgroup
-    constexpr uint THREADS_PER_VECTOR = THREADS_PER_TG / VECTORS_PER_TG;  // 8
-    constexpr uint LATENT_PER_THREAD = TILE_L / THREADS_PER_VECTOR;       // 2
-    constexpr uint MAX_LATENT_DIM = 128; // Maximum supported latent dimension
-
-    // ========== Threadgroup Memory ==========
-    // Weight tile: [TILE_L][TILE_D] = 16×64×4 = 4KB
-    threadgroup float weightTile[TILE_L][TILE_D];
-
-    // Latent accumulators: [VECTORS_PER_TG][MAX_LATENT_DIM] = 32×128×4 = 16KB
-    threadgroup float latentAccum[VECTORS_PER_TG][MAX_LATENT_DIM];
-
-    // Partial max values for reduction: [VECTORS_PER_TG][THREADS_PER_VECTOR] = 32×8×4 = 1KB
-    threadgroup float partialMax[VECTORS_PER_TG][THREADS_PER_VECTOR];
-
-    // Per-vector scales
-    threadgroup float tgScales[VECTORS_PER_TG];
-
-    // ========== Thread Assignment ==========
-    const uint localVectorIdx = tii / THREADS_PER_VECTOR;   // 0-31
-    const uint globalVectorIdx = tgp.x * VECTORS_PER_TG + localVectorIdx;
-    const uint laneInVector = tii % THREADS_PER_VECTOR;     // 0-7
-
-    const bool validVector = globalVectorIdx < params.numVectors;
-
-    // Get input pointer
-    device const float* input = inputVectors + globalVectorIdx * params.stride;
-
-    const uint inputDim = params.inputDimension;
-    const uint latentDim = params.latentDimension;
-    const uint effectiveLatentDim = min(latentDim, MAX_LATENT_DIM);
-
-    // ========== Phase 1: Initialize Accumulators ==========
-    for (uint l = laneInVector; l < effectiveLatentDim; l += THREADS_PER_VECTOR) {
-        latentAccum[localVectorIdx][l] = 0.0f;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // ========== Phase 2: Tiled GEMM with Dual Accumulators ==========
-    for (uint tileL = 0; tileL < latentDim; tileL += TILE_L) {
-        // Local accumulators for this L-tile (DUAL for latency hiding)
-        float acc0[LATENT_PER_THREAD];  // Even D-groups
-        float acc1[LATENT_PER_THREAD];  // Odd D-groups
-        for (uint i = 0; i < LATENT_PER_THREAD; ++i) {
-            acc0[i] = 0.0f;
-            acc1[i] = 0.0f;
-        }
-
-        const uint latentOffset = laneInVector * LATENT_PER_THREAD;
-
-        // Iterate over D-tiles
-        for (uint tileD = 0; tileD < inputDim; tileD += TILE_D) {
-            // Cooperative tile load (same as V1)
-            constexpr uint TILE_ELEMENTS = TILE_L * TILE_D;
-            constexpr uint ELEMS_PER_THREAD = TILE_ELEMENTS / THREADS_PER_TG;
-
-            for (uint e = 0; e < ELEMS_PER_THREAD; ++e) {
-                const uint flatIdx = tii + e * THREADS_PER_TG;
-                const uint row = flatIdx / TILE_D;
-                const uint col = flatIdx % TILE_D;
-
-                const uint globalL = tileL + row;
-                const uint globalD = tileD + col;
-
-                if (globalL < latentDim && globalD < inputDim) {
-                    weightTile[row][col] = encoderWeights[globalL * inputDim + globalD];
-                } else {
-                    weightTile[row][col] = 0.0f;
-                }
-            }
-
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-
-            // ========== Compute with DUAL Accumulators ==========
-            if (validVector) {
-                for (uint localL = 0; localL < LATENT_PER_THREAD; ++localL) {
-                    const uint tileRow = latentOffset + localL;
-
-                    if (tileL + tileRow >= latentDim) continue;
-
-                    const uint validD = min(TILE_D, inputDim - tileD);
-                    const uint d8 = validD / 8;  // Process 8 elements per iteration
-                    const uint d4 = validD / 4;  // For remainder
-
-                    // ===== Main loop: 8 elements per iteration with dual accumulators =====
-                    for (uint d = 0; d < d8; ++d) {
-                        const uint dBase0 = d * 8;        // First group of 4
-                        const uint dBase1 = d * 8 + 4;    // Second group of 4
-                        const uint globalD0 = tileD + dBase0;
-                        const uint globalD1 = tileD + dBase1;
-
-                        // Load input values for both groups
-                        const float4 in0 = *((device const float4*)(input + globalD0));
-                        const float4 in1 = *((device const float4*)(input + globalD1));
-
-                        // Load weight values from tile for both groups
-                        const float4 w0 = float4(
-                            weightTile[tileRow][dBase0 + 0],
-                            weightTile[tileRow][dBase0 + 1],
-                            weightTile[tileRow][dBase0 + 2],
-                            weightTile[tileRow][dBase0 + 3]
-                        );
-                        const float4 w1 = float4(
-                            weightTile[tileRow][dBase1 + 0],
-                            weightTile[tileRow][dBase1 + 1],
-                            weightTile[tileRow][dBase1 + 2],
-                            weightTile[tileRow][dBase1 + 3]
-                        );
-
-                        // INTERLEAVED accumulation - hides FMA latency
-                        acc0[localL] += dot(in0, w0);
-                        acc1[localL] += dot(in1, w1);
-                    }
-
-                    // ===== Handle middle remainder (4-7 elements) =====
-                    const uint remainStart = d8 * 2;  // Start of remainder in d4 units
-                    if (remainStart < d4) {
-                        const uint dBase = remainStart * 4;
-                        const uint globalD = tileD + dBase;
-
-                        const float4 in4 = *((device const float4*)(input + globalD));
-                        const float4 w4 = float4(
-                            weightTile[tileRow][dBase + 0],
-                            weightTile[tileRow][dBase + 1],
-                            weightTile[tileRow][dBase + 2],
-                            weightTile[tileRow][dBase + 3]
-                        );
-
-                        acc0[localL] += dot(in4, w4);
-                    }
-
-                    // ===== Handle final remainder (0-3 elements) =====
-                    for (uint d = d4 * 4; d < validD; ++d) {
-                        const uint globalD = tileD + d;
-                        acc0[localL] += input[globalD] * weightTile[tileRow][d];
-                    }
-                }
-            }
-
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-        }
-
-        // ===== Merge dual accumulators and store to threadgroup memory =====
-        if (validVector) {
-            for (uint localL = 0; localL < LATENT_PER_THREAD; ++localL) {
-                const uint globalL = tileL + latentOffset + localL;
-
-                if (globalL < latentDim) {
-                    // Merge both accumulator sets
-                    float val = acc0[localL] + acc1[localL];
-
-                    // Add bias if present
-                    if (encoderBias) {
-                        val += encoderBias[globalL];
-                    }
-
-                    // Apply ReLU activation
-                    if (params.useActivation) {
-                        val = max(val, 0.0f);
-                    }
-
-                    latentAccum[localVectorIdx][globalL] = val;
-                }
-            }
-        }
-    }
-
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // ========== Phase 3: Scale Computation via Parallel Reduction ==========
-    float localMax = 0.0f;
-    if (validVector) {
-        for (uint l = laneInVector; l < effectiveLatentDim; l += THREADS_PER_VECTOR) {
-            localMax = max(localMax, abs(latentAccum[localVectorIdx][l]));
-        }
-    }
-
-    partialMax[localVectorIdx][laneInVector] = localMax;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // Lane 0 does final reduction
-    if (laneInVector == 0 && validVector) {
-        float maxAbs = 0.0f;
-        for (uint i = 0; i < THREADS_PER_VECTOR; ++i) {
-            maxAbs = max(maxAbs, partialMax[localVectorIdx][i]);
-        }
-        tgScales[localVectorIdx] = max(maxAbs / 127.0f, VA_EPSILON);
-    }
-
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // ========== Phase 4: Quantize and Write Output ==========
-    if (validVector) {
-        const float scale = tgScales[localVectorIdx];
-        const float invScale = 1.0f / scale;
-
-        device char* output = latentCodes + globalVectorIdx * latentDim;
-
-        for (uint l = laneInVector; l < effectiveLatentDim; l += THREADS_PER_VECTOR) {
-            float val = latentAccum[localVectorIdx][l];
-            float quantized = round(val * invScale);
-            output[l] = (char)clamp(quantized, -127.0f, 127.0f);
-        }
-
-        if (laneInVector == 0) {
-            scales[globalVectorIdx] = scale;
-        }
-    }
-}
-
-// MARK: - Optimized Kernels for Common Configurations
-
-/// Optimized encoder for 768 -> 64 (high compression)
+/// Optimized encoder for 768 -> 64
 kernel void neural_encode_768_to_64_kernel(
     device const float* inputVectors [[buffer(0)]],
     device const float* encoderWeights [[buffer(1)]],
@@ -1510,7 +878,7 @@ kernel void neural_dequantize_decode_2d_transposed_v2_kernel(
     // Threadgroup cache for dequantized latent codes
     // Using float4 storage for efficient loading
     threadgroup float4 tgLatent4[32];  // Supports up to 128-dim latent
-    threadgroup float tgScale;
+    threadgroup float tgScale = 0.0f;
 
     // ========== Phase 1: Cooperative Latent Loading ==========
 
@@ -1570,51 +938,69 @@ kernel void neural_dequantize_decode_2d_transposed_v2_kernel(
 
     // ========== Phase 3: Vectorized Matrix-Vector Product ==========
     //
-    // Process 4 latent dimensions per iteration using float4 operations.
-    // For 128-dim latent: 32 iterations (vs 128 in scalar kernel = 4x fewer!)
+    // Process 8 latent dimensions per iteration using dual accumulators to hide 
+    // 3-4 cycle FMA latency on Apple Silicon.
     //
     // Memory access pattern: Adjacent threads load adjacent float4s = coalesced!
+
+    float4 acc0 = acc; // initial bias
+    float4 acc1 = float4(0.0f);
 
     if (latentDim == 128) {
         // Fully unrolled for 128-dim (common case)
         #pragma unroll
-        for (uint i4 = 0; i4 < 32; ++i4) {
-            const uint i = i4 * 4;
+        for (uint i4 = 0; i4 < 32; i4 += 2) {
+            // Group 0: latent[i..i+3]
+            const float4 lat0 = tgLatent4[i4];
+            const float4 w00 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 0) * inputDim + outBase));
+            const float4 w01 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 1) * inputDim + outBase));
+            const float4 w02 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 2) * inputDim + outBase));
+            const float4 w03 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 3) * inputDim + outBase));
 
-            // Load 4 latent values (broadcast to all 4 outputs)
-            const float4 lat = tgLatent4[i4];
+            // Group 1: latent[i+4..i+7]
+            const float4 lat1 = tgLatent4[i4 + 1];
+            const float4 w10 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 0) * inputDim + outBase));
+            const float4 w11 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 1) * inputDim + outBase));
+            const float4 w12 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 2) * inputDim + outBase));
+            const float4 w13 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 3) * inputDim + outBase));
 
-            // Load 4×4 weights as 4 float4s (COALESCED!)
-            // Adjacent threads load adjacent float4s in memory
-            const float4 w0 = *((device const float4*)(decoderWeightsT + (i + 0) * inputDim + outBase));
-            const float4 w1 = *((device const float4*)(decoderWeightsT + (i + 1) * inputDim + outBase));
-            const float4 w2 = *((device const float4*)(decoderWeightsT + (i + 2) * inputDim + outBase));
-            const float4 w3 = *((device const float4*)(decoderWeightsT + (i + 3) * inputDim + outBase));
-
-            // 4 float4 FMAs: each latent contributes to all 4 outputs
-            // acc[j] += lat.x*w0[j] + lat.y*w1[j] + lat.z*w2[j] + lat.w*w3[j]
-            acc = fma(float4(lat.x), w0, acc);
-            acc = fma(float4(lat.y), w1, acc);
-            acc = fma(float4(lat.z), w2, acc);
-            acc = fma(float4(lat.w), w3, acc);
+            // Interleaved FMA
+            acc0 = fma(float4(lat0.x), w00, acc0);
+            acc1 = fma(float4(lat1.x), w10, acc1);
+            acc0 = fma(float4(lat0.y), w01, acc0);
+            acc1 = fma(float4(lat1.y), w11, acc1);
+            acc0 = fma(float4(lat0.z), w02, acc0);
+            acc1 = fma(float4(lat1.z), w12, acc1);
+            acc0 = fma(float4(lat0.w), w03, acc0);
+            acc1 = fma(float4(lat1.w), w13, acc1);
         }
+        acc = acc0 + acc1;
     } else if (latentDim == 64) {
         // Fully unrolled for 64-dim
         #pragma unroll
-        for (uint i4 = 0; i4 < 16; ++i4) {
-            const uint i = i4 * 4;
-            const float4 lat = tgLatent4[i4];
+        for (uint i4 = 0; i4 < 16; i4 += 2) {
+            const float4 lat0 = tgLatent4[i4];
+            const float4 w00 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 0) * inputDim + outBase));
+            const float4 w01 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 1) * inputDim + outBase));
+            const float4 w02 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 2) * inputDim + outBase));
+            const float4 w03 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 3) * inputDim + outBase));
 
-            const float4 w0 = *((device const float4*)(decoderWeightsT + (i + 0) * inputDim + outBase));
-            const float4 w1 = *((device const float4*)(decoderWeightsT + (i + 1) * inputDim + outBase));
-            const float4 w2 = *((device const float4*)(decoderWeightsT + (i + 2) * inputDim + outBase));
-            const float4 w3 = *((device const float4*)(decoderWeightsT + (i + 3) * inputDim + outBase));
+            const float4 lat1 = tgLatent4[i4 + 1];
+            const float4 w10 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 0) * inputDim + outBase));
+            const float4 w11 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 1) * inputDim + outBase));
+            const float4 w12 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 2) * inputDim + outBase));
+            const float4 w13 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 3) * inputDim + outBase));
 
-            acc = fma(float4(lat.x), w0, acc);
-            acc = fma(float4(lat.y), w1, acc);
-            acc = fma(float4(lat.z), w2, acc);
-            acc = fma(float4(lat.w), w3, acc);
+            acc0 = fma(float4(lat0.x), w00, acc0);
+            acc1 = fma(float4(lat1.x), w10, acc1);
+            acc0 = fma(float4(lat0.y), w01, acc0);
+            acc1 = fma(float4(lat1.y), w11, acc1);
+            acc0 = fma(float4(lat0.z), w02, acc0);
+            acc1 = fma(float4(lat1.z), w12, acc1);
+            acc0 = fma(float4(lat0.w), w03, acc0);
+            acc1 = fma(float4(lat1.w), w13, acc1);
         }
+        acc = acc0 + acc1;
     } else {
         // Generic path for other latent dimensions
         for (uint i4 = 0; i4 < latentDim4; ++i4) {
@@ -1655,5 +1041,355 @@ kernel void neural_dequantize_decode_2d_transposed_v2_kernel(
         if (numOutputs > 0) outPtr[0] = acc.x;
         if (numOutputs > 1) outPtr[1] = acc.y;
         if (numOutputs > 2) outPtr[2] = acc.z;
+    }
+}
+
+// MARK: - Specialized Transposed Decode Variants
+
+/// Specialized transposed decode for 768->128 (Balanced configuration)
+kernel void neural_dequantize_decode_768_128_transposed_kernel(
+    device const char*  latentCodes     [[buffer(0)]],
+    device const float* scales          [[buffer(1)]],
+    device const float* decoderWeightsT [[buffer(2)]],
+    device float*       outputVectors   [[buffer(3)]],
+    device const float* decoderBias     [[buffer(4)]],
+    constant NeuralQuantParams& params  [[buffer(5)]],
+    uint3 tptg [[thread_position_in_threadgroup]],
+    uint3 tgp  [[threadgroup_position_in_grid]]
+) {
+    constexpr uint INPUT_DIM = 768;
+    constexpr uint LATENT_DIM = 128;
+    const uint vectorIdx = tgp.x;
+    if (vectorIdx >= params.numVectors) return;
+
+    threadgroup float4 tgLatent4[32];
+    threadgroup float tgScale = 0.0f;
+
+    if (tptg.y == 0) tgScale = scales[vectorIdx];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const float scale = tgScale;
+    if (tptg.y < 32) {
+        const char4 c = *((device const char4*)(latentCodes + vectorIdx * LATENT_DIM + tptg.y * 4));
+        tgLatent4[tptg.y] = float4(c) * scale;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const uint outBase = tgp.y * 128 + tptg.y * 4;
+    if (outBase >= INPUT_DIM) return;
+
+    float4 acc0 = decoderBias ? *((device const float4*)(decoderBias + outBase)) : float4(0.0f);
+    float4 acc1 = float4(0.0f);
+
+    #pragma unroll
+    for (uint i4 = 0; i4 < 32; i4 += 2) {
+        const float4 lat0 = tgLatent4[i4];
+        const float4 w00 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 0) * INPUT_DIM + outBase));
+        const float4 w01 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 1) * INPUT_DIM + outBase));
+        const float4 w02 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 2) * INPUT_DIM + outBase));
+        const float4 w03 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 3) * INPUT_DIM + outBase));
+
+        const float4 lat1 = tgLatent4[i4 + 1];
+        const float4 w10 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 0) * INPUT_DIM + outBase));
+        const float4 w11 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 1) * INPUT_DIM + outBase));
+        const float4 w12 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 2) * INPUT_DIM + outBase));
+        const float4 w13 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 3) * INPUT_DIM + outBase));
+
+        acc0 = fma(float4(lat0.x), w00, acc0);
+        acc1 = fma(float4(lat1.x), w10, acc1);
+        acc0 = fma(float4(lat0.y), w01, acc0);
+        acc1 = fma(float4(lat1.y), w11, acc1);
+        acc0 = fma(float4(lat0.z), w02, acc0);
+        acc1 = fma(float4(lat1.z), w12, acc1);
+        acc0 = fma(float4(lat0.w), w03, acc0);
+        acc1 = fma(float4(lat1.w), w13, acc1);
+    }
+
+    *((device float4*)(outputVectors + vectorIdx * INPUT_DIM + outBase)) = acc0 + acc1;
+}
+
+/// Specialized transposed decode for 768->64 (High compression)
+kernel void neural_dequantize_decode_768_64_transposed_kernel(
+    device const char*  latentCodes     [[buffer(0)]],
+    device const float* scales          [[buffer(1)]],
+    device const float* decoderWeightsT [[buffer(2)]],
+    device float*       outputVectors   [[buffer(3)]],
+    device const float* decoderBias     [[buffer(4)]],
+    constant NeuralQuantParams& params  [[buffer(5)]],
+    uint3 tptg [[thread_position_in_threadgroup]],
+    uint3 tgp  [[threadgroup_position_in_grid]]
+) {
+    constexpr uint INPUT_DIM = 768;
+    constexpr uint LATENT_DIM = 64;
+    const uint vectorIdx = tgp.x;
+    if (vectorIdx >= params.numVectors) return;
+
+    threadgroup float4 tgLatent4[16];
+    threadgroup float tgScale = 0.0f;
+
+    if (tptg.y == 0) tgScale = scales[vectorIdx];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const float scale = tgScale;
+    if (tptg.y < 16) {
+        const char4 c = *((device const char4*)(latentCodes + vectorIdx * LATENT_DIM + tptg.y * 4));
+        tgLatent4[tptg.y] = float4(c) * scale;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const uint outBase = tgp.y * 128 + tptg.y * 4;
+    if (outBase >= INPUT_DIM) return;
+
+    float4 acc0 = decoderBias ? *((device const float4*)(decoderBias + outBase)) : float4(0.0f);
+    float4 acc1 = float4(0.0f);
+
+    #pragma unroll
+    for (uint i4 = 0; i4 < 16; i4 += 2) {
+        const float4 lat0 = tgLatent4[i4];
+        const float4 w00 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 0) * INPUT_DIM + outBase));
+        const float4 w01 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 1) * INPUT_DIM + outBase));
+        const float4 w02 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 2) * INPUT_DIM + outBase));
+        const float4 w03 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 3) * INPUT_DIM + outBase));
+
+        const float4 lat1 = tgLatent4[i4 + 1];
+        const float4 w10 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 0) * INPUT_DIM + outBase));
+        const float4 w11 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 1) * INPUT_DIM + outBase));
+        const float4 w12 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 2) * INPUT_DIM + outBase));
+        const float4 w13 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 3) * INPUT_DIM + outBase));
+
+        acc0 = fma(float4(lat0.x), w00, acc0);
+        acc1 = fma(float4(lat1.x), w10, acc1);
+        acc0 = fma(float4(lat0.y), w01, acc0);
+        acc1 = fma(float4(lat1.y), w11, acc1);
+        acc0 = fma(float4(lat0.z), w02, acc0);
+        acc1 = fma(float4(lat1.z), w12, acc1);
+        acc0 = fma(float4(lat0.w), w03, acc0);
+        acc1 = fma(float4(lat1.w), w13, acc1);
+    }
+
+    *((device float4*)(outputVectors + vectorIdx * INPUT_DIM + outBase)) = acc0 + acc1;
+}
+
+/// Specialized transposed decode for 384->64 (MiniLM configuration)
+kernel void neural_dequantize_decode_384_64_transposed_kernel(
+    device const char*  latentCodes     [[buffer(0)]],
+    device const float* scales          [[buffer(1)]],
+    device const float* decoderWeightsT [[buffer(2)]],
+    device float*       outputVectors   [[buffer(3)]],
+    device const float* decoderBias     [[buffer(4)]],
+    constant NeuralQuantParams& params  [[buffer(5)]],
+    uint3 tptg [[thread_position_in_threadgroup]],
+    uint3 tgp  [[threadgroup_position_in_grid]]
+) {
+    constexpr uint INPUT_DIM = 384;
+    constexpr uint LATENT_DIM = 64;
+    const uint vectorIdx = tgp.x;
+    if (vectorIdx >= params.numVectors) return;
+
+    threadgroup float4 tgLatent4[16];
+    threadgroup float tgScale = 0.0f;
+
+    if (tptg.y == 0) tgScale = scales[vectorIdx];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const float scale = tgScale;
+    if (tptg.y < 16) {
+        const char4 c = *((device const char4*)(latentCodes + vectorIdx * LATENT_DIM + tptg.y * 4));
+        tgLatent4[tptg.y] = float4(c) * scale;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const uint outBase = tgp.y * 128 + tptg.y * 4;
+    if (outBase >= INPUT_DIM) return;
+
+    float4 acc0 = decoderBias ? *((device const float4*)(decoderBias + outBase)) : float4(0.0f);
+    float4 acc1 = float4(0.0f);
+
+    #pragma unroll
+    for (uint i4 = 0; i4 < 16; i4 += 2) {
+        const float4 lat0 = tgLatent4[i4];
+        const float4 w00 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 0) * INPUT_DIM + outBase));
+        const float4 w01 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 1) * INPUT_DIM + outBase));
+        const float4 w02 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 2) * INPUT_DIM + outBase));
+        const float4 w03 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 3) * INPUT_DIM + outBase));
+
+        const float4 lat1 = tgLatent4[i4 + 1];
+        const float4 w10 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 0) * INPUT_DIM + outBase));
+        const float4 w11 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 1) * INPUT_DIM + outBase));
+        const float4 w12 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 2) * INPUT_DIM + outBase));
+        const float4 w13 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 3) * INPUT_DIM + outBase));
+
+        acc0 = fma(float4(lat0.x), w00, acc0);
+        acc1 = fma(float4(lat1.x), w10, acc1);
+        acc0 = fma(float4(lat0.y), w01, acc0);
+        acc1 = fma(float4(lat1.y), w11, acc1);
+        acc0 = fma(float4(lat0.z), w02, acc0);
+        acc1 = fma(float4(lat1.z), w12, acc1);
+        acc0 = fma(float4(lat0.w), w03, acc0);
+        acc1 = fma(float4(lat1.w), w13, acc1);
+    }
+
+    *((device float4*)(outputVectors + vectorIdx * INPUT_DIM + outBase)) = acc0 + acc1;
+}
+
+// MARK: - Phase 5: Tiled GEMM Encoder (Full-D Loop in Registers)
+
+// -----------------------------------------------------------------------------
+// Pass 1: Tiled GEMM Encoder
+// Topology: 1 Threadgroup (256 threads) = 32 Vectors x 32 Latent Dimensions
+// -----------------------------------------------------------------------------
+kernel void neural_encode_pass1(
+    device const float* inputs [[buffer(0)]],
+    device const float* weights [[buffer(1)]],
+    device const float* bias [[buffer(2)]],
+    device float* intermediates [[buffer(3)]],
+    constant uint& N [[buffer(4)]],
+    constant uint& D [[buffer(5)]],
+    constant uint& L [[buffer(6)]],
+    constant uint& has_bias [[buffer(7)]],
+    uint2 tgid [[threadgroup_position_in_grid]],
+    uint2 lid [[thread_position_in_threadgroup]]
+) {
+    // 256 Threads mapping to a 32x32 Output Tile
+    uint batch_start = tgid.x * 32;
+    uint latent_start = tgid.y * 32;
+
+    // 9KB Total Shared Memory (Extremely safe for Apple Silicon 32KB Limit)
+    // Optimization: Padded inner dimension to eliminate shared memory bank conflicts
+    threadgroup float4 shared_input[32][9];
+    threadgroup float4 shared_weight[32][9];
+
+    uint vec_idx_in_tg = lid.x / 8;        // 0..31
+    uint lat_idx_in_tg = (lid.x % 8) * 4;  // 0, 4, 8...28
+
+    float4 acc = float4(0.0);
+    uint D_float4 = D / 4;
+    bool is_aligned = (D % 4 == 0);
+
+    for (uint k = 0; k < D; k += 32) {
+        uint k4 = k / 4;
+        uint load_offset_4 = k4 + (lid.x % 8);
+        
+        // Load Input Tile
+        uint global_v = batch_start + (lid.x / 8);
+        float4 in_val = 0.0;
+        if (global_v < N) {
+            if (is_aligned && load_offset_4 < D_float4) {
+                device const float4* in4 = (device const float4*)(inputs + global_v * D);
+                in_val = in4[load_offset_4];
+            } else if (!is_aligned) {
+                uint base_d = k + (lid.x % 8) * 4; 
+                if (base_d + 0 < D) in_val.x = inputs[global_v * D + base_d + 0];
+                if (base_d + 1 < D) in_val.y = inputs[global_v * D + base_d + 1];
+                if (base_d + 2 < D) in_val.z = inputs[global_v * D + base_d + 2];
+                if (base_d + 3 < D) in_val.w = inputs[global_v * D + base_d + 3];
+            }
+        }
+        shared_input[lid.x / 8][lid.x % 8] = in_val;
+
+        // Load Weight Tile
+        uint global_l = latent_start + (lid.x / 8);
+        float4 w_val = 0.0;
+        if (global_l < L) {
+            if (is_aligned && load_offset_4 < D_float4) {
+                device const float4* w4 = (device const float4*)(weights + global_l * D);
+                w_val = w4[load_offset_4];
+            } else if (!is_aligned) {
+                uint base_d = k + (lid.x % 8) * 4; 
+                if (base_d + 0 < D) w_val.x = weights[global_l * D + base_d + 0];
+                if (base_d + 1 < D) w_val.y = weights[global_l * D + base_d + 1];
+                if (base_d + 2 < D) w_val.z = weights[global_l * D + base_d + 2];
+                if (base_d + 3 < D) w_val.w = weights[global_l * D + base_d + 3];
+            }
+        }
+        shared_weight[lid.x / 8][lid.x % 8] = w_val;
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // FMA Phase
+        uint valid_d4 = min(8u, (D - k + 3) / 4);
+        for (uint d4 = 0; d4 < valid_d4; d4++) {
+            float4 v4 = shared_input[vec_idx_in_tg][d4];
+            float4 w0 = shared_weight[lat_idx_in_tg + 0][d4];
+            float4 w1 = shared_weight[lat_idx_in_tg + 1][d4];
+            float4 w2 = shared_weight[lat_idx_in_tg + 2][d4];
+            float4 w3 = shared_weight[lat_idx_in_tg + 3][d4];
+            acc.x += dot(v4, w0);
+            acc.y += dot(v4, w1);
+            acc.z += dot(v4, w2);
+            acc.w += dot(v4, w3);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    uint my_v = batch_start + vec_idx_in_tg;
+    uint my_l = latent_start + lat_idx_in_tg;
+
+    if (my_v < N) {
+        if (has_bias == 1) {
+            if (my_l + 0 < L) acc.x += bias[my_l + 0];
+            if (my_l + 1 < L) acc.y += bias[my_l + 1];
+            if (my_l + 2 < L) acc.z += bias[my_l + 2];
+            if (my_l + 3 < L) acc.w += bias[my_l + 3];
+        }
+        acc = max(0.0f, acc); // ReLU
+        uint out_idx = my_v * L + my_l;
+        if (my_l + 0 < L) intermediates[out_idx + 0] = acc.x;
+        if (my_l + 1 < L) intermediates[out_idx + 1] = acc.y;
+        if (my_l + 2 < L) intermediates[out_idx + 2] = acc.z;
+        if (my_l + 3 < L) intermediates[out_idx + 3] = acc.w;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Pass 2: Normalize & Quantize
+// Topology: 1 Threadgroup = 1 Vector
+// -----------------------------------------------------------------------------
+kernel void neural_quantize_pass2(
+    device const float* intermediates [[buffer(0)]],
+    device char* latent_codes [[buffer(1)]],
+    device float* scales [[buffer(2)]],
+    constant uint& N [[buffer(3)]],
+    constant uint& L [[buffer(4)]],
+    uint tgid [[threadgroup_position_in_grid]],
+    uint lid [[thread_position_in_threadgroup]],
+    uint threads_per_tg [[threads_per_threadgroup]],
+    uint simd_lane_id [[thread_index_in_simdgroup]],
+    uint simd_group_id [[simdgroup_index_in_threadgroup]]
+) {
+    uint my_v = tgid;
+    if (my_v >= N) return;
+
+    device const float* my_floats = intermediates + my_v * L;
+    device char* my_codes = latent_codes + my_v * L;
+
+    float local_max = 0.0;
+    for (uint i = lid; i < L; i += threads_per_tg) {
+        local_max = max(local_max, abs(my_floats[i]));
+    }
+
+    float simd_max_val = simd_max(local_max);
+    threadgroup float shared_maxes[32];
+    threadgroup float shared_scale;
+    
+    if (simd_lane_id == 0) shared_maxes[simd_group_id] = simd_max_val;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    if (lid == 0) {
+        uint active_simds = (threads_per_tg + 31) / 32;
+        float final_max = 0.0;
+        for(uint i=0; i<active_simds; i++) final_max = max(final_max, shared_maxes[i]);
+        float scale = final_max / 127.0f;
+        scales[my_v] = scale; 
+        shared_scale = scale;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    float scale = shared_scale;
+    float scale_mult = (scale > 1e-8f) ? (1.0f / scale) : 0.0f;
+
+    for (uint i = lid; i < L; i += threads_per_tg) {
+        float val = my_floats[i] * scale_mult;
+        my_codes[i] = (char)clamp(round(val), -127.0f, 127.0f);
     }
 }

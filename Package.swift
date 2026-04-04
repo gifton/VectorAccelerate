@@ -4,7 +4,7 @@
 // ============================================================================
 // METAL 4 ONLY - BREAKING CHANGE
 // ============================================================================
-// VectorAccelerate 0.3.0+ is Metal 4 ONLY and requires:
+// VectorAccelerate 0.4.0+ is Metal 4 ONLY and requires:
 //   - macOS 26.0+ (Tahoe)
 //   - iOS 26.0+
 //   - tvOS 26.0+
@@ -42,7 +42,7 @@ let package = Package(
     ],
     dependencies: [
         // VectorCore for base protocols and types
-        .package(url: "https://github.com/gifton/VectorCore", from: "0.1.6"),
+        .package(url: "https://github.com/gifton/VectorCore", from: "0.2.0"),
         // MetalCompilerPlugin for debuggable Metal shaders (enables Xcode Metal Debugger)
         .package(url: "https://github.com/schwa/MetalCompilerPlugin", from: "0.1.5")
     ],

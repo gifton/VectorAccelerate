@@ -453,13 +453,7 @@ extension TopKSelectionKernel {
         let numDatabase: Int
 
         // Use reflection or require protocol method
-        if let l2Params = distanceParams as? L2DistanceParameters {
-            numQueries = Int(l2Params.numQueries)
-            numDatabase = Int(l2Params.numDatabase)
-        } else if let cosineParams = distanceParams as? CosineSimilarityParameters {
-            numQueries = Int(cosineParams.numQueries)
-            numDatabase = Int(cosineParams.numDatabase)
-        } else if let dotParams = distanceParams as? DotProductParameters {
+        if let dotParams = distanceParams as? DotProductParameters {
             numQueries = Int(dotParams.numQueries)
             numDatabase = Int(dotParams.numDatabase)
         } else {

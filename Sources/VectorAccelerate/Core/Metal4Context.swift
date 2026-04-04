@@ -218,6 +218,13 @@ public actor Metal4Context: AccelerationProvider {
         } catch {
             self.defaultLibrary = nil
         }
+
+        // Eagerly pre-compile and cache critical path pipelines
+        // This ensures hot paths don't incur compilation latency
+        let cache = self.pipelineCache
+        Task {
+            await cache.warmUp(keys: PipelineCacheKey.commonKeys)
+        }
     }
 
     // MARK: - Command Buffer Creation
@@ -274,7 +281,7 @@ public actor Metal4Context: AccelerationProvider {
 
         // Submit via queue (Metal 4 pattern)
         // In Metal 4: commandQueue.commit([commandBuffer])
-        commandBuffer.commit()
+        await commandBuffer.commitAndWait()
 
         if configuration.enableProfiling {
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime

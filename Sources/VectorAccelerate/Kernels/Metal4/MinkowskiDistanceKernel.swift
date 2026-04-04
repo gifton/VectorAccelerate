@@ -189,9 +189,10 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable, Metal4Kernel, F
     public let fusibleWith: [String] = ["TopKSelection"]
     public let requiresBarrierAfter: Bool = true
 
-    // MARK: - Pipeline
+    // MARK: - Pipelines
 
     private let pipeline: any MTLComputePipelineState
+    private let stablePipeline: any MTLComputePipelineState
 
     // MARK: - Initialization
 
@@ -201,14 +202,23 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable, Metal4Kernel, F
 
         let library = try await context.shaderCompiler.getDefaultLibrary()
 
-        guard let function = library.makeFunction(name: "minkowski_distance_batch") else {
+        // Standard batch kernel
+        guard let batchFunction = library.makeFunction(name: "minkowski_distance_batch") else {
             throw VectorError.shaderNotFound(
                 name: "Minkowski distance kernel. Ensure MinkowskiDistance.metal is compiled."
             )
         }
 
+        // Numerically stable kernel for large p values
+        guard let stableFunction = library.makeFunction(name: "minkowski_distance_stable") else {
+            throw VectorError.shaderNotFound(
+                name: "Stable Minkowski distance kernel. Ensure MinkowskiDistance.metal is compiled."
+            )
+        }
+
         let device = context.device.rawDevice
-        self.pipeline = try await device.makeComputePipelineState(function: function)
+        self.pipeline = try await device.makeComputePipelineState(function: batchFunction)
+        self.stablePipeline = try await device.makeComputePipelineState(function: stableFunction)
     }
 
     // MARK: - Warm Up
@@ -231,8 +241,12 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable, Metal4Kernel, F
         D: Int,
         config: Metal4MinkowskiConfig
     ) -> Metal4EncodingResult {
-        encoder.setComputePipelineState(pipeline)
-        encoder.label = "MinkowskiDistance (\(config.metricName))"
+        // Select pipeline based on stability requirements
+        let selectedPipeline = config.useStableComputation ? stablePipeline : pipeline
+        let pipelineName = config.useStableComputation ? "minkowski_distance_stable" : "minkowski_distance_batch"
+
+        encoder.setComputePipelineState(selectedPipeline)
+        encoder.label = "MinkowskiDistance (\(config.metricName)\(config.useStableComputation ? ", stable" : ""))"
 
         encoder.setBuffer(vectorsA, offset: 0, index: 0)
         encoder.setBuffer(vectorsB, offset: 0, index: 1)
@@ -259,7 +273,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable, Metal4Kernel, F
         encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadgroupSize)
 
         return Metal4EncodingResult(
-            pipelineName: "minkowski_distance",
+            pipelineName: pipelineName,
             threadgroups: threadgroups,
             threadsPerThreadgroup: threadgroupSize
         )

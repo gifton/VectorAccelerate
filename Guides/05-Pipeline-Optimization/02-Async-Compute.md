@@ -110,45 +110,55 @@ func streamingSearch(
 
 ## Metal4Context Async Patterns
 
-VectorAccelerate's Metal4Context supports async execution:
+VectorAccelerate's Metal4Context strictly enforces async execution to prevent OS thread stalls:
 
 ```swift
-// 📍 See: Sources/VectorAccelerate/Core/Metal4Context.swift:227-260
+// 📍 See: Sources/VectorAccelerate/Core/Metal4Context.swift
 
-/// Execute without waiting (async)
-public func execute<T: Sendable>(
-    _ operation: @Sendable (any MTLCommandBuffer, any MTLComputeCommandEncoder) async throws -> T
-) async throws -> T {
+/// Execute and wait (Swift Concurrency suspension)
+public func executeAndWait(
+    _ operation: @Sendable (any MTLCommandBuffer, any MTLComputeCommandEncoder) async throws -> Void
+) async throws {
     guard let commandBuffer = makeCommandBuffer() else {
-        throw VectorError.deviceInitializationFailed("Failed to create command buffer")
+        throw VectorError.encoderCreationFailed()
     }
 
     guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
         throw VectorError.encoderCreationFailed()
     }
 
-    let result = try await operation(commandBuffer, encoder)
+    try await operation(commandBuffer, encoder)
 
     encoder.endEncoding()
-    commandBuffer.commit()  // Returns immediately!
-
-    return result
+    
+    // 0.4.0: Suspends the Swift task until GPU completes
+    await commandBuffer.commitAndWait()
 }
+```
 
-/// Execute and wait (blocking)
-public func executeAndWait(
-    _ operation: @Sendable (any MTLCommandBuffer, any MTLComputeCommandEncoder) async throws -> Void
-) async throws {
-    // ... same setup ...
+---
 
-    // Wait for completion using shared event
-    await withCheckedContinuation { continuation in
-        completionEvent.notify(...) { _, _ in
-            continuation.resume()
-        }
+## Safety: Buffer Anchoring
+
+When using a **Buffer Pool**, memory is recycled as soon as the `BufferToken` is deallocated. If the GPU is still reading from that memory when it's recycled, data corruption occurs.
+
+VectorAccelerate 0.4.0 uses **Buffer Anchoring** to solve this:
+
+```swift
+// 📍 See: Sources/VectorAccelerate/Core/BufferPool.swift
+
+public func compute(queries: BufferToken, ...) async throws {
+    try await context.executeAndWait { commandBuffer, encoder in
+        // Encode operations...
+        kernel.encode(into: encoder, queries: queries.buffer, ...)
+        
+        // 0.4.0: Anchor the token lifetime to the GPU's completion handler
+        queries.keepAlive(until: commandBuffer)
     }
 }
 ```
+
+The `keepAlive(until:)` method strongly captures the token in the command buffer's completion block, ensuring the memory cannot return to the pool until the GPU has physically finished its last instruction.
 
 ---
 

@@ -354,10 +354,8 @@ VectorAccelerate is under active development. Current limitations:
 
 | Limitation | Details |
 |------------|---------|
-| **GPU Distance Metrics** | Only `.euclidean` is fully GPU-accelerated. Other metrics fall back to CPU. |
-| **Fused Top-K** | `FusedL2TopKKernel` works best with K ≤ 8 (private heap size). Larger K uses fallback strategies. |
 | **IVF Index** | IVF support is functional but work-in-progress. Auto-routing to flat search helps with small datasets. |
-| **Quantization** | Scalar quantization (SQ8, SQ4) is available for IVF indexes only. |
+| **Quantization** | Scalar quantization (SQ8, SQ4) is available for IVF indexes. Neural Quantization is currently experimental. |
 
 ---
 
@@ -369,4 +367,4 @@ Ready to unleash the GPU?
 
 ---
 
-*VectorAccelerate Learning Guide • Volume 3 of the VSK Educational Series • Dec 2024*
+*VectorAccelerate Learning Guide • Volume 3 of the VSK Educational Series • April 2026*

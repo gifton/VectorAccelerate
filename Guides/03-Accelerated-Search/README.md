@@ -86,10 +86,12 @@ VectorAccelerate provides both approaches:
 
 | Algorithm | Best For | Complexity | GPU Parallelism |
 |-----------|----------|------------|-----------------|
-| **Partial Sort** | Small K (<32) | O(N) | Warp-level |
+| **Partial Sort** | Small K (≤32) | O(N) | Warp-level |
 | **Heap Selection** | Medium K (32-512) | O(N log K) | Per-query |
 | **Bitonic Sort** | Large K (>512) | O(N log² N) | Fully parallel |
-| **Streaming TopK** | Very large N | O(N) amortized | Chunk-parallel |
+| **Fused Chunked** | Very large N | O(N) | Hierarchical |
+
+> **Note**: `StreamingTopKKernel` is deprecated. VectorAccelerate now uses a hierarchical chunked selection strategy within `FusedL2TopKKernel` for massive datasets.
 
 ---
 

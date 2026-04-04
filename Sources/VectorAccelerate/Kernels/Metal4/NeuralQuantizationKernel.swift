@@ -252,14 +252,23 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     /// Vectorized transposed decode pipeline (float4 ops + coalesced memory)
     private var optimizedDecodeTransposedPipeline: (any MTLComputePipelineState)?
 
+    /// Specialized transposed decode pipelines for common dimensions
+    private var optimizedDecode768_128Pipeline: (any MTLComputePipelineState)?
+    private var optimizedDecode768_64Pipeline: (any MTLComputePipelineState)?
+    private var optimizedDecode384_64Pipeline: (any MTLComputePipelineState)?
+
     /// Tiled GEMM encode pipeline for high-throughput encoding
     private var tiledEncodePipeline: (any MTLComputePipelineState)?
-
     /// Tiled GEMM encode + quantize pipeline (Phase 2)
     private var tiledEncodeQuantizePipeline: (any MTLComputePipelineState)?
 
     /// Tiled GEMM encode + quantize pipeline V2 with dual accumulators (Phase 3)
     private var tiledEncodeQuantizeV2Pipeline: (any MTLComputePipelineState)?
+
+    /// Phase 5: Tiled GEMM Pass 1 (Full-D Register Loop)
+    private var tiledEncodePass1Pipeline: (any MTLComputePipelineState)?
+    /// Phase 5: Quantization Pass 2 (Normalize & Quantize)
+    private var tiledQuantizePass2Pipeline: (any MTLComputePipelineState)?
 
     /// Whether tiled encode kernel is available
     private let hasTiledEncode: Bool
@@ -370,6 +379,18 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
                 VectorLogDebug("Failed to compile transposed decode kernel: \(error)", category: "NeuralQuantization")
             }
         }
+
+        // Load specialized transposed variants
+        if let f768_128 = library.makeFunction(name: "neural_dequantize_decode_768_128_transposed_kernel") {
+            self.optimizedDecode768_128Pipeline = try? await device.makeComputePipelineState(function: f768_128)
+        }
+        if let f768_64 = library.makeFunction(name: "neural_dequantize_decode_768_64_transposed_kernel") {
+            self.optimizedDecode768_64Pipeline = try? await device.makeComputePipelineState(function: f768_64)
+        }
+        if let f384_64 = library.makeFunction(name: "neural_dequantize_decode_384_64_transposed_kernel") {
+            self.optimizedDecode384_64Pipeline = try? await device.makeComputePipelineState(function: f384_64)
+        }
+
         self.hasTransposedDecode = hasTransposed
 
         // Load tiled GEMM encode kernel for high-throughput encoding
@@ -410,6 +431,13 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             }
         }
         self.hasTiledEncodeQuantizeV2 = hasTiledQuantizeV2
+
+        // Load Phase 5 specialized 2-pass kernels
+        if let p1 = library.makeFunction(name: "neural_encode_pass1"),
+           let p2 = library.makeFunction(name: "neural_quantize_pass2") {
+            self.tiledEncodePass1Pipeline = try? await device.makeComputePipelineState(function: p1)
+            self.tiledQuantizePass2Pipeline = try? await device.makeComputePipelineState(function: p2)
+        }
 
         self.useOptimizedDecode = loadedAny
 
@@ -900,6 +928,91 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         hasTiledEncodeQuantizeV2
     }
 
+    /// Phase 5: Encode vectors and quantize to INT8 using high-throughput 2-pass orchestration.
+    ///
+    /// This is the most advanced encoder in the library, using a Full-D register loop
+    /// to eliminate global atomics and shared memory padding to break bank conflicts.
+    ///
+    /// - Parameters:
+    ///   - commandBuffer: Metal command buffer
+    ///   - input: Input vectors buffer [N, D]
+    ///   - output: Output latent codes buffer [N, L] (INT8)
+    ///   - scale: Output scales buffer [N] (Float)
+    ///   - parameters: Standard neural quantization parameters
+    public func encodeTiledV3(
+        commandBuffer: any MTLCommandBuffer,
+        input: any MTLBuffer,
+        output: any MTLBuffer,
+        scale: any MTLBuffer,
+        parameters: NeuralQuantizationParameters
+    ) async throws {
+        guard let encoderWeights = encoderWeights else {
+            throw VectorError.invalidOperation("Encoder weights not loaded")
+        }
+
+        guard let p1 = tiledEncodePass1Pipeline, let p2 = tiledQuantizePass2Pipeline else {
+            throw VectorError.invalidOperation("Phase 5 kernels not available")
+        }
+
+        let numVectors = Int(parameters.numVectors)
+        let inputDim = Int(parameters.inputDimension)
+        let latentDim = Int(parameters.latentDimension)
+
+        // 1. Dynamic Allocation for Intermediate Floats
+        let intermediateSize = numVectors * latentDim * MemoryLayout<Float>.stride
+        let intermediateToken = try await context.getBuffer(size: intermediateSize)
+        intermediateToken.buffer.label = "TiledEncode.Intermediates"
+
+        var n = UInt32(numVectors)
+        var d = UInt32(inputDim)
+        var l = UInt32(latentDim)
+        var hasBias: UInt32 = encoderBias != nil ? 1 : 0
+
+        // 2. PASS 1: Tiled GEMM
+        guard let encoder1 = commandBuffer.makeComputeCommandEncoder() else {
+            throw VectorError.encoderCreationFailed()
+        }
+        encoder1.setComputePipelineState(p1)
+        encoder1.label = "TiledEncode.Pass1"
+
+        encoder1.setBuffer(input, offset: 0, index: 0)
+        encoder1.setBuffer(encoderWeights.buffer, offset: 0, index: 1)
+        encoder1.setBuffer(encoderBias?.buffer ?? input, offset: 0, index: 2)
+        encoder1.setBuffer(intermediateToken.buffer, offset: 0, index: 3)
+        encoder1.setBytes(&n, length: MemoryLayout<UInt32>.size, index: 4)
+        encoder1.setBytes(&d, length: MemoryLayout<UInt32>.size, index: 5)
+        encoder1.setBytes(&l, length: MemoryLayout<UInt32>.size, index: 6)
+        encoder1.setBytes(&hasBias, length: MemoryLayout<UInt32>.size, index: 7)
+
+        // Topology: Exactly 256 threads perfectly map to the 32x32 Blocked Logic
+        let threads1 = MTLSizeMake(256, 1, 1)
+        let grid1 = MTLSizeMake((numVectors + 31) / 32, (latentDim + 31) / 32, 1)
+        encoder1.dispatchThreadgroups(grid1, threadsPerThreadgroup: threads1)
+        encoder1.endEncoding()
+
+        // 3. PASS 2: Normalize & Quantize
+        guard let encoder2 = commandBuffer.makeComputeCommandEncoder() else {
+            throw VectorError.encoderCreationFailed()
+        }
+        encoder2.setComputePipelineState(p2)
+        encoder2.label = "TiledEncode.Pass2"
+
+        encoder2.setBuffer(intermediateToken.buffer, offset: 0, index: 0)
+        encoder2.setBuffer(output, offset: 0, index: 1)
+        encoder2.setBuffer(scale, offset: 0, index: 2)
+        encoder2.setBytes(&n, length: MemoryLayout<UInt32>.size, index: 3)
+        encoder2.setBytes(&l, length: MemoryLayout<UInt32>.size, index: 4)
+
+        let wQ = p2.threadExecutionWidth
+        let qThreadsX = min(256, ((latentDim + wQ - 1) / wQ) * wQ)
+        encoder2.dispatchThreadgroups(MTLSizeMake(numVectors, 1, 1), 
+                                     threadsPerThreadgroup: MTLSizeMake(qThreadsX, 1, 1))
+        encoder2.endEncoding()
+
+        // 4. Lifecycles
+        intermediateToken.keepAlive(until: commandBuffer)
+    }
+
     // MARK: - Decode API
 
     /// Decode latent codes (float) back to full vectors.
@@ -993,8 +1106,24 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     ) throws -> Metal4EncodingResult {
         let numVectors = Int(parameters.numVectors)
         let outputDim = Int(parameters.inputDimension)
+        let latentDim = Int(parameters.latentDimension)
 
-        encoder.setComputePipelineState(pipeline)
+        // Select the most optimized pipeline available for this dimension
+        var activePipeline = pipeline
+        var kernelName = "neural_dequantize_decode_2d_transposed_v2_kernel"
+
+        if outputDim == 768 && latentDim == 128, let p = optimizedDecode768_128Pipeline {
+            activePipeline = p
+            kernelName = "neural_dequantize_decode_768_128_transposed_kernel"
+        } else if outputDim == 768 && latentDim == 64, let p = optimizedDecode768_64Pipeline {
+            activePipeline = p
+            kernelName = "neural_dequantize_decode_768_64_transposed_kernel"
+        } else if outputDim == 384 && latentDim == 64, let p = optimizedDecode384_64Pipeline {
+            activePipeline = p
+            kernelName = "neural_dequantize_decode_384_64_transposed_kernel"
+        }
+
+        encoder.setComputePipelineState(activePipeline)
         encoder.label = "NeuralDequantizeDecodeTransposed"
 
         encoder.setBuffer(input, offset: 0, index: 0)
@@ -1018,7 +1147,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
 
         return Metal4EncodingResult(
-            pipelineName: "neural_dequantize_decode_2d_transposed_v2_kernel",
+            pipelineName: kernelName,
             threadgroups: threadgroups,
             threadsPerThreadgroup: threadsPerThreadgroup
         )

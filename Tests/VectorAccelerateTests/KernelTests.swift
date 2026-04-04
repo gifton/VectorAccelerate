@@ -117,13 +117,56 @@ final class L2DistanceKernelTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: - Helper
+
+    private func computeL2AllPairs(
+        queries: [[Float]], database: [[Float]], computeSqrt: Bool = true
+    ) async throws -> [[Float]] {
+        let numQ = queries.count
+        let numD = database.count
+        let dim = queries[0].count
+        let totalPairs = numQ * numD
+
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(totalPairs * dim)
+        for q in queries {
+            for _ in 0..<numD { flatQueries.append(contentsOf: q) }
+        }
+        var flatTargets = [Float]()
+        flatTargets.reserveCapacity(totalPairs * dim)
+        for _ in 0..<numQ {
+            for d in database { flatTargets.append(contentsOf: d) }
+        }
+
+        let qToken = try await context.getBuffer(for: flatQueries)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let outToken = try await context.getBuffer(size: totalPairs * MemoryLayout<Float>.size)
+
+        try await context.executeAndWait { [kernel] commandBuffer, encoder in
+            kernel!.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken, targetsToken: tToken, distancesToken: outToken,
+                numQueries: totalPairs, dimension: dim, computeSqrt: computeSqrt
+            )
+        }
+
+        let flat = outToken.copyData(as: Float.self, count: totalPairs)
+        var results = [[Float]]()
+        results.reserveCapacity(numQ)
+        for i in 0..<numQ {
+            results.append(Array(flat[i * numD ..< (i + 1) * numD]))
+        }
+        return results
+    }
+
     // MARK: - Basic Tests
 
     func testSmallVectors() async throws {
         let queries = Metal4KernelTestHelpers.randomVectors(count: 2, dimension: 4)
         let database = Metal4KernelTestHelpers.randomVectors(count: 3, dimension: 4)
 
-        let results = try await kernel.compute(queries: queries, database: database)
+        let results = try await computeL2AllPairs(queries: queries, database: database)
 
         XCTAssertEqual(results.count, 2)
         XCTAssertEqual(results[0].count, 3)
@@ -141,7 +184,7 @@ final class L2DistanceKernelTests: XCTestCase {
         let queries = Metal4KernelTestHelpers.randomVectors(count: 2, dimension: 4)
         let database = Metal4KernelTestHelpers.randomVectors(count: 3, dimension: 4)
 
-        let results = try await kernel.compute(queries: queries, database: database, computeSqrt: false)
+        let results = try await computeL2AllPairs(queries: queries, database: database, computeSqrt: false)
 
         for i in 0..<queries.count {
             for j in 0..<database.count {
@@ -157,7 +200,7 @@ final class L2DistanceKernelTests: XCTestCase {
         let queries = Metal4KernelTestHelpers.randomVectors(count: 10, dimension: 384)
         let database = Metal4KernelTestHelpers.randomVectors(count: 50, dimension: 384)
 
-        let results = try await kernel.compute(queries: queries, database: database)
+        let results = try await computeL2AllPairs(queries: queries, database: database)
 
         XCTAssertEqual(results.count, 10)
         XCTAssertEqual(results[0].count, 50)
@@ -171,7 +214,7 @@ final class L2DistanceKernelTests: XCTestCase {
         let queries = Metal4KernelTestHelpers.randomVectors(count: 5, dimension: 768)
         let database = Metal4KernelTestHelpers.randomVectors(count: 20, dimension: 768)
 
-        let results = try await kernel.compute(queries: queries, database: database)
+        let results = try await computeL2AllPairs(queries: queries, database: database)
 
         XCTAssertEqual(results.count, 5)
         XCTAssertEqual(results[0].count, 20)
@@ -184,7 +227,7 @@ final class L2DistanceKernelTests: XCTestCase {
         let queries = Metal4KernelTestHelpers.randomVectors(count: 3, dimension: 1536)
         let database = Metal4KernelTestHelpers.randomVectors(count: 10, dimension: 1536)
 
-        let results = try await kernel.compute(queries: queries, database: database)
+        let results = try await computeL2AllPairs(queries: queries, database: database)
 
         XCTAssertEqual(results.count, 3)
         XCTAssertEqual(results[0].count, 10)
@@ -199,7 +242,7 @@ final class L2DistanceKernelTests: XCTestCase {
         let queries = Metal4KernelTestHelpers.randomVectors(count: 1, dimension: 128)
         let database = Metal4KernelTestHelpers.randomVectors(count: 100, dimension: 128)
 
-        let results = try await kernel.compute(queries: queries, database: database)
+        let results = try await computeL2AllPairs(queries: queries, database: database)
 
         XCTAssertEqual(results.count, 1)
         XCTAssertEqual(results[0].count, 100)
@@ -209,7 +252,7 @@ final class L2DistanceKernelTests: XCTestCase {
         let queries = Metal4KernelTestHelpers.randomVectors(count: 100, dimension: 128)
         let database = Metal4KernelTestHelpers.randomVectors(count: 1, dimension: 128)
 
-        let results = try await kernel.compute(queries: queries, database: database)
+        let results = try await computeL2AllPairs(queries: queries, database: database)
 
         XCTAssertEqual(results.count, 100)
         XCTAssertEqual(results[0].count, 1)
@@ -217,15 +260,9 @@ final class L2DistanceKernelTests: XCTestCase {
 
     // MARK: - Protocol Conformance Tests
 
-    func testOptimizedDimensions() {
-        XCTAssertTrue(kernel.hasOptimizedPipeline(for: 384))
-        XCTAssertTrue(kernel.hasOptimizedPipeline(for: 768))
-        XCTAssertFalse(kernel.hasOptimizedPipeline(for: 256))
-    }
-
-    func testFusibleWith() {
-        XCTAssertTrue(kernel.fusibleWith.contains("TopKSelection"))
-        XCTAssertTrue(kernel.requiresBarrierAfter)
+    func testMetal4KernelConformance() {
+        XCTAssertTrue(kernel is any Metal4Kernel)
+        XCTAssertEqual(kernel.name, "L2DistanceKernel")
     }
 }
 
@@ -252,13 +289,56 @@ final class CosineSimilarityKernelTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: - Helper
+
+    private func computeCosineAllPairs(
+        queries: [[Float]], database: [[Float]], outputDistance: Bool = false
+    ) async throws -> [[Float]] {
+        let numQ = queries.count
+        let numD = database.count
+        let dim = queries[0].count
+        let totalPairs = numQ * numD
+
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(totalPairs * dim)
+        for q in queries {
+            for _ in 0..<numD { flatQueries.append(contentsOf: q) }
+        }
+        var flatTargets = [Float]()
+        flatTargets.reserveCapacity(totalPairs * dim)
+        for _ in 0..<numQ {
+            for d in database { flatTargets.append(contentsOf: d) }
+        }
+
+        let qToken = try await context.getBuffer(for: flatQueries)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let outToken = try await context.getBuffer(size: totalPairs * MemoryLayout<Float>.size)
+
+        try await context.executeAndWait { [kernel] commandBuffer, encoder in
+            kernel!.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken, targetsToken: tToken, similaritiesToken: outToken,
+                numQueries: totalPairs, dimension: dim, outputDistance: outputDistance
+            )
+        }
+
+        let flat = outToken.copyData(as: Float.self, count: totalPairs)
+        var results = [[Float]]()
+        results.reserveCapacity(numQ)
+        for i in 0..<numQ {
+            results.append(Array(flat[i * numD ..< (i + 1) * numD]))
+        }
+        return results
+    }
+
     // MARK: - Basic Tests
 
     func testSmallVectors() async throws {
         let queries = Metal4KernelTestHelpers.randomVectors(count: 2, dimension: 4)
         let database = Metal4KernelTestHelpers.randomVectors(count: 3, dimension: 4)
 
-        let results = try await kernel.compute(queries: queries, database: database)
+        let results = try await computeCosineAllPairs(queries: queries, database: database)
 
         XCTAssertEqual(results.count, 2)
         XCTAssertEqual(results[0].count, 3)
@@ -276,11 +356,7 @@ final class CosineSimilarityKernelTests: XCTestCase {
         let database = Metal4KernelTestHelpers.normalizedVectors(count: 10, dimension: 64)
 
         // When inputs are normalized, dot product equals cosine similarity
-        let results = try await kernel.compute(
-            queries: queries,
-            database: database,
-            inputsNormalized: true
-        )
+        let results = try await computeCosineAllPairs(queries: queries, database: database)
 
         for i in 0..<queries.count {
             for j in 0..<database.count {
@@ -294,10 +370,8 @@ final class CosineSimilarityKernelTests: XCTestCase {
         let queries = Metal4KernelTestHelpers.randomVectors(count: 2, dimension: 8)
         let database = Metal4KernelTestHelpers.randomVectors(count: 3, dimension: 8)
 
-        let results = try await kernel.compute(
-            queries: queries,
-            database: database,
-            outputDistance: true
+        let results = try await computeCosineAllPairs(
+            queries: queries, database: database, outputDistance: true
         )
 
         for i in 0..<queries.count {
@@ -315,7 +389,7 @@ final class CosineSimilarityKernelTests: XCTestCase {
         let queries = Metal4KernelTestHelpers.randomVectors(count: 5, dimension: 768)
         let database = Metal4KernelTestHelpers.randomVectors(count: 20, dimension: 768)
 
-        let results = try await kernel.compute(queries: queries, database: database)
+        let results = try await computeCosineAllPairs(queries: queries, database: database)
 
         XCTAssertEqual(results.count, 5)
         XCTAssertEqual(results[0].count, 20)
@@ -330,7 +404,7 @@ final class CosineSimilarityKernelTests: XCTestCase {
         let queries = Metal4KernelTestHelpers.randomVectors(count: 10, dimension: 64)
         let database = Metal4KernelTestHelpers.randomVectors(count: 20, dimension: 64)
 
-        let results = try await kernel.compute(queries: queries, database: database)
+        let results = try await computeCosineAllPairs(queries: queries, database: database)
 
         for row in results {
             for value in row {
@@ -468,84 +542,53 @@ final class Metal4KernelFusionTests: XCTestCase {
         let l2Kernel = try await L2DistanceKernel(context: context)
         let cosineKernel = try await CosineSimilarityKernel(context: context)
 
-        let device = context.device.rawDevice
+        // Create test data -- 1:1 pairing (10 pairs of 128-dim vectors)
+        let numPairs = 10
+        let dim = 128
 
-        // Create test data
-        let queries = Metal4KernelTestHelpers.randomVectors(count: 10, dimension: 128)
-        let database = Metal4KernelTestHelpers.randomVectors(count: 50, dimension: 128)
+        let queriesData = Metal4KernelTestHelpers.randomVectors(count: numPairs, dimension: dim)
+        let targetsData = Metal4KernelTestHelpers.randomVectors(count: numPairs, dimension: dim)
 
-        let flatQueries = queries.flatMap { $0 }
-        let flatDatabase = database.flatMap { $0 }
+        let flatQueries = queriesData.flatMap { $0 }
+        let flatTargets = targetsData.flatMap { $0 }
 
-        let queryBuffer = device.makeBuffer(
-            bytes: flatQueries,
-            length: flatQueries.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        )!
-
-        let databaseBuffer = device.makeBuffer(
-            bytes: flatDatabase,
-            length: flatDatabase.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        )!
-
-        let l2OutputBuffer = device.makeBuffer(
-            length: 10 * 50 * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        )!
-
-        let cosineOutputBuffer = device.makeBuffer(
-            length: 10 * 50 * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        )!
+        let qToken = try await context.getBuffer(for: flatQueries)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let l2OutToken = try await context.getBuffer(size: numPairs * MemoryLayout<Float>.size)
+        let cosineOutToken = try await context.getBuffer(size: numPairs * MemoryLayout<Float>.size)
 
         // Execute both kernels in a single command buffer (fusion)
-        try await context.executeAndWait { _, encoder in
-            // Encode L2 distance
-            let l2Result = l2Kernel.encode(
+        try await context.executeAndWait { commandBuffer, encoder in
+            // Encode L2 distance (1:1 pairs)
+            l2Kernel.encode(
                 into: encoder,
-                queries: queryBuffer,
-                database: databaseBuffer,
-                distances: l2OutputBuffer,
-                parameters: L2DistanceParameters(
-                    numQueries: 10,
-                    numDatabase: 50,
-                    dimension: 128
-                )
+                commandBuffer: commandBuffer,
+                queriesToken: qToken, targetsToken: tToken, distancesToken: l2OutToken,
+                numQueries: numPairs, dimension: dim, computeSqrt: true
             )
-            XCTAssertEqual(l2Result.pipelineName, "l2_distance_kernel")
 
-            // Barrier between operations
-            encoder.memoryBarrier(scope: .buffers)
-
-            // Encode cosine similarity
-            let cosineResult = cosineKernel.encode(
+            // Encode cosine similarity (1:1 pairs)
+            cosineKernel.encode(
                 into: encoder,
-                queries: queryBuffer,
-                database: databaseBuffer,
-                output: cosineOutputBuffer,
-                parameters: CosineSimilarityParameters(
-                    numQueries: 10,
-                    numDatabase: 50,
-                    dimension: 128
-                )
+                commandBuffer: commandBuffer,
+                queriesToken: qToken, targetsToken: tToken, similaritiesToken: cosineOutToken,
+                numQueries: numPairs, dimension: dim, outputDistance: false
             )
-            XCTAssertEqual(cosineResult.pipelineName, "cosine_similarity_general_kernel")
         }
 
         // Verify both outputs are valid
-        let l2Pointer = l2OutputBuffer.contents().bindMemory(to: Float.self, capacity: 500)
-        let cosinePointer = cosineOutputBuffer.contents().bindMemory(to: Float.self, capacity: 500)
+        let l2Results = l2OutToken.copyData(as: Float.self, count: numPairs)
+        let cosineResults = cosineOutToken.copyData(as: Float.self, count: numPairs)
 
         // L2 distances should be non-negative
-        for i in 0..<500 {
-            XCTAssertGreaterThanOrEqual(l2Pointer[i], 0)
+        for i in 0..<numPairs {
+            XCTAssertGreaterThanOrEqual(l2Results[i], 0)
         }
 
         // Cosine similarities should be in [-1, 1]
-        for i in 0..<500 {
-            XCTAssertGreaterThanOrEqual(cosinePointer[i], -1.1)
-            XCTAssertLessThanOrEqual(cosinePointer[i], 1.1)
+        for i in 0..<numPairs {
+            XCTAssertGreaterThanOrEqual(cosineResults[i], -1.1)
+            XCTAssertLessThanOrEqual(cosineResults[i], 1.1)
         }
     }
 }
@@ -1552,120 +1595,119 @@ final class Metal4DistanceTopKFusionTests: XCTestCase {
         super.tearDown()
     }
 
-    func testL2DistanceTopKFusion() async throws {
+    func testL2DistanceThenTopK() async throws {
         let l2Kernel = try await L2DistanceKernel(context: context)
         let topKKernel = try await TopKSelectionKernel(context: context)
 
-        // Use the fusedDistanceTopK helper
         let queries = Metal4KernelTestHelpers.randomVectors(count: 5, dimension: 64)
         let database = Metal4KernelTestHelpers.randomVectors(count: 100, dimension: 64)
         let k = 10
+        let numQ = queries.count
+        let numD = database.count
+        let dim = queries[0].count
+        let totalPairs = numQ * numD
 
-        let device = context.device.rawDevice
-        let flatQueries = queries.flatMap { $0 }
-        let flatDatabase = database.flatMap { $0 }
-
-        guard let queryBuffer = device.makeBuffer(
-            bytes: flatQueries,
-            length: flatQueries.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw XCTSkip("Failed to create query buffer")
+        // Build all-pairs 1:1 replication
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(totalPairs * dim)
+        for q in queries {
+            for _ in 0..<numD { flatQueries.append(contentsOf: q) }
+        }
+        var flatTargets = [Float]()
+        flatTargets.reserveCapacity(totalPairs * dim)
+        for _ in 0..<numQ {
+            for d in database { flatTargets.append(contentsOf: d) }
         }
 
-        guard let databaseBuffer = device.makeBuffer(
-            bytes: flatDatabase,
-            length: flatDatabase.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw XCTSkip("Failed to create database buffer")
+        let qToken = try await context.getBuffer(for: flatQueries)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let distToken = try await context.getBuffer(size: totalPairs * MemoryLayout<Float>.size)
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            l2Kernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken, targetsToken: tToken, distancesToken: distToken,
+                numQueries: totalPairs, dimension: dim, computeSqrt: true
+            )
         }
 
-        let params = L2DistanceParameters(
-            numQueries: 5,
-            numDatabase: 100,
-            dimension: 64
+        // Reshape into per-query rows and feed to TopK
+        let flat = distToken.copyData(as: Float.self, count: totalPairs)
+        var distanceRows = [[Float]]()
+        for i in 0..<numQ {
+            distanceRows.append(Array(flat[i * numD ..< (i + 1) * numD]))
+        }
+
+        let topKResults = try await topKKernel.select(
+            from: distanceRows, k: k, mode: .minimum, sorted: true
         )
 
-        let result = try await topKKernel.fusedDistanceTopK(
-            distanceKernel: l2Kernel,
-            queries: queryBuffer,
-            database: databaseBuffer,
-            distanceParams: params,
-            k: k,
-            mode: .minimum
-        )
-
-        XCTAssertEqual(result.batchSize, 5)
-        XCTAssertEqual(result.k, k)
-
-        let allResults = result.allResults()
-        XCTAssertEqual(allResults.count, 5)
+        XCTAssertEqual(topKResults.count, numQ)
 
         // Verify each query has valid results
-        for queryResults in allResults {
+        for queryResults in topKResults {
             XCTAssertEqual(queryResults.count, k)
             for res in queryResults {
                 XCTAssertGreaterThanOrEqual(res.index, 0)
-                XCTAssertLessThan(res.index, 100)
+                XCTAssertLessThan(res.index, numD)
                 XCTAssertGreaterThanOrEqual(res.value, 0)  // L2 distances are non-negative
             }
         }
     }
 
-    func testCosineSimilarityTopKFusion() async throws {
+    func testCosineSimilarityThenTopK() async throws {
         let cosineKernel = try await CosineSimilarityKernel(context: context)
         let topKKernel = try await TopKSelectionKernel(context: context)
 
         let queries = Metal4KernelTestHelpers.normalizedVectors(count: 5, dimension: 64)
         let database = Metal4KernelTestHelpers.normalizedVectors(count: 100, dimension: 64)
         let k = 10
+        let numQ = queries.count
+        let numD = database.count
+        let dim = queries[0].count
+        let totalPairs = numQ * numD
 
-        let device = context.device.rawDevice
-        let flatQueries = queries.flatMap { $0 }
-        let flatDatabase = database.flatMap { $0 }
-
-        guard let queryBuffer = device.makeBuffer(
-            bytes: flatQueries,
-            length: flatQueries.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw XCTSkip("Failed to create query buffer")
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(totalPairs * dim)
+        for q in queries {
+            for _ in 0..<numD { flatQueries.append(contentsOf: q) }
+        }
+        var flatTargets = [Float]()
+        flatTargets.reserveCapacity(totalPairs * dim)
+        for _ in 0..<numQ {
+            for d in database { flatTargets.append(contentsOf: d) }
         }
 
-        guard let databaseBuffer = device.makeBuffer(
-            bytes: flatDatabase,
-            length: flatDatabase.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw XCTSkip("Failed to create database buffer")
+        let qToken = try await context.getBuffer(for: flatQueries)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let simToken = try await context.getBuffer(size: totalPairs * MemoryLayout<Float>.size)
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            cosineKernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken, targetsToken: tToken, similaritiesToken: simToken,
+                numQueries: totalPairs, dimension: dim, outputDistance: false
+            )
         }
 
-        let params = CosineSimilarityParameters(
-            numQueries: 5,
-            numDatabase: 100,
-            dimension: 64,
-            inputsNormalized: true
-        )
+        let flat = simToken.copyData(as: Float.self, count: totalPairs)
+        var simRows = [[Float]]()
+        for i in 0..<numQ {
+            simRows.append(Array(flat[i * numD ..< (i + 1) * numD]))
+        }
 
         // For similarity, we want maximum values
-        let result = try await topKKernel.fusedDistanceTopK(
-            distanceKernel: cosineKernel,
-            queries: queryBuffer,
-            database: databaseBuffer,
-            distanceParams: params,
-            k: k,
-            mode: .maximum
+        let topKResults = try await topKKernel.select(
+            from: simRows, k: k, mode: .maximum, sorted: true
         )
 
-        XCTAssertEqual(result.batchSize, 5)
-        XCTAssertEqual(result.k, k)
-
-        let allResults = result.allResults()
-        XCTAssertEqual(allResults.count, 5)
+        XCTAssertEqual(topKResults.count, numQ)
 
         // Verify results are sorted descending (for maximum mode)
-        for queryResults in allResults {
+        for queryResults in topKResults {
+            XCTAssertEqual(queryResults.count, k)
             for i in 1..<queryResults.count {
                 XCTAssertLessThanOrEqual(queryResults[i].value, queryResults[i-1].value)
             }
@@ -3733,26 +3775,69 @@ final class Metal4ThreadConfigurationTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: - Helper
+
+    private func computeL2AllPairs(
+        queries: [[Float]], database: [[Float]]
+    ) async throws -> [[Float]] {
+        let numQ = queries.count
+        let numD = database.count
+        let dim = queries[0].count
+        let totalPairs = numQ * numD
+
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(totalPairs * dim)
+        for q in queries {
+            for _ in 0..<numD { flatQueries.append(contentsOf: q) }
+        }
+        var flatTargets = [Float]()
+        flatTargets.reserveCapacity(totalPairs * dim)
+        for _ in 0..<numQ {
+            for d in database { flatTargets.append(contentsOf: d) }
+        }
+
+        let qToken = try await context.getBuffer(for: flatQueries)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let outToken = try await context.getBuffer(size: totalPairs * MemoryLayout<Float>.size)
+
+        try await context.executeAndWait { [kernel] commandBuffer, encoder in
+            kernel!.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken, targetsToken: tToken, distancesToken: outToken,
+                numQueries: totalPairs, dimension: dim, computeSqrt: true
+            )
+        }
+
+        let flat = outToken.copyData(as: Float.self, count: totalPairs)
+        var results = [[Float]]()
+        results.reserveCapacity(numQ)
+        for i in 0..<numQ {
+            results.append(Array(flat[i * numD ..< (i + 1) * numD]))
+        }
+        return results
+    }
+
     func testSmallWorkload() async throws {
         // Very small workload should still work
         let queries = Metal4KernelTestHelpers.randomVectors(count: 1, dimension: 4)
         let database = Metal4KernelTestHelpers.randomVectors(count: 1, dimension: 4)
 
-        let results = try await kernel.compute(queries: queries, database: database)
+        let results = try await computeL2AllPairs(queries: queries, database: database)
 
         XCTAssertEqual(results.count, 1)
         XCTAssertEqual(results[0].count, 1)
     }
 
     func testLargeWorkload() async throws {
-        // Larger workload to test thread configuration
-        let queries = Metal4KernelTestHelpers.randomVectors(count: 100, dimension: 256)
-        let database = Metal4KernelTestHelpers.randomVectors(count: 1000, dimension: 256)
+        // Reduced: 1:1 replication creates N*M*D flat buffers, capped at 64 MB pool bucket
+        let queries = Metal4KernelTestHelpers.randomVectors(count: 20, dimension: 256)
+        let database = Metal4KernelTestHelpers.randomVectors(count: 200, dimension: 256)
 
-        let results = try await kernel.compute(queries: queries, database: database)
+        let results = try await computeL2AllPairs(queries: queries, database: database)
 
-        XCTAssertEqual(results.count, 100)
-        XCTAssertEqual(results[0].count, 1000)
+        XCTAssertEqual(results.count, 20)
+        XCTAssertEqual(results[0].count, 200)
     }
 
     func testAsymmetricWorkload() async throws {
@@ -3760,7 +3845,7 @@ final class Metal4ThreadConfigurationTests: XCTestCase {
         let queries = Metal4KernelTestHelpers.randomVectors(count: 500, dimension: 64)
         let database = Metal4KernelTestHelpers.randomVectors(count: 10, dimension: 64)
 
-        let results = try await kernel.compute(queries: queries, database: database)
+        let results = try await computeL2AllPairs(queries: queries, database: database)
 
         XCTAssertEqual(results.count, 500)
         XCTAssertEqual(results[0].count, 10)
