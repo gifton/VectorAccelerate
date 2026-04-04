@@ -4,7 +4,7 @@
 // ============================================================================
 // METAL 4 ONLY - BREAKING CHANGE
 // ============================================================================
-// VectorAccelerate 0.3.0+ is Metal 4 ONLY and requires:
+// VectorAccelerate 0.4.0+ is Metal 4 ONLY and requires:
 //   - macOS 26.0+ (Tahoe)
 //   - iOS 26.0+
 //   - tvOS 26.0+
