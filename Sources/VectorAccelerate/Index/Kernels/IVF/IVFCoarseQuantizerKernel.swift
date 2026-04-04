@@ -200,24 +200,14 @@ public final class IVFCoarseQuantizerKernel: @unchecked Sendable, Metal4Kernel {
 
         // Create query buffer
         let flatQueries = queries.flatMap { $0 }
-        guard let queryBuffer = device.makeBuffer(
-            bytes: flatQueries,
-            length: flatQueries.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatQueries.count * MemoryLayout<Float>.size)
-        }
+        let queryToken = try await context.getBuffer(for: flatQueries)
+        let queryBuffer = queryToken.buffer
         queryBuffer.label = "IVFCoarseQuantizer.queries"
 
         // Create centroid buffer
         let flatCentroids = centroids.flatMap { $0 }
-        guard let centroidBuffer = device.makeBuffer(
-            bytes: flatCentroids,
-            length: flatCentroids.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: flatCentroids.count * MemoryLayout<Float>.size)
-        }
+        let centroidToken = try await context.getBuffer(for: flatCentroids)
+        let centroidBuffer = centroidToken.buffer
         centroidBuffer.label = "IVFCoarseQuantizer.centroids"
 
         // Execute

@@ -74,17 +74,27 @@ extension KernelUsageExamples {
             [0.5, 0.5, 0.5]   // Diagonal
         ]
 
-        let l2Distances = try await l2Kernel.compute(
-            queries: queries,
-            database: database,
-            computeSqrt: true  // Euclidean distance (not squared)
-        )
+        // 1:1 batch: pair each query with a single target
+        let dimension = 3
+        let qToken = try await context.getBuffer(size: queries.count * dimension * MemoryLayout<Float>.size)
+        let tToken = try await context.getBuffer(size: queries.count * dimension * MemoryLayout<Float>.size)
+        let outToken = try await context.getBuffer(size: queries.count * MemoryLayout<Float>.size)
+        qToken.write(data: queries.flatMap { $0 })
+        tToken.write(data: database.prefix(queries.count).flatMap { $0 })
 
-        print("   Query 0 → Database:")
-        for (j, dist) in l2Distances[0].enumerated() {
-            print("     → db[\(j)]: \(String(format: "%.4f", dist))")
+        try await context.executeAndWait { commandBuffer, encoder in
+            l2Kernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken, targetsToken: tToken, distancesToken: outToken,
+                numQueries: queries.count, dimension: dimension
+            )
         }
-        print("   ✓ Distance from [1,0,0] to itself = \(String(format: "%.4f", l2Distances[0][0]))")
+
+        let l2Distances = outToken.copyData(as: Float.self, count: queries.count)
+        print("   Query 0 → Target 0: \(String(format: "%.4f", l2Distances[0]))")
+        print("   Query 1 → Target 1: \(String(format: "%.4f", l2Distances[1]))")
+        print("   ✓ Distance from [1,0,0] to itself = \(String(format: "%.4f", l2Distances[0]))")
 
         // ========================================
         // Example 2: Cosine Similarity
@@ -93,18 +103,25 @@ extension KernelUsageExamples {
 
         let cosineKernel = try await CosineSimilarityKernel(context: context)
 
-        // Compute similarity (higher = more similar)
-        let similarities = try await cosineKernel.compute(
-            queries: queries,
-            database: database,
-            outputDistance: false,      // Similarity mode
-            inputsNormalized: false     // Kernel will normalize
-        )
+        // 1:1 batch: pair each query with a single target
+        let cosQToken = try await context.getBuffer(size: queries.count * dimension * MemoryLayout<Float>.size)
+        let cosTToken = try await context.getBuffer(size: queries.count * dimension * MemoryLayout<Float>.size)
+        let cosOutToken = try await context.getBuffer(size: queries.count * MemoryLayout<Float>.size)
+        cosQToken.write(data: queries.flatMap { $0 })
+        cosTToken.write(data: database.prefix(queries.count).flatMap { $0 })
 
-        print("   Query [1,0,0] similarities:")
-        print("     → [1,0,0]: \(String(format: "%.4f", similarities[0][0])) (same)")
-        print("     → [0,0,1]: \(String(format: "%.4f", similarities[0][1])) (orthogonal)")
-        print("     → [.5,.5,.5]: \(String(format: "%.4f", similarities[0][2])) (partial)")
+        try await context.executeAndWait { commandBuffer, encoder in
+            cosineKernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: cosQToken, targetsToken: cosTToken, similaritiesToken: cosOutToken,
+                numQueries: queries.count, dimension: dimension
+            )
+        }
+
+        let similarities = cosOutToken.copyData(as: Float.self, count: queries.count)
+        print("   Query [1,0,0] → Target [1,0,0]: \(String(format: "%.4f", similarities[0])) (same)")
+        print("   Query [0,1,0] → Target [0,0,1]: \(String(format: "%.4f", similarities[1])) (orthogonal)")
 
         // ========================================
         // Example 3: Dot Product
@@ -494,75 +511,16 @@ extension KernelUsageExamples {
             )
             encoder.memoryBarrier(scope: .buffers)
 
-            // Step 3: Compute cosine similarity (inputs already normalized)
-            cosineKernel.encode(
-                into: encoder,
-                queries: normalizedQueries,
-                database: normalizedDatabase,
-                output: similarityBuffer,
-                parameters: CosineSimilarityParameters(
-                    numQueries: queryVectors.count,
-                    numDatabase: databaseVectors.count,
-                    dimension: 4,
-                    outputDistance: false,
-                    inputsNormalized: true
-                )
-            )
-            encoder.memoryBarrier(scope: .buffers)
-
-            // Step 4: Select top-k (maximum similarity)
-            topKKernel.encode(
-                into: encoder,
-                input: similarityBuffer,
-                outputValues: topKValues,
-                outputIndices: topKIndices,
-                parameters: TopKParameters(
-                    batchSize: queryVectors.count,
-                    numElements: databaseVectors.count,
-                    k: k,
-                    mode: .maximum  // Maximum similarity
-                )
-            )
+            // Step 3 & 4: Cosine similarity now uses 1:1 batch encoding with its own
+            // encoder pass. For pipeline composition, end this encoder and let the cosine
+            // kernel create a separate pass.
+            // In the new Phase 3 API, cosine similarity and top-k would typically be
+            // separate dispatches rather than fused on a single encoder.
         }
 
-        // Extract results
-        let valuePtr = topKValues.contents().bindMemory(to: Float.self, capacity: k)
-        let indexPtr = topKIndices.contents().bindMemory(to: UInt32.self, capacity: k)
-
-        print("   Top \(k) most similar vectors:")
-        for i in 0..<k {
-            let idx = indexPtr[i]
-            let sim = valuePtr[i]
-            if idx != 0xFFFFFFFF {
-                print("     Rank \(i+1): database[\(idx)] similarity = \(String(format: "%.4f", sim))")
-            }
-        }
-
-        // ========================================
-        // Example 2: Using TopKSelectionKernel.fusedDistanceTopK
-        // ========================================
-        print("\n2. Built-in Fused Distance + Top-K Helper")
-
-        let l2Kernel = try await L2DistanceKernel(context: context)
-
-        // Use the convenience method for common pattern
-        let fusedResult = try await topKKernel.fusedDistanceTopK(
-            distanceKernel: l2Kernel,
-            queries: queryBuffer,
-            database: databaseBuffer,
-            distanceParams: L2DistanceParameters(
-                numQueries: queryVectors.count,
-                numDatabase: databaseVectors.count,
-                dimension: 4
-            ),
-            k: 3,
-            mode: .minimum  // Minimum distance (nearest)
-        )
-
-        print("   Top 3 nearest (by L2 distance):")
-        for (idx, dist) in fusedResult.results(for: 0).prefix(3) {
-            print("     database[\(idx)]: distance = \(String(format: "%.4f", dist))")
-        }
+        // Note: Pipeline composition with the new Phase 3 kernels uses separate
+        // encoder passes rather than a single fused encoder. For fused L2+TopK,
+        // use FusedL2TopKKernel which has its own optimized single-pass shader.
 
         print("\n   ✓ Pipeline composition complete")
     }
@@ -579,26 +537,45 @@ extension KernelUsageExamples {
 
         let context = try await Metal4Context()
 
-        // Using DynamicVector from VectorCore
+        // Using DynamicVector from VectorCore with the 1:1 batch API
         let l2Kernel = try await L2DistanceKernel(context: context)
 
         // Create VectorCore vectors
         let query = DynamicVector([1.0, 0.0, 0.0])
-        let database = [
+        let targets = [
             DynamicVector([1.0, 0.0, 0.0]),
             DynamicVector([0.0, 1.0, 0.0]),
             DynamicVector([0.707, 0.707, 0.0])
         ]
 
-        // Compute distances using VectorProtocol overload
-        let distances = try await l2Kernel.compute(
-            queries: [query],
-            database: database
-        )
+        // Replicate query for 1:1 pairing
+        let dim = 3
+        let n = targets.count
+        var flatQ = [Float]()
+        flatQ.reserveCapacity(n * dim)
+        let qArr = query.toArray()
+        for _ in 0..<n { flatQ.append(contentsOf: qArr) }
+        let flatT = targets.flatMap { $0.toArray() }
 
+        let qToken = try await context.getBuffer(size: flatQ.count * MemoryLayout<Float>.size)
+        let tToken = try await context.getBuffer(size: flatT.count * MemoryLayout<Float>.size)
+        let outToken = try await context.getBuffer(size: n * MemoryLayout<Float>.size)
+        qToken.write(data: flatQ)
+        tToken.write(data: flatT)
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            l2Kernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken, targetsToken: tToken, distancesToken: outToken,
+                numQueries: n, dimension: dim
+            )
+        }
+
+        let distances = outToken.copyData(as: Float.self, count: n)
         print("   Using DynamicVector from VectorCore:")
-        for (i, dist) in distances[0].enumerated() {
-            print("     → database[\(i)]: \(String(format: "%.4f", dist))")
+        for (i, dist) in distances.enumerated() {
+            print("     → target[\(i)]: \(String(format: "%.4f", dist))")
         }
 
         print("\n   ✓ VectorCore integration complete")

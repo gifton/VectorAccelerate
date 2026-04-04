@@ -7,276 +7,122 @@
 
 #include "Metal4Common.h"
 
-// MARK: - Optimized SIMD-Tiled KMeans Assignment Kernels
+// MARK: - Optimized Tiled KMeans Assignment (Register-Cached)
 
-/// Arguments struct for optimized KMeans assignment kernels
-struct KMeansAssignArgs {
-    uint dimension;
-    uint numVectors;
-    uint numCentroids;
-    uint _padding;
-};
-
-// Tiling constants for SIMD-tiled KMeans (VA_SIMD_WIDTH from Metal4Common.h)
-constant uint VA_CENTROID_TILE   = 32;   // Centroids per tile (matches SIMD width)
-constant uint VA_DIM_TILE        = 32;   // Dimensions per tile (8 float4s)
-constant uint VA_DIM_TILE4       = 8;    // VA_DIM_TILE / 4
-
-// 512-thread variant: 16 simdgroups => 16 vectors per threadgroup
-constant uint VA_VECTORS_PER_TG_512 = 16;
-constant uint VA_TG_SIZE_512        = 512; // VA_VECTORS_PER_TG_512 * VA_SIMD_WIDTH
-
-/// High-performance simdgroup-cooperative KMeans assignment kernel (512-thread variant)
-///
-/// Each simdgroup processes one vector, with 32 lanes evaluating 32 centroids in parallel.
-/// Uses tiled memory access for optimal cache utilization.
-///
-/// - Performance: ~10-20x faster than legacy kernel for typical PQ training workloads
-kernel void assign_to_centroids_simd_tiled_512(
-    device const float*      vectors     [[buffer(0)]],
-    device const float*      centroids   [[buffer(1)]],
-    device uint*             assignments [[buffer(2)]],
-    device float*            distances   [[buffer(3)]],
-    constant KMeansAssignArgs& args      [[buffer(4)]],
-    uint3  tg_pos    [[threadgroup_position_in_grid]],
-    uint   tid       [[thread_index_in_threadgroup]],
-    uint   lane      [[thread_index_in_simdgroup]],
-    uint   sgid      [[simdgroup_index_in_threadgroup]])
-{
-    const uint dimensions    = args.dimension;
-    const uint num_vectors   = args.numVectors;
-    const uint num_centroids = args.numCentroids;
-
-    // One simdgroup processes one vector
-    const uint vector_index  = tg_pos.x * VA_VECTORS_PER_TG_512 + sgid;
-    const bool vector_active = (vector_index < num_vectors);
-
-    // Threadgroup staging:
-    // vectors staged as float4: [vectorsPerTG][DIM_TILE4]
-    // centroids staged as float4, transposed by (d4, centroid): [DIM_TILE4][CENTROID_TILE]
-    threadgroup float4 tg_vectors4[VA_VECTORS_PER_TG_512 * VA_DIM_TILE4];
-    threadgroup float4 tg_centroids4[VA_DIM_TILE4 * VA_CENTROID_TILE];
-
-    float best_dist = VA_INFINITY;
-    uint  best_centroid = 0;
-
-    for (uint c_base = 0; c_base < num_centroids; c_base += VA_CENTROID_TILE) {
-        const uint centroid_index = c_base + lane;
-        float dist = 0.0f;
-
-        for (uint d_base = 0; d_base < dimensions; d_base += VA_DIM_TILE) {
-
-            // 1) Load this vector's tile (8 float4s) into threadgroup memory.
-            // Only first 8 lanes participate (one float4 per lane).
-            if (lane < VA_DIM_TILE4) {
-                const uint d = d_base + lane * 4;
-
-                float4 v = float4(0.0f);
-                if (vector_active) {
-                    const ulong v_off = (ulong)vector_index * (ulong)dimensions;
-
-                    if (d + 0 < dimensions) v[0] = vectors[v_off + (d + 0)];
-                    if (d + 1 < dimensions) v[1] = vectors[v_off + (d + 1)];
-                    if (d + 2 < dimensions) v[2] = vectors[v_off + (d + 2)];
-                    if (d + 3 < dimensions) v[3] = vectors[v_off + (d + 3)];
-                }
-                tg_vectors4[sgid * VA_DIM_TILE4 + lane] = v;
+// -----------------------------------------------------------------------------
+// K-Means Assignment (Tiled Shared Memory + Register Caching)
+// 1 Thread = 1 Vector (evaluating against all centroids in a loaded tile)
+// -----------------------------------------------------------------------------
+kernel void kmeans_assign_points(
+    device const float* vectors [[buffer(0)]],
+    device const float* centroids [[buffer(1)]],
+    device uint* assignments [[buffer(2)]],
+    device float* distances [[buffer(3)]],
+    constant uint& num_vectors [[buffer(4)]],
+    constant uint& num_centroids [[buffer(5)]],
+    constant uint& dimension [[buffer(6)]],
+    constant uint& tile_capacity [[buffer(7)]],
+    threadgroup float* tile_centroids [[threadgroup(0)]], // Dynamically bounded 32KB block
+    uint gid [[thread_position_in_grid]],
+    uint lid [[thread_position_in_threadgroup]],
+    uint threads_per_tg [[threads_per_threadgroup]]
+) {
+    bool is_active = gid < num_vectors;
+    
+    // Inactive threads evaluate point 0 to prevent out-of-bounds global reads.
+    // They MUST participate in the cooperative load and barriers below to prevent deadlock.
+    uint safe_gid = is_active ? gid : 0;
+    
+    device const float* my_vec = vectors + (ulong)safe_gid * (ulong)dimension;
+    uint vec_dim = dimension / 4;
+    
+    float min_dist = VA_INFINITY;
+    uint min_idx = 0;
+    
+    // Dynamically branch to ensure 16-byte alignment is valid before casting to float4
+    bool is_aligned = (dimension % 4 == 0);
+    
+    for (uint c_start = 0; c_start < num_centroids; c_start += tile_capacity) {
+        uint c_end = min(c_start + tile_capacity, num_centroids);
+        
+        // Safely clamp to 32 to guarantee it fits in the static array registers
+        uint num_in_tile = min(c_end - c_start, 32u);
+        
+        // ---------------------------------------------------------------------
+        // PHASE 1: Cooperative Tile Load 
+        // ---------------------------------------------------------------------
+        uint total_floats = num_in_tile * dimension;
+        
+        if (is_aligned) {
+            uint total_float4s = total_floats / 4;
+            device const float4* cent4 = (device const float4*)(centroids + (ulong)c_start * (ulong)dimension);
+            threadgroup float4* tile4 = (threadgroup float4*)tile_centroids;
+            
+            // Threads cooperate to safely stream the global memory tile into L1 Shared memory
+            for (uint i = lid; i < total_float4s; i += threads_per_tg) {
+                tile4[i] = cent4[i];
             }
-
-            // 2) Load centroid tile into threadgroup memory (float4 transposed layout)
-            // Total elements per dim-tile: 32 centroids * 8 float4s = 256 float4s.
-            for (uint i = tid; i < (VA_CENTROID_TILE * VA_DIM_TILE4); i += VA_TG_SIZE_512) {
-                const uint c_local = i / VA_DIM_TILE4;           // [0..31]
-                const uint d4      = i - c_local * VA_DIM_TILE4; // [0..7]
-
-                const uint c = c_base + c_local;
-                const uint d = d_base + d4 * 4;
-
-                float4 cv = float4(0.0f);
-                if (c < num_centroids) {
-                    const ulong c_off = (ulong)c * (ulong)dimensions;
-
-                    if (d + 0 < dimensions) cv[0] = centroids[c_off + (d + 0)];
-                    if (d + 1 < dimensions) cv[1] = centroids[c_off + (d + 1)];
-                    if (d + 2 < dimensions) cv[2] = centroids[c_off + (d + 2)];
-                    if (d + 3 < dimensions) cv[3] = centroids[c_off + (d + 3)];
-                }
-
-                // Transposed by (d4, centroid): contiguous across lanes for a fixed d4
-                tg_centroids4[d4 * VA_CENTROID_TILE + c_local] = cv;
+        } else {
+            device const float* cent = centroids + (ulong)c_start * (ulong)dimension;
+            for (uint i = lid; i < total_floats; i += threads_per_tg) {
+                tile_centroids[i] = cent[i];
             }
-
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-
-            // 3) Accumulate partial distance for this lane's centroid
-            if (vector_active && centroid_index < num_centroids) {
-                const uint v_base = sgid * VA_DIM_TILE4;
-
-                #pragma unroll
-                for (uint d4 = 0; d4 < VA_DIM_TILE4; ++d4) {
-                    const float4 v = tg_vectors4[v_base + d4];
-                    const float4 c = tg_centroids4[d4 * VA_CENTROID_TILE + lane];
-                    const float4 diff = v - c;
-                    dist += dot(diff, diff);
+        }
+        
+        // Block until all threads finish loading the tile
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        
+        // ---------------------------------------------------------------------
+        // PHASE 2: Register-Cached Compute (Float4 Optimized)
+        // ---------------------------------------------------------------------
+        if (is_active) {
+            float dists[32]; 
+            for (uint c = 0; c < 32; c++) {
+                dists[c] = 0.0;
+            }
+            
+            if (is_aligned) {
+                device const float4* my_vec4 = (device const float4*)my_vec;
+                
+                // Read vector chunks sequentially, reusing them against all centroids in the tile
+                for (uint i = 0; i < vec_dim; i++) {
+                    float4 v_val = my_vec4[i];
+                    for (uint c = 0; c < num_in_tile; c++) {
+                        threadgroup const float4* c_vec4 = (threadgroup const float4*)(tile_centroids + (ulong)c * (ulong)dimension);
+                        float4 diff = v_val - c_vec4[i];
+                        dists[c] += dot(diff, diff);
+                    }
+                }
+            } else {
+                for (uint i = 0; i < dimension; i++) {
+                    float v_val = my_vec[i];
+                    for (uint c = 0; c < num_in_tile; c++) {
+                        float c_val = tile_centroids[(ulong)c * (ulong)dimension + i];
+                        float diff = v_val - c_val;
+                        dists[c] += diff * diff;
+                    }
                 }
             }
-
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-        }
-
-        // Mask invalid
-        if (!vector_active || centroid_index >= num_centroids) {
-            dist = VA_INFINITY;
-        }
-
-        // simdgroup argmin reduction (distance, centroid_index)
-        float min_dist = dist;
-        uint  min_idx  = centroid_index;
-
-        #pragma unroll
-        for (uint offset = VA_SIMD_WIDTH / 2; offset > 0; offset >>= 1) {
-            const float other_dist = simd_shuffle_down(min_dist, offset);
-            const uint  other_idx  = simd_shuffle_down(min_idx,  offset);
-
-            // Tie-break: choose lower centroid index deterministically
-            if ((other_dist < min_dist) || ((other_dist == min_dist) && (other_idx < min_idx))) {
-                min_dist = other_dist;
-                min_idx  = other_idx;
+            
+            // Local Top-1 Argmin 
+            for (uint c = 0; c < num_in_tile; c++) {
+                if (dists[c] < min_dist) {
+                    min_dist = dists[c];
+                    min_idx = c_start + c;
+                }
             }
         }
-
-        if (lane == 0 && vector_active) {
-            if (min_dist < best_dist) {
-                best_dist = min_dist;
-                best_centroid = min_idx;
-            }
-        }
+        
+        // Synchronize before loading the next centroid tile overwrite
+        threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-
-    if (lane == 0 && vector_active) {
-        assignments[vector_index] = best_centroid;
-        distances[vector_index]   = sqrt(best_dist);
-    }
-}
-
-// 256-thread variant: 8 simdgroups => 8 vectors per threadgroup
-constant uint VA_VECTORS_PER_TG_256 = 8;
-constant uint VA_TG_SIZE_256        = 256; // VA_VECTORS_PER_TG_256 * VA_SIMD_WIDTH
-
-/// High-performance simdgroup-cooperative KMeans assignment kernel (256-thread variant)
-///
-/// Smaller threadgroup variant for devices with limited occupancy.
-kernel void assign_to_centroids_simd_tiled_256(
-    device const float*      vectors     [[buffer(0)]],
-    device const float*      centroids   [[buffer(1)]],
-    device uint*             assignments [[buffer(2)]],
-    device float*            distances   [[buffer(3)]],
-    constant KMeansAssignArgs& args      [[buffer(4)]],
-    uint3  tg_pos    [[threadgroup_position_in_grid]],
-    uint   tid       [[thread_index_in_threadgroup]],
-    uint   lane      [[thread_index_in_simdgroup]],
-    uint   sgid      [[simdgroup_index_in_threadgroup]])
-{
-    const uint dimensions    = args.dimension;
-    const uint num_vectors   = args.numVectors;
-    const uint num_centroids = args.numCentroids;
-
-    const uint vector_index  = tg_pos.x * VA_VECTORS_PER_TG_256 + sgid;
-    const bool vector_active = (vector_index < num_vectors);
-
-    threadgroup float4 tg_vectors4[VA_VECTORS_PER_TG_256 * VA_DIM_TILE4];
-    threadgroup float4 tg_centroids4[VA_DIM_TILE4 * VA_CENTROID_TILE];
-
-    float best_dist = VA_INFINITY;
-    uint  best_centroid = 0;
-
-    for (uint c_base = 0; c_base < num_centroids; c_base += VA_CENTROID_TILE) {
-        const uint centroid_index = c_base + lane;
-        float dist = 0.0f;
-
-        for (uint d_base = 0; d_base < dimensions; d_base += VA_DIM_TILE) {
-
-            if (lane < VA_DIM_TILE4) {
-                const uint d = d_base + lane * 4;
-
-                float4 v = float4(0.0f);
-                if (vector_active) {
-                    const ulong v_off = (ulong)vector_index * (ulong)dimensions;
-
-                    if (d + 0 < dimensions) v[0] = vectors[v_off + (d + 0)];
-                    if (d + 1 < dimensions) v[1] = vectors[v_off + (d + 1)];
-                    if (d + 2 < dimensions) v[2] = vectors[v_off + (d + 2)];
-                    if (d + 3 < dimensions) v[3] = vectors[v_off + (d + 3)];
-                }
-                tg_vectors4[sgid * VA_DIM_TILE4 + lane] = v;
-            }
-
-            for (uint i = tid; i < (VA_CENTROID_TILE * VA_DIM_TILE4); i += VA_TG_SIZE_256) {
-                const uint c_local = i / VA_DIM_TILE4;
-                const uint d4      = i - c_local * VA_DIM_TILE4;
-
-                const uint c = c_base + c_local;
-                const uint d = d_base + d4 * 4;
-
-                float4 cv = float4(0.0f);
-                if (c < num_centroids) {
-                    const ulong c_off = (ulong)c * (ulong)dimensions;
-
-                    if (d + 0 < dimensions) cv[0] = centroids[c_off + (d + 0)];
-                    if (d + 1 < dimensions) cv[1] = centroids[c_off + (d + 1)];
-                    if (d + 2 < dimensions) cv[2] = centroids[c_off + (d + 2)];
-                    if (d + 3 < dimensions) cv[3] = centroids[c_off + (d + 3)];
-                }
-
-                tg_centroids4[d4 * VA_CENTROID_TILE + c_local] = cv;
-            }
-
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-
-            if (vector_active && centroid_index < num_centroids) {
-                const uint v_base = sgid * VA_DIM_TILE4;
-
-                #pragma unroll
-                for (uint d4 = 0; d4 < VA_DIM_TILE4; ++d4) {
-                    const float4 v = tg_vectors4[v_base + d4];
-                    const float4 c = tg_centroids4[d4 * VA_CENTROID_TILE + lane];
-                    const float4 diff = v - c;
-                    dist += dot(diff, diff);
-                }
-            }
-
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-        }
-
-        if (!vector_active || centroid_index >= num_centroids) {
-            dist = VA_INFINITY;
-        }
-
-        float min_dist = dist;
-        uint  min_idx  = centroid_index;
-
-        #pragma unroll
-        for (uint offset = VA_SIMD_WIDTH / 2; offset > 0; offset >>= 1) {
-            const float other_dist = simd_shuffle_down(min_dist, offset);
-            const uint  other_idx  = simd_shuffle_down(min_idx,  offset);
-
-            if ((other_dist < min_dist) || ((other_dist == min_dist) && (other_idx < min_idx))) {
-                min_dist = other_dist;
-                min_idx  = other_idx;
-            }
-        }
-
-        if (lane == 0 && vector_active) {
-            if (min_dist < best_dist) {
-                best_dist = min_dist;
-                best_centroid = min_idx;
-            }
-        }
-    }
-
-    if (lane == 0 && vector_active) {
-        assignments[vector_index] = best_centroid;
-        distances[vector_index]   = sqrt(best_dist);
+    
+    // -------------------------------------------------------------------------
+    // PHASE 3: Exactly ONE uncontended write per vector
+    // -------------------------------------------------------------------------
+    if (is_active) {
+        assignments[gid] = min_idx;
+        distances[gid] = sqrt(min_dist);
     }
 }
 
@@ -633,44 +479,135 @@ kernel void update_centroids_incremental(
     centroids[centroid_idx] = new_value;
 }
 
-// MARK: - Utility Functions
+// MARK: - Optimized GPU K-Means Update (2-Pass)
 
-/// Compute inertia (sum of squared distances to assigned centroids)
-kernel void compute_inertia(
-    constant float* distances [[buffer(0)]],
-    device atomic_float* inertia [[buffer(1)]],
-    constant uint& num_vectors [[buffer(2)]],
-    uint id [[thread_position_in_grid]])
-{
-    if (id >= num_vectors) return;
+// -----------------------------------------------------------------------------
+// Pass 1: K-Means Accumulate (Cooperative Gather Topology)
+// 1 Threadgroup = 1 Cluster & 1 Dimension Chunk (Float4)
+// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Pass 1: K-Means Accumulate (Cooperative Gather Topology)
+// 1 Threadgroup = 1 Cluster & 1 Dimension Chunk (Float4)
+// -----------------------------------------------------------------------------
+kernel void kmeans_update_accumulate(
+    device const float* vectors [[buffer(0)]],
+    device const uint* assignments [[buffer(1)]],
+    device atomic_float* cluster_sums [[buffer(2)]],
+    device atomic_uint* cluster_counts [[buffer(3)]],
+    constant uint& num_vectors [[buffer(4)]],
+    constant uint& dimension [[buffer(5)]],
+    uint2 tgid [[threadgroup_position_in_grid]],
+    uint2 lid [[thread_position_in_threadgroup]],
+    uint simd_lane_id [[thread_index_in_simdgroup]],
+    uint simd_group_id [[simdgroup_index_in_threadgroup]],
+    uint2 threads_per_tg [[threads_per_threadgroup]]
+) {
+    uint cluster_id = tgid.x;
+    uint chunk_idx = tgid.y;
     
-    // Square the distance (inertia uses squared Euclidean distance)
-    float squared_distance = distances[id] * distances[id];
+    uint base_dim = chunk_idx * 4;
+    if (base_dim >= dimension) return;
     
-    // Atomically add to global inertia sum
-    atomic_fetch_add_explicit(inertia, squared_distance, memory_order_relaxed);
+    uint dims_to_read = min(4u, dimension - base_dim);
+    bool is_aligned = (dimension % 4 == 0);
+    
+    float4 local_sum = 0.0;
+    uint local_count = 0;
+    
+    // Phase 1: Cooperative Gather 
+    for (uint i = lid.x; i < num_vectors; i += threads_per_tg.x) {
+        if (assignments[i] == cluster_id) {
+            // Only chunk 0 tracks vector assignment counts to prevent inflation
+            if (chunk_idx == 0) {
+                local_count++;
+            }
+            
+            float4 v = 0.0;
+            if (is_aligned && dims_to_read == 4) {
+                device const float4* vec4 = (device const float4*)(vectors + (ulong)i * (ulong)dimension);
+                v = vec4[chunk_idx];
+            } else {
+                uint v_offset = i * dimension + base_dim;
+                if (dims_to_read >= 1) v.x = vectors[v_offset];
+                if (dims_to_read >= 2) v.y = vectors[v_offset + 1];
+                if (dims_to_read >= 3) v.z = vectors[v_offset + 2];
+                if (dims_to_read == 4) v.w = vectors[v_offset + 3];
+            }
+            local_sum += v;
+        }
+    }
+    
+    // Phase 2: SIMD Sum 
+    float4 simd_sum_val;
+    simd_sum_val.x = simd_sum(local_sum.x);
+    simd_sum_val.y = simd_sum(local_sum.y);
+    simd_sum_val.z = simd_sum(local_sum.z);
+    simd_sum_val.w = simd_sum(local_sum.w);
+    uint simd_count = simd_sum(local_count);
+    
+    // Phase 3: Threadgroup sum via shared memory
+    threadgroup float4 shared_sums[32];
+    threadgroup uint shared_counts[32];
+    
+    if (simd_lane_id == 0) {
+        shared_sums[simd_group_id] = simd_sum_val;
+        if (chunk_idx == 0) shared_counts[simd_group_id] = simd_count;
+    }
+    
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    
+    // Phase 4: Exactly ONE atomic write block per dimension chunk per threadgroup
+    if (lid.x == 0) {
+        uint active_simd_groups = (threads_per_tg.x + 31) / 32;
+        float4 final_sum = 0.0;
+        uint final_count = 0;
+        
+        for (uint i = 0; i < active_simd_groups; i++) {
+            final_sum += shared_sums[i];
+            if (chunk_idx == 0) final_count += shared_counts[i];
+        }
+        
+        uint out_offset = cluster_id * dimension + base_dim;
+        if (dims_to_read >= 1) atomic_fetch_add_explicit(&cluster_sums[out_offset], final_sum.x, memory_order_relaxed);
+        if (dims_to_read >= 2) atomic_fetch_add_explicit(&cluster_sums[out_offset + 1], final_sum.y, memory_order_relaxed);
+        if (dims_to_read >= 3) atomic_fetch_add_explicit(&cluster_sums[out_offset + 2], final_sum.z, memory_order_relaxed);
+        if (dims_to_read == 4) atomic_fetch_add_explicit(&cluster_sums[out_offset + 3], final_sum.w, memory_order_relaxed);
+        
+        if (chunk_idx == 0 && final_count > 0) {
+            atomic_fetch_add_explicit(&cluster_counts[cluster_id], final_count, memory_order_relaxed);
+        }
+    }
 }
 
-/// Initialize atomic float buffers to zero
-kernel void clear_atomic_buffers(
-    device atomic_float* buffer [[buffer(0)]],
-    constant uint& size [[buffer(1)]],
-    uint id [[thread_position_in_grid]])
-{
-    if (id >= size) return;
+// -----------------------------------------------------------------------------
+// Pass 2: K-Means Normalize 
+// -----------------------------------------------------------------------------
+kernel void kmeans_update_normalize(
+    device const float* cluster_sums [[buffer(0)]],
+    device const uint* cluster_counts [[buffer(1)]],
+    device float* new_centroids [[buffer(2)]],
+    device const float* old_centroids [[buffer(3)]],
+    constant uint& dimension [[buffer(4)]],
+    uint tgid [[threadgroup_position_in_grid]],
+    uint lid [[thread_position_in_threadgroup]],
+    uint threads_per_tg [[threads_per_threadgroup]]
+) {
+    uint cluster_id = tgid;
+    uint count = cluster_counts[cluster_id];
     
-    // Atomic store for proper initialization
-    atomic_store_explicit(&buffer[id], 0.0f, memory_order_relaxed);
-}
-
-/// Initialize atomic uint buffers to zero
-kernel void clear_atomic_uint_buffers(
-    device atomic_uint* buffer [[buffer(0)]],
-    constant uint& size [[buffer(1)]],
-    uint id [[thread_position_in_grid]])
-{
-    if (id >= size) return;
+    device const float* sums = cluster_sums + (ulong)cluster_id * (ulong)dimension;
+    device float* out_cent = new_centroids + (ulong)cluster_id * (ulong)dimension;
+    device const float* prev_cent = old_centroids + (ulong)cluster_id * (ulong)dimension;
     
-    // Initialize to zero for count accumulation
-    atomic_store_explicit(&buffer[id], 0, memory_order_relaxed);
+    if (count > 0) {
+        float inv_count = 1.0f / float(count);
+        for (uint i = lid; i < dimension; i += threads_per_tg) {
+            out_cent[i] = sums[i] * inv_count;
+        }
+    } else {
+        // Preserve existing centroids for empty clusters
+        for (uint i = lid; i < dimension; i += threads_per_tg) {
+            out_cent[i] = prev_cent[i];
+        }
+    }
 }

@@ -3,7 +3,7 @@
 ## Objective
 Implement a high-performance neural encoding kernel in `Sources/VectorAccelerate/Metal/Shaders/NeuralQuantization.metal` that uses **Tiled Matrix Multiplication** to achieve a 10-50x throughput improvement by caching weights in threadgroup memory.
 
-## Project Context (Version 0.4.1)
+## Project Context (Version 0.4.0)
 *   **Target:** Apple Silicon (M1-M4), Metal 4, Unified Memory.
 *   **Buffer Strategy:** Uses `BufferPool` with `BufferToken`. Memory is recycled asynchronously.
 *   **Lifecycle:** You MUST use `.keepAlive(until: commandBuffer)` for any intermediate buffers.

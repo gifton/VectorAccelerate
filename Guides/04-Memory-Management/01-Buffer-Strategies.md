@@ -129,7 +129,7 @@ public actor BufferPool {
 
 ### Using BufferToken
 
-VectorAccelerate 0.4.1 uses an **RAII-style** buffer management with safety anchoring:
+VectorAccelerate 0.4.0 uses an **RAII-style** buffer management with safety anchoring:
 
 ```swift
 // 📍 See: Sources/VectorAccelerate/Core/BufferPool.swift

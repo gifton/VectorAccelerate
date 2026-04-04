@@ -2,7 +2,7 @@
 
 **Version**: 1.0
 **Created**: 2024-12-02
-**Target VA Version**: 0.4.1
+**Target VA Version**: 0.4.0
 **Status**: Phase 7 Complete - Ready for Release ✅
 
 ---
@@ -28,7 +28,7 @@ VectorCore (0.1.6)
     ↑
 VectorIndex (0.1.3)
     ↑
-VectorAccelerate (0.4.1) ← All GPU code consolidated here
+VectorAccelerate (0.4.0) ← All GPU code consolidated here
 ```
 
 ---
@@ -269,7 +269,7 @@ let package = Package(
     // ...
 )
 
-// After (VA 0.4.1)
+// After (VA 0.4.0)
 let package = Package(
     name: "VectorAccelerate",
     platforms: [
@@ -489,15 +489,15 @@ VectorAccelerate/
 5. [ ] Update all documentation
 6. [ ] **Checkpoint**: All tests pass, docs complete
 
-### Phase 8: Release (VA 0.4.1)
+### Phase 8: Release (VA 0.4.0)
 **Duration**: 1 day
 **Risk**: Low
 
 1. [ ] Final code review
 2. [ ] Update CHANGELOG
-3. [ ] Tag release 0.4.1
+3. [ ] Tag release 0.4.0
 4. [ ] Deprecate VIA package (add deprecation notice)
-5. [ ] **Checkpoint**: VA 0.4.1 released with index acceleration
+5. [ ] **Checkpoint**: VA 0.4.0 released with index acceleration
 
 ---
 
@@ -814,7 +814,7 @@ VIA will be deprecated but maintained for one release cycle. Users should migrat
 import VectorIndexAccelerated
 let index = HNSWIndexAccelerated(baseIndex: hnswIndex)
 
-// New (VA 0.4.1)
+// New (VA 0.4.0)
 import VectorIndex
 import VectorIndexAcceleration
 
@@ -913,7 +913,7 @@ public typealias MetalDevice = VectorAccelerate.Metal4Context
 If critical issues are discovered post-migration:
 
 1. **Phase 1-4 Issues**: Revert commits, continue using VIA
-2. **Phase 5-7 Issues**: Release VA 0.4.1-beta, fix issues, re-release
+2. **Phase 5-7 Issues**: Release VA 0.4.0-beta, fix issues, re-release
 3. **Post-Release Issues**:
    - VA 0.3.1 hotfix for critical bugs
    - VIA can remain usable (just deprecated)
@@ -1088,7 +1088,7 @@ Sources/VectorIndexAccelerated/Metal/Kernels/Sorting/*.metal
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
-| Code reduction | 70% less LOC | Compare VIA + VA 0.2.0 vs VA 0.4.1 |
+| Code reduction | 70% less LOC | Compare VIA + VA 0.2.0 vs VA 0.4.0 |
 | Test coverage | ≥90% | Code coverage tools |
 | Performance parity | ±5% of VIA | Benchmark suite |
 | Build time | ≤VA 0.2.0 + 20% | CI metrics |

@@ -256,8 +256,8 @@ public actor CosineKernelDistanceProvider: DistanceProvider {
                 self.dotProductKernel.encode(into: encoder, queries: qToken.buffer, database: tToken.buffer, output: outToken.buffer, parameters: params)
             } else {
                 let params = CosineSimilarityParameters(
-                    numQueries: 1,
-                    numDatabase: n,
+                    numQueries: n,
+                    numDatabase: 1,
                     dimension: dimension,
                     outputDistance: true
                 )

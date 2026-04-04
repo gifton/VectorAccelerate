@@ -60,7 +60,7 @@ let handle = try await index.insert(embedding)
 // Search for nearest neighbors
 let results = try await index.search(query: queryVector, k: 10)
 for result in results {
-    print("Handle: \(result.handle), Distance: \(result.distance)")
+    print("Handle: \(result.id), Distance: \(result.distance)")
 }
 ```
 
@@ -123,7 +123,7 @@ let scalar = try await ScalarQuantKernel(context: context)
 - **Swift 6.0+**
 
 ### Dependencies
-- **VectorCore 0.1.6+**: The foundational vector mathematics package
+- **VectorCore 0.2.0**: The foundational vector mathematics package
 
 ### Products
 - **VectorAccelerate**: Core GPU acceleration library
@@ -308,7 +308,7 @@ Add VectorAccelerate to your `Package.swift`:
 ```swift
 dependencies: [
     .package(url: "https://github.com/gifton/VectorAccelerate.git", from: "0.4.1"),
-    .package(url: "https://github.com/gifton/VectorCore.git", from: "0.1.6")
+    .package(url: "https://github.com/gifton/VectorCore.git", from: "0.2.0")
 ],
 targets: [
     .target(
@@ -386,7 +386,7 @@ let results = try await fusedKernel.findNearestNeighbors(
 
 // Result contains top-10 nearest neighbors for each query
 for (queryIndex, neighbors) in results.enumerated() {
-    print("Query \(queryIndex): \(neighbors.count) neighbors found")
+    print("Query \(queryIndex): \(neighbors.results.count) neighbors found")
 }
 ```
 

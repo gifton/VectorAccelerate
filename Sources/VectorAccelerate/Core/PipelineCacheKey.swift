@@ -311,6 +311,13 @@ public extension PipelineCacheKey {
             .distance("euclideanDistance", dimension: 0),
             .distance("cosineDistance", dimension: 0),
             .distance("dotProduct", dimension: 0),
+            
+            // KMeans and IVF
+            PipelineCacheKey(operation: "fused_l2_topk"),
+            PipelineCacheKey(operation: "kmeans_assign_points"),
+            PipelineCacheKey(operation: "ivf_distance_with_indirection"),
+            PipelineCacheKey(operation: "ivf_build_candidates"),
+            PipelineCacheKey(operation: "ivf_list_search")
         ]
     }
 

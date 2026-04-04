@@ -114,22 +114,14 @@ public final class KMeansPlusPlusKernel: @unchecked Sendable, Metal4Kernel {
 
         // Buffer for selected centroids [k × dimension]
         let centroidBufferSize = k * dimension * MemoryLayout<Float>.size
-        guard let centroidBuffer = device.makeBuffer(
-            length: centroidBufferSize,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: centroidBufferSize)
-        }
+        let centroidToken = try await context.getBuffer(size: centroidBufferSize)
+        let centroidBuffer = centroidToken.buffer
         centroidBuffer.label = "KMeansPlusPlus.selectedCentroids"
 
         // Buffer for min distances [numVectors]
         let distanceBufferSize = numVectors * MemoryLayout<Float>.size
-        guard let distanceBuffer = device.makeBuffer(
-            length: distanceBufferSize,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: distanceBufferSize)
-        }
+        let distanceToken = try await context.getBuffer(size: distanceBufferSize)
+        let distanceBuffer = distanceToken.buffer
         distanceBuffer.label = "KMeansPlusPlus.minDistances"
 
         // Step 1: Select first centroid uniformly at random
@@ -226,12 +218,8 @@ public final class KMeansPlusPlusKernel: @unchecked Sendable, Metal4Kernel {
         let device = context.device.rawDevice
         let bufferSize = k * dimension * MemoryLayout<Float>.size
 
-        guard let centroidBuffer = device.makeBuffer(
-            length: bufferSize,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: bufferSize)
-        }
+        let centroidToken = try await context.getBuffer(size: bufferSize)
+        let centroidBuffer = centroidToken.buffer
         centroidBuffer.label = "KMeansPlusPlus.centroids"
 
         let vectorsPtr = vectors.contents().bindMemory(to: Float.self, capacity: numVectors * dimension)

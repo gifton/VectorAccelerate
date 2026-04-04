@@ -315,12 +315,53 @@ public actor LearnedDistanceService {
             return (distances, .learned)
         }
 
-        // Fallback to standard (Metal4 kernel infers dimension from input)
-        let distances = try await standardKernel.compute(
-            queries: queries,
-            database: database,
-            computeSqrt: computeSqrt
-        )
+        // Fallback to standard L2 using 1:1 encode API with all-pairs replication
+        let numQ = queries.count
+        let numD = database.count
+        let dimension = queries[0].count
+        let totalPairs = numQ * numD
+
+        // Replicate: for each query[i], pair with every database[j]
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(totalPairs * dimension)
+        for q in queries {
+            for _ in 0..<numD {
+                flatQueries.append(contentsOf: q)
+            }
+        }
+        var flatTargets = [Float]()
+        flatTargets.reserveCapacity(totalPairs * dimension)
+        for _ in 0..<numQ {
+            for d in database {
+                flatTargets.append(contentsOf: d)
+            }
+        }
+
+        let qToken = try await context.getBuffer(for: flatQueries)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let outToken = try await context.getBuffer(size: totalPairs * MemoryLayout<Float>.size)
+
+        try await context.executeAndWait { [self] commandBuffer, encoder in
+            self.standardKernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken,
+                targetsToken: tToken,
+                distancesToken: outToken,
+                numQueries: totalPairs,
+                dimension: dimension,
+                computeSqrt: computeSqrt
+            )
+        }
+
+        // Reshape flat results to [[Float]]
+        let flat = outToken.copyData(as: Float.self, count: totalPairs)
+        var distances = [[Float]]()
+        distances.reserveCapacity(numQ)
+        for i in 0..<numQ {
+            let start = i * numD
+            distances.append(Array(flat[start..<start + numD]))
+        }
         return (distances, .standard)
     }
 
@@ -343,11 +384,54 @@ public actor LearnedDistanceService {
             return (distances, .learned)
         }
 
-        let distances = try await standardKernel.compute(
-            queries: queries,
-            database: database,
-            computeSqrt: computeSqrt
-        )
+        // Fallback to standard L2 using 1:1 encode API with all-pairs replication
+        let numQ = queries.count
+        let numD = database.count
+        let dimension = queries[0].scalarCount
+        let totalPairs = numQ * numD
+
+        // Replicate: for each query[i], pair with every database[j]
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(totalPairs * dimension)
+        for q in queries {
+            let qArr = q.toArray()
+            for _ in 0..<numD {
+                flatQueries.append(contentsOf: qArr)
+            }
+        }
+        var flatTargets = [Float]()
+        flatTargets.reserveCapacity(totalPairs * dimension)
+        for _ in 0..<numQ {
+            for d in database {
+                flatTargets.append(contentsOf: d.toArray())
+            }
+        }
+
+        let qToken = try await context.getBuffer(for: flatQueries)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let outToken = try await context.getBuffer(size: totalPairs * MemoryLayout<Float>.size)
+
+        try await context.executeAndWait { [self] commandBuffer, encoder in
+            self.standardKernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken,
+                targetsToken: tToken,
+                distancesToken: outToken,
+                numQueries: totalPairs,
+                dimension: dimension,
+                computeSqrt: computeSqrt
+            )
+        }
+
+        // Reshape flat results to [[Float]]
+        let flat = outToken.copyData(as: Float.self, count: totalPairs)
+        var distances = [[Float]]()
+        distances.reserveCapacity(numQ)
+        for i in 0..<numQ {
+            let start = i * numD
+            distances.append(Array(flat[start..<start + numD]))
+        }
         return (distances, .standard)
     }
 
@@ -370,11 +454,54 @@ public actor LearnedDistanceService {
             return (distances, .learned)
         }
 
-        let distances = try await standardKernel.compute(
-            queries: queries,
-            database: database,
-            computeSqrt: computeSqrt
-        )
+        // Fallback to standard L2 using 1:1 encode API with all-pairs replication
+        let numQ = queries.count
+        let numD = database.count
+        let dimension = D.value
+        let totalPairs = numQ * numD
+
+        // Replicate: for each query[i], pair with every database[j]
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(totalPairs * dimension)
+        for q in queries {
+            let qArr = q.toArray()
+            for _ in 0..<numD {
+                flatQueries.append(contentsOf: qArr)
+            }
+        }
+        var flatTargets = [Float]()
+        flatTargets.reserveCapacity(totalPairs * dimension)
+        for _ in 0..<numQ {
+            for d in database {
+                flatTargets.append(contentsOf: d.toArray())
+            }
+        }
+
+        let qToken = try await context.getBuffer(for: flatQueries)
+        let tToken = try await context.getBuffer(for: flatTargets)
+        let outToken = try await context.getBuffer(size: totalPairs * MemoryLayout<Float>.size)
+
+        try await context.executeAndWait { [self] commandBuffer, encoder in
+            self.standardKernel.encode(
+                into: encoder,
+                commandBuffer: commandBuffer,
+                queriesToken: qToken,
+                targetsToken: tToken,
+                distancesToken: outToken,
+                numQueries: totalPairs,
+                dimension: dimension,
+                computeSqrt: computeSqrt
+            )
+        }
+
+        // Reshape flat results to [[Float]]
+        let flat = outToken.copyData(as: Float.self, count: totalPairs)
+        var distances = [[Float]]()
+        distances.reserveCapacity(numQ)
+        for i in 0..<numQ {
+            let start = i * numD
+            distances.append(Array(flat[start..<start + numD]))
+        }
         return (distances, .standard)
     }
 

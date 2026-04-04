@@ -291,7 +291,7 @@ final class KMeansAssignKernelTests: XCTestCase {
         )
 
         // Verify counts sum to numVectors
-        let countsPtr = countsBuffer.contents().bindMemory(to: UInt32.self, capacity: numCentroids)
+        let countsPtr = countsBuffer.buffer.contents().bindMemory(to: UInt32.self, capacity: numCentroids)
         let totalCount = (0..<numCentroids).reduce(0) { $0 + Int(countsPtr[$1]) }
         XCTAssertEqual(totalCount, numVectors)
     }

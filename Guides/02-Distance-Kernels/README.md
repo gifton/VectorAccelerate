@@ -63,6 +63,10 @@ VectorAccelerate supports multiple distance metrics:
 | **Cosine Distance** | 1 - cosine | Distance form | `CosineSimilarityKernel` |
 | **Dot Product** | Σ qᵢ × dᵢ | Maximum inner product search | `DotProductKernel` |
 | **Hamming** | popcount(q ⊕ d) | Binary vectors | `HammingDistanceKernel` |
+| **Manhattan** | Σ |qᵢ - dᵢ| | L1 distance | `MinkowskiDistanceKernel` |
+| **Chebyshev** | max |qᵢ - dᵢ| | L∞ distance | `MinkowskiDistanceKernel` |
+| **Minkowski** | (Σ |qᵢ - dᵢ|^p)^(1/p) | Generalized distance | `MinkowskiDistanceKernel` |
+| **Jaccard** | 1 - |A∩B|/|A∪B| | Set similarity | `JaccardDistanceKernel` |
 
 ---
 

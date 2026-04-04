@@ -2,7 +2,7 @@
 
 > **Status:** Proposal
 > **Priority:** P2 (After SwiftTopics algorithmic fixes)
-> **Target:** VectorAccelerate 0.4.1+
+> **Target:** VectorAccelerate 0.4.0+
 
 ## Overview
 

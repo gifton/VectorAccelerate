@@ -62,20 +62,58 @@ public struct PrefixSumParameters: Sendable {
 
 /// Result from GPU candidate builder.
 public struct IVFGPUCandidateResult: Sendable {
+    public let indicesToken: BufferToken?
+    public let queryIdsToken: BufferToken?
+    public let offsetsToken: BufferToken?
+    
     /// IVF entry indices [totalCandidates]
-    public let candidateIVFIndices: any MTLBuffer
+    public var candidateIVFIndices: any MTLBuffer {
+        if let token = indicesToken { return token.buffer }
+        return rawIndices!
+    }
+    private let rawIndices: (any MTLBuffer)?
 
     /// Query ID for each candidate [totalCandidates]
-    public let candidateQueryIds: any MTLBuffer
+    public var candidateQueryIds: any MTLBuffer {
+        if let token = queryIdsToken { return token.buffer }
+        return rawQueryIds!
+    }
+    private let rawQueryIds: (any MTLBuffer)?
 
     /// Per-query offsets [numQueries + 1] (CSR format)
-    public let candidateOffsets: any MTLBuffer
+    public var candidateOffsets: any MTLBuffer {
+        if let token = offsetsToken { return token.buffer }
+        return rawOffsets!
+    }
+    private let rawOffsets: (any MTLBuffer)?
 
     /// Total number of candidates
     public let totalCandidates: Int
 
     /// Number of queries
     public let numQueries: Int
+    
+    public init(indicesToken: BufferToken, queryIdsToken: BufferToken, offsetsToken: BufferToken, totalCandidates: Int, numQueries: Int) {
+        self.indicesToken = indicesToken
+        self.queryIdsToken = queryIdsToken
+        self.offsetsToken = offsetsToken
+        self.rawIndices = nil
+        self.rawQueryIds = nil
+        self.rawOffsets = nil
+        self.totalCandidates = totalCandidates
+        self.numQueries = numQueries
+    }
+
+    public init(candidateIVFIndices: any MTLBuffer, candidateQueryIds: any MTLBuffer, candidateOffsets: any MTLBuffer, totalCandidates: Int, numQueries: Int) {
+        self.indicesToken = nil
+        self.queryIdsToken = nil
+        self.offsetsToken = nil
+        self.rawIndices = candidateIVFIndices
+        self.rawQueryIds = candidateQueryIds
+        self.rawOffsets = candidateOffsets
+        self.totalCandidates = totalCandidates
+        self.numQueries = numQueries
+    }
 
     /// Get offset range for a specific query.
     public func offsetRange(for queryIndex: Int) -> Range<Int> {
@@ -227,13 +265,10 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         nprobe: Int,
         numLists: Int
     ) async throws -> IVFGPUCandidateResult {
-        let device = context.device.rawDevice
-
         // Step 1: Count candidates per query
         let countsBytes = numQueries * MemoryLayout<UInt32>.size
-        guard let candidateCounts = device.makeBuffer(length: countsBytes, options: .storageModeShared) else {
-            throw VectorError.bufferAllocationFailed(size: countsBytes)
-        }
+        let candidateCountsToken = try await context.getBuffer(size: countsBytes)
+        let candidateCounts = candidateCountsToken.buffer
         candidateCounts.label = "IVFCandidateBuilder.counts"
 
         let countParams = IVFCandidateCountParameters(
@@ -254,9 +289,8 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
 
         // Step 2: Prefix sum to compute offsets
         let offsetsBytes = (numQueries + 1) * MemoryLayout<UInt32>.size
-        guard let candidateOffsets = device.makeBuffer(length: offsetsBytes, options: .storageModeShared) else {
-            throw VectorError.bufferAllocationFailed(size: offsetsBytes)
-        }
+        let candidateOffsetsToken = try await context.getBuffer(size: offsetsBytes)
+        let candidateOffsets = candidateOffsetsToken.buffer
         candidateOffsets.label = "IVFCandidateBuilder.offsets"
 
         let prefixParams = PrefixSumParameters(numElements: numQueries)
@@ -276,15 +310,15 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
 
         if totalCandidates == 0 {
             // No candidates - return empty result
-            let emptyIndices = device.makeBuffer(length: 4, options: .storageModeShared)!
-            let emptyQueryIds = device.makeBuffer(length: 4, options: .storageModeShared)!
-            emptyIndices.label = "IVFCandidateBuilder.indices.empty"
-            emptyQueryIds.label = "IVFCandidateBuilder.queryIds.empty"
+            let emptyIndicesToken = try await context.getBuffer(size: 4)
+            let emptyQueryIdsToken = try await context.getBuffer(size: 4)
+            emptyIndicesToken.buffer.label = "IVFCandidateBuilder.indices.empty"
+            emptyQueryIdsToken.buffer.label = "IVFCandidateBuilder.queryIds.empty"
 
             return IVFGPUCandidateResult(
-                candidateIVFIndices: emptyIndices,
-                candidateQueryIds: emptyQueryIds,
-                candidateOffsets: candidateOffsets,
+                indicesToken: emptyIndicesToken,
+                queryIdsToken: emptyQueryIdsToken,
+                offsetsToken: candidateOffsetsToken,
                 totalCandidates: 0,
                 numQueries: numQueries
             )
@@ -293,10 +327,10 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         // Step 3: Build candidate lists
         let indicesBytes = totalCandidates * MemoryLayout<UInt32>.size
         let queryIdsBytes = totalCandidates * MemoryLayout<UInt32>.size
-        guard let candidateIVFIndices = device.makeBuffer(length: indicesBytes, options: .storageModeShared),
-              let candidateQueryIds = device.makeBuffer(length: queryIdsBytes, options: .storageModeShared) else {
-            throw VectorError.bufferAllocationFailed(size: indicesBytes + queryIdsBytes)
-        }
+        let candidateIVFIndicesToken = try await context.getBuffer(size: indicesBytes)
+        let candidateQueryIdsToken = try await context.getBuffer(size: queryIdsBytes)
+        let candidateIVFIndices = candidateIVFIndicesToken.buffer
+        let candidateQueryIds = candidateQueryIdsToken.buffer
         candidateIVFIndices.label = "IVFCandidateBuilder.indices"
         candidateQueryIds.label = "IVFCandidateBuilder.queryIds"
 
@@ -320,9 +354,9 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         }
 
         return IVFGPUCandidateResult(
-            candidateIVFIndices: candidateIVFIndices,
-            candidateQueryIds: candidateQueryIds,
-            candidateOffsets: candidateOffsets,
+            indicesToken: candidateIVFIndicesToken,
+            queryIdsToken: candidateQueryIdsToken,
+            offsetsToken: candidateOffsetsToken,
             totalCandidates: totalCandidates,
             numQueries: numQueries
         )
@@ -348,8 +382,6 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
             )
         }
 
-        let device = context.device.rawDevice
-
         // Estimate max candidates (conservative)
         // Read listOffsets to get average list size
         let offsetsPtr = listOffsets.contents().bindMemory(to: UInt32.self, capacity: numLists + 1)
@@ -365,13 +397,18 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         let countsBytes = numQueries * MemoryLayout<UInt32>.size
         let atomicBytes = MemoryLayout<UInt32>.size
 
-        guard let candidateIVFIndices = device.makeBuffer(length: max(indicesBytes, 4), options: .storageModeShared),
-              let candidateQueryIds = device.makeBuffer(length: max(queryIdsBytes, 4), options: .storageModeShared),
-              let perQueryOffsets = device.makeBuffer(length: offsetsBytes, options: .storageModeShared),
-              let perQueryCounts = device.makeBuffer(length: countsBytes, options: .storageModeShared),
-              let totalCounter = device.makeBuffer(length: atomicBytes, options: .storageModeShared) else {
-            throw VectorError.bufferAllocationFailed(size: indicesBytes + queryIdsBytes + offsetsBytes)
-        }
+        let candidateIVFIndicesToken = try await context.getBuffer(size: max(indicesBytes, 4))
+        let candidateQueryIdsToken = try await context.getBuffer(size: max(queryIdsBytes, 4))
+        let perQueryOffsetsToken = try await context.getBuffer(size: offsetsBytes)
+        let perQueryCountsToken = try await context.getBuffer(size: countsBytes)
+        let totalCounterToken = try await context.getBuffer(size: atomicBytes)
+
+        let candidateIVFIndices = candidateIVFIndicesToken.buffer
+        let candidateQueryIds = candidateQueryIdsToken.buffer
+        let perQueryOffsets = perQueryOffsetsToken.buffer
+        let perQueryCounts = perQueryCountsToken.buffer
+        let totalCounter = totalCounterToken.buffer
+
         candidateIVFIndices.label = "IVFCandidateBuilder.fused.indices"
         candidateQueryIds.label = "IVFCandidateBuilder.fused.queryIds"
         perQueryOffsets.label = "IVFCandidateBuilder.fused.offsets"
@@ -412,9 +449,8 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
 
         // Build proper CSR offsets from perQueryOffsets and perQueryCounts
         let csrOffsetsBytes = (numQueries + 1) * MemoryLayout<UInt32>.size
-        guard let candidateOffsets = device.makeBuffer(length: csrOffsetsBytes, options: .storageModeShared) else {
-            throw VectorError.bufferAllocationFailed(size: csrOffsetsBytes)
-        }
+        let candidateOffsetsToken = try await context.getBuffer(size: csrOffsetsBytes)
+        let candidateOffsets = candidateOffsetsToken.buffer
         candidateOffsets.label = "IVFCandidateBuilder.fused.csrOffsets"
 
         // Build CSR offsets on CPU (small data)
@@ -424,6 +460,7 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         let fusedOffsetsPtr = perQueryOffsets.contents().bindMemory(to: UInt32.self, capacity: numQueries)
 
         // Build CSR offsets directly from fused kernel output
+        // (existing code does this right after...)
         // offset[q] = start position for query q, offset[q+1] = start + count
         for q in 0..<numQueries {
             csrPtr[q] = fusedOffsetsPtr[q]
@@ -432,9 +469,9 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         csrPtr[numQueries] = UInt32(actualTotal)
 
         return IVFGPUCandidateResult(
-            candidateIVFIndices: candidateIVFIndices,
-            candidateQueryIds: candidateQueryIds,
-            candidateOffsets: candidateOffsets,
+            indicesToken: candidateIVFIndicesToken,
+            queryIdsToken: candidateQueryIdsToken,
+            offsetsToken: candidateOffsetsToken,
             totalCandidates: actualTotal,
             numQueries: numQueries
         )

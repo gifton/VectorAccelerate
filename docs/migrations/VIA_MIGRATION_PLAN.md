@@ -575,7 +575,7 @@ Week 7-8: Tier 2 (as needed)
 ## Dependencies
 
 The migration assumes:
-- VectorAccelerate 0.4.1+ (Metal 4 only)
+- VectorAccelerate 0.4.0+ (Metal 4 only)
 - macOS 26.0+ / iOS 26.0+
 - Apple Silicon (M1 or later)
 

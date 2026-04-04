@@ -131,7 +131,7 @@ public func executeAndWait(
 
     encoder.endEncoding()
     
-    // 0.4.1: Suspends the Swift task until GPU completes
+    // 0.4.0: Suspends the Swift task until GPU completes
     await commandBuffer.commitAndWait()
 }
 ```
@@ -142,7 +142,7 @@ public func executeAndWait(
 
 When using a **Buffer Pool**, memory is recycled as soon as the `BufferToken` is deallocated. If the GPU is still reading from that memory when it's recycled, data corruption occurs.
 
-VectorAccelerate 0.4.1 uses **Buffer Anchoring** to solve this:
+VectorAccelerate 0.4.0 uses **Buffer Anchoring** to solve this:
 
 ```swift
 // 📍 See: Sources/VectorAccelerate/Core/BufferPool.swift
@@ -152,7 +152,7 @@ public func compute(queries: BufferToken, ...) async throws {
         // Encode operations...
         kernel.encode(into: encoder, queries: queries.buffer, ...)
         
-        // 0.4.1: Anchor the token lifetime to the GPU's completion handler
+        // 0.4.0: Anchor the token lifetime to the GPU's completion handler
         queries.keepAlive(until: commandBuffer)
     }
 }

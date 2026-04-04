@@ -168,14 +168,29 @@ public struct KMeansConfiguration: Sendable {
 
 /// Result from K-Means clustering operation.
 public struct KMeansResult: Sendable {
+    public let centroidsToken: BufferToken?
     /// Final centroids [numClusters × dimension]
-    public let centroids: any MTLBuffer
+    public var centroids: any MTLBuffer {
+        if let token = centroidsToken { return token.buffer }
+        return rawCentroids!
+    }
+    private let rawCentroids: (any MTLBuffer)?
 
+    public let assignmentsToken: BufferToken?
     /// Cluster assignments for each vector [numVectors]
-    public let assignments: any MTLBuffer
+    public var assignments: any MTLBuffer {
+        if let token = assignmentsToken { return token.buffer }
+        return rawAssignments!
+    }
+    private let rawAssignments: (any MTLBuffer)?
 
+    public let clusterCountsToken: BufferToken?
     /// Number of vectors assigned to each cluster [numClusters]
-    public let clusterCounts: any MTLBuffer
+    public var clusterCounts: any MTLBuffer {
+        if let token = clusterCountsToken { return token.buffer }
+        return rawClusterCounts!
+    }
+    private let rawClusterCounts: (any MTLBuffer)?
 
     /// Number of clusters
     public let numClusters: Int
@@ -198,8 +213,70 @@ public struct KMeansResult: Sendable {
     /// Total execution time
     public let executionTime: TimeInterval
 
-    /// Per-iteration timings (if profiling enabled)
+    /// Timing details for each iteration (if profiling enabled)
     public let iterationTimings: [KMeansIterationTiming]?
+
+    public init(
+        centroidsToken: BufferToken?,
+        centroidsBuffer: any MTLBuffer,
+        assignmentsToken: BufferToken?,
+        assignmentsBuffer: any MTLBuffer,
+        clusterCountsToken: BufferToken?,
+        clusterCountsBuffer: any MTLBuffer,
+        numClusters: Int,
+        numVectors: Int,
+        dimension: Int,
+        iterations: Int,
+        converged: Bool,
+        inertia: Float,
+        executionTime: TimeInterval,
+        iterationTimings: [KMeansIterationTiming]?
+    ) {
+        self.centroidsToken = centroidsToken
+        self.rawCentroids = centroidsBuffer
+        self.assignmentsToken = assignmentsToken
+        self.rawAssignments = assignmentsBuffer
+        self.clusterCountsToken = clusterCountsToken
+        self.rawClusterCounts = clusterCountsBuffer
+        self.numClusters = numClusters
+        self.numVectors = numVectors
+        self.dimension = dimension
+        self.iterations = iterations
+        self.converged = converged
+        self.inertia = inertia
+        self.executionTime = executionTime
+        self.iterationTimings = iterationTimings
+    }
+
+    // Legacy initializer
+    public init(
+        centroids: any MTLBuffer,
+        assignments: any MTLBuffer,
+        clusterCounts: any MTLBuffer,
+        numClusters: Int,
+        numVectors: Int,
+        dimension: Int,
+        iterations: Int,
+        converged: Bool,
+        inertia: Float,
+        executionTime: TimeInterval,
+        iterationTimings: [KMeansIterationTiming]?
+    ) {
+        self.centroidsToken = nil
+        self.rawCentroids = centroids
+        self.assignmentsToken = nil
+        self.rawAssignments = assignments
+        self.clusterCountsToken = nil
+        self.rawClusterCounts = clusterCounts
+        self.numClusters = numClusters
+        self.numVectors = numVectors
+        self.dimension = dimension
+        self.iterations = iterations
+        self.converged = converged
+        self.inertia = inertia
+        self.executionTime = executionTime
+        self.iterationTimings = iterationTimings
+    }
 
     /// Extract centroids as 2D Float array.
     public func extractCentroids() -> [[Float]] {
@@ -258,17 +335,53 @@ public struct KMeansIterationTiming: Sendable {
 
 /// Result from K-Means assignment phase.
 public struct KMeansAssignmentResult: Sendable {
+    /// Token for the assignments buffer
+    public let assignmentsToken: BufferToken?
+
     /// Cluster assignments for each vector [numVectors]
-    public let assignments: any MTLBuffer
+    public var assignments: any MTLBuffer {
+        if let token = assignmentsToken { return token.buffer }
+        // Fallback for when raw buffers are provided
+        return rawAssignments!
+    }
+    
+    private let rawAssignments: (any MTLBuffer)?
+
+    /// Token for the distances buffer
+    public let distancesToken: BufferToken?
 
     /// Distances to assigned centroids [numVectors]
-    public let distances: any MTLBuffer
+    public var distances: any MTLBuffer {
+        if let token = distancesToken { return token.buffer }
+        return rawDistances!
+    }
+    
+    private let rawDistances: (any MTLBuffer)?
 
     /// Number of vectors
     public let numVectors: Int
 
     /// Execution time
     public let executionTime: TimeInterval
+    
+    public init(assignmentsToken: BufferToken, distancesToken: BufferToken, numVectors: Int, executionTime: TimeInterval) {
+        self.assignmentsToken = assignmentsToken
+        self.distancesToken = distancesToken
+        self.rawAssignments = nil
+        self.rawDistances = nil
+        self.numVectors = numVectors
+        self.executionTime = executionTime
+    }
+    
+    // Legacy initializer
+    public init(assignments: any MTLBuffer, distances: any MTLBuffer, numVectors: Int, executionTime: TimeInterval) {
+        self.assignmentsToken = nil
+        self.distancesToken = nil
+        self.rawAssignments = assignments
+        self.rawDistances = distances
+        self.numVectors = numVectors
+        self.executionTime = executionTime
+    }
 
     /// Total inertia (sum of squared distances)
     public var inertia: Float {

@@ -41,7 +41,7 @@ This is why GPU matters.
 
 ## The Technique: Hierarchical SIMD Reduction
 
-In version 0.4.1, VectorAccelerate moved from naive per-thread atomics to a **Hierarchical Reduction** model. This is the gold standard for Apple Silicon, maximizing throughput by reducing global memory contention.
+In version 0.4.0, VectorAccelerate moved from naive per-thread atomics to a **Hierarchical Reduction** model. This is the gold standard for Apple Silicon, maximizing throughput by reducing global memory contention.
 
 Let's examine the 4-phase architecture:
 
@@ -104,7 +104,7 @@ By pulling chunks into `float4` and accumulating locally, we saturate the 128-bi
 
 ## The Technique: Dynamic Threadgroup Sizing
 
-Hardcoded threadgroup sizes are fragile. 0.4.1 dispatchers calculate them dynamically:
+Hardcoded threadgroup sizes are fragile. 0.4.0 dispatchers calculate them dynamically:
 
 ```swift
 // 📍 See: Sources/VectorAccelerate/Kernels/Metal4/L2DistanceKernel.swift
