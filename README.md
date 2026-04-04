@@ -546,6 +546,8 @@ VectorAccelerate/
 4. **Enforced Asynchronous Execution**: Fully non-blocking execution model using `await commitAndWait()` and Swift 6 concurrency, ensuring zero OS thread stalls during GPU work.
 5. **Dynamic Buffer Pooling**: Ring-buffer strategy with Power-of-2 bucketing eliminates allocation overhead in hot loops, with `BufferToken` anchoring for safe asynchronous memory reclamation.
 6. **Eager Pipeline Pre-compilation**: Background pre-compilation of critical path kernels during initialization to eliminate cold-start latency.
+7. **Tiled GEMM Neural Encoder**: High-performance 2-pass neural encoder using a Full-D register loop and shared memory padding to eliminate bank conflicts and global atomic bottlenecks.
+8. **Vectorized Transposed Decoder**: Optimized dequantization path using dual-accumulator latency hiding and dimension-specific loop unrolling for a 2x throughput gain.
 
 ## 📊 Performance
 

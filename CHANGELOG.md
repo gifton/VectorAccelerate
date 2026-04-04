@@ -5,13 +5,16 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2026-03-29
+## [0.4.0] - 2026-04-03
 
 ### Added
 - **Hierarchical SIMD Reductions:** Overhauled L2 and Cosine kernels using a 4-phase reduction model (`Local -> Warp -> Threadgroup -> Global`), maximizing 128-bit memory bus saturation.
 - **Tiled Shared Memory KMeans:** New hardware-adaptive assignment kernel that dynamically scales tiles to fit within Apple Silicon's 32KB shared memory limit.
 - **Cooperative Gather Topology:** High-performance 2-pass K-Means update orchestration that eliminates global atomic contention during centroid re-calculation.
+- **Tiled GEMM Neural Encoder:** New state-of-the-art encoder (Phase 5) using a Full-D register loop and shared memory padding to achieve 10-50x speedups by eliminating bank conflicts.
+- **Vectorized Transposed Decoder:** Optimized dequantization path (Phase 4) using dual-accumulator latency hiding and dimension-specialized variants for a 2x throughput gain.
 - **Eager Pipeline Pre-compilation:** Background pre-compilation of critical path kernels during `Metal4Context` initialization to eliminate first-use latency.
+- **Advanced Distance Metrics:** GPU-accelerated kernels for Manhattan, Chebyshev, Minkowski, and Jaccard distances.
 
 ### Changed
 - **Enforced Asynchronous Execution:** All GPU operations now utilize `await commitAndWait()` to suspend Swift tasks without blocking OS threads.
