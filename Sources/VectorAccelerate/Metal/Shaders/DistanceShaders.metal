@@ -1,194 +1,14 @@
+// VectorAccelerate: Distance Computation Shaders
+//
+// GPU kernels for various distance metrics
+//
+// MSL Version: 4.0 (Metal 4 SDK)
+// Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
+
 #include <metal_stdlib>
 using namespace metal;
 
-// -----------------------------------------------------------------------------
-// L2 Distance (Hierarchical SIMD Reduction)
-// 1 Threadgroup = 1 Vector Pair Evaluation
-//
-// Buffers:
-//   [0] queries    — float[numQueries * dimension]
-//   [1] targets    — float[numQueries * dimension]  (1:1 pairing with queries)
-//   [2] distances  — float[numQueries]              (one result per pair)
-//   [3] dimension  — uint
-//   [4] compute_sqrt — uint  (0 = squared L2, 1 = Euclidean)
-// -----------------------------------------------------------------------------
-kernel void l2_distance(
-    device const float* queries [[buffer(0)]],
-    device const float* targets [[buffer(1)]],
-    device float* distances [[buffer(2)]],
-    constant uint& dimension [[buffer(3)]],
-    constant uint& compute_sqrt [[buffer(4)]],
-    uint tgid [[threadgroup_position_in_grid]],
-    uint lid [[thread_position_in_threadgroup]],
-    uint simd_lane_id [[thread_index_in_simdgroup]],
-    uint simd_group_id [[simdgroup_index_in_threadgroup]],
-    uint threads_per_tg [[threads_per_threadgroup]]
-) {
-    uint query_idx = tgid;
-
-    device const float* q = queries + (ulong)query_idx * (ulong)dimension;
-    device const float* t = targets + (ulong)query_idx * (ulong)dimension;
-
-    uint vec_dim = dimension / 4;
-    device const float4* q4 = (device const float4*)q;
-    device const float4* t4 = (device const float4*)t;
-
-    float sq_diff = 0.0;
-
-    // Phase 1: Local float4 squared difference
-    for (uint i = lid; i < vec_dim; i += threads_per_tg) {
-        float4 diff = q4[i] - t4[i];
-        sq_diff += dot(diff, diff);
-    }
-
-    // Phase 1b: Remainder handling
-    uint rem_start = vec_dim * 4;
-    for (uint i = rem_start + lid; i < dimension; i += threads_per_tg) {
-        float diff = q[i] - t[i];
-        sq_diff += diff * diff;
-    }
-
-    // Phase 2: SIMD-group reduction (Execution Width = 32)
-    float simd_result = simd_sum(sq_diff);
-
-    // Phase 3: Threadgroup consolidation
-    threadgroup float shared_sums[32];
-    if (simd_lane_id == 0) {
-        shared_sums[simd_group_id] = simd_result;
-    }
-
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // Phase 4: Single write per threadgroup
-    if (lid == 0) {
-        uint active_simd_groups = (threads_per_tg + 31) / 32;
-        float final_sum = 0.0;
-        for (uint i = 0; i < active_simd_groups; i++) {
-            final_sum += shared_sums[i];
-        }
-
-        distances[query_idx] = (compute_sqrt != 0) ? sqrt(final_sum) : final_sum;
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Cosine Similarity (Float4 Optimized + In-Shader Finalization)
-// 1 Threadgroup = 1 Vector Pair Evaluation
-//
-// Buffers:
-//   [0] queries         — float[numQueries * dimension]
-//   [1] targets         — float[numQueries * dimension]  (1:1 pairing)
-//   [2] similarities    — float[numQueries]              (one result per pair)
-//   [3] dimension       — uint
-//   [4] output_distance — uint  (0 = similarity [-1,1], 1 = distance [0,2])
-// -----------------------------------------------------------------------------
-kernel void cosine_similarity(
-    device const float* queries [[buffer(0)]],
-    device const float* targets [[buffer(1)]],
-    device float* similarities [[buffer(2)]],
-    constant uint& dimension [[buffer(3)]],
-    constant uint& output_distance [[buffer(4)]],
-    uint tgid [[threadgroup_position_in_grid]],
-    uint lid [[thread_position_in_threadgroup]],
-    uint simd_lane_id [[thread_index_in_simdgroup]],
-    uint simd_group_id [[simdgroup_index_in_threadgroup]],
-    uint threads_per_tg [[threads_per_threadgroup]]
-) {
-    uint query_idx = tgid;
-
-    device const float* q = queries + (ulong)query_idx * (ulong)dimension;
-    device const float* t = targets + (ulong)query_idx * (ulong)dimension;
-
-    uint vec_dim = dimension / 4;
-    device const float4* q4 = (device const float4*)q;
-    device const float4* t4 = (device const float4*)t;
-
-    // Accumulate A·B, A·A, B·B
-    float3 local_sums = float3(0.0);
-
-    for (uint i = lid; i < vec_dim; i += threads_per_tg) {
-        float4 a_val = q4[i];
-        float4 b_val = t4[i];
-
-        local_sums.x += dot(a_val, b_val);
-        local_sums.y += dot(a_val, a_val);
-        local_sums.z += dot(b_val, b_val);
-    }
-
-    uint rem_start = vec_dim * 4;
-    for (uint i = rem_start + lid; i < dimension; i += threads_per_tg) {
-        float a_val = q[i];
-        float b_val = t[i];
-        local_sums.x += a_val * b_val;
-        local_sums.y += a_val * a_val;
-        local_sums.z += b_val * b_val;
-    }
-
-    // Phase 2: SIMD sums
-    float3 simd_result = float3(simd_sum(local_sums.x), simd_sum(local_sums.y), simd_sum(local_sums.z));
-
-    // Phase 3: Consolidate
-    threadgroup float3 shared_sums[32];
-    if (simd_lane_id == 0) {
-        shared_sums[simd_group_id] = simd_result;
-    }
-
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // Phase 4: Final output with in-shader mathematical finalization
-    if (lid == 0) {
-        uint active_simd_groups = (threads_per_tg + 31) / 32;
-        float3 total = float3(0.0);
-        for (uint i = 0; i < active_simd_groups; i++) {
-            total += shared_sums[i];
-        }
-
-        float dot_ab = total.x;
-        float dot_aa = total.y;
-        float dot_bb = total.z;
-
-        // Use sqrt(a)*sqrt(b) instead of sqrt(a*b) to avoid intermediate underflow
-        // with denormal inputs where dot_aa * dot_bb would flush to zero.
-        float norm_a = sqrt(dot_aa);
-        float norm_b = sqrt(dot_bb);
-        float denom = norm_a * norm_b;
-        // Let NaN propagate naturally; only guard against true zero denominator
-        float similarity = (denom == 0.0f && !isnan(denom)) ? 0.0f : (dot_ab / denom);
-
-        similarities[query_idx] = (output_distance != 0) ? (1.0f - similarity) : similarity;
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Original Distance Kernels (Restored)
-// -----------------------------------------------------------------------------
-
-// MARK: - Parameter Structures
-
-/// Parameters for L2 distance kernel.
-struct L2DistanceParams {
-    uint32_t numQueries;
-    uint32_t numDatabase;
-    uint32_t dimension;
-    uint32_t strideQuery;
-    uint32_t strideDatabase;
-    uint32_t strideOutput;
-    uint8_t  computeSqrt;
-    uint8_t  padding[3];
-};
-
-/// Parameters for Cosine Similarity kernel.
-struct CosineSimilarityParams {
-    uint32_t numQueries;
-    uint32_t numDatabase;
-    uint32_t dimension;
-    uint32_t strideQuery;
-    uint32_t strideDatabase;
-    uint32_t strideOutput;
-    uint8_t  outputDistance;
-    uint8_t  inputsNormalized;
-    uint8_t  padding[2];
-};
+#define VA_EPSILON 1e-8f
 
 // MARK: - Manhattan Distance
 
@@ -337,28 +157,32 @@ kernel void jaccardDistance(
 
 // -----------------------------------------------------------------------------
 // L2 Distance (Hierarchical SIMD Reduction)
-// 1 Threadgroup = 1 Vector Pair Evaluation (or row/column in cross-product)
+// 1 Threadgroup = 1 Vector Pair Evaluation
+//
+// Buffers:
+//   [0] queries    — float[numQueries * dimension]
+//   [1] targets    — float[numQueries * dimension]  (1:1 pairing with queries)
+//   [2] distances  — float[numQueries]              (one result per pair)
+//   [3] dimension  — uint
+//   [4] compute_sqrt — uint  (0 = squared L2, 1 = Euclidean)
 // -----------------------------------------------------------------------------
 kernel void l2_distance(
     device const float* queries [[buffer(0)]],
     device const float* targets [[buffer(1)]],
     device float* distances [[buffer(2)]],
-    constant L2DistanceParams& params [[buffer(3)]],
-    uint2 tgid [[threadgroup_position_in_grid]],
-    uint2 lid [[thread_position_in_threadgroup]],
+    constant uint& dimension [[buffer(3)]],
+    constant uint& compute_sqrt [[buffer(4)]],
+    uint tgid [[threadgroup_position_in_grid]],
+    uint lid [[thread_position_in_threadgroup]],
     uint simd_lane_id [[thread_index_in_simdgroup]],
     uint simd_group_id [[simdgroup_index_in_threadgroup]],
-    uint2 threads_per_tg [[threads_per_threadgroup]]
+    uint threads_per_tg [[threads_per_threadgroup]]
 ) {
-    uint q_idx = tgid.x;
-    uint d_idx = tgid.y;
+    uint query_idx = tgid;
 
-    if (q_idx >= params.numQueries || d_idx >= params.numDatabase) return;
+    device const float* q = queries + (ulong)query_idx * (ulong)dimension;
+    device const float* t = targets + (ulong)query_idx * (ulong)dimension;
 
-    device const float* q = queries + (ulong)q_idx * (ulong)params.strideQuery;
-    device const float* t = targets + (ulong)d_idx * (ulong)params.strideDatabase;
-
-    uint dimension = params.dimension;
     uint vec_dim = dimension / 4;
     device const float4* q4 = (device const float4*)q;
     device const float4* t4 = (device const float4*)t;
@@ -366,19 +190,19 @@ kernel void l2_distance(
     float sq_diff = 0.0;
 
     // Phase 1: Local float4 squared difference
-    for (uint i = lid.x; i < vec_dim; i += threads_per_tg.x) {
+    for (uint i = lid; i < vec_dim; i += threads_per_tg) {
         float4 diff = q4[i] - t4[i];
         sq_diff += dot(diff, diff);
     }
 
     // Phase 1b: Remainder handling
     uint rem_start = vec_dim * 4;
-    for (uint i = rem_start + lid.x; i < dimension; i += threads_per_tg.x) {
+    for (uint i = rem_start + lid; i < dimension; i += threads_per_tg) {
         float diff = q[i] - t[i];
         sq_diff += diff * diff;
     }
 
-    // Phase 2: SIMD-group reduction
+    // Phase 2: SIMD-group reduction (Execution Width = 32)
     float simd_result = simd_sum(sq_diff);
 
     // Phase 3: Threadgroup consolidation
@@ -390,99 +214,104 @@ kernel void l2_distance(
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     // Phase 4: Single write per threadgroup
-    if (lid.x == 0) {
-        uint active_simd_groups = (threads_per_tg.x + 31) / 32;
+    if (lid == 0) {
+        uint active_simd_groups = (threads_per_tg + 31) / 32;
         float final_sum = 0.0;
         for (uint i = 0; i < active_simd_groups; i++) {
             final_sum += shared_sums[i];
         }
 
-        uint out_idx = q_idx * params.numDatabase + d_idx;
-        distances[out_idx] = (params.computeSqrt != 0) ? sqrt(final_sum) : final_sum;
+        distances[query_idx] = (compute_sqrt != 0) ? sqrt(final_sum) : final_sum;
     }
 }
 
 // -----------------------------------------------------------------------------
-// Cosine Similarity (Hierarchical SIMD Reduction)
+// Cosine Similarity (Float4 Optimized + In-Shader Finalization)
+// 1 Threadgroup = 1 Vector Pair Evaluation
+//
+// Buffers:
+//   [0] queries         — float[numQueries * dimension]
+//   [1] targets         — float[numQueries * dimension]  (1:1 pairing)
+//   [2] similarities    — float[numQueries]              (one result per pair)
+//   [3] dimension       — uint
+//   [4] output_distance — uint  (0 = similarity [-1,1], 1 = distance [0,2])
 // -----------------------------------------------------------------------------
 kernel void cosine_similarity(
     device const float* queries [[buffer(0)]],
     device const float* targets [[buffer(1)]],
-    device float* output [[buffer(2)]],
-    constant CosineSimilarityParams& params [[buffer(3)]],
-    uint2 tgid [[threadgroup_position_in_grid]],
-    uint2 lid [[thread_position_in_threadgroup]],
+    device float* similarities [[buffer(2)]],
+    constant uint& dimension [[buffer(3)]],
+    constant uint& output_distance [[buffer(4)]],
+    uint tgid [[threadgroup_position_in_grid]],
+    uint lid [[thread_position_in_threadgroup]],
     uint simd_lane_id [[thread_index_in_simdgroup]],
     uint simd_group_id [[simdgroup_index_in_threadgroup]],
-    uint2 threads_per_tg [[threads_per_threadgroup]]
+    uint threads_per_tg [[threads_per_threadgroup]]
 ) {
-    uint q_idx = tgid.x;
-    uint d_idx = tgid.y;
+    uint query_idx = tgid;
 
-    if (q_idx >= params.numQueries || d_idx >= params.numDatabase) return;
+    device const float* q = queries + (ulong)query_idx * (ulong)dimension;
+    device const float* t = targets + (ulong)query_idx * (ulong)dimension;
 
-    device const float* q = queries + (ulong)q_idx * (ulong)params.strideQuery;
-    device const float* t = targets + (ulong)d_idx * (ulong)params.strideDatabase;
-
-    uint dimension = params.dimension;
     uint vec_dim = dimension / 4;
     device const float4* q4 = (device const float4*)q;
     device const float4* t4 = (device const float4*)t;
 
-    float dot_ab = 0.0;
-    float dot_aa = 0.0;
-    float dot_bb = 0.0;
+    // Accumulate A·B, A·A, B·B
+    float3 local_sums = float3(0.0);
 
-    // Phase 1: Local float4 accumulation
-    for (uint i = lid.x; i < vec_dim; i += threads_per_tg.x) {
-        float4 q_val = q4[i];
-        float4 t_val = t4[i];
-        dot_ab += dot(q_val, t_val);
-        dot_aa += dot(q_val, q_val);
-        dot_bb += dot(t_val, t_val);
+    for (uint i = lid; i < vec_dim; i += threads_per_tg) {
+        float4 a_val = q4[i];
+        float4 b_val = t4[i];
+
+        local_sums.x += dot(a_val, b_val);
+        local_sums.y += dot(a_val, a_val);
+        local_sums.z += dot(b_val, b_val);
     }
 
-    // Phase 1b: Remainder handling
     uint rem_start = vec_dim * 4;
-    for (uint i = rem_start + lid.x; i < dimension; i += threads_per_tg.x) {
-        float q_val = q[i];
-        float t_val = t[i];
-        dot_ab += q_val * t_val;
-        dot_aa += q_val * q_val;
-        dot_bb += t_val * t_val;
+    for (uint i = rem_start + lid; i < dimension; i += threads_per_tg) {
+        float a_val = q[i];
+        float b_val = t[i];
+        local_sums.x += a_val * b_val;
+        local_sums.y += a_val * a_val;
+        local_sums.z += b_val * b_val;
     }
 
-    // Phase 2: SIMD-group reduction
-    float3 results = float3(simd_sum(dot_ab), simd_sum(dot_aa), simd_sum(dot_bb));
+    // Phase 2: SIMD sums
+    float3 simd_result = float3(simd_sum(local_sums.x), simd_sum(local_sums.y), simd_sum(local_sums.z));
 
-    // Phase 3: Threadgroup consolidation
+    // Phase 3: Consolidate
     threadgroup float3 shared_sums[32];
     if (simd_lane_id == 0) {
-        shared_sums[simd_group_id] = results;
+        shared_sums[simd_group_id] = simd_result;
     }
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Phase 4: Final calculation and single write
-    if (lid.x == 0) {
-        uint active_simd_groups = (threads_per_tg.x + 31) / 32;
-        float3 final_sums = 0.0;
+    // Phase 4: Final output with in-shader mathematical finalization
+    if (lid == 0) {
+        uint active_simd_groups = (threads_per_tg + 31) / 32;
+        float3 total = float3(0.0);
         for (uint i = 0; i < active_simd_groups; i++) {
-            final_sums += shared_sums[i];
+            total += shared_sums[i];
         }
 
-        float similarity = 0.0;
-        float denom = sqrt(final_sums.y * final_sums.z);
-        if (denom > 1e-8f) {
-            similarity = final_sums.x / denom;
-        }
+        float dot_ab = total.x;
+        float dot_aa = total.y;
+        float dot_bb = total.z;
 
-        uint out_idx = q_idx * params.numDatabase + d_idx;
-        output[out_idx] = (params.outputDistance != 0) ? (1.0f - similarity) : similarity;
+        // Use sqrt(a)*sqrt(b) instead of sqrt(a*b) to avoid intermediate underflow
+        float norm_a = sqrt(dot_aa);
+        float norm_b = sqrt(dot_bb);
+        float denom = norm_a * norm_b;
+        float similarity = (denom < 1e-8f) ? 0.0f : (dot_ab / denom);
+
+        similarities[query_idx] = (output_distance != 0) ? (1.0f - similarity) : similarity;
     }
 }
 
-// MARK: - Legacy Tiled Distance Computation
+// MARK: - Legacy Tiled Distance Computation (Retained for Internal Dispatch Compatibility)
 
 kernel void batchCosineSimilaritySIMD(
     constant float4* query [[buffer(0)]],

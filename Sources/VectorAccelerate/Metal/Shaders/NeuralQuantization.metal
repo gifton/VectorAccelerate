@@ -1370,7 +1370,7 @@ kernel void neural_quantize_pass2(
 
     float simd_max_val = simd_max(local_max);
     threadgroup float shared_maxes[32];
-    threadgroup float shared_scale;
+    threadgroup float shared_scale = 0.0f;
     
     if (simd_lane_id == 0) shared_maxes[simd_group_id] = simd_max_val;
     threadgroup_barrier(mem_flags::mem_threadgroup);
