@@ -5,6 +5,16 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-04-04
+
+### Added
+- **VectorCore 0.2.0 Integration:** Updated dependency and aligned with new standardized search result types.
+- **Enhanced Search API:** `AcceleratedVectorIndex.search` now returns `SearchResults<VectorHandle>`, providing rich metadata including search timing and candidate counts.
+- **Normalized Cosine Optimization:** Leveraged the new `IndexableVector.isNormalized` hint from VectorCore to bypass redundant GPU norm calculations in `CosineKernelDistanceProvider`.
+- **Vector384Optimized Support:** Full integration with VectorCore's new optimized 384D type for high-performance MiniLM/BERT workflows.
+
+---
+
 ## [0.4.0] - 2026-04-03
 
 ### Added

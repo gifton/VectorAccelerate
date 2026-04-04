@@ -4,7 +4,7 @@
 
 VectorAccelerate provides high-performance GPU acceleration for vector operations, serving as the computational backbone for the VectorCore ecosystem. By leveraging Metal 4's compute shaders, unified command encoding, and Apple Silicon's unified memory architecture, VectorAccelerate delivers up to 100x speedups for large-scale vector operations.
 
-> **⚠️ Version 0.4.0**: Requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+). For older OS support, use VectorAccelerate 0.2.x
+> **⚠️ Version 0.4.1**: Requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+). For older OS support, use VectorAccelerate 0.2.x
 > 
 > **⚠️ This package is still experimental, with development and real-world testing in progress** for Production grade Vector operations see VectorCore and VectorIndex's CPU-bound implementation
 
@@ -60,7 +60,7 @@ let handle = try await index.insert(embedding)
 // Search for nearest neighbors
 let results = try await index.search(query: queryVector, k: 10)
 for result in results {
-    print("Handle: \(result.handle), Distance: \(result.distance)")
+    print("Handle: \(result.id), Distance: \(result.distance)")
 }
 ```
 
@@ -123,7 +123,7 @@ let scalar = try await ScalarQuantKernel(context: context)
 - **Swift 6.0+**
 
 ### Dependencies
-- **VectorCore 0.1.6+**: The foundational vector mathematics package
+- **VectorCore 0.2.0**: The foundational vector mathematics package
 
 ### Products
 - **VectorAccelerate**: Core GPU acceleration library
@@ -307,8 +307,8 @@ Add VectorAccelerate to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/gifton/VectorAccelerate.git", from: "0.4.0"),
-    .package(url: "https://github.com/gifton/VectorCore.git", from: "0.1.6")
+    .package(url: "https://github.com/gifton/VectorAccelerate.git", from: "0.4.1"),
+    .package(url: "https://github.com/gifton/VectorCore.git", from: "0.2.0")
 ],
 targets: [
     .target(
@@ -321,7 +321,7 @@ targets: [
 ]
 ```
 
-> **Note**: Version 0.4.0+ requires Metal 4. For macOS 15 / iOS 18 support, use version 0.1.x.
+> **Note**: Version 0.4.1+ requires Metal 4. For macOS 15 / iOS 18 support, use version 0.1.x.
 
 ## 🎓 Getting Started
 
@@ -386,7 +386,7 @@ let results = try await fusedKernel.findNearestNeighbors(
 
 // Result contains top-10 nearest neighbors for each query
 for (queryIndex, neighbors) in results.enumerated() {
-    print("Query \(queryIndex): \(neighbors.count) neighbors found")
+    print("Query \(queryIndex): \(neighbors.results.count) neighbors found")
 }
 ```
 
@@ -630,4 +630,4 @@ VectorAccelerate is available under the MIT license. See [LICENSE](LICENSE) for 
 
 ---
 
-**Requirements**: VectorAccelerate 0.4.0+ requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+) and Apple Silicon. For older OS versions, use VectorAccelerate 0.1.x.
+**Requirements**: VectorAccelerate 0.4.1+ requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+) and Apple Silicon. For older OS versions, use VectorAccelerate 0.1.x.

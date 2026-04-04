@@ -219,7 +219,7 @@ final class IVFTests: XCTestCase {
         let results = try await index.search(query: query, k: 5)
 
         // First vector (handle[0]) should not be in results
-        let resultHandles = results.map { $0.handle }
+        let resultHandles = results.map { $0.id }
         XCTAssertFalse(resultHandles.contains(handles[0]),
                        "Deleted vector should not appear in search results")
     }
@@ -286,7 +286,7 @@ final class IVFTests: XCTestCase {
         // Original handles (except deleted) should still be valid
         let validHandles = Set([handles[0], handles[1], handles[3], handles[4]])
         for result in results {
-            XCTAssertTrue(validHandles.contains(result.handle),
+            XCTAssertTrue(validHandles.contains(result.id),
                           "Original handles should remain valid after compaction")
         }
     }
@@ -351,7 +351,7 @@ final class IVFTests: XCTestCase {
         XCTAssertGreaterThan(results.count, 0)
 
         // First result should have metadata
-        let firstMeta = await index.metadata(for: results[0].handle)
+        let firstMeta = await index.metadata(for: results[0].id)
         XCTAssertNotNil(firstMeta)
     }
 

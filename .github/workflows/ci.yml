@@ -10,7 +10,7 @@ on:
 # ============================================================================
 # REQUIRES macOS 26 / Xcode 26 / iOS 26 SDK
 # ============================================================================
-# VectorAccelerate 0.4.0+ is Metal 4 ONLY and requires the macOS 26 runner
+# VectorAccelerate 0.4.1+ is Metal 4 ONLY and requires the macOS 26 runner
 # which provides Xcode 26 with iOS 26, macOS 26, tvOS 26, and visionOS 3 SDKs.
 # ============================================================================
 # NOTE: Do NOT set DEVELOPER_DIR globally. The macos-26 runner has Xcode 26 as
@@ -90,7 +90,7 @@ jobs:
 
       - name: Upload Metal Compile Log
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: metal-compile-log
           path: metal-compile.log
@@ -163,7 +163,7 @@ jobs:
 
       - name: Upload Build Log
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: build-log
           path: build.log
@@ -204,7 +204,7 @@ jobs:
 
       - name: Upload Test Log
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: test-log
           path: test.log
@@ -248,7 +248,7 @@ jobs:
 
       - name: Upload Build Log
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: build-ios-log
           path: build-ios.log
@@ -286,7 +286,7 @@ jobs:
 
       - name: Upload Build Log
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: build-release-log
           path: build-release.log
@@ -332,7 +332,7 @@ jobs:
 
       - name: Upload SwiftLint Log
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: swiftlint-log
           path: swiftlint.log

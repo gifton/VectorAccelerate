@@ -301,8 +301,8 @@ final class AdaptiveNlistTests: XCTestCase {
             let ivfResults = try await ivfIndex.search(query: query, k: k)
             let flatResults = try await flatIndex.search(query: query, k: k)
 
-            let ivfSet = Set(ivfResults.map { $0.handle.stableID })
-            let flatSet = Set(flatResults.map { $0.handle.stableID })
+            let ivfSet = Set(ivfResults.results.map { $0.id.stableID })
+            let flatSet = Set(flatResults.results.map { $0.id.stableID })
             let intersection = ivfSet.intersection(flatSet)
 
             totalRecall += Float(intersection.count) / Float(k)

@@ -540,12 +540,12 @@ final class HandleLifecycleTests: XCTestCase {
         XCTAssertEqual(results.count, 3, "Should find 3 remaining vectors")
 
         // First result should be exact match with distance 0
-        XCTAssertEqual(results[0].distance, 0.0, accuracy: 0.001)
+        XCTAssertEqual(results.results[0].distance, 0.0, accuracy: 0.001)
 
         // With P0.8 stable handles: results should use original handles
         let validHandleSet = Set([handles[0], handles[2], handles[4]])
         for result in results {
-            XCTAssertTrue(validHandleSet.contains(result.handle),
+            XCTAssertTrue(validHandleSet.contains(result.id),
                           "Search results should use original stable handles")
         }
     }
