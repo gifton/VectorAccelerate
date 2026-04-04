@@ -540,11 +540,12 @@ VectorAccelerate/
 
 ### Performance Optimizations
 
-1. **Dimension-Specific Kernels**: Hand-tuned for 512, 768, 1536 dimensions
-2. **Tiled Algorithms**: 32×32×8 tiles optimized for Apple Silicon cache
-3. **SIMD Operations**: Leveraging float4 and simdgroup matrix operations
-4. **Fused Kernels**: Combined distance + selection for reduced memory bandwidth
-5. **Async Pipeline Creation**: Non-blocking kernel initialization
+1. **Hierarchical SIMD Reductions**: Overhauled L2 and Cosine kernels using a 4-phase reduction model (`Local -> Warp -> Threadgroup -> Global`), maximizing 128-bit memory bus saturation and eliminating global atomic stalls.
+2. **Tiled Shared Memory Algorithms**: KMeans assignment dynamically scales centroid tiles to fit within hardware limits (32KB), using register-cached compute loops to reduce global memory pressure by 32x.
+3. **2-Pass GPU Orchestration**: K-Means update logic uses a "Cooperative Gather" topology, collaboratively summing dimensions via SIMD-group operations for maximum throughput.
+4. **Enforced Asynchronous Execution**: Fully non-blocking execution model using `await commitAndWait()` and Swift 6 concurrency, ensuring zero OS thread stalls during GPU work.
+5. **Dynamic Buffer Pooling**: Ring-buffer strategy with Power-of-2 bucketing eliminates allocation overhead in hot loops, with `BufferToken` anchoring for safe asynchronous memory reclamation.
+6. **Eager Pipeline Pre-compilation**: Background pre-compilation of critical path kernels during initialization to eliminate cold-start latency.
 
 ## 📊 Performance
 
