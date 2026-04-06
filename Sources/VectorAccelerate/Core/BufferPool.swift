@@ -542,6 +542,9 @@ public actor BufferPool: BufferProvider {
     
     /// Get pool performance statistics
     public func getStatistics() -> PoolStatistics {
+        // Drain pending returns so stats reflect current state
+        drainPendingReturns()
+
         let totalRequests = hitCount + missCount
         let hitRate = totalRequests > 0 ? Double(hitCount) / Double(totalRequests) : 0.0
 

@@ -83,8 +83,9 @@ final class ArgumentTablePoolTests: XCTestCase {
     func test_acquire_exhausted() async throws {
         let pool = ArgumentTablePool(device: device, maxTables: 2)
 
-        _ = try await pool.acquire()
-        _ = try await pool.acquire()
+        // Hold references so deinit doesn't return them to the pool
+        let table1 = try await pool.acquire()
+        let table2 = try await pool.acquire()
 
         do {
             _ = try await pool.acquire()
@@ -94,6 +95,9 @@ final class ArgumentTablePoolTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error type: \(error)")
         }
+
+        // Keep tables alive past the assertion
+        _ = (table1, table2)
     }
 
     // MARK: - Release Enables Re-acquire
@@ -103,7 +107,7 @@ final class ArgumentTablePoolTests: XCTestCase {
         let pool = ArgumentTablePool(device: device, maxTables: 2)
 
         let table1 = try await pool.acquire()
-        _ = try await pool.acquire()
+        let table2 = try await pool.acquire()
 
         // Pool is now at capacity
         await pool.release(table1)
@@ -112,6 +116,7 @@ final class ArgumentTablePoolTests: XCTestCase {
         let table3 = try await pool.acquire()
         XCTAssertGreaterThan(table3.maxBufferBindCount, 0,
                              "Acquire after release on exhausted pool should succeed")
+        _ = table2 // keep alive
     }
 
     // MARK: - Double Release No-Op
@@ -282,7 +287,7 @@ final class ArgumentTablePoolTests: XCTestCase {
 
     /// ArgumentTableToken should automatically release its table back to the pool
     /// when the token is deallocated. The deinit enqueues into PendingTableReturns,
-    /// which is drained on the next acquire() call.
+    /// which is drained by getStatistics().
     func test_acquireToken_autoRelease() async throws {
         let pool = ArgumentTablePool(device: device)
 
@@ -294,20 +299,11 @@ final class ArgumentTablePoolTests: XCTestCase {
             // token goes out of scope here, triggering deinit -> PendingTableReturns.enqueue
         }
 
-        // The pending return is drained on the next acquire() call.
-        // Acquire a second table to trigger the drain, then release it.
-        let drainTrigger = try await pool.acquire()
-        await pool.release(drainTrigger)
-
+        // getStatistics drains pending returns automatically
         let stats = await pool.getStatistics()
-        // After drain: the original table was returned (1 available) + drainTrigger was released (1 available) = 2 available
-        // But drainTrigger was created fresh (not from the pending queue), so:
-        // - Original token: enqueued via pending, drained on acquire -> returned to pool (available)
-        // - drainTrigger: acquired (new or reused the returned one), then released -> available
-        // Net: acquisitionCount=2, releaseCount=2, inUse=0
         XCTAssertEqual(stats.inUseTables, 0,
-                       "All tables should be released")
-        XCTAssertGreaterThanOrEqual(stats.releaseCount, 2,
-                       "Both the auto-released token and the drain trigger should be released")
+                       "Table should be auto-released when token is deallocated")
+        XCTAssertEqual(stats.availableTables, 1,
+                       "Auto-released table should be back in the available pool")
     }
 }

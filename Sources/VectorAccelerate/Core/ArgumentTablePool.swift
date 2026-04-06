@@ -323,7 +323,10 @@ public actor ArgumentTablePool {
 
     /// Get current pool statistics
     public func getStatistics() -> ArgumentTablePoolStatistics {
-        ArgumentTablePoolStatistics(
+        // Drain pending returns so stats reflect current state
+        drainPendingReturns()
+
+        return ArgumentTablePoolStatistics(
             totalTables: available.count + inUse.count,
             availableTables: available.count,
             inUseTables: inUse.count,

@@ -27,10 +27,10 @@ public final class KMeansUpdateKernel: @unchecked Sendable, Metal4Kernel {
     // MARK: - Private Properties
 
     /// Accumulation pipeline (Pass 1)
-    private let accumulatePipelineState: MTLComputePipelineState
+    private let accumulatePipelineState: any MTLComputePipelineState
 
     /// Normalization pipeline (Pass 2)
-    private let normalizePipelineState: MTLComputePipelineState
+    private let normalizePipelineState: any MTLComputePipelineState
 
     // MARK: - Initialization
 
