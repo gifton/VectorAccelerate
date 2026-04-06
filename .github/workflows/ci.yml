@@ -10,7 +10,7 @@ on:
 # ============================================================================
 # REQUIRES macOS 26 / Xcode 26 / iOS 26 SDK
 # ============================================================================
-# VectorAccelerate 0.4.1+ is Metal 4 ONLY and requires the macOS 26 runner
+# VectorAccelerate 0.4.2+ is Metal 4 ONLY and requires the macOS 26 runner
 # which provides Xcode 26 with iOS 26, macOS 26, tvOS 26, and visionOS 3 SDKs.
 # ============================================================================
 # NOTE: Do NOT set DEVELOPER_DIR globally. The macos-26 runner has Xcode 26 as

@@ -58,8 +58,10 @@ public struct FallbackProvider: Sendable {
     /// - Returns: Euclidean distance, or `.infinity` if dimensions don't match
     ///
     /// - Complexity: O(n) where n is vector dimension
-    public func l2Distance(from a: [Float], to b: [Float]) -> Float {
-        guard a.count == b.count, !a.isEmpty else { return .infinity }
+    public func l2Distance(from a: [Float], to b: [Float]) throws -> Float {
+        guard a.count == b.count, !a.isEmpty else {
+            throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
+        }
 
         var result: Float = 0
         vDSP_distancesq(a, 1, b, 1, &result, vDSP_Length(a.count))
@@ -72,8 +74,10 @@ public struct FallbackProvider: Sendable {
     ///   - a: First vector
     ///   - b: Second vector
     /// - Returns: Squared Euclidean distance
-    public func l2DistanceSquared(from a: [Float], to b: [Float]) -> Float {
-        guard a.count == b.count, !a.isEmpty else { return .infinity }
+    public func l2DistanceSquared(from a: [Float], to b: [Float]) throws -> Float {
+        guard a.count == b.count, !a.isEmpty else {
+            throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
+        }
 
         var result: Float = 0
         vDSP_distancesq(a, 1, b, 1, &result, vDSP_Length(a.count))
@@ -89,7 +93,7 @@ public struct FallbackProvider: Sendable {
     ///
     /// - Complexity: O(n * m) where n is candidate count and m is dimension
     public func batchL2Distance(from query: [Float], to candidates: [[Float]]) -> [Float] {
-        candidates.map { l2Distance(from: query, to: $0) }
+        candidates.map { (try? l2Distance(from: query, to: $0)) ?? .infinity }
     }
 
     // MARK: - Cosine Similarity Operations
@@ -166,8 +170,10 @@ public struct FallbackProvider: Sendable {
     ///   - a: First vector
     ///   - b: Second vector
     /// - Returns: Sum of absolute differences
-    public func manhattanDistance(from a: [Float], to b: [Float]) -> Float {
-        guard a.count == b.count else { return .infinity }
+    public func manhattanDistance(from a: [Float], to b: [Float]) throws -> Float {
+        guard a.count == b.count else {
+            throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
+        }
         return zip(a, b).reduce(0) { $0 + abs($1.0 - $1.1) }
     }
 
@@ -272,8 +278,10 @@ public struct FallbackProvider: Sendable {
     ///   - a: First vector
     ///   - b: Second vector
     /// - Returns: Maximum absolute difference
-    public func chebyshevDistance(from a: [Float], to b: [Float]) -> Float {
-        guard a.count == b.count else { return .infinity }
+    public func chebyshevDistance(from a: [Float], to b: [Float]) throws -> Float {
+        guard a.count == b.count else {
+            throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
+        }
         return zip(a, b).reduce(0) { max($0, abs($1.0 - $1.1)) }
     }
 
@@ -288,19 +296,19 @@ public struct FallbackProvider: Sendable {
         from a: [Float],
         to b: [Float],
         metric: SupportedDistanceMetric
-    ) -> Float {
+    ) throws -> Float {
         switch metric {
         case .euclidean:
-            return l2Distance(from: a, to: b)
+            return try l2Distance(from: a, to: b)
         case .cosine:
             return 1.0 - cosineSimilarity(from: a, to: b)
         case .dotProduct:
             // Negate for distance semantics (higher dot product = closer)
             return -dotProduct(from: a, to: b)
         case .manhattan:
-            return manhattanDistance(from: a, to: b)
+            return try manhattanDistance(from: a, to: b)
         case .chebyshev:
-            return chebyshevDistance(from: a, to: b)
+            return try chebyshevDistance(from: a, to: b)
         }
     }
 
@@ -316,7 +324,7 @@ public struct FallbackProvider: Sendable {
         to candidates: [[Float]],
         metric: SupportedDistanceMetric
     ) -> [Float] {
-        candidates.map { distance(from: query, to: $0, metric: metric) }
+        candidates.map { (try? distance(from: query, to: $0, metric: metric)) ?? .infinity }
     }
 }
 
@@ -335,8 +343,8 @@ extension FallbackProvider {
         from a: V,
         to b: V,
         metric: SupportedDistanceMetric = .euclidean
-    ) -> Float where V.Scalar == Float {
-        distance(from: a.toArray(), to: b.toArray(), metric: metric)
+    ) throws -> Float where V.Scalar == Float {
+        try distance(from: a.toArray(), to: b.toArray(), metric: metric)
     }
 
     /// Compute batch distances from VectorProtocol query.
@@ -346,6 +354,6 @@ extension FallbackProvider {
         metric: SupportedDistanceMetric = .euclidean
     ) -> [Float] where V.Scalar == Float {
         let queryArray = query.toArray()
-        return candidates.map { distance(from: queryArray, to: $0.toArray(), metric: metric) }
+        return candidates.map { (try? distance(from: queryArray, to: $0.toArray(), metric: metric)) ?? .infinity }
     }
 }

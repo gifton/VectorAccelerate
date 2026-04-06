@@ -36,6 +36,54 @@ public struct BufferPoolConfiguration: Sendable {
     public static let `default` = BufferPoolConfiguration()
 }
 
+/// Lock-protected pending-return queue for buffer tokens.
+///
+/// When a `BufferToken` is deallocated (deinit), it cannot call the actor-isolated
+/// `BufferPool.returnBuffer()` synchronously. Instead, it enqueues the buffer here.
+/// The pool drains this queue at the start of each `getBuffer()` call, ensuring
+/// recently freed buffers are available for immediate reuse.
+///
+/// This replaces the previous `Task.detached` pattern which was:
+/// - Unordered (recently freed buffers weren't available on the next acquire)
+/// - Unreliable (task might not execute before program exit)
+/// - A Swift concurrency antipattern (unstructured task from deinit)
+internal final class PendingBufferReturns: @unchecked Sendable {
+    static let shared = PendingBufferReturns()
+
+    /// Entry stores the pool's ObjectIdentifier to avoid retaining the pool actor.
+    /// This prevents a retain cycle: Token -> PendingReturns(singleton) -> Pool -> Token.
+    private struct Entry {
+        let buffer: any MTLBuffer
+        let size: Int
+        let poolId: ObjectIdentifier
+    }
+
+    private var pending: [Entry] = []
+    private let lock = NSLock()
+
+    func enqueue(buffer: any MTLBuffer, size: Int, pool: BufferPool) {
+        lock.lock()
+        pending.append(Entry(buffer: buffer, size: size, poolId: ObjectIdentifier(pool)))
+        lock.unlock()
+    }
+
+    /// Drain all pending returns for a specific pool. Called from within the pool actor.
+    func drain(for pool: BufferPool) -> [(buffer: any MTLBuffer, size: Int)] {
+        lock.lock()
+        let poolId = ObjectIdentifier(pool)
+        var returned: [(buffer: any MTLBuffer, size: Int)] = []
+        pending.removeAll { entry in
+            if entry.poolId == poolId {
+                returned.append((entry.buffer, entry.size))
+                return true
+            }
+            return false
+        }
+        lock.unlock()
+        return returned
+    }
+}
+
 /// Token representing a borrowed buffer from the pool
 /// Automatically returns buffer to pool when deallocated (RAII pattern)
 public final class BufferToken: @unchecked Sendable {
@@ -45,50 +93,57 @@ public final class BufferToken: @unchecked Sendable {
     private var dataCount: Int?  // Track actual data count for typed data
     private var isReturned: Bool = false
     private let lock = NSLock()
-    
+
     init(buffer: any MTLBuffer, size: Int, pool: BufferPool?, dataCount: Int? = nil) {
         self.buffer = buffer
         self.size = size
         self.pool = pool
         self.dataCount = dataCount
     }
-    
+
     deinit {
         lock.lock()
-        defer { lock.unlock() }
-        
-        guard !isReturned else { return }
-        
-        // Capture what we need before self is deallocated
-        let capturedBuffer = buffer
-        let capturedSize = size
-        let capturedPool = pool
-        
-        Task.detached {
-            await capturedPool?.returnBuffer(capturedBuffer, size: capturedSize)
-        }
+        let alreadyReturned = isReturned
+        isReturned = true  // Prevent double-return if returnToPool() races with deinit
+        lock.unlock()
+
+        guard !alreadyReturned, let pool = pool else { return }
+
+        // Synchronous enqueue -- no Task.detached needed.
+        // The pool will drain this on its next getBuffer() call.
+        PendingBufferReturns.shared.enqueue(buffer: buffer, size: size, pool: pool)
     }
-    
+
     /// Manually return buffer to pool (optional - happens automatically on deinit)
     public func returnToPool() {
         lock.lock()
-        defer { lock.unlock() }
-        
-        guard !isReturned else { return }
-        isReturned = true
-        
-        let capturedBuffer = buffer
-        let capturedSize = size
-        let capturedPool = pool
-        
-        Task.detached {
-            await capturedPool?.returnBuffer(capturedBuffer, size: capturedSize)
+        guard !isReturned else {
+            lock.unlock()
+            return
         }
+        isReturned = true
+        lock.unlock()
+
+        guard let pool = pool else { return }
+        PendingBufferReturns.shared.enqueue(buffer: buffer, size: size, pool: pool)
     }
     
-    /// Get buffer contents as typed array
+    /// Get buffer contents as typed pointer.
+    ///
+    /// On Apple Silicon, Metal buffers use shared memory (`.storageModeShared`).
+    /// After `executeAndWait` completes, GPU-written data is directly readable
+    /// through this pointer with no copy required.
     public func contents<T>(as type: T.Type) -> UnsafeMutablePointer<T> {
         buffer.contents().bindMemory(to: T.self, capacity: size / MemoryLayout<T>.stride)
+    }
+
+    /// Read a single scalar value from the buffer (zero-copy on unified memory).
+    ///
+    /// Use this instead of `copyData(as:)[0]` when reading a single result value.
+    /// Avoids allocating an intermediate `[T]` array.
+    @inline(__always)
+    public func readScalar<T>(as type: T.Type) -> T {
+        contents(as: type).pointee
     }
     
     /// Copy data from buffer
@@ -239,6 +294,9 @@ public actor BufferPool: BufferProvider {
     
     /// Get a buffer of at least the specified size
     public func getBuffer(size: Int) async throws -> BufferToken {
+        // Drain pending returns from token deinits (synchronous, no Task.detached)
+        drainPendingReturns()
+
         // Find appropriate bucket size
         let bucketSize = selectBucketSize(for: size)
         
@@ -302,6 +360,14 @@ public actor BufferPool: BufferProvider {
         return BufferToken(buffer: buffer, size: bucketSize, pool: self)
     }
     
+    /// Drain buffers that were returned via deinit (enqueued in PendingBufferReturns).
+    private func drainPendingReturns() {
+        let returned = PendingBufferReturns.shared.drain(for: self)
+        for (buffer, size) in returned {
+            returnBuffer(buffer, size: size)
+        }
+    }
+
     /// Return a buffer to the pool
     func returnBuffer(_ buffer: any MTLBuffer, size: Int) {
         // Find the appropriate bucket

@@ -13,17 +13,21 @@ public struct AccelerateFallback {
     // MARK: - Distance Operations
     
     /// Compute Euclidean distance using Accelerate
-    public static func euclideanDistance(_ a: [Float], _ b: [Float]) -> Float {
-        guard a.count == b.count else { return Float.nan }
-        
+    public static func euclideanDistance(_ a: [Float], _ b: [Float]) throws -> Float {
+        guard a.count == b.count else {
+            throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
+        }
+
         var result: Float = 0
         vDSP_distancesq(a, 1, b, 1, &result, vDSP_Length(a.count))
         return sqrt(result)
     }
-    
+
     /// Compute cosine similarity using Accelerate
-    public static func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
-        guard a.count == b.count else { return Float.nan }
+    public static func cosineSimilarity(_ a: [Float], _ b: [Float]) throws -> Float {
+        guard a.count == b.count else {
+            throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
+        }
         
         // Compute dot product
         var dotProduct: Float = 0
@@ -45,17 +49,21 @@ public struct AccelerateFallback {
     }
     
     /// Compute dot product using Accelerate
-    public static func dotProduct(_ a: [Float], _ b: [Float]) -> Float {
-        guard a.count == b.count else { return Float.nan }
-        
+    public static func dotProduct(_ a: [Float], _ b: [Float]) throws -> Float {
+        guard a.count == b.count else {
+            throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
+        }
+
         var result: Float = 0
         vDSP_dotpr(a, 1, b, 1, &result, vDSP_Length(a.count))
         return result
     }
-    
+
     /// Compute Manhattan distance using Accelerate
-    public static func manhattanDistance(_ a: [Float], _ b: [Float]) -> Float {
-        guard a.count == b.count else { return Float.nan }
+    public static func manhattanDistance(_ a: [Float], _ b: [Float]) throws -> Float {
+        guard a.count == b.count else {
+            throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
+        }
         
         // Compute absolute differences
         var diff = [Float](repeating: 0, count: a.count)
@@ -192,7 +200,7 @@ public struct AccelerateFallback {
         query: [Float],
         candidates: [[Float]]
     ) -> [Float] {
-        candidates.map { euclideanDistance(query, $0) }
+        candidates.map { (try? euclideanDistance(query, $0)) ?? .infinity }
     }
     
     /// Batch cosine similarity using Accelerate
@@ -231,7 +239,7 @@ public struct AccelerateFallback {
         query: [Float],
         candidates: [[Float]]
     ) -> [Float] {
-        candidates.map { dotProduct(query, $0) }
+        candidates.map { (try? dotProduct(query, $0)) ?? 0 }
     }
     
     // MARK: - Statistical Operations
@@ -330,17 +338,17 @@ extension Array where Element == Float {
     }
     
     /// Compute dot product with another vector using Accelerate
-    public func dotAccelerate(with other: [Float]) -> Float {
-        AccelerateFallback.dotProduct(self, other)
+    public func dotAccelerate(with other: [Float]) throws -> Float {
+        try AccelerateFallback.dotProduct(self, other)
     }
-    
+
     /// Compute Euclidean distance to another vector using Accelerate
-    public func euclideanDistanceAccelerate(to other: [Float]) -> Float {
-        AccelerateFallback.euclideanDistance(self, other)
+    public func euclideanDistanceAccelerate(to other: [Float]) throws -> Float {
+        try AccelerateFallback.euclideanDistance(self, other)
     }
-    
+
     /// Compute cosine similarity with another vector using Accelerate
-    public func cosineSimilarityAccelerate(with other: [Float]) -> Float {
-        AccelerateFallback.cosineSimilarity(self, other)
+    public func cosineSimilarityAccelerate(with other: [Float]) throws -> Float {
+        try AccelerateFallback.cosineSimilarity(self, other)
     }
 }

@@ -40,6 +40,29 @@ public struct Metal4Configuration: Sendable {
     public static let `default` = Metal4Configuration()
 }
 
+/// GPU timing information captured from `MTLCommandBuffer` after completion.
+///
+/// On Apple Silicon, `gpuStartTime` and `gpuEndTime` are Mach absolute time values
+/// that represent when the GPU physically started and finished processing the command buffer.
+/// This excludes Swift-side overhead (buffer allocation, actor hops, command encoding).
+public struct GPUTimingInfo: Sendable {
+    /// Mach absolute time when GPU began processing
+    public let gpuStartTime: CFTimeInterval
+
+    /// Mach absolute time when GPU finished processing
+    public let gpuEndTime: CFTimeInterval
+
+    /// GPU execution duration in seconds
+    public var duration: TimeInterval {
+        gpuEndTime - gpuStartTime
+    }
+
+    /// GPU execution duration in milliseconds
+    public var durationMs: Double {
+        duration * 1000
+    }
+}
+
 /// Metal 4 compute context with explicit residency management
 ///
 /// This actor provides the primary interface for Metal 4 GPU compute operations.
@@ -119,6 +142,24 @@ public actor Metal4Context: AccelerationProvider {
 
     private var totalComputeTime: TimeInterval = 0
     private var computeOperationCount: Int = 0
+
+    /// GPU timing from the most recent `executeAndWait` call.
+    /// Updated after every GPU submission completes.
+    private var _lastGPUTiming: GPUTimingInfo?
+
+    /// GPU timing from the most recent `executeAndWait` call.
+    ///
+    /// Use this after any GPU operation to separate GPU compute time from
+    /// Swift-side submission overhead. Valid immediately after an `executeAndWait`
+    /// call returns.
+    ///
+    /// ```swift
+    /// try await context.executeAndWait { cb, enc in ... }
+    /// if let timing = await context.lastGPUTiming {
+    ///     print("GPU compute: \(timing.durationMs)ms")
+    /// }
+    /// ```
+    public var lastGPUTiming: GPUTimingInfo? { _lastGPUTiming }
 
     // MARK: - Shader Management
 
@@ -273,7 +314,7 @@ public actor Metal4Context: AccelerationProvider {
             throw VectorError.encoderCreationFailed()
         }
 
-        let startTime = CFAbsoluteTimeGetCurrent()
+        let profilingStart = ContinuousClock.now
 
         let result = try await operation(commandBuffer, encoder)
 
@@ -284,8 +325,8 @@ public actor Metal4Context: AccelerationProvider {
         await commandBuffer.commitAndWait()
 
         if configuration.enableProfiling {
-            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-            totalComputeTime += elapsed
+            let elapsed = ContinuousClock.now - profilingStart
+            totalComputeTime += Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) * 1e-18
             computeOperationCount += 1
         }
 
@@ -314,7 +355,7 @@ public actor Metal4Context: AccelerationProvider {
             throw VectorError.encoderCreationFailed()
         }
 
-        let startTime = CFAbsoluteTimeGetCurrent()
+        let profilingStart = ContinuousClock.now
 
         try await operation(commandBuffer, encoder)
 
@@ -345,9 +386,20 @@ public actor Metal4Context: AccelerationProvider {
             }
         }
 
+        // Capture GPU timestamps (valid after command buffer completes).
+        // gpuStartTime/gpuEndTime are CFTimeInterval (seconds since boot).
+        // Values are 0 for failed command buffers.
+        let gpuStart = commandBuffer.gpuStartTime
+        let gpuEnd = commandBuffer.gpuEndTime
+        if gpuStart > 0 && gpuEnd >= gpuStart {
+            _lastGPUTiming = GPUTimingInfo(gpuStartTime: gpuStart, gpuEndTime: gpuEnd)
+        } else {
+            _lastGPUTiming = nil
+        }
+
         if configuration.enableProfiling {
-            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-            totalComputeTime += elapsed
+            let elapsed = ContinuousClock.now - profilingStart
+            totalComputeTime += Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) * 1e-18
             computeOperationCount += 1
         }
 
@@ -397,6 +449,15 @@ public actor Metal4Context: AccelerationProvider {
             completionEvent.notify(MTLSharedEventListener(dispatchQueue: .global()), atValue: targetValue) { _, _ in
                 continuation.resume()
             }
+        }
+
+        // Capture GPU timestamps (same pattern as executeAndWait)
+        let gpuStart = commandBuffer.gpuStartTime
+        let gpuEnd = commandBuffer.gpuEndTime
+        if gpuStart > 0 && gpuEnd >= gpuStart {
+            _lastGPUTiming = GPUTimingInfo(gpuStartTime: gpuStart, gpuEndTime: gpuEnd)
+        } else {
+            _lastGPUTiming = nil
         }
 
         if let error = commandBuffer.error {

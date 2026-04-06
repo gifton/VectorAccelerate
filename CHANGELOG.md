@@ -5,6 +5,32 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-04-05
+
+### Added
+- **Technical Audit Report:** Comprehensive `AUDIT.md` covering API design, performance architecture, correctness, testing gaps, benchmarking strategy, and prioritized improvement roadmap.
+- **P0 Test Suite (81 tests):** New test files for `Metal4ComputeEngine`, `BatchDistanceEngine`, `AccelerateFallback`, `ArgumentTablePool`, and `GPUDecisionEngine` -- covering distance operations, batch routing, CPU fallbacks, pool lifecycle, and adaptive thresholds.
+- **Crossover Benchmark Runner:** New `--crossover` CLI mode that sweeps batch sizes across dimensions and metrics to identify the CPU/GPU performance breakeven point. Outputs JSON for threshold calibration.
+- **Pre-Allocated Buffer API:** `allocateVectorBuffer`, `allocateResultBuffer`, and `*WithBuffers` variants of batch Euclidean, batch cosine, single Euclidean, and single dot product -- enabling zero per-call allocation for hot-path reuse.
+- **GPU Timestamp Profiling:** `GPUTimingInfo` struct capturing `MTLCommandBuffer.gpuStartTime`/`gpuEndTime` after every `executeAndWait`/`executeBlitAndWait`. Benchmark reports now show wall-clock p50/p95/p99, GPU compute p50/p95, and submission overhead.
+- **`GPUOperation.chebyshevDistance`:** New enum case for proper adaptive routing of Chebyshev distance operations.
+
+### Changed
+- **Benchmark Timing:** Replaced `CFAbsoluteTimeGetCurrent()` with `ContinuousClock` across all benchmark and profiling paths (BenchmarkFramework, Metal4Context, Metal4ComputeEngine). Added p95/p99 percentiles via `LatencyStats` reuse. Added `blackHole()` to prevent dead-code elimination of benchmark results.
+- **Unified Error Handling:** `AccelerateFallback` distance methods now throw `VectorError.dimensionMismatch` instead of returning `Float.nan`. `FallbackProvider` distance methods throw instead of returning `.infinity`. Batch wrappers use `try?` with appropriate fallback values.
+- **Adaptive GPU/CPU Routing:** `Metal4ComputeEngine` now accepts an optional `GPUDecisionEngine` for data-driven routing. All 7 single/batch operations route through `shouldUseGPU`/`shouldUseBatchGPU` helpers. CPU fallback added to `euclideanDistance` and `cosineDistance` single-vector operations.
+
+### Fixed
+- **SIMD Path `withTaskGroup` Anti-Pattern:** Replaced per-candidate `Task` spawning in `batchEuclideanDistanceSIMD`, `batchCosineSimilaritySIMD`, and `batchManhattanDistanceSIMD` with direct `AccelerateFallback` calls. Eliminates ~500 task spawns per batch, estimated 10-100x throughput improvement on the SIMD path.
+- **`BufferToken.deinit` / `ArgumentTableToken.deinit` `Task.detached`:** Replaced with synchronous `PendingBufferReturns`/`PendingTableReturns` queues drained on next pool access. Fixes non-deterministic buffer return, potential leaks on program exit, and degraded pool hit rate.
+- **TOCTOU Double-Return Bug:** `BufferToken.deinit` and `ArgumentTableToken.deinit` now atomically set `isReturned`/`isReleased` under lock before enqueue, preventing double-return when `returnToPool()`/`release()` races with deinit.
+- **Retain Cycle in Pending Return Queues:** `PendingBufferReturns` and `PendingTableReturns` now store `ObjectIdentifier` instead of strong pool references, breaking the singleton-to-pool retain cycle.
+- **12 `defer { Task { release } }` in Metal4ComputeEngine:** All argument table release paths replaced with synchronous `PendingTableReturns.shared.enqueue`, consistent with the deinit fix.
+- **Stale GPU Timing:** `lastGPUTiming` now set to `nil` when timestamps are invalid (`gpuStart == 0` or `gpuEnd < gpuStart`), preventing stale timing from prior iterations leaking into benchmark results.
+- **Zero-Copy Scalar Reads:** Added `BufferToken.readScalar(as:)` and replaced all 11 single-value `copyData(as:)[0]` sites (5 in Metal4ComputeEngine, 4 in KernelDistanceProviders, 2 in pre-allocated API) with direct unified-memory reads. Eliminates per-call `[Float]` array allocation for scalar results.
+
+---
+
 ## [0.4.1] - 2026-04-04
 
 ### Added

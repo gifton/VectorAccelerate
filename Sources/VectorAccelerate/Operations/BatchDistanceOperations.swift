@@ -123,20 +123,7 @@ public actor BatchDistanceEngine {
         query: [Float],
         candidates: [[Float]]
     ) async throws -> [Float] {
-        await withTaskGroup(of: (Int, Float).self) { group in
-            for (index, candidate) in candidates.enumerated() {
-                group.addTask {
-                    let distance = AccelerateFallback.euclideanDistance(query, candidate)
-                    return (index, distance)
-                }
-            }
-
-            var results = [Float](repeating: 0, count: candidates.count)
-            for await (index, distance) in group {
-                results[index] = distance
-            }
-            return results
-        }
+        AccelerateFallback.batchEuclideanDistance(query: query, candidates: candidates)
     }
 
     private func batchEuclideanDistanceCPU(
@@ -236,29 +223,7 @@ public actor BatchDistanceEngine {
         query: [Float],
         candidates: [[Float]]
     ) async throws -> [Float] {
-        // Normalize query once
-        let queryNorm = sqrt(query.reduce(0) { $0 + $1 * $1 })
-        let normalizedQuery = query.map { $0 / queryNorm }
-
-        return await withTaskGroup(of: (Int, Float).self) { group in
-            for (index, candidate) in candidates.enumerated() {
-                group.addTask {
-                    let candidateNorm = sqrt(candidate.reduce(0) { $0 + $1 * $1 })
-                    let normalizedCandidate = candidate.map { $0 / candidateNorm }
-
-                    let dotProduct = zip(normalizedQuery, normalizedCandidate)
-                        .reduce(0) { $0 + $1.0 * $1.1 }
-
-                    return (index, dotProduct)
-                }
-            }
-
-            var results = [Float](repeating: 0, count: candidates.count)
-            for await (index, similarity) in group {
-                results[index] = similarity
-            }
-            return results
-        }
+        AccelerateFallback.batchCosineSimilarity(query: query, candidates: candidates)
     }
 
     private func batchCosineSimilarityCPU(
@@ -449,24 +414,7 @@ public actor BatchDistanceEngine {
         query: [Float],
         candidates: [[Float]]
     ) async throws -> [Float] {
-        // Use VectorCore's SIMD4-optimized ManhattanDistance (0.1.5)
-        let queryVector = DynamicVector(query)
-
-        return await withTaskGroup(of: (Int, Float).self) { group in
-            for (index, candidate) in candidates.enumerated() {
-                group.addTask {
-                    let candidateVector = DynamicVector(candidate)
-                    let distance = ManhattanDistance().distance(queryVector, candidateVector)
-                    return (index, distance)
-                }
-            }
-
-            var results = [Float](repeating: 0, count: candidates.count)
-            for await (index, distance) in group {
-                results[index] = distance
-            }
-            return results
-        }
+        try candidates.map { try AccelerateFallback.manhattanDistance(query, $0) }
     }
 
     private func batchManhattanDistanceCPU(
