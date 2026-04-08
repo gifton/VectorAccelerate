@@ -214,6 +214,9 @@ public actor ArgumentTablePool {
     /// - Returns: A ready-to-use argument table
     /// - Throws: `VectorError.argumentTablePoolExhausted` if pool is full
     public func acquire(descriptor: ArgumentTableDescriptor) throws -> any ArgumentTable {
+        // Drain pending returns from token deinits
+        drainPendingReturns()
+
         acquisitionCount += 1
 
         // Try to reuse existing table
@@ -235,6 +238,16 @@ public actor ArgumentTablePool {
         peakInUse = max(peakInUse, inUse.count)
 
         return table
+    }
+
+    // MARK: - Pending Return Drain
+
+    /// Drain tables that were returned via token deinit.
+    private func drainPendingReturns() {
+        let returned = PendingTableReturns.shared.drain(for: self)
+        for table in returned {
+            release(table)
+        }
     }
 
     // MARK: - Release
@@ -310,7 +323,10 @@ public actor ArgumentTablePool {
 
     /// Get current pool statistics
     public func getStatistics() -> ArgumentTablePoolStatistics {
-        ArgumentTablePoolStatistics(
+        // Drain pending returns so stats reflect current state
+        drainPendingReturns()
+
+        return ArgumentTablePoolStatistics(
             totalTables: available.count + inUse.count,
             availableTables: available.count,
             inUseTables: inUse.count,
@@ -333,6 +349,44 @@ public actor ArgumentTablePool {
     }
 }
 
+// MARK: - Pending Argument Table Returns
+
+/// Lock-protected pending-return queue for argument table tokens.
+/// Same pattern as `PendingBufferReturns` -- see its documentation.
+internal final class PendingTableReturns: @unchecked Sendable {
+    static let shared = PendingTableReturns()
+
+    /// Entry stores the pool's ObjectIdentifier to avoid retaining the pool actor.
+    private struct Entry {
+        let table: any ArgumentTable
+        let poolId: ObjectIdentifier
+    }
+
+    private var pending: [Entry] = []
+    private let lock = NSLock()
+
+    func enqueue(table: any ArgumentTable, pool: ArgumentTablePool) {
+        lock.lock()
+        pending.append(Entry(table: table, poolId: ObjectIdentifier(pool)))
+        lock.unlock()
+    }
+
+    func drain(for pool: ArgumentTablePool) -> [any ArgumentTable] {
+        lock.lock()
+        let poolId = ObjectIdentifier(pool)
+        var returned: [any ArgumentTable] = []
+        pending.removeAll { entry in
+            if entry.poolId == poolId {
+                returned.append(entry.table)
+                return true
+            }
+            return false
+        }
+        lock.unlock()
+        return returned
+    }
+}
+
 // MARK: - Argument Table Token
 
 /// RAII token that automatically releases argument table on deinit
@@ -348,28 +402,27 @@ public final class ArgumentTableToken: @unchecked Sendable {
     }
 
     deinit {
-        guard !isReleased, let pool = pool else { return }
+        lock.lock()
+        let alreadyReleased = isReleased
+        isReleased = true  // Prevent double-return if release() races with deinit
+        lock.unlock()
 
-        let capturedTable = table
-        Task.detached {
-            await pool.release(capturedTable)
-        }
+        guard !alreadyReleased, let pool = pool else { return }
+        PendingTableReturns.shared.enqueue(table: table, pool: pool)
     }
 
     /// Manually release the table back to pool (optional - happens on deinit)
     public func release() {
         lock.lock()
-        defer { lock.unlock() }
-
-        guard !isReleased else { return }
+        guard !isReleased else {
+            lock.unlock()
+            return
+        }
         isReleased = true
+        lock.unlock()
 
         guard let pool = pool else { return }
-
-        let capturedTable = table
-        Task.detached {
-            await pool.release(capturedTable)
-        }
+        PendingTableReturns.shared.enqueue(table: table, pool: pool)
     }
 }
 

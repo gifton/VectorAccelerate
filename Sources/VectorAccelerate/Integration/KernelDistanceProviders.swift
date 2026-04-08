@@ -74,7 +74,7 @@ public actor L2KernelDistanceProvider: DistanceProvider {
             outToken.keepAlive(until: commandBuffer)
         }
 
-        return outToken.copyData(as: Float.self, count: 1)[0]
+        return outToken.readScalar(as: Float.self)
     }
 
     public func batchDistance<T: VectorProtocol>(
@@ -186,7 +186,7 @@ public actor CosineKernelDistanceProvider: DistanceProvider {
             outToken.keepAlive(until: commandBuffer)
         }
 
-        let result = outToken.copyData(as: Float.self, count: 1)[0]
+        let result = outToken.readScalar(as: Float.self)
         return isNormalized ? (1.0 - result) : result
     }
 
@@ -497,7 +497,7 @@ public actor UniversalKernelDistanceProvider: DistanceProvider {
                 outToken.keepAlive(until: commandBuffer)
             }
 
-            return outToken.copyData(as: Float.self, count: 1)[0]
+            return outToken.readScalar(as: Float.self)
 
         case .cosine:
             let isNormalized = (vector1 as? any IndexableVector)?.isNormalized == true &&
@@ -531,7 +531,7 @@ public actor UniversalKernelDistanceProvider: DistanceProvider {
                     outToken.keepAlive(until: commandBuffer)
                 }
 
-                return outToken.copyData(as: Float.self, count: 1)[0]
+                return outToken.readScalar(as: Float.self)
             }
 
         case .dotProduct:

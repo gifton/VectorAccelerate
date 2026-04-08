@@ -274,7 +274,7 @@ final class MetalSubsystemTests: XCTestCase {
 
     // MARK: - Fallback Tests
 
-    func testFallbackAlwaysAvailable() async {
+    func testFallbackAlwaysAvailable() async throws {
         let subsystem = MetalSubsystem()
 
         // Fallback should be available immediately
@@ -282,7 +282,7 @@ final class MetalSubsystemTests: XCTestCase {
         XCTAssertNotNil(fallback)
 
         // Should work even before initialization
-        let result = fallback.l2Distance(from: [1, 0], to: [0, 1])
+        let result = try fallback.l2Distance(from: [1, 0], to: [0, 1])
         XCTAssertEqual(result, sqrt(2), accuracy: 0.001)
     }
 

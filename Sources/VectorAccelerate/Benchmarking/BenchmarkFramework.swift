@@ -9,6 +9,19 @@
 import Foundation
 import VectorCore
 
+// MARK: - Dead-Code Elimination Prevention
+
+/// Prevents the compiler from eliminating benchmark operations whose results are unused.
+///
+/// Without this, the optimizer may remove the entire operation being benchmarked
+/// if its return value is discarded (e.g., `_ = try await engine.euclideanDistance(...)`).
+@inline(never)
+public func blackHole<T>(_ value: T) {
+    // The @inline(never) attribute ensures the compiler cannot see through this function
+    // and must assume it has side effects, preventing DCE of the argument expression.
+    withExtendedLifetime(value) {}
+}
+
 // MARK: - Benchmark Result
 
 /// Results from a benchmark run
@@ -17,48 +30,77 @@ public struct BenchmarkResult: Sendable {
     public let samples: [TimeInterval]
     public let configuration: BenchmarkConfiguration
 
-    public init(name: String, samples: [TimeInterval], configuration: BenchmarkConfiguration) {
+    /// Latency statistics with percentiles (p50/p95/p99).
+    /// Reuses `LatencyStats` from `IndexBenchmarkHarness` for consistency.
+    public let latencyStats: LatencyStats
+
+    /// GPU-side timing samples (seconds), captured from MTLCommandBuffer.gpuStartTime/gpuEndTime.
+    /// Separates actual GPU compute time from Swift-side submission overhead.
+    /// Empty if GPU timing was unavailable.
+    public let gpuSamples: [TimeInterval]
+
+    /// GPU latency statistics (nil if no GPU timing was captured)
+    public let gpuLatencyStats: LatencyStats?
+
+    public init(name: String, samples: [TimeInterval], configuration: BenchmarkConfiguration, gpuSamples: [TimeInterval] = []) {
         self.name = name
         self.samples = samples
         self.configuration = configuration
+        self.latencyStats = LatencyStats(samples: samples)
+        self.gpuSamples = gpuSamples
+        self.gpuLatencyStats = gpuSamples.isEmpty ? nil : LatencyStats(samples: gpuSamples)
     }
 
     /// Average execution time
     public var averageTime: TimeInterval {
-        samples.reduce(0, +) / Double(samples.count)
+        latencyStats.mean
     }
 
     /// Median execution time (more robust than average)
     public var medianTime: TimeInterval {
-        let sorted = samples.sorted()
-        let count = sorted.count
-        if count % 2 == 0 {
-            return (sorted[count / 2 - 1] + sorted[count / 2]) / 2
-        } else {
-            return sorted[count / 2]
-        }
+        latencyStats.p50
     }
 
     /// Standard deviation
     public var standardDeviation: TimeInterval {
-        let avg = averageTime
-        let variance = samples.reduce(0) { $0 + pow($1 - avg, 2) } / Double(samples.count)
-        return sqrt(variance)
+        latencyStats.stdDev
+    }
+
+    /// 95th percentile latency
+    public var p95Time: TimeInterval {
+        latencyStats.p95
+    }
+
+    /// 99th percentile latency
+    public var p99Time: TimeInterval {
+        latencyStats.p99
+    }
+
+    /// Median GPU execution time (nil if no GPU timing)
+    public var gpuMedianTime: TimeInterval? {
+        gpuLatencyStats?.p50
+    }
+
+    /// Submission overhead: wall-clock median minus GPU median.
+    /// Represents time spent in Swift (buffer alloc, actor hops, command encoding).
+    public var submissionOverhead: TimeInterval? {
+        guard let gpuMedian = gpuMedianTime else { return nil }
+        return medianTime - gpuMedian
     }
 
     /// Minimum execution time
     public var minTime: TimeInterval {
-        samples.min() ?? 0
+        latencyStats.min
     }
 
     /// Maximum execution time
     public var maxTime: TimeInterval {
-        samples.max() ?? 0
+        latencyStats.max
     }
 
     /// Operations per second (based on median time)
     public var operationsPerSecond: Double {
-        1.0 / medianTime
+        medianTime > 0 ? 1.0 / medianTime : 0
     }
 
     /// Throughput in vectors processed per second (if applicable)
@@ -66,7 +108,7 @@ public struct BenchmarkResult: Sendable {
         guard let vectorCount = configuration.additionalInfo["vectorCount"].flatMap(Double.init) else {
             return nil
         }
-        return vectorCount / medianTime
+        return medianTime > 0 ? vectorCount / medianTime : nil
     }
 }
 
@@ -151,7 +193,7 @@ public actor BenchmarkSuite {
             name: "Euclidean Distance (dim: \(config.dimension))",
             configuration: config
         ) {
-            _ = try await engine.euclideanDistance(vectorA, vectorB)
+            blackHole(try await engine.euclideanDistance(vectorA, vectorB))
         }
     }
 
@@ -163,7 +205,7 @@ public actor BenchmarkSuite {
             name: "Cosine Distance (dim: \(config.dimension))",
             configuration: config
         ) {
-            _ = try await engine.cosineDistance(vectorA, vectorB)
+            blackHole(try await engine.cosineDistance(vectorA, vectorB))
         }
     }
 
@@ -175,7 +217,7 @@ public actor BenchmarkSuite {
             name: "Dot Product (dim: \(config.dimension))",
             configuration: config
         ) {
-            _ = try await engine.dotProduct(vectorA, vectorB)
+            blackHole(try await engine.dotProduct(vectorA, vectorB))
         }
     }
 
@@ -197,7 +239,7 @@ public actor BenchmarkSuite {
             name: "Batch Euclidean Distance (dim: \(config.dimension), batch: \(config.batchSize))",
             configuration: modifiedConfig
         ) {
-            _ = try await engine.batchEuclideanDistance(query: query, candidates: candidates)
+            blackHole(try await engine.batchEuclideanDistance(query: query, candidates: candidates))
         }
     }
 
@@ -208,7 +250,7 @@ public actor BenchmarkSuite {
             name: "Vector Normalize (dim: \(config.dimension))",
             configuration: config
         ) {
-            _ = try await engine.normalize(vector)
+            blackHole(try await engine.normalize(vector))
         }
     }
 
@@ -220,7 +262,7 @@ public actor BenchmarkSuite {
             name: "Vector Scale (dim: \(config.dimension))",
             configuration: config
         ) {
-            _ = try await engine.scale(vector, by: scalar)
+            blackHole(try await engine.scale(vector, by: scalar))
         }
     }
 
@@ -234,7 +276,7 @@ public actor BenchmarkSuite {
             name: "Matrix-Vector Multiply (\(rows)x\(cols))",
             configuration: config
         ) {
-            _ = try await engine.matrixVectorMultiply(matrix: matrix, vector: vector)
+            blackHole(try await engine.matrixVectorMultiply(matrix: matrix, vector: vector))
         }
     }
 
@@ -245,23 +287,31 @@ public actor BenchmarkSuite {
         configuration: BenchmarkConfiguration,
         operation: () async throws -> Void
     ) async throws -> BenchmarkResult {
+        let clock = ContinuousClock()
         var samples: [TimeInterval] = []
+        var gpuSamples: [TimeInterval] = []
         samples.reserveCapacity(configuration.iterations)
+        gpuSamples.reserveCapacity(configuration.iterations)
 
         // Warmup runs
         for _ in 0..<configuration.warmupIterations {
             try await operation()
         }
 
-        // Measured runs
+        // Measured runs using ContinuousClock (monotonic, not affected by NTP/system clock changes)
         for _ in 0..<configuration.iterations {
-            let startTime = CFAbsoluteTimeGetCurrent()
-            try await operation()
-            let elapsedTime = CFAbsoluteTimeGetCurrent() - startTime
-            samples.append(elapsedTime)
+            let elapsed = try await clock.measure {
+                try await operation()
+            }
+            samples.append(Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) * 1e-18)
+
+            // Capture GPU-side timing from the most recent command buffer
+            if let gpuTiming = await context.lastGPUTiming {
+                gpuSamples.append(gpuTiming.duration)
+            }
         }
 
-        return BenchmarkResult(name: name, samples: samples, configuration: configuration)
+        return BenchmarkResult(name: name, samples: samples, configuration: configuration, gpuSamples: gpuSamples)
     }
 
     private func generateRandomVector(dimension: Int) -> [Float] {
@@ -309,14 +359,25 @@ public struct BenchmarkReport {
         for result in results {
             report += "## \(result.name)\n"
             report += "- Iterations: \(result.configuration.iterations)\n"
-            report += "- Median Time: \(String(format: "%.3f", result.medianTime * 1000))ms\n"
-            report += "- Average Time: \(String(format: "%.3f", result.averageTime * 1000))ms\n"
-            report += "- Std Deviation: \(String(format: "%.3f", result.standardDeviation * 1000))ms\n"
-            report += "- Min/Max: \(String(format: "%.3f", result.minTime * 1000))/\(String(format: "%.3f", result.maxTime * 1000))ms\n"
-            report += "- Operations/sec: \(String(format: "%.0f", result.operationsPerSecond))\n"
+            report += "- Wall-clock p50: \(String(format: "%.3f", result.medianTime * 1000))ms\n"
+            report += "- Wall-clock p95: \(String(format: "%.3f", result.p95Time * 1000))ms\n"
+            report += "- Wall-clock p99: \(String(format: "%.3f", result.p99Time * 1000))ms\n"
+
+            if let gpuStats = result.gpuLatencyStats {
+                report += "- GPU compute p50: \(String(format: "%.3f", gpuStats.p50 * 1000))ms\n"
+                report += "- GPU compute p95: \(String(format: "%.3f", gpuStats.p95 * 1000))ms\n"
+                if let overhead = result.submissionOverhead {
+                    report += "- Submission overhead: \(String(format: "%.3f", overhead * 1000))ms\n"
+                }
+            }
+
+            report += "- Mean:         \(String(format: "%.3f", result.averageTime * 1000))ms\n"
+            report += "- Std Dev:      \(String(format: "%.3f", result.standardDeviation * 1000))ms\n"
+            report += "- Min/Max:      \(String(format: "%.3f", result.minTime * 1000))/\(String(format: "%.3f", result.maxTime * 1000))ms\n"
+            report += "- Ops/sec:      \(String(format: "%.0f", result.operationsPerSecond))\n"
 
             if let vectorsPerSec = result.vectorsPerSecond {
-                report += "- Vectors/sec: \(String(format: "%.0f", vectorsPerSec))\n"
+                report += "- Vectors/sec:  \(String(format: "%.0f", vectorsPerSec))\n"
             }
 
             report += "\n"
@@ -328,20 +389,40 @@ public struct BenchmarkReport {
     /// Generate JSON report
     public static func jsonReport(results: [BenchmarkResult]) throws -> Data {
         let reportData = results.map { result in
-            [
+            var entry: [String: Any] = [
                 "name": result.name,
-                "medianTime": result.medianTime,
-                "averageTime": result.averageTime,
-                "standardDeviation": result.standardDeviation,
-                "minTime": result.minTime,
-                "maxTime": result.maxTime,
+                "wallClock": [
+                    "p50": result.medianTime,
+                    "p95": result.p95Time,
+                    "p99": result.p99Time,
+                    "mean": result.averageTime,
+                    "stdDev": result.standardDeviation,
+                    "min": result.minTime,
+                    "max": result.maxTime
+                ],
                 "operationsPerSecond": result.operationsPerSecond,
                 "configuration": [
                     "iterations": result.configuration.iterations,
                     "dimension": result.configuration.dimension,
                     "batchSize": result.configuration.batchSize
                 ]
-            ] as [String : Any]
+            ]
+
+            if let gpuStats = result.gpuLatencyStats {
+                entry["gpuCompute"] = [
+                    "p50": gpuStats.p50,
+                    "p95": gpuStats.p95,
+                    "p99": gpuStats.p99,
+                    "mean": gpuStats.mean,
+                    "min": gpuStats.min,
+                    "max": gpuStats.max
+                ]
+                if let overhead = result.submissionOverhead {
+                    entry["submissionOverheadMs"] = overhead * 1000
+                }
+            }
+
+            return entry
         }
 
         return try JSONSerialization.data(withJSONObject: reportData, options: .prettyPrinted)

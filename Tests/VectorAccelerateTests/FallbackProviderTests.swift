@@ -25,29 +25,29 @@ final class FallbackProviderTests: XCTestCase {
 
     // MARK: - L2 Distance Tests
 
-    func testL2DistanceSimple() {
+    func testL2DistanceSimple() throws {
         let a: [Float] = [1, 0, 0]
         let b: [Float] = [0, 1, 0]
 
-        let result = fallback.l2Distance(from: a, to: b)
+        let result = try fallback.l2Distance(from: a, to: b)
 
         // sqrt(1 + 1) = sqrt(2) ≈ 1.414
         XCTAssertEqual(result, sqrt(2), accuracy: 0.001)
     }
 
-    func testL2DistanceIdentical() {
+    func testL2DistanceIdentical() throws {
         let a: [Float] = [1, 2, 3, 4]
 
-        let result = fallback.l2Distance(from: a, to: a)
+        let result = try fallback.l2Distance(from: a, to: a)
 
         XCTAssertEqual(result, 0, accuracy: 0.001)
     }
 
-    func testL2DistanceOrthogonal() {
+    func testL2DistanceOrthogonal() throws {
         let a: [Float] = [3, 0]
         let b: [Float] = [0, 4]
 
-        let result = fallback.l2Distance(from: a, to: b)
+        let result = try fallback.l2Distance(from: a, to: b)
 
         // sqrt(9 + 16) = 5
         XCTAssertEqual(result, 5, accuracy: 0.001)
@@ -57,16 +57,14 @@ final class FallbackProviderTests: XCTestCase {
         let a: [Float] = [1, 2, 3]
         let b: [Float] = [1, 2]
 
-        let result = fallback.l2Distance(from: a, to: b)
-
-        XCTAssertEqual(result, .infinity)
+        XCTAssertThrowsError(try fallback.l2Distance(from: a, to: b))
     }
 
-    func testL2DistanceSquared() {
+    func testL2DistanceSquared() throws {
         let a: [Float] = [1, 0, 0]
         let b: [Float] = [0, 1, 0]
 
-        let result = fallback.l2DistanceSquared(from: a, to: b)
+        let result = try fallback.l2DistanceSquared(from: a, to: b)
 
         XCTAssertEqual(result, 2.0, accuracy: 0.001)
     }
@@ -189,31 +187,31 @@ final class FallbackProviderTests: XCTestCase {
 
     // MARK: - Manhattan Distance Tests
 
-    func testManhattanDistanceSimple() {
+    func testManhattanDistanceSimple() throws {
         let a: [Float] = [1, 0, 0]
         let b: [Float] = [0, 1, 0]
 
-        let result = fallback.manhattanDistance(from: a, to: b)
+        let result = try fallback.manhattanDistance(from: a, to: b)
 
         // |1-0| + |0-1| + |0-0| = 2
         XCTAssertEqual(result, 2.0, accuracy: 0.001)
     }
 
-    func testManhattanDistanceIdentical() {
+    func testManhattanDistanceIdentical() throws {
         let a: [Float] = [1, 2, 3]
 
-        let result = fallback.manhattanDistance(from: a, to: a)
+        let result = try fallback.manhattanDistance(from: a, to: a)
 
         XCTAssertEqual(result, 0.0, accuracy: 0.001)
     }
 
     // MARK: - Chebyshev Distance Tests
 
-    func testChebyshevDistanceSimple() {
+    func testChebyshevDistanceSimple() throws {
         let a: [Float] = [1, 5, 3]
         let b: [Float] = [4, 1, 2]
 
-        let result = fallback.chebyshevDistance(from: a, to: b)
+        let result = try fallback.chebyshevDistance(from: a, to: b)
 
         // max(|1-4|, |5-1|, |3-2|) = max(3, 4, 1) = 4
         XCTAssertEqual(result, 4.0, accuracy: 0.001)
@@ -348,50 +346,50 @@ final class FallbackProviderTests: XCTestCase {
 
     // MARK: - Generic Metric Tests
 
-    func testDistanceWithEuclidean() {
+    func testDistanceWithEuclidean() throws {
         let a: [Float] = [0, 0]
         let b: [Float] = [3, 4]
 
-        let result = fallback.distance(from: a, to: b, metric: .euclidean)
+        let result = try fallback.distance(from: a, to: b, metric: .euclidean)
 
         XCTAssertEqual(result, 5.0, accuracy: 0.001)
     }
 
-    func testDistanceWithCosine() {
+    func testDistanceWithCosine() throws {
         let a: [Float] = [1, 0]
         let b: [Float] = [0, 1]
 
-        let result = fallback.distance(from: a, to: b, metric: .cosine)
+        let result = try fallback.distance(from: a, to: b, metric: .cosine)
 
         // 1 - 0 = 1
         XCTAssertEqual(result, 1.0, accuracy: 0.001)
     }
 
-    func testDistanceWithDotProduct() {
+    func testDistanceWithDotProduct() throws {
         let a: [Float] = [1, 2]
         let b: [Float] = [3, 4]
 
-        let result = fallback.distance(from: a, to: b, metric: .dotProduct)
+        let result = try fallback.distance(from: a, to: b, metric: .dotProduct)
 
         // -(1*3 + 2*4) = -11
         XCTAssertEqual(result, -11.0, accuracy: 0.001)
     }
 
-    func testDistanceWithManhattan() {
+    func testDistanceWithManhattan() throws {
         let a: [Float] = [1, 2]
         let b: [Float] = [4, 6]
 
-        let result = fallback.distance(from: a, to: b, metric: .manhattan)
+        let result = try fallback.distance(from: a, to: b, metric: .manhattan)
 
         // |1-4| + |2-6| = 3 + 4 = 7
         XCTAssertEqual(result, 7.0, accuracy: 0.001)
     }
 
-    func testDistanceWithChebyshev() {
+    func testDistanceWithChebyshev() throws {
         let a: [Float] = [1, 2]
         let b: [Float] = [4, 6]
 
-        let result = fallback.distance(from: a, to: b, metric: .chebyshev)
+        let result = try fallback.distance(from: a, to: b, metric: .chebyshev)
 
         // max(|1-4|, |2-6|) = max(3, 4) = 4
         XCTAssertEqual(result, 4.0, accuracy: 0.001)
@@ -419,25 +417,25 @@ final class FallbackProviderTests: XCTestCase {
         let a: [Float] = []
         let b: [Float] = []
 
-        XCTAssertEqual(fallback.l2Distance(from: a, to: b), .infinity)
+        XCTAssertThrowsError(try fallback.l2Distance(from: a, to: b))
         XCTAssertEqual(fallback.cosineSimilarity(from: a, to: b), 0)
         XCTAssertEqual(fallback.dotProduct(from: a, to: b), 0)
     }
 
-    func testSingleElement() {
+    func testSingleElement() throws {
         let a: [Float] = [5]
         let b: [Float] = [3]
 
-        XCTAssertEqual(fallback.l2Distance(from: a, to: b), 2.0, accuracy: 0.001)
+        XCTAssertEqual(try fallback.l2Distance(from: a, to: b), 2.0, accuracy: 0.001)
         XCTAssertEqual(fallback.dotProduct(from: a, to: b), 15.0, accuracy: 0.001)
     }
 
-    func testLargeVector() {
+    func testLargeVector() throws {
         let dimension = 1000
         let a = [Float](repeating: 1.0, count: dimension)
         let b = [Float](repeating: 2.0, count: dimension)
 
-        let distance = fallback.l2Distance(from: a, to: b)
+        let distance = try fallback.l2Distance(from: a, to: b)
 
         // sqrt(1000 * 1^2) = sqrt(1000)
         XCTAssertEqual(distance, sqrt(Float(dimension)), accuracy: 0.01)

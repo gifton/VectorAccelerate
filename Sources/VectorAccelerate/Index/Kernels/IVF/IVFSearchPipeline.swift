@@ -112,8 +112,6 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         lists: [[[Float]]],
         dimension: Int
     ) async throws -> IVFGPUIndexStructure {
-        let device = context.device.rawDevice
-
         guard centroids.count == lists.count else {
             throw IndexError.invalidInput(
                 message: "Number of centroids (\(centroids.count)) must match number of lists (\(lists.count))"
@@ -209,7 +207,6 @@ public final class IVFSearchPipeline: @unchecked Sendable {
         }
 
         let startTime = CACurrentMediaTime()
-        let device = context.device.rawDevice
         let numQueries = queries.count
         let dimension = structure.dimension
         let nprobe = configuration.nprobe

@@ -168,19 +168,19 @@ final class Priority2IntegrationTests: XCTestCase {
         let b = (0..<256).map { Float(1.0) - Float($0) / 256.0 }
 
         // Test distance operations
-        let euclidean = AccelerateFallback.euclideanDistance(a, b)
+        let euclidean = try AccelerateFallback.euclideanDistance(a, b)
         XCTAssertGreaterThan(euclidean, 0)
 
-        let cosine = AccelerateFallback.cosineSimilarity(a, b)
+        let cosine = try AccelerateFallback.cosineSimilarity(a, b)
         XCTAssertGreaterThanOrEqual(cosine, -1.0)
         XCTAssertLessThanOrEqual(cosine, 1.0)
 
-        let manhattan = AccelerateFallback.manhattanDistance(a, b)
+        let manhattan = try AccelerateFallback.manhattanDistance(a, b)
         XCTAssertGreaterThan(manhattan, 0)
 
         // Test vector operations
         let normalized = AccelerateFallback.normalize(a)
-        let norm = AccelerateFallback.dotProduct(normalized, normalized)
+        let norm = try AccelerateFallback.dotProduct(normalized, normalized)
         XCTAssertEqual(norm, 1.0, accuracy: 0.001)
 
         // Test batch operations

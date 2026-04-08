@@ -273,7 +273,7 @@ public actor MetalDevice {
     @preconcurrency
     public func makeLibrary(source: String) async throws -> any MTLLibrary {
         let options = MTLCompileOptions()
-        options.fastMathEnabled = true
+        options.mathMode = .fast
         options.languageVersion = .version3_0
         
         do {

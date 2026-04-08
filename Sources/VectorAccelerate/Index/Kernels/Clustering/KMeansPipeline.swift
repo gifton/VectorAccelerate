@@ -118,7 +118,6 @@ public final class KMeansPipeline: @unchecked Sendable {
         }
 
         let startTime = CACurrentMediaTime()
-        let device = context.device.rawDevice
 
         // Create vector buffer
         let flatVectors = vectors.flatMap { $0 }
@@ -292,7 +291,6 @@ public final class KMeansPipeline: @unchecked Sendable {
         initialCentroids: (any MTLBuffer)? = nil
     ) async throws -> KMeansResult {
         let startTime = CACurrentMediaTime()
-        let device = context.device.rawDevice
         let dimension = configuration.dimension
         let numClusters = configuration.numClusters
 

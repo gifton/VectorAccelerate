@@ -76,13 +76,10 @@ final class BufferPoolEnhancedTests: XCTestCase {
         do {
             let token = try await bufferPool.getBuffer(size: size)
             XCTAssertNotNil(token.buffer)
-            // Token goes out of scope here
+            // Token goes out of scope here, deinit enqueues to PendingBufferReturns
         }
 
-        // Wait for async deinit to complete
-        try await Task.sleep(nanoseconds: 10_000_000) // 10ms
-
-        // Buffer should be returned automatically
+        // getStatistics drains pending returns, so the buffer should appear as available
         let stats = await bufferPool.getStatistics()
         XCTAssertGreaterThan(stats.availableBuffers, 0)
     }
@@ -378,9 +375,7 @@ final class BufferPoolEnhancedTests: XCTestCase {
             tokens[i].returnToPool()
         }
 
-        // Wait for async returns to complete
-        try await Task.sleep(nanoseconds: 10_000_000) // 10ms
-
+        // getStatistics drains pending returns automatically
         stats = await bufferPool.getStatistics()
         XCTAssertEqual(stats.availableBuffers, allocCount/2)
         XCTAssertEqual(stats.totalBuffers - stats.availableBuffers, allocCount - allocCount/2)

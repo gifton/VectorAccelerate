@@ -692,13 +692,13 @@ extension Metal4LifecycleIntegrationTests {
     }
 
     /// Test CPU L2 distance returns correct results
-    func testCPUL2DistanceCorrect() {
+    func testCPUL2DistanceCorrect() throws {
         let fallback = FallbackProvider()
 
         let a: [Float] = [1.0, 0.0, 0.0]
         let b: [Float] = [0.0, 1.0, 0.0]
 
-        let distance = fallback.l2Distance(from: a, to: b)
+        let distance = try fallback.l2Distance(from: a, to: b)
 
         // Expected: sqrt(2)
         XCTAssertEqual(distance, sqrt(2), accuracy: 0.0001)
@@ -764,19 +764,19 @@ extension Metal4LifecycleIntegrationTests {
     }
 
     /// Test distance with different metrics
-    func testCPUDistanceMetrics() {
+    func testCPUDistanceMetrics() throws {
         let fallback = FallbackProvider()
 
         let a: [Float] = [1.0, 2.0, 3.0]
         let b: [Float] = [4.0, 5.0, 6.0]
 
         // Euclidean
-        let euclidean = fallback.distance(from: a, to: b, metric: .euclidean)
+        let euclidean = try fallback.distance(from: a, to: b, metric: .euclidean)
         let expected = sqrt(Float(9 + 9 + 9)) // sqrt(27)
         XCTAssertEqual(euclidean, expected, accuracy: 0.0001)
 
         // Manhattan
-        let manhattan = fallback.distance(from: a, to: b, metric: .manhattan)
+        let manhattan = try fallback.distance(from: a, to: b, metric: .manhattan)
         XCTAssertEqual(manhattan, 9.0, accuracy: 0.0001) // 3 + 3 + 3
     }
 }

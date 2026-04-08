@@ -407,8 +407,8 @@ extension KernelUsageExamples {
         print("\n1. Fused Normalize + Cosine + Top-K Pipeline")
 
         let normKernel = try await L2NormalizationKernel(context: context)
-        let cosineKernel = try await CosineSimilarityKernel(context: context)
-        let topKKernel = try await TopKSelectionKernel(context: context)
+        // Note: cosine similarity and top-k now use separate encoder passes in the
+        // Phase 3 API. See FusedL2TopKKernel for a single-pass alternative.
 
         // Prepare data
         let queryVectors: [[Float]] = [[1.0, 2.0, 3.0, 4.0]]
@@ -456,32 +456,6 @@ extension KernelUsageExamples {
             throw VectorError.bufferAllocationFailed(size: flatDatabase.count * MemoryLayout<Float>.size)
         }
         nonisolated(unsafe) let normalizedDatabase = normalizedDatabaseRaw
-
-        let similaritySize = queryVectors.count * databaseVectors.count * MemoryLayout<Float>.size
-        guard let similarityBufferRaw = device.makeBuffer(
-            length: similaritySize,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: similaritySize)
-        }
-        nonisolated(unsafe) let similarityBuffer = similarityBufferRaw
-
-        let k = 5
-        guard let topKValuesRaw = device.makeBuffer(
-            length: queryVectors.count * k * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: queryVectors.count * k * MemoryLayout<Float>.size)
-        }
-        nonisolated(unsafe) let topKValues = topKValuesRaw
-
-        guard let topKIndicesRaw = device.makeBuffer(
-            length: queryVectors.count * k * MemoryLayout<UInt32>.size,
-            options: .storageModeShared
-        ) else {
-            throw VectorError.bufferAllocationFailed(size: queryVectors.count * k * MemoryLayout<UInt32>.size)
-        }
-        nonisolated(unsafe) let topKIndices = topKIndicesRaw
 
         // Execute fused pipeline
         try await context.executeAndWait { _, encoder in

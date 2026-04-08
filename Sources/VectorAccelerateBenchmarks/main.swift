@@ -159,6 +159,8 @@ Task {
             } else {
                 print("SwiftTopics benchmarks require macOS 26.0+")
             }
+        } else if args.contains("--crossover") || args.contains("-x") {
+            try await CrossoverBenchmarkRunner.run()
         } else if args.contains("--help") || args.contains("-h") {
             print("VectorAccelerate Benchmark Suite")
             print("")
@@ -166,6 +168,7 @@ Task {
             print("")
             print("Options:")
             print("  --index, -i         Run index benchmark harness")
+            print("  --crossover, -x     Run CPU/GPU crossover benchmarks")
             print("  --swift-topics, -s  Run SwiftTopics integration benchmarks")
             print("  --help, -h          Show this help message")
             print("")

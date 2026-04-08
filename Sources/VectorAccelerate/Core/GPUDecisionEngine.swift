@@ -121,6 +121,9 @@ public enum GPUOperation: String, CaseIterable, Sendable {
     /// Manhattan (L1) distance computation
     case manhattanDistance = "manhattan_distance"
 
+    /// Chebyshev (L-infinity) distance computation
+    case chebyshevDistance = "chebyshev_distance"
+
     /// Batch distance matrix computation
     case distanceMatrix = "distance_matrix"
 
@@ -407,7 +410,7 @@ public actor GPUDecisionEngine {
             }
             return candidateCount >= 5000
 
-        case .l2Distance, .cosineSimilarity, .dotProduct, .manhattanDistance:
+        case .l2Distance, .cosineSimilarity, .dotProduct, .manhattanDistance, .chebyshevDistance:
             // Distance computation benefits from GPU for large datasets
             return candidateCount * dimension >= 100_000
 

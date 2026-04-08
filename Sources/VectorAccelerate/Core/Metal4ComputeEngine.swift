@@ -71,6 +71,10 @@ public actor Metal4ComputeEngine {
     /// Configuration
     public let configuration: Metal4ComputeEngineConfiguration
 
+    /// Optional decision engine for adaptive GPU/CPU routing.
+    /// When provided, replaces hardcoded thresholds with data-driven decisions.
+    private let decisionEngine: GPUDecisionEngine?
+
     /// Hazard tracker for automatic barriers
     private let hazardTracker = HazardTracker()
 
@@ -82,12 +86,21 @@ public actor Metal4ComputeEngine {
     // MARK: - Initialization
 
     /// Create a new Metal 4 compute engine
+    ///
+    /// - Parameters:
+    ///   - context: The Metal4Context for GPU operations
+    ///   - configuration: Engine configuration options
+    ///   - decisionEngine: Optional adaptive GPU/CPU routing engine.
+    ///     When provided, replaces hardcoded dimension/batch thresholds with
+    ///     data-driven decisions. Recommended for production use.
     public init(
         context: Metal4Context,
-        configuration: Metal4ComputeEngineConfiguration = .default
+        configuration: Metal4ComputeEngineConfiguration = .default,
+        decisionEngine: GPUDecisionEngine? = nil
     ) async throws {
         self.context = context
         self.configuration = configuration
+        self.decisionEngine = decisionEngine
 
         // Create argument table pool
         self.argumentTablePool = ArgumentTablePool(
@@ -104,6 +117,50 @@ public actor Metal4ComputeEngine {
                 await context.warmUpPipelineCache()
             }
         }
+    }
+
+    // MARK: - GPU/CPU Routing
+
+    /// Determines whether to use GPU for a single-vector operation.
+    /// Consults the decision engine if available, otherwise uses hardcoded thresholds.
+    private func shouldUseGPU(
+        operation: GPUOperation,
+        dimension: Int,
+        candidateCount: Int = 1,
+        fallbackThreshold: Int
+    ) async -> Bool {
+        if let engine = decisionEngine {
+            return await engine.shouldUseGPU(
+                operation: operation,
+                vectorCount: candidateCount,
+                candidateCount: candidateCount,
+                k: 1,
+                dimension: dimension
+            )
+        }
+        // Hardcoded fallback: use CPU when dimension is at or below threshold
+        return dimension > fallbackThreshold
+    }
+
+    /// Determines whether to use GPU for a batch operation.
+    private func shouldUseBatchGPU(
+        operation: GPUOperation,
+        dimension: Int,
+        candidateCount: Int,
+        fallbackDimThreshold: Int = 16,
+        fallbackCountThreshold: Int = 10
+    ) async -> Bool {
+        if let engine = decisionEngine {
+            return await engine.shouldUseGPU(
+                operation: operation,
+                vectorCount: candidateCount,
+                candidateCount: candidateCount,
+                k: 1,
+                dimension: dimension
+            )
+        }
+        // Hardcoded fallback: use CPU for small batches with small dimensions
+        return !(candidateCount <= fallbackCountThreshold && dimension <= fallbackDimThreshold)
     }
 
     // MARK: - Pipeline Access
@@ -125,7 +182,13 @@ public actor Metal4ComputeEngine {
         }
 
         let dimension = vectorA.count
-        let startTime = CFAbsoluteTimeGetCurrent()
+
+        // Route to CPU for small vectors (adaptive when decision engine is available)
+        if await !shouldUseGPU(operation: .l2Distance, dimension: dimension, fallbackThreshold: 16) {
+            return try AccelerateFallback.euclideanDistance(vectorA, vectorB)
+        }
+
+        let profilingStart = ContinuousClock.now
 
         // Get buffers (automatically registered with residency)
         let bufferA = try await context.getBuffer(for: vectorA)
@@ -137,7 +200,7 @@ public actor Metal4ComputeEngine {
 
         // Acquire argument table
         let argTable = try await argumentTablePool.acquire()
-        defer { Task { await argumentTablePool.release(argTable) } }
+        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
 
         // Configure argument table
         argTable.setBuffer(bufferA.buffer, offset: 0, index: 0)
@@ -165,11 +228,12 @@ public actor Metal4ComputeEngine {
 
         // Track performance
         if configuration.enableProfiling {
-            totalComputeTime += CFAbsoluteTimeGetCurrent() - startTime
+            let elapsed = ContinuousClock.now - profilingStart
+            totalComputeTime += Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) * 1e-18
             operationCount += 1
         }
 
-        return resultBuffer.copyData(as: Float.self)[0]
+        return resultBuffer.readScalar(as: Float.self)
     }
 
     /// Compute cosine distance using argument tables
@@ -183,6 +247,11 @@ public actor Metal4ComputeEngine {
 
         let dimension = vectorA.count
 
+        // Route to CPU for small vectors (adaptive when decision engine is available)
+        if await !shouldUseGPU(operation: .cosineSimilarity, dimension: dimension, fallbackThreshold: 16) {
+            return 1.0 - (try AccelerateFallback.cosineSimilarity(vectorA, vectorB))
+        }
+
         // Get buffers
         let bufferA = try await context.getBuffer(for: vectorA)
         let bufferB = try await context.getBuffer(for: vectorB)
@@ -193,7 +262,7 @@ public actor Metal4ComputeEngine {
 
         // Acquire argument table
         let argTable = try await argumentTablePool.acquire()
-        defer { Task { await argumentTablePool.release(argTable) } }
+        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
 
         // Configure
         argTable.setBuffer(bufferA.buffer, offset: 0, index: 0)
@@ -216,7 +285,7 @@ public actor Metal4ComputeEngine {
             encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerGroup)
         }
 
-        return resultBuffer.copyData(as: Float.self)[0]
+        return resultBuffer.readScalar(as: Float.self)
     }
 
     /// Compute dot product using argument tables
@@ -230,8 +299,8 @@ public actor Metal4ComputeEngine {
 
         let dimension = vectorA.count
 
-        // For small vectors, use CPU
-        if dimension <= 16 {
+        // Route to CPU for small vectors (adaptive when decision engine is available)
+        if await !shouldUseGPU(operation: .dotProduct, dimension: dimension, fallbackThreshold: 16) {
             var result: Float = 0
             for i in 0..<dimension {
                 result += vectorA[i] * vectorB[i]
@@ -249,7 +318,7 @@ public actor Metal4ComputeEngine {
 
         // Acquire argument table
         let argTable = try await argumentTablePool.acquire()
-        defer { Task { await argumentTablePool.release(argTable) } }
+        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
 
         argTable.setBuffer(bufferA.buffer, offset: 0, index: 0)
         argTable.setBuffer(bufferB.buffer, offset: 0, index: 1)
@@ -270,7 +339,7 @@ public actor Metal4ComputeEngine {
             encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerGroup)
         }
 
-        return resultBuffer.copyData(as: Float.self)[0]
+        return resultBuffer.readScalar(as: Float.self)
     }
 
     // MARK: - Additional Distance Metrics
@@ -286,8 +355,8 @@ public actor Metal4ComputeEngine {
 
         let dimension = vectorA.count
 
-        // For small vectors, use CPU
-        if dimension <= 64 {
+        // Route to CPU for small vectors (adaptive when decision engine is available)
+        if await !shouldUseGPU(operation: .manhattanDistance, dimension: dimension, fallbackThreshold: 64) {
             var sum: Float = 0
             for i in 0..<dimension {
                 sum += abs(vectorA[i] - vectorB[i])
@@ -315,7 +384,7 @@ public actor Metal4ComputeEngine {
             encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerGroup)
         }
 
-        return resultBuffer.copyData(as: Float.self)[0]
+        return resultBuffer.readScalar(as: Float.self)
     }
 
     /// Compute Chebyshev distance (L∞ norm)
@@ -329,8 +398,8 @@ public actor Metal4ComputeEngine {
 
         let dimension = vectorA.count
 
-        // For small vectors, use CPU
-        if dimension <= 64 {
+        // Route to CPU for small vectors (adaptive when decision engine is available)
+        if await !shouldUseGPU(operation: .chebyshevDistance, dimension: dimension, fallbackThreshold: 64) {
             var maxDiff: Float = 0
             for i in 0..<dimension {
                 maxDiff = max(maxDiff, abs(vectorA[i] - vectorB[i]))
@@ -358,7 +427,7 @@ public actor Metal4ComputeEngine {
             encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerGroup)
         }
 
-        return resultBuffer.copyData(as: Float.self)[0]
+        return resultBuffer.readScalar(as: Float.self)
     }
 
     /// Compute Minkowski distance with custom p parameter
@@ -405,8 +474,8 @@ public actor Metal4ComputeEngine {
         let dimension = query.count
         let candidateCount = candidates.count
 
-        // For small batches, use CPU
-        if candidateCount <= 10 && dimension <= 16 {
+        // Route to CPU for small batches (adaptive when decision engine is available)
+        if await !shouldUseBatchGPU(operation: .l2Distance, dimension: dimension, candidateCount: candidateCount) {
             return candidates.map { candidate in
                 var sum: Float = 0
                 for i in 0..<dimension {
@@ -434,7 +503,7 @@ public actor Metal4ComputeEngine {
 
         // Acquire argument table (batch descriptor for more bindings)
         let argTable = try await argumentTablePool.acquire(descriptor: .batch)
-        defer { Task { await argumentTablePool.release(argTable) } }
+        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
 
         argTable.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
         argTable.setBuffer(candidatesBuffer.buffer, offset: 0, index: 1)
@@ -477,8 +546,8 @@ public actor Metal4ComputeEngine {
         let dimension = query.count
         let candidateCount = candidates.count
 
-        // For small batches, use CPU
-        if candidateCount <= 10 && dimension <= 16 {
+        // Route to CPU for small batches (adaptive when decision engine is available)
+        if await !shouldUseBatchGPU(operation: .cosineSimilarity, dimension: dimension, candidateCount: candidateCount) {
             return candidates.map { candidate in
                 var dotProd: Float = 0
                 var normA: Float = 0
@@ -508,7 +577,7 @@ public actor Metal4ComputeEngine {
         let pipeline = try await getPipeline(functionName: "batchCosineDistance")
 
         let argTable = try await argumentTablePool.acquire(descriptor: .batch)
-        defer { Task { await argumentTablePool.release(argTable) } }
+        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
 
         argTable.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
         argTable.setBuffer(candidatesBuffer.buffer, offset: 0, index: 1)
@@ -579,7 +648,7 @@ public actor Metal4ComputeEngine {
 
         // Acquire argument tables
         let distanceArgTable = try await argumentTablePool.acquire(descriptor: .batch)
-        defer { Task { await argumentTablePool.release(distanceArgTable) } }
+        defer { PendingTableReturns.shared.enqueue(table: distanceArgTable, pool: argumentTablePool) }
 
         distanceArgTable.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
         distanceArgTable.setBuffer(databaseBuffer.buffer, offset: 0, index: 1)
@@ -634,7 +703,7 @@ public actor Metal4ComputeEngine {
         let pipeline = try await getPipeline(functionName: "vectorNormalize")
 
         let argTable = try await argumentTablePool.acquire()
-        defer { Task { await argumentTablePool.release(argTable) } }
+        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
 
         argTable.setBuffer(inputBuffer.buffer, offset: 0, index: 0)
         argTable.setBuffer(outputBuffer.buffer, offset: 0, index: 1)
@@ -715,7 +784,7 @@ public actor Metal4ComputeEngine {
         let pipeline = try await getPipeline(functionName: "matrixVectorMultiply")
 
         let argTable = try await argumentTablePool.acquire(descriptor: .matrix)
-        defer { Task { await argumentTablePool.release(argTable) } }
+        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
 
         argTable.setBuffer(matrixBuffer.buffer, offset: 0, index: 0)
         argTable.setBuffer(vectorBuffer.buffer, offset: 0, index: 1)
@@ -791,6 +860,200 @@ public enum Metal4DistanceMetric: String, Sendable, CaseIterable {
     case dotProduct
     case manhattan
     case chebyshev
+}
+
+// MARK: - Pre-Allocated Buffer API
+
+public extension Metal4ComputeEngine {
+
+    /// Allocate a reusable buffer for vector data.
+    ///
+    /// Use with the `*WithBuffers` methods below to avoid per-call allocation overhead.
+    /// The returned token can be reused across multiple calls by writing new data into it.
+    ///
+    /// ```swift
+    /// let queryBuf = try await engine.allocateVectorBuffer(dimension: 768)
+    /// let dbBuf = try await engine.allocateVectorBuffer(dimension: 768, count: 1000)
+    /// let resultBuf = try await engine.allocateResultBuffer(count: 1000)
+    ///
+    /// // Reuse across many queries
+    /// for query in queries {
+    ///     queryBuf.write(data: query)
+    ///     try await engine.euclideanDistanceWithBuffers(
+    ///         query: queryBuf, database: dbBuf, result: resultBuf,
+    ///         dimension: 768, candidateCount: 1000
+    ///     )
+    ///     let distances = resultBuf.contents(as: Float.self)
+    ///     // Read distances[0..<1000] directly from unified memory (zero-copy)
+    /// }
+    /// ```
+    func allocateVectorBuffer(dimension: Int, count: Int = 1) async throws -> BufferToken {
+        try await context.getBuffer(size: count * dimension * MemoryLayout<Float>.size)
+    }
+
+    /// Allocate a reusable result buffer for distance/similarity outputs.
+    func allocateResultBuffer(count: Int = 1) async throws -> BufferToken {
+        try await context.getBuffer(size: count * MemoryLayout<Float>.size)
+    }
+
+    /// Compute batch Euclidean distances using pre-allocated buffers.
+    ///
+    /// This avoids all per-call allocation overhead. The caller owns the buffers
+    /// and can read results directly from `result.contents(as: Float.self)` without
+    /// copying (zero-copy on Apple Silicon unified memory).
+    ///
+    /// - Parameters:
+    ///   - query: Buffer containing the query vector (dimension floats). Must be pre-filled via `write(data:)`.
+    ///   - database: Buffer containing flattened candidate vectors (candidateCount * dimension floats).
+    ///   - result: Buffer for output distances (candidateCount floats).
+    ///   - dimension: Vector dimensionality.
+    ///   - candidateCount: Number of candidate vectors in the database buffer.
+    func batchEuclideanDistanceWithBuffers(
+        query: BufferToken,
+        database: BufferToken,
+        result: BufferToken,
+        dimension: Int,
+        candidateCount: Int
+    ) async throws {
+        let pipeline = try await getPipeline(functionName: "batchEuclideanDistance")
+
+        let argTable = try await argumentTablePool.acquire(descriptor: .batch)
+        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+
+        argTable.setBuffer(query.buffer, offset: 0, index: 0)
+        argTable.setBuffer(database.buffer, offset: 0, index: 1)
+        argTable.setBuffer(result.buffer, offset: 0, index: 2)
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            encoder.setComputePipelineState(pipeline)
+
+            if let metal4Table = argTable as? Metal4ArgumentTable {
+                metal4Table.apply(to: encoder)
+            }
+
+            var dim = UInt32(dimension)
+            var count = UInt32(candidateCount)
+            encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
+            encoder.setBytes(&count, length: MemoryLayout<UInt32>.size, index: 4)
+
+            let threadsPerThreadgroup = MTLSize(width: 16, height: 16, depth: 1)
+            let threadgroupsPerGrid = MTLSize(
+                width: (candidateCount + 15) / 16,
+                height: 1,
+                depth: 1
+            )
+            encoder.dispatchThreadgroups(threadgroupsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
+        }
+    }
+
+    /// Compute batch cosine distances using pre-allocated buffers.
+    func batchCosineDistanceWithBuffers(
+        query: BufferToken,
+        database: BufferToken,
+        result: BufferToken,
+        dimension: Int,
+        candidateCount: Int
+    ) async throws {
+        let pipeline = try await getPipeline(functionName: "batchCosineDistance")
+
+        let argTable = try await argumentTablePool.acquire(descriptor: .batch)
+        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+
+        argTable.setBuffer(query.buffer, offset: 0, index: 0)
+        argTable.setBuffer(database.buffer, offset: 0, index: 1)
+        argTable.setBuffer(result.buffer, offset: 0, index: 2)
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            encoder.setComputePipelineState(pipeline)
+
+            if let metal4Table = argTable as? Metal4ArgumentTable {
+                metal4Table.apply(to: encoder)
+            }
+
+            var dim = UInt32(dimension)
+            var count = UInt32(candidateCount)
+            encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
+            encoder.setBytes(&count, length: MemoryLayout<UInt32>.size, index: 4)
+
+            let threadsPerThreadgroup = MTLSize(width: 16, height: 16, depth: 1)
+            let threadgroupsPerGrid = MTLSize(
+                width: (candidateCount + 15) / 16,
+                height: 1,
+                depth: 1
+            )
+            encoder.dispatchThreadgroups(threadgroupsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
+        }
+    }
+
+    /// Compute single Euclidean distance using pre-allocated buffers.
+    ///
+    /// Reads the result directly from unified memory (zero-copy).
+    func euclideanDistanceWithBuffers(
+        vectorA: BufferToken,
+        vectorB: BufferToken,
+        result: BufferToken,
+        dimension: Int
+    ) async throws -> Float {
+        let pipeline = try await getPipeline(functionName: "euclideanDistance")
+
+        let argTable = try await argumentTablePool.acquire()
+        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+
+        argTable.setBuffer(vectorA.buffer, offset: 0, index: 0)
+        argTable.setBuffer(vectorB.buffer, offset: 0, index: 1)
+        argTable.setBuffer(result.buffer, offset: 0, index: 2)
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            encoder.setComputePipelineState(pipeline)
+
+            if let metal4Table = argTable as? Metal4ArgumentTable {
+                metal4Table.apply(to: encoder)
+            }
+
+            var dim = UInt32(dimension)
+            encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
+
+            let threadsPerGroup = MTLSize(width: 1, height: 1, depth: 1)
+            let threadgroups = MTLSize(width: 1, height: 1, depth: 1)
+            encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerGroup)
+        }
+
+        return result.readScalar(as: Float.self)
+    }
+
+    /// Compute single dot product using pre-allocated buffers.
+    func dotProductWithBuffers(
+        vectorA: BufferToken,
+        vectorB: BufferToken,
+        result: BufferToken,
+        dimension: Int
+    ) async throws -> Float {
+        let pipeline = try await getPipeline(functionName: "dotProduct")
+
+        let argTable = try await argumentTablePool.acquire()
+        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+
+        argTable.setBuffer(vectorA.buffer, offset: 0, index: 0)
+        argTable.setBuffer(vectorB.buffer, offset: 0, index: 1)
+        argTable.setBuffer(result.buffer, offset: 0, index: 2)
+
+        try await context.executeAndWait { commandBuffer, encoder in
+            encoder.setComputePipelineState(pipeline)
+
+            if let metal4Table = argTable as? Metal4ArgumentTable {
+                metal4Table.apply(to: encoder)
+            }
+
+            var dim = UInt32(dimension)
+            encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
+
+            let threadsPerGroup = MTLSize(width: min(256, dimension), height: 1, depth: 1)
+            let threadgroups = MTLSize(width: 1, height: 1, depth: 1)
+            encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerGroup)
+        }
+
+        return result.readScalar(as: Float.self)
+    }
 }
 
 // MARK: - Convenience Extensions
