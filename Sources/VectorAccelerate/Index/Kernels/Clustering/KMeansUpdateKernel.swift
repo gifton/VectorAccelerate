@@ -188,9 +188,6 @@ public final class KMeansUpdateKernel: @unchecked Sendable, Metal4Kernel {
         
         // Create buffers
         let flatVectors = vectors.flatMap { $0 }
-        let vectorToken = try await context.getBuffer(for: flatQueries(flatVectors)) // Using dummy name from existing code
-        
-        // Actual logic: flatten properly
         let vToken = try await context.getBuffer(for: flatVectors)
         let aToken = try await context.getBuffer(for: assignments.map { UInt32($0) })
         let cToken = try await context.getBuffer(for: currentCentroids.flatMap { $0 })
@@ -225,9 +222,6 @@ public final class KMeansUpdateKernel: @unchecked Sendable, Metal4Kernel {
         
         return (newCentroids, counts, result.emptyClusters)
     }
-    
-    // Internal helper for old API
-    private func flatQueries(_ arr: [Float]) -> [Float] { return arr }
 
     /// Handle empty clusters by re-initializing them.
     /// This is called when a cluster has no vectors assigned to it.

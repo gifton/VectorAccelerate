@@ -106,8 +106,6 @@ public final class KMeansPlusPlusKernel: @unchecked Sendable, Metal4Kernel {
             throw IndexError.invalidInput(message: "k must be positive")
         }
 
-        let device = context.device.rawDevice
-
         // Track selected centroid indices
         var selectedIndices: [Int] = []
         selectedIndices.reserveCapacity(k)
@@ -215,7 +213,6 @@ public final class KMeansPlusPlusKernel: @unchecked Sendable, Metal4Kernel {
             k: k
         )
 
-        let device = context.device.rawDevice
         let bufferSize = k * dimension * MemoryLayout<Float>.size
 
         let centroidToken = try await context.getBuffer(size: bufferSize)

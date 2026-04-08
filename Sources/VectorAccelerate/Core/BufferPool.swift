@@ -446,6 +446,11 @@ public actor BufferPool: BufferProvider {
     
     /// Reset the pool completely
     public func reset() {
+        // Drain and discard any pending returns from this pool's tokens.
+        // Without this, in-flight returns would be re-injected on the next
+        // getStatistics() / getBuffer() call and reappear as available buffers.
+        _ = PendingBufferReturns.shared.drain(for: self)
+
         buckets.removeAll()
         for size in bucketSizes {
             buckets[size] = BufferBucket(size: size)
