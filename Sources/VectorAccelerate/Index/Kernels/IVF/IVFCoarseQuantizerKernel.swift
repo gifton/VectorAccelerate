@@ -196,8 +196,6 @@ public final class IVFCoarseQuantizerKernel: @unchecked Sendable, Metal4Kernel {
             throw IndexError.invalidInput(message: "All vectors must have same dimension")
         }
 
-        let device = context.device.rawDevice
-
         // Create query buffer
         let flatQueries = queries.flatMap { $0 }
         let queryToken = try await context.getBuffer(for: flatQueries)
