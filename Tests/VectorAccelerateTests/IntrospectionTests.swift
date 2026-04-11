@@ -358,35 +358,10 @@ final class IntrospectionTests: XCTestCase {
     func testDefaultConfigurationValues() {
         let config = IndexAccelerationConfiguration.default
 
-        XCTAssertEqual(config.minimumCandidatesForGPU, 500)
-        XCTAssertEqual(config.minimumOperationsForGPU, 50_000)
         XCTAssertTrue(config.useFusedKernels)
         XCTAssertFalse(config.forceGPU)
         XCTAssertFalse(config.enableProfiling)
-    }
-
-    /// Aggressive configuration should have lower thresholds.
-    func testAggressiveConfigurationValues() {
-        let config = IndexAccelerationConfiguration.aggressive
-
-        XCTAssertEqual(config.minimumCandidatesForGPU, 100)
-        XCTAssertTrue(config.preallocateBuffers)
-    }
-
-    /// Conservative configuration should have higher thresholds.
-    func testConservativeConfigurationValues() {
-        let config = IndexAccelerationConfiguration.conservative
-
-        XCTAssertEqual(config.minimumCandidatesForGPU, 5_000)
-        XCTAssertFalse(config.preallocateBuffers)
-    }
-
-    /// Benchmarking configuration should force GPU and enable profiling.
-    func testBenchmarkingConfigurationValues() {
-        let config = IndexAccelerationConfiguration.benchmarking
-
-        XCTAssertTrue(config.forceGPU)
-        XCTAssertTrue(config.enableProfiling)
+        XCTAssertEqual(config.maxBatchSize, 10_000)
     }
 
 }

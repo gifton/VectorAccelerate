@@ -207,7 +207,7 @@ final class KernelDistanceProviderTests: XCTestCase {
     // MARK: - Universal Distance Provider Tests
 
     func testUniversalKernelDistanceProvider_AllMetrics() async throws {
-        let provider = try await UniversalKernelDistanceProvider(context: context)
+        let provider = UniversalKernelDistanceProvider(context: context)
 
         let v1 = DynamicVector([1.0, 0.0, 0.0])
         let v2 = DynamicVector([0.0, 1.0, 0.0])
@@ -230,7 +230,7 @@ final class KernelDistanceProviderTests: XCTestCase {
     }
 
     func testUniversalKernelDistanceProvider_BatchDistance() async throws {
-        let provider = try await UniversalKernelDistanceProvider(context: context)
+        let provider = UniversalKernelDistanceProvider(context: context)
 
         let query = DynamicVector([1.0, 0.0, 0.0])
         let candidates = [
@@ -249,7 +249,7 @@ final class KernelDistanceProviderTests: XCTestCase {
     }
 
     func testUniversalKernelDistanceProvider_KernelCaching() async throws {
-        let provider = try await UniversalKernelDistanceProvider(context: context)
+        let provider = UniversalKernelDistanceProvider(context: context)
 
         let v1 = DynamicVector([1.0, 0.0, 0.0])
         let v2 = DynamicVector([0.0, 1.0, 0.0])

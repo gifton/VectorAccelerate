@@ -782,7 +782,7 @@ final class IVFValidationTests: XCTestCase {
         print("\nSearching for landmarks:")
         var allFound = true
 
-        for (i, idx) in landmarkIndices.enumerated() {
+        for (_, idx) in landmarkIndices.enumerated() {
             let query = dataset[idx]
             let results = try await ivfIndex.search(query: query, k: k)
 

@@ -257,10 +257,14 @@ final class SIMDOptimizerTests: XCTestCase {
         expectation.expectedFulfillmentCount = 5
         
         for i in 0..<5 {
-            DispatchQueue.global().async {
-                let width = self.optimizer.benchmarkAndOptimize(dataSize: 100 * (i + 1))
+            let dataSize = 100 * (i + 1)
+            let optimizer = self.optimizer // capture a local strong reference
+            DispatchQueue.global().async { [optimizer, expectation] in
+                let width = optimizer?.benchmarkAndOptimize(dataSize: dataSize) ?? -1
                 XCTAssertGreaterThan(width, 0)
-                expectation.fulfill()
+                DispatchQueue.main.async {
+                    expectation.fulfill()
+                }
             }
         }
         

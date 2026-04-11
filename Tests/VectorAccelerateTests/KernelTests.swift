@@ -76,7 +76,7 @@ final class Metal4KernelTestHelpers {
         _ actual: [[Float]],
         _ expected: [[Float]],
         tolerance: Float = 1e-4,
-        file: StaticString = #file,
+        file: StaticString = #filePath,
         line: UInt = #line
     ) {
         XCTAssertEqual(actual.count, expected.count, "Row count mismatch", file: file, line: line)
@@ -2610,11 +2610,6 @@ final class L2NormalizationKernelTests: XCTestCase {
     // MARK: - Basic Tests
 
     func testBasicNormalization() async throws {
-        let vectors: [[Float]] = [
-            [3.0, 4.0],  // norm = 5, normalized = [0.6, 0.8]
-            [1.0, 0.0, 0.0],  // norm = 1, normalized = [1, 0, 0]
-            [1.0, 1.0, 1.0, 1.0]  // norm = 2, normalized = [0.5, 0.5, 0.5, 0.5]
-        ]
 
         // Need same dimension for all vectors
         let uniformVectors: [[Float]] = [

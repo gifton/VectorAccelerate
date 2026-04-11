@@ -19,7 +19,7 @@ final class BufferPoolEnhancedTests: XCTestCase {
         guard MetalDevice.isAvailable else {
             throw XCTSkip("Metal not available")
         }
-        self.metalDevice = try await MetalDevice()
+        self.metalDevice = try MetalDevice()
         self.bufferPool = BufferPool(device: metalDevice)
     }
     
