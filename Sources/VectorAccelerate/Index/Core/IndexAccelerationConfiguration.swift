@@ -11,33 +11,19 @@ import Foundation
 
 /// Configuration for GPU-accelerated index operations.
 ///
-/// Controls when and how GPU acceleration is applied to index searches.
-///
-/// ## Presets
-/// - `.default` - Balanced settings for general use
-/// - `.aggressive` - Maximize GPU usage
-/// - `.conservative` - Only use GPU for large workloads
+/// Controls how GPU acceleration is applied to index searches. For adaptive
+/// routing decisions (when to prefer GPU over CPU), use ``GPUDecisionEngine``.
 ///
 /// ## Custom Configuration
 /// ```swift
 /// let config = IndexAccelerationConfiguration(
-///     minimumCandidatesForGPU: 1000,
 ///     useFusedKernels: true,
 ///     enableProfiling: true
 /// )
 /// ```
 public struct IndexAccelerationConfiguration: Sendable {
 
-    // MARK: - Threshold Settings
-
-    /// Minimum number of candidate vectors to consider GPU acceleration.
-    /// Below this threshold, CPU is typically faster due to GPU overhead.
-    @available(*, deprecated, message: "Use GPUDecisionEngine for adaptive routing. See toGPUActivationThresholds().")
-    public var minimumCandidatesForGPU: Int
-
-    /// Minimum total operations (queries * candidates * dimension) for GPU.
-    @available(*, deprecated, message: "Use GPUDecisionEngine for adaptive routing. See toGPUActivationThresholds().")
-    public var minimumOperationsForGPU: Int
+    // MARK: - Batch Settings
 
     /// Maximum batch size for GPU operations (memory constraint).
     public var maxBatchSize: Int
@@ -75,8 +61,6 @@ public struct IndexAccelerationConfiguration: Sendable {
     // MARK: - Initialization
 
     public init(
-        minimumCandidatesForGPU: Int = 500,
-        minimumOperationsForGPU: Int = 50_000,
         maxBatchSize: Int = 10_000,
         useFusedKernels: Bool = true,
         useDimensionOptimizedKernels: Bool = true,
@@ -86,8 +70,6 @@ public struct IndexAccelerationConfiguration: Sendable {
         enableProfiling: Bool = false,
         logDecisions: Bool = false
     ) {
-        self.minimumCandidatesForGPU = minimumCandidatesForGPU
-        self.minimumOperationsForGPU = minimumOperationsForGPU
         self.maxBatchSize = maxBatchSize
         self.useFusedKernels = useFusedKernels
         self.useDimensionOptimizedKernels = useDimensionOptimizedKernels
@@ -102,80 +84,4 @@ public struct IndexAccelerationConfiguration: Sendable {
 
     /// Default configuration with balanced settings.
     public static let `default` = IndexAccelerationConfiguration()
-
-    /// Aggressive GPU usage - lower thresholds, always try GPU first.
-    public static let aggressive = IndexAccelerationConfiguration(
-        minimumCandidatesForGPU: 100,
-        minimumOperationsForGPU: 10_000,
-        maxBatchSize: 50_000,
-        useFusedKernels: true,
-        useDimensionOptimizedKernels: true,
-        preallocateBuffers: true,
-        bufferPreallocationSize: 50_000,
-        forceGPU: false,
-        enableProfiling: false,
-        logDecisions: false
-    )
-
-    /// Conservative GPU usage - only for large workloads.
-    public static let conservative = IndexAccelerationConfiguration(
-        minimumCandidatesForGPU: 5_000,
-        minimumOperationsForGPU: 500_000,
-        maxBatchSize: 10_000,
-        useFusedKernels: true,
-        useDimensionOptimizedKernels: true,
-        preallocateBuffers: false,
-        bufferPreallocationSize: 10_000,
-        forceGPU: false,
-        enableProfiling: false,
-        logDecisions: false
-    )
-
-    /// Benchmarking configuration - force GPU, enable profiling.
-    public static let benchmarking = IndexAccelerationConfiguration(
-        minimumCandidatesForGPU: 0,
-        minimumOperationsForGPU: 0,
-        maxBatchSize: 100_000,
-        useFusedKernels: true,
-        useDimensionOptimizedKernels: true,
-        preallocateBuffers: true,
-        bufferPreallocationSize: 100_000,
-        forceGPU: true,
-        enableProfiling: true,
-        logDecisions: true
-    )
-
-    // MARK: - Migration Helpers
-
-    /// Converts this configuration to GPUActivationThresholds for use with GPUDecisionEngine.
-    ///
-    /// Use this method to migrate from the deprecated threshold-based configuration
-    /// to the adaptive GPUDecisionEngine pattern.
-    ///
-    /// ```swift
-    /// let oldConfig = IndexAccelerationConfiguration.aggressive
-    /// let thresholds = oldConfig.toGPUActivationThresholds()
-    /// let engine = GPUDecisionEngine(thresholds: thresholds)
-    /// ```
-    public func toGPUActivationThresholds() -> GPUActivationThresholds {
-        GPUActivationThresholds(
-            minVectorsForGPU: minimumCandidatesForGPU,
-            minCandidatesForGPU: minimumCandidatesForGPU,
-            minKForGPU: 10,
-            maxKForGPU: maxBatchSize / 10,
-            minOperationsForGPU: minimumOperationsForGPU
-        )
-    }
-
-    /// Creates a GPUDecisionEngine configured with thresholds derived from this configuration.
-    ///
-    /// This is a convenience method for migrating to the new adaptive routing pattern.
-    ///
-    /// ```swift
-    /// let config = IndexAccelerationConfiguration.aggressive
-    /// let engine = config.createDecisionEngine()
-    /// ```
-    public func createDecisionEngine() -> GPUDecisionEngine {
-        GPUDecisionEngine(thresholds: toGPUActivationThresholds())
-    }
 }

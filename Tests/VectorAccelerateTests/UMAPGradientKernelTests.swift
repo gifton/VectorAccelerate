@@ -161,7 +161,7 @@ final class UMAPGradientKernelTests: XCTestCase {
             UMAPEdge(source: 2, target: 0, weight: 1.0),
         ]
 
-        let (starts, counts) = kernel.computeSegments(edges: edges, n: 3)
+        let (_, counts) = kernel.computeSegments(edges: edges, n: 3)
 
         XCTAssertEqual(counts[0], 1, "Source 0 has 1 edge")
         XCTAssertEqual(counts[1], 0, "Source 1 has 0 edges")

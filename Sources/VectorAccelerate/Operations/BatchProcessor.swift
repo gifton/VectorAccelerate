@@ -24,29 +24,22 @@ public struct BatchConfiguration: Sendable {
     public let memoryLimit: Int  // Bytes
     public let enablePipelining: Bool
 
-    /// Minimum batch size for GPU (fallback when decisionEngine is nil)
-    @available(*, deprecated, message: "Use decisionEngine for adaptive GPU routing")
-    public let gpuThreshold: Int
-
-    /// Optional decision engine for adaptive GPU/CPU routing.
-    /// When provided, GPU decisions are delegated to the engine.
-    /// When nil, falls back to gpuThreshold.
-    public let decisionEngine: GPUDecisionEngine?
+    /// Decision engine for adaptive GPU/CPU routing.
+    /// If no engine is supplied to the initializer, a default engine is created.
+    public let decisionEngine: GPUDecisionEngine
 
     public init(
         strategy: BatchStrategy = .adaptive,
         maxBatchSize: Int = 10000,
         memoryLimit: Int = 512 * 1024 * 1024,  // 512MB
         enablePipelining: Bool = true,
-        gpuThreshold: Int = 100,
         decisionEngine: GPUDecisionEngine? = nil
     ) {
         self.strategy = strategy
         self.maxBatchSize = maxBatchSize
         self.memoryLimit = memoryLimit
         self.enablePipelining = enablePipelining
-        self.gpuThreshold = gpuThreshold
-        self.decisionEngine = decisionEngine
+        self.decisionEngine = decisionEngine ?? GPUDecisionEngine()
     }
 
     public static let `default` = BatchConfiguration()
@@ -302,21 +295,14 @@ public actor BatchProcessor {
             return .streaming(chunkSize: configuration.memoryLimit / itemSize)
         }
 
-        // Determine if parallel processing is worthwhile
-        let shouldUseParallel: Bool
-        if let engine = configuration.decisionEngine {
-            // Use decision engine to determine if GPU/parallel processing is beneficial
-            shouldUseParallel = await engine.shouldUseGPU(
-                operation: .batchSearch,
-                vectorCount: count,
-                candidateCount: count,
-                k: 1,
-                dimension: dimension
-            )
-        } else {
-            // Fallback to hardcoded threshold
-            shouldUseParallel = count >= configuration.gpuThreshold
-        }
+        // Determine if parallel processing is worthwhile via the decision engine
+        let shouldUseParallel = await configuration.decisionEngine.shouldUseGPU(
+            operation: .batchSearch,
+            vectorCount: count,
+            candidateCount: count,
+            k: 1,
+            dimension: dimension
+        )
 
         if !shouldUseParallel {
             return .sequential

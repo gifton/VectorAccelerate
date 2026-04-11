@@ -287,9 +287,6 @@ public typealias TopKKernel = TopKSelectionKernel
 /// Alias for FusedL2TopKKernel - fused distance + selection.
 public typealias FusedTopKKernel = FusedL2TopKKernel
 
-/// Alias for StreamingTopKKernel - streaming top-k for large datasets.
-public typealias StreamingKernel = StreamingTopKKernel
-
 // MARK: Quantization Kernel Aliases
 
 /// Alias for ScalarQuantizationKernel - INT8/INT4 quantization.

@@ -22,31 +22,10 @@ final class VectorAccelerateTests: XCTestCase {
     func testDefaultConfiguration() {
         let config = IndexAccelerationConfiguration.default
 
-        XCTAssertEqual(config.minimumCandidatesForGPU, 500)
-        XCTAssertEqual(config.minimumOperationsForGPU, 50_000)
         XCTAssertTrue(config.useFusedKernels)
         XCTAssertFalse(config.forceGPU)
-    }
-
-    func testAggressiveConfiguration() {
-        let config = IndexAccelerationConfiguration.aggressive
-
-        XCTAssertEqual(config.minimumCandidatesForGPU, 100)
-        XCTAssertTrue(config.preallocateBuffers)
-    }
-
-    func testConservativeConfiguration() {
-        let config = IndexAccelerationConfiguration.conservative
-
-        XCTAssertEqual(config.minimumCandidatesForGPU, 5_000)
-        XCTAssertFalse(config.preallocateBuffers)
-    }
-
-    func testBenchmarkingConfiguration() {
-        let config = IndexAccelerationConfiguration.benchmarking
-
-        XCTAssertTrue(config.forceGPU)
-        XCTAssertTrue(config.enableProfiling)
+        XCTAssertFalse(config.enableProfiling)
+        XCTAssertEqual(config.maxBatchSize, 10_000)
     }
 
     // MARK: - Error Tests

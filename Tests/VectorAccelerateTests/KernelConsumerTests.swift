@@ -44,6 +44,7 @@ final class KernelConsumerTests: XCTestCase {
         _ = try await AttentionSimilarityKernel(context: context)
     }
 
+    @available(*, deprecated)
     func testSelectionKernelInstantiation() async throws {
         // All selection kernels should be publicly instantiable
         _ = try await TopKSelectionKernel(context: context)
@@ -101,7 +102,6 @@ final class KernelConsumerTests: XCTestCase {
         // Selection kernel aliases
         _ = try await TopKKernel(context: context)
         _ = try await FusedTopKKernel(context: context)
-        _ = try await StreamingKernel(context: context)
 
         // Quantization kernel aliases
         _ = try await ScalarQuantKernel(context: context)

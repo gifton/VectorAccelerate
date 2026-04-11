@@ -13,6 +13,17 @@
 // There is NO backwards compatibility with older OS versions.
 // For Metal 3 support, use VectorAccelerate 0.2.x or earlier.
 //
+// 0.4.2 REMOVED (deprecated since 0.4.0, unused by all known consumers):
+//   - Removed: AccelerationConfiguration.{cpuThreshold, gpuThreshold, hybridThreshold}
+//   - Removed: AccelerationConfiguration.{performance, balanced, cpuOnly} factories
+//   - Removed: IndexAccelerationConfiguration.{minimumCandidatesForGPU, minimumOperationsForGPU}
+//   - Removed: IndexAccelerationConfiguration.{aggressive, conservative, benchmarking} factories
+//   - Removed: BatchConfiguration.gpuThreshold (decisionEngine is now always supplied)
+//   - Removed: AdaptiveThresholdManager (use GPUDecisionEngine directly)
+//   - Removed: StreamingKernel typealias (use StreamingTopKKernel directly)
+//   - Removed: toGPUActivationThresholds() / createDecisionEngine() migration helpers
+//   Use GPUDecisionEngine for all adaptive GPU/CPU routing decisions.
+//
 // NOTE: The platform versions below are SPM placeholders because Swift Package
 // Manager does not yet support .v26 enum cases. Runtime availability is enforced
 // via @available attributes. These will be updated when SPM adds support.
