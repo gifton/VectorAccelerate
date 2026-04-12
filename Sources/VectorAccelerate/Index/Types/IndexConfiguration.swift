@@ -329,7 +329,8 @@ public struct IndexConfiguration: Sendable, Equatable {
     public static func flat(
         dimension: Int,
         metric: SupportedDistanceMetric = .euclidean,
-        capacity: Int = 10_000
+        capacity: Int = 10_000,
+        walConfiguration: WALConfiguration = .disabled
     ) -> IndexConfiguration {
         IndexConfiguration(
             dimension: dimension,
@@ -337,7 +338,8 @@ public struct IndexConfiguration: Sendable, Equatable {
             capacity: capacity,
             indexType: .flat,
             routingThreshold: 0,  // Flat index doesn't need routing
-            quantization: .none
+            quantization: .none,
+            walConfiguration: walConfiguration
         )
     }
 
@@ -361,7 +363,8 @@ public struct IndexConfiguration: Sendable, Equatable {
         capacity: Int = 100_000,
         routingThreshold: Int = 10_000,
         minTrainingVectors: Int? = nil,
-        quantization: VectorQuantization = .none
+        quantization: VectorQuantization = .none,
+        walConfiguration: WALConfiguration = .disabled
     ) -> IndexConfiguration {
         IndexConfiguration(
             dimension: dimension,
@@ -369,7 +372,8 @@ public struct IndexConfiguration: Sendable, Equatable {
             capacity: capacity,
             indexType: .ivf(nlist: nlist, nprobe: nprobe, minTrainingVectors: minTrainingVectors),
             routingThreshold: routingThreshold,
-            quantization: quantization
+            quantization: quantization,
+            walConfiguration: walConfiguration
         )
     }
 
@@ -572,7 +576,8 @@ extension IndexConfiguration {
         targetRecall: Float = 0.90,
         metric: SupportedDistanceMetric = .euclidean,
         routingThreshold: Int = 10_000,
-        quantization: VectorQuantization = .none
+        quantization: VectorQuantization = .none,
+        walConfiguration: WALConfiguration = .disabled
     ) -> IndexConfiguration {
         let nlist = recommendedNlist(for: expectedSize)
         let nprobe = recommendedNprobe(for: nlist, targetRecall: targetRecall)
@@ -584,7 +589,8 @@ extension IndexConfiguration {
             metric: metric,
             capacity: expectedSize,
             routingThreshold: routingThreshold,
-            quantization: quantization
+            quantization: quantization,
+            walConfiguration: walConfiguration
         )
     }
 }
