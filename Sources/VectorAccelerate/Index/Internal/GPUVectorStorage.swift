@@ -48,14 +48,6 @@ final class GPUVectorStorage: @unchecked Sendable {
     /// Number of slots currently written (may include deleted).
     private(set) var allocatedSlots: Int = 0
 
-    // MARK: - Per-Slot Normalization Hints
-
-    /// Per-slot: true if vector was pre-normalized at insert time (from IndexableVector.isNormalized).
-    private var normalizationFlags: [Bool]
-
-    /// Per-slot: cached inverse magnitude (from IndexableVector.cachedMagnitude).
-    private var cachedInvNorms: [Float?]
-
     /// Bytes per vector slot.
     var bytesPerSlot: Int {
         dimension * MemoryLayout<Float>.size
@@ -84,8 +76,6 @@ final class GPUVectorStorage: @unchecked Sendable {
         self.device = device
         self.dimension = dimension
         self.capacity = capacity
-        self.normalizationFlags = Array(repeating: false, count: capacity)
-        self.cachedInvNorms = Array(repeating: nil, count: capacity)
 
         try allocateBuffer()
     }
@@ -135,9 +125,6 @@ final class GPUVectorStorage: @unchecked Sendable {
 
         buffer = newBuffer
         capacity = newCapacity
-
-        normalizationFlags.append(contentsOf: Array(repeating: false, count: newCapacity - normalizationFlags.count))
-        cachedInvNorms.append(contentsOf: Array(repeating: nil, count: newCapacity - cachedInvNorms.count))
     }
 
     /// Ensure capacity for at least the specified number of slots.
@@ -307,20 +294,10 @@ final class GPUVectorStorage: @unchecked Sendable {
             }
         }
 
-        // Rebuild normalization hint arrays
-        var newNormFlags = Array(repeating: false, count: max(keptCount, capacity / 2))
-        var newInvNorms: [Float?] = Array(repeating: nil, count: max(keptCount, capacity / 2))
-        for (oldIndex, newIdx) in indexMapping {
-            newNormFlags[newIdx] = normalizationFlags[oldIndex]
-            newInvNorms[newIdx] = cachedInvNorms[oldIndex]
-        }
-
         // Update state
         buffer = newBuffer
         allocatedSlots = newIndex
         capacity = max(keptCount, capacity / 2)
-        normalizationFlags = newNormFlags
-        cachedInvNorms = newInvNorms
 
         return indexMapping
     }
@@ -358,26 +335,6 @@ final class GPUVectorStorage: @unchecked Sendable {
     /// Keeps the allocated buffer but marks all slots as unused.
     func reset() {
         allocatedSlots = 0
-        normalizationFlags = Array(repeating: false, count: capacity)
-        cachedInvNorms = Array(repeating: nil, count: capacity)
-    }
-
-    // MARK: - Normalization Hints
-
-    func setNormalizationHint(at slot: Int, isNormalized: Bool, invNorm: Float?) {
-        guard slot >= 0 && slot < capacity else { return }
-        normalizationFlags[slot] = isNormalized
-        cachedInvNorms[slot] = invNorm
-    }
-
-    func isNormalized(at slot: Int) -> Bool {
-        guard slot >= 0 && slot < capacity else { return false }
-        return normalizationFlags[slot]
-    }
-
-    func invNorm(at slot: Int) -> Float? {
-        guard slot >= 0 && slot < capacity else { return nil }
-        return cachedInvNorms[slot]
     }
 
     /// Release the GPU buffer.
