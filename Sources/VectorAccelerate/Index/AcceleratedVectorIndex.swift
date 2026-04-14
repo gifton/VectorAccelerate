@@ -123,11 +123,12 @@ public actor AcceleratedVectorIndex {
     /// CPU-side metadata storage (keyed by stableID).
     private var metadataStore: MetadataStore
 
+    /// CPU-side IndexableVector optimization hints (keyed by stableID).
+    /// Captured at insert time; not yet consumed by the L2 search kernel.
+    private var vectorHintStore: VectorHintStore
+
     /// Fused L2 Top-K kernel for flat search.
     private var fusedL2TopKKernel: FusedL2TopKKernel?
-
-    /// Optional GPU decision engine for CPU/GPU routing.
-    private let decisionEngine: GPUDecisionEngine?
 
     // MARK: - IVF Components (Optional)
 
@@ -139,6 +140,13 @@ public actor AcceleratedVectorIndex {
 
     /// Whether auto-training is enabled for IVF.
     private var autoTrainEnabled: Bool = true
+
+    // MARK: - Decision Engine (Optional)
+
+    /// Optional GPU decision engine for adaptive CPU/GPU routing on flat search.
+    /// When nil, all searches use GPU (existing default behavior).
+    /// IVF search always uses GPU regardless of this setting.
+    private let decisionEngine: GPUDecisionEngine?
 
     // MARK: - WAL Components (Optional)
 
@@ -156,13 +164,16 @@ public actor AcceleratedVectorIndex {
     /// - Throws: `IndexError` if configuration is invalid or GPU initialization fails
     ///
     /// - Note: Currently only `.euclidean` metric is supported for GPU-accelerated search.
-    public init(configuration: IndexConfiguration, decisionEngine: GPUDecisionEngine? = nil) async throws {
+    public init(
+        configuration: IndexConfiguration,
+        decisionEngine: GPUDecisionEngine? = nil
+    ) async throws {
         try configuration.validate()
         try Self.validateMetricSupport(configuration.metric)
 
         self.configuration = configuration
-        self.decisionEngine = decisionEngine
         self.context = try await Metal4Context()
+        self.decisionEngine = decisionEngine
 
         // Initialize core components
         self.storage = try GPUVectorStorage(
@@ -173,6 +184,7 @@ public actor AcceleratedVectorIndex {
         self.handleAllocator = HandleAllocator(initialSlotCapacity: configuration.capacity)
         self.deletionMask = DeletionMask(capacity: configuration.capacity)
         self.metadataStore = MetadataStore(capacity: configuration.capacity / 10)
+        self.vectorHintStore = VectorHintStore(capacity: configuration.capacity / 10)
 
         // Initialize index-type-specific components
         switch configuration.indexType {
@@ -224,13 +236,17 @@ public actor AcceleratedVectorIndex {
     ///   - configuration: Index configuration
     ///   - context: Existing Metal 4 context to use
     /// - Throws: `IndexError` if configuration is invalid
-    public init(configuration: IndexConfiguration, context: Metal4Context, decisionEngine: GPUDecisionEngine? = nil) async throws {
+    public init(
+        configuration: IndexConfiguration,
+        context: Metal4Context,
+        decisionEngine: GPUDecisionEngine? = nil
+    ) async throws {
         try configuration.validate()
         try Self.validateMetricSupport(configuration.metric)
 
         self.configuration = configuration
-        self.decisionEngine = decisionEngine
         self.context = context
+        self.decisionEngine = decisionEngine
 
         // Initialize core components
         self.storage = try GPUVectorStorage(
@@ -241,6 +257,7 @@ public actor AcceleratedVectorIndex {
         self.handleAllocator = HandleAllocator(initialSlotCapacity: configuration.capacity)
         self.deletionMask = DeletionMask(capacity: configuration.capacity)
         self.metadataStore = MetadataStore(capacity: configuration.capacity / 10)
+        self.vectorHintStore = VectorHintStore(capacity: configuration.capacity / 10)
 
         // Initialize index-type-specific components
         switch configuration.indexType {
@@ -632,46 +649,56 @@ public actor AcceleratedVectorIndex {
         return handles
     }
 
-    // MARK: - IndexableVector Insert Overloads
+    // MARK: - Typed Insert (IndexableVector)
 
-    /// Insert a single IndexableVector, preserving normalization hints.
+    /// Insert a single vector using an IndexableVector-conforming type.
+    ///
+    /// Captures `isNormalized` and `cachedMagnitude` hints from the vector at insert time.
+    /// Hints are stored but not yet consumed by the L2 search kernel — they are reserved
+    /// for future cosine-metric and normalized-L2 fast-path support.
+    ///
+    /// - Parameters:
+    ///   - vector: An IndexableVector (must match index dimension)
+    ///   - metadata: Optional metadata for filtering
+    /// - Returns: Stable handle to the inserted vector
+    /// - Throws: `IndexError` if dimension mismatch or GPU error
     public func insert<V: IndexableVector>(
         _ vector: V,
         metadata: VectorMetadata? = nil
-    ) async throws -> VectorHandle where V.Scalar == Float {
-        let array = vector.toArray()
-        let handle = try await insert(array, metadata: metadata)
-
-        if let slot = handleAllocator.slot(for: handle) {
-            let invNorm: Float? = vector.isNormalized ? 1.0 :
-                vector.cachedMagnitude.flatMap { $0.isFinite && $0 > 1e-12 ? 1.0 / $0 : nil }
-            storage.setNormalizationHint(at: Int(slot), isNormalized: vector.isNormalized, invNorm: invNorm)
-        }
+    ) async throws -> VectorHandle {
+        let floats = vector.toArray()
+        let handle = try await insert(floats, metadata: metadata)
+        vectorHintStore[handle] = VectorHints(
+            isNormalized: vector.isNormalized,
+            cachedMagnitude: vector.cachedMagnitude
+        )
         return handle
     }
 
-    /// Batch insert IndexableVectors, preserving normalization hints.
+    /// Batch insert multiple vectors using an IndexableVector-conforming type.
+    ///
+    /// Captures `isNormalized` and `cachedMagnitude` hints from each vector at insert time.
+    /// Hints are stored but not yet consumed by the L2 search kernel — they are reserved
+    /// for future cosine-metric and normalized-L2 fast-path support.
+    ///
+    /// - Parameters:
+    ///   - vectors: Array of IndexableVectors (each must match index dimension)
+    ///   - metadata: Optional metadata array (must match vectors count if provided)
+    /// - Returns: Array of stable handles for inserted vectors
+    /// - Throws: `IndexError` if dimension mismatch or GPU error
     public func insert<V: IndexableVector>(
         _ vectors: [V],
         metadata: [VectorMetadata?]? = nil
-    ) async throws -> [VectorHandle] where V.Scalar == Float {
-        let arrays = vectors.map { $0.toArray() }
-        let handles = try await insert(arrays, metadata: metadata)
-
-        for (i, vector) in vectors.enumerated() {
-            if let slot = handleAllocator.slot(for: handles[i]) {
-                let invNorm: Float? = vector.isNormalized ? 1.0 :
-                    vector.cachedMagnitude.flatMap { $0.isFinite && $0 > 1e-12 ? 1.0 / $0 : nil }
-                storage.setNormalizationHint(at: Int(slot), isNormalized: vector.isNormalized, invNorm: invNorm)
-            }
+    ) async throws -> [VectorHandle] {
+        let floatArrays = vectors.map { $0.toArray() }
+        let handles = try await insert(floatArrays, metadata: metadata)
+        for (handle, vector) in zip(handles, vectors) {
+            vectorHintStore[handle] = VectorHints(
+                isNormalized: vector.isNormalized,
+                cachedMagnitude: vector.cachedMagnitude
+            )
         }
         return handles
-    }
-
-    /// Query whether a vector was marked as pre-normalized at insert time.
-    public func isVectorNormalized(_ handle: VectorHandle) -> Bool? {
-        guard let slot = handleAllocator.slot(for: handle) else { return nil }
-        return storage.isNormalized(at: Int(slot))
     }
 
     // MARK: - Vector Retrieval
@@ -703,6 +730,18 @@ public actor AcceleratedVectorIndex {
     public func metadata(for handle: VectorHandle) -> VectorMetadata? {
         guard handleAllocator.validate(handle) else { return nil }
         return metadataStore[handle]
+    }
+
+    /// Get IndexableVector optimization hints for a handle.
+    ///
+    /// Returns hints captured at insert time via the typed `insert<V: IndexableVector>` overload.
+    /// Returns nil for handles inserted via the raw `[Float]` path or for invalid handles.
+    ///
+    /// - Parameter handle: Handle to the vector
+    /// - Returns: Captured hints, or nil
+    public func vectorHints(for handle: VectorHandle) -> VectorHints? {
+        guard handleAllocator.validate(handle) else { return nil }
+        return vectorHintStore[handle]
     }
 
     /// Update metadata for a handle.
@@ -1028,6 +1067,7 @@ public actor AcceleratedVectorIndex {
         ivfSearchPipeline = nil
         ivfStructure?.reset()
         metadataStore.reset()
+        vectorHintStore.reset()
         handleAllocator.reset()
         deletionMask.reset()
     }
@@ -1061,28 +1101,44 @@ public actor AcceleratedVectorIndex {
     // MARK: - Private Implementation - Flat Search
 
     private func searchUnfiltered(query: [Float], k: Int) async throws -> SearchResults<VectorHandle> {
-        let effectiveK = min(k, handleAllocator.occupiedCount)
-
-        if let engine = decisionEngine {
-            let useGPU = await engine.shouldUseGPU(
-                operation: .l2Distance,
-                vectorCount: storage.allocatedSlots,
-                candidateCount: storage.allocatedSlots,
-                k: effectiveK,
-                queryCount: 1,
-                dimension: configuration.dimension
-            )
-            if !useGPU {
-                return try cpuSearchUnfiltered(query: query, k: effectiveK)
-            }
-        }
-
         let startTime = DispatchTime.now().uptimeNanoseconds
         guard let kernel = fusedL2TopKKernel,
               let datasetBuffer = storage.buffer else {
             throw IndexError.gpuNotInitialized(operation: "search")
         }
 
+        let effectiveK = min(k, handleAllocator.occupiedCount)
+
+        // Consult decision engine for CPU/GPU routing (flat search only)
+        if let engine = decisionEngine {
+            let shouldUseGPU = await engine.shouldUseGPU(
+                operation: .l2Distance,
+                vectorCount: storage.allocatedSlots,
+                candidateCount: storage.allocatedSlots,
+                k: effectiveK,
+                dimension: configuration.dimension
+            )
+            if !shouldUseGPU {
+                let results = CPUTopK.search(
+                    query: query,
+                    buffer: datasetBuffer,
+                    allocatedSlots: storage.allocatedSlots,
+                    dimension: configuration.dimension,
+                    k: effectiveK,
+                    deletionMask: deletionMask,
+                    handleAllocator: handleAllocator
+                )
+                let endTime = DispatchTime.now().uptimeNanoseconds
+                return SearchResults(
+                    results: results,
+                    candidatesSearched: storage.allocatedSlots,
+                    searchTimeNanos: endTime - startTime,
+                    isExhaustive: true
+                )
+            }
+        }
+
+        // GPU path (default when no decision engine or engine votes GPU)
         // Create query buffer (from pool for transient allocation)
         let queryToken = try await context.getBuffer(for: query)
         let queryBuffer = queryToken.buffer
@@ -1134,20 +1190,6 @@ public actor AcceleratedVectorIndex {
         k: Int,
         filter: @Sendable (VectorHandle, VectorMetadata?) -> Bool
     ) async throws -> SearchResults<VectorHandle> {
-        if let engine = decisionEngine {
-            let useGPU = await engine.shouldUseGPU(
-                operation: .l2Distance,
-                vectorCount: storage.allocatedSlots,
-                candidateCount: storage.allocatedSlots,
-                k: k,
-                queryCount: 1,
-                dimension: configuration.dimension
-            )
-            if !useGPU {
-                return try cpuSearchFiltered(query: query, k: k, filter: filter)
-            }
-        }
-
         let startTime = DispatchTime.now().uptimeNanoseconds
         guard let kernel = fusedL2TopKKernel,
               let datasetBuffer = storage.buffer else {
@@ -1222,84 +1264,6 @@ public actor AcceleratedVectorIndex {
         )
     }
 
-    // MARK: - Private Implementation - CPU Fallback Search (Flat Index)
-
-    private func cpuSearchUnfiltered(query: [Float], k: Int) throws -> SearchResults<VectorHandle> {
-        let startTime = DispatchTime.now().uptimeNanoseconds
-        let fallback = FallbackProvider()
-
-        var candidates: [[Float]] = []
-        var slotIndices: [Int] = []
-        candidates.reserveCapacity(handleAllocator.occupiedCount)
-        slotIndices.reserveCapacity(handleAllocator.occupiedCount)
-
-        for slotIndex in deletionMask {
-            guard slotIndex < storage.allocatedSlots else { continue }
-            candidates.append(try storage.readVector(at: slotIndex))
-            slotIndices.append(slotIndex)
-        }
-
-        let distances = try candidates.map { try fallback.l2DistanceSquared(from: query, to: $0) }
-        let topK = fallback.topKByDistance(distances, k: k)
-
-        var results: [IndexSearchResult] = []
-        results.reserveCapacity(k)
-        for (localIdx, distance) in topK {
-            let slotIndex = slotIndices[localIdx]
-            guard let handle = handleAllocator.handle(for: UInt32(slotIndex)) else { continue }
-            results.append(IndexSearchResult(id: handle, distance: distance))
-        }
-
-        let endTime = DispatchTime.now().uptimeNanoseconds
-        return SearchResults(
-            results: results,
-            candidatesSearched: candidates.count,
-            searchTimeNanos: endTime - startTime,
-            isExhaustive: true
-        )
-    }
-
-    private func cpuSearchFiltered(
-        query: [Float],
-        k: Int,
-        filter: @Sendable (VectorHandle, VectorMetadata?) -> Bool
-    ) throws -> SearchResults<VectorHandle> {
-        let startTime = DispatchTime.now().uptimeNanoseconds
-        let fallback = FallbackProvider()
-
-        var filteredVectors: [[Float]] = []
-        var filteredSlotIndices: [Int] = []
-
-        for slotIndex in deletionMask {
-            guard slotIndex < storage.allocatedSlots else { continue }
-            guard let handle = handleAllocator.handle(for: UInt32(slotIndex)) else { continue }
-            let meta = metadataStore[handle]
-            if filter(handle, meta) {
-                filteredVectors.append(try storage.readVector(at: slotIndex))
-                filteredSlotIndices.append(slotIndex)
-            }
-        }
-
-        let distances = try filteredVectors.map { try fallback.l2DistanceSquared(from: query, to: $0) }
-        let topK = fallback.topKByDistance(distances, k: k)
-
-        var results: [IndexSearchResult] = []
-        results.reserveCapacity(k)
-        for (localIdx, distance) in topK {
-            let slotIndex = filteredSlotIndices[localIdx]
-            guard let handle = handleAllocator.handle(for: UInt32(slotIndex)) else { continue }
-            results.append(IndexSearchResult(id: handle, distance: distance))
-        }
-
-        let endTime = DispatchTime.now().uptimeNanoseconds
-        return SearchResults(
-            results: results,
-            candidatesSearched: filteredVectors.count,
-            searchTimeNanos: endTime - startTime,
-            isExhaustive: true
-        )
-    }
-
     // MARK: - Private Implementation - GPU Batch Search (Flat Index)
 
     /// Perform true GPU batch search for flat index.
@@ -1320,6 +1284,42 @@ public actor AcceleratedVectorIndex {
         let numQueries = queries.count
         let effectiveK = min(k, handleAllocator.occupiedCount)
 
+        // Consult decision engine for CPU/GPU routing (flat batch search)
+        if let engine = decisionEngine {
+            let shouldUseGPU = await engine.shouldUseGPU(
+                operation: .batchSearch,
+                vectorCount: storage.allocatedSlots,
+                candidateCount: storage.allocatedSlots,
+                k: effectiveK,
+                queryCount: numQueries,
+                dimension: configuration.dimension
+            )
+            if !shouldUseGPU {
+                // CPU fallback: run per-query CPU top-K
+                var allSearchResults: [SearchResults<VectorHandle>] = []
+                allSearchResults.reserveCapacity(numQueries)
+                for query in queries {
+                    let results = CPUTopK.search(
+                        query: query,
+                        buffer: datasetBuffer,
+                        allocatedSlots: storage.allocatedSlots,
+                        dimension: configuration.dimension,
+                        k: effectiveK,
+                        deletionMask: deletionMask,
+                        handleAllocator: handleAllocator
+                    )
+                    allSearchResults.append(SearchResults(
+                        results: results,
+                        candidatesSearched: storage.allocatedSlots,
+                        searchTimeNanos: nil,
+                        isExhaustive: true
+                    ))
+                }
+                return allSearchResults
+            }
+        }
+
+        // GPU path (default when no decision engine or engine votes GPU)
         // Flatten queries into contiguous buffer (from pool for transient allocation)
         let flatQueries = queries.flatMap { $0 }
         let queryToken = try await context.getBuffer(for: flatQueries)

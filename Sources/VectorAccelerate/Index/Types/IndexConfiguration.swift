@@ -325,6 +325,7 @@ public struct IndexConfiguration: Sendable, Equatable {
     ///   - dimension: Vector dimension
     ///   - metric: Distance metric (default: euclidean)
     ///   - capacity: Initial capacity (default: 10,000)
+    ///   - walConfiguration: WAL configuration for crash recovery (default: disabled)
     /// - Returns: Configuration for a flat index
     public static func flat(
         dimension: Int,
@@ -354,6 +355,7 @@ public struct IndexConfiguration: Sendable, Equatable {
     ///   - minTrainingVectors: Minimum vectors before auto-training triggers
     ///     (nil uses default: max(nlist * 10, 1000))
     ///   - quantization: Vector quantization method (default: none)
+    ///   - walConfiguration: WAL configuration for crash recovery (default: disabled)
     /// - Returns: Configuration for an IVF index
     public static func ivf(
         dimension: Int,

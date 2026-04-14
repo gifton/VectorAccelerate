@@ -13,6 +13,19 @@
 // There is NO backwards compatibility with older OS versions.
 // For Metal 3 support, use VectorAccelerate 0.2.x or earlier.
 //
+// 0.4.4 — VectorCore 0.2.1 integration + internal refactor:
+//   - Requires VectorCore 0.2.1+ (NormalizationHint<V> now conforms to IndexableVector)
+//   - Refactored normalization hint storage into handle-keyed VectorHintStore
+//   - Extracted CPU top-K fallback into Sources/VectorAccelerate/CPU/CPUTopK.swift
+//   - Split gap tests into FactoryWALTests, DecisionEngineIndexTests, IndexableVectorInsertTests
+//   - Removed: walConfiguration param from .ivfAuto() (use .ivf(...) directly for WAL on IVF)
+//
+// 0.4.3 — Integration surface gaps on AcceleratedVectorIndex:
+//   - Added: walConfiguration param on IndexConfiguration.flat() and .ivf() factories
+//   - Added: decisionEngine param on AcceleratedVectorIndex.init (CPU fallback for flat search)
+//   - Added: insert<V: IndexableVector>(_:metadata:) single + batch overloads
+//   - Added: vectorHints(for:) accessor for captured normalization hints
+//
 // 0.4.2 REMOVED (deprecated since 0.4.0, unused by all known consumers):
 //   - Removed: AccelerationConfiguration.{cpuThreshold, gpuThreshold, hybridThreshold}
 //   - Removed: AccelerationConfiguration.{performance, balanced, cpuOnly} factories
@@ -53,7 +66,7 @@ let package = Package(
     ],
     dependencies: [
         // VectorCore for base protocols and types
-        .package(url: "https://github.com/gifton/VectorCore", from: "0.2.0"),
+        .package(url: "https://github.com/gifton/VectorCore", from: "0.2.1"),
         // MetalCompilerPlugin for debuggable Metal shaders (enables Xcode Metal Debugger)
         .package(url: "https://github.com/schwa/MetalCompilerPlugin", from: "0.1.5")
     ],
