@@ -227,4 +227,24 @@ public actor MetalComputeProvider: ComputeProvider {
         }
         return matrix
     }
+
+    // MARK: - Single distance
+
+    /// Distance between two vectors. Computed on CPU (single-pair GPU dispatch never wins); semantics
+    /// match `batchDistance`.
+    public func distance<V: VectorProtocol>(
+        _ a: V, _ b: V, metric: SupportedDistanceMetric
+    ) async throws -> Float where V.Scalar == Float {
+        let av = a.toArray(); let bv = b.toArray()
+        guard av.count == bv.count else {
+            throw VectorError.dimensionMismatch(expected: av.count, actual: bv.count)
+        }
+        switch metric {
+        case .euclidean:  return try AccelerateFallback.euclideanDistance(av, bv)
+        case .cosine:     return 1.0 - (try AccelerateFallback.cosineSimilarity(av, bv))
+        case .dotProduct: return try AccelerateFallback.dotProduct(av, bv)
+        case .manhattan:  return try AccelerateFallback.manhattanDistance(av, bv)
+        case .chebyshev:  return Self.chebyshev(av, bv)
+        }
+    }
 }

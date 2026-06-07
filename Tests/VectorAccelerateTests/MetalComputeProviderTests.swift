@@ -176,4 +176,28 @@ final class MetalComputeProviderTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - single distance()
+
+    func testSingleDistancePerMetric() async throws {
+        let provider = try await MetalComputeProvider()
+        let a = DynamicVector([1, 2, 3, 4, 5, 6, 7, 8])
+        let b = DynamicVector([8, 7, 6, 5, 4, 3, 2, 1])
+        let av = a.toArray(); let bv = b.toArray()
+
+        let eu = try await provider.distance(a, b, metric: .euclidean)
+        XCTAssertEqual(eu, refEuclidean(av, bv), accuracy: 1e-4)
+        let co = try await provider.distance(a, b, metric: .cosine)
+        XCTAssertEqual(co, refCosineDistance(av, bv), accuracy: 1e-4)
+        let ma = try await provider.distance(a, b, metric: .manhattan)
+        XCTAssertEqual(ma, refManhattan(av, bv), accuracy: 1e-4)
+        // dotProduct returns the raw dot (a similarity).
+        let dp = try await provider.distance(a, b, metric: .dotProduct)
+        let refDot = zip(av, bv).reduce(Float(0)) { $0 + $1.0 * $1.1 }
+        XCTAssertEqual(dp, refDot, accuracy: 1e-3)
+        // chebyshev = max abs diff.
+        let ch = try await provider.distance(a, b, metric: .chebyshev)
+        let refCheby = zip(av, bv).map { abs($0 - $1) }.max() ?? 0
+        XCTAssertEqual(ch, refCheby, accuracy: 1e-4)
+    }
 }
