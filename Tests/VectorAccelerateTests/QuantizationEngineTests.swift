@@ -149,7 +149,23 @@ final class QuantizationEngineTests: XCTestCase {
         let expectedSize = testVector.count * 2
         XCTAssertEqual(quantized.data.count, expectedSize)
     }
-    
+
+    /// Regression test: a single +Inf used to be remapped to ~FLT_MAX, which dominated the
+    /// global min/max and blew up the scale so every normal value quantized to 0. The finite
+    /// data range must now drive the scale and the finite entries must round-trip.
+    func testScalarQuantizationSurvivesInfiniteOutlier() async throws {
+        let vector: [Float] = [-2, -1, 1, 2, .infinity]
+        let quantized = try await engine!.scalarQuantize(vector: vector, bits: 8)
+        let restored = try await engine!.dequantize(quantized: quantized)
+
+        XCTAssertEqual(restored.count, vector.count)
+        for i in 0..<4 {
+            XCTAssertEqual(restored[i], vector[i], accuracy: 0.05,
+                           "Finite value \(vector[i]) collapsed to \(restored[i])")
+        }
+        XCTAssertFalse(restored[0..<4].allSatisfy { $0 == 0 }, "Finite entries collapsed to zero")
+    }
+
     func testScalarQuantizationInvalidBits() async throws {
         let testVector = testVectors[0]
         

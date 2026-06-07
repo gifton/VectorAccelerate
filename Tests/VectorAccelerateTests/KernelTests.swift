@@ -690,6 +690,28 @@ final class TopKSelectionKernelTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(results[0].count, 3)
     }
 
+    /// T2d measurement (not a pass/fail gate): times batch top-K selection across K to surface
+    /// whether the per-thread heap[MAX_K=128] (~1 KB thread-local) is a real bottleneck versus
+    /// small K. The decision was "measure first", so the kernel is intentionally left unchanged.
+    func testBatchTopKHeapScalingMeasurement() async throws {
+        let batchSize = 256
+        let numElements = 4096
+        let data = (0..<batchSize).map { _ in (0..<numElements).map { _ in Float.random(in: 0...1000) } }
+
+        for k in [8, 32, 64, 128] {
+            _ = try await kernel.select(from: data, k: k, mode: .minimum, sorted: false)  // warm-up
+            var times: [Double] = []
+            for _ in 0..<5 {
+                let start = CFAbsoluteTimeGetCurrent()
+                let results = try await kernel.select(from: data, k: k, mode: .minimum, sorted: false)
+                times.append((CFAbsoluteTimeGetCurrent() - start) * 1000.0)
+                XCTAssertEqual(results.count, batchSize)
+            }
+            let median = times.sorted()[times.count / 2]
+            print(String(format: "[T2d] batch top-K Q=%d N=%d K=%d: median %.3f ms", batchSize, numElements, k, median))
+        }
+    }
+
     // MARK: - Larger Tests
 
     func testLargerBatch() async throws {
@@ -2581,6 +2603,28 @@ final class BatchMatrixKernelTests: XCTestCase {
 
         let config2 = Metal4BatchFusedConfig(activation: .gelu)
         XCTAssertEqual(config2.activation, .gelu)
+    }
+
+    /// Regression test: the fused activation used to be packed into the parameters but never
+    /// applied, so the kernel silently returned a linear GEMM. With A = identity the fused
+    /// product equals B; ReLU must then clamp B's negative entries to zero.
+    func testFusedReLUActivationIsApplied() async throws {
+        let identity = Matrix(rows: 2, columns: 2, values: [1, 0, 0, 1])
+        let b = Matrix(rows: 2, columns: 2, values: [2, -2, -3, 4])
+
+        let linear = try await kernel.multiplyFused(batchA: [identity], batchB: [b])
+        let linearValues = linear.matrix(at: 0)?.values ?? []
+        XCTAssertEqual(linearValues.count, 4)
+        zip(linearValues, [2, -2, -3, 4]).forEach { XCTAssertEqual($0, $1, accuracy: 1e-4) }
+
+        let activated = try await kernel.multiplyFused(
+            batchA: [identity],
+            batchB: [b],
+            config: Metal4BatchFusedConfig(activation: .relu)
+        )
+        let reluValues = activated.matrix(at: 0)?.values ?? []
+        XCTAssertEqual(reluValues.count, 4)
+        zip(reluValues, [2, 0, 0, 4]).forEach { XCTAssertEqual($0, $1, accuracy: 1e-4) }
     }
 }
 
