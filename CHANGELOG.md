@@ -23,6 +23,7 @@ Remediation of an external architectural & numerical audit (17 findings: 13 fixe
 - **Batch distance providers** now reject dimension-mismatched candidates instead of staging past a buffer row; **`manhattanDistance`** guards empty input.
 
 ### Changed
+- **Dependency: require VectorCore 0.2.2** (was 0.2.1), inheriting its BE3 audit fixes — a `SwiftFloatSIMDProvider` SIMD8 heap-overflow (the root cause of intermittent softmax NaNs), a cosine-denominator infinity overflow, and an async `MemoryPool` leak. No source changes were required: VectorAccelerate uses neither the source-breaking `LinearQuantizationParams.zeroPoint` (`Int8`→`Int32`) nor the renamed SoA euclidean kernel.
 - **Zero-copy distance staging.** Query/candidate storage is copied straight into Metal buffers via `withUnsafeBufferPointer`, eliminating per-vector `toArray()` allocations and intermediate flat arrays on the L2/Cosine provider batch paths.
 - **1-D threadgroup dispatch** for the L2 and cosine kernels. They index by a scalar `thread_position_in_threadgroup`, so the previous 2-D `(w×h)` group ran the reduction at `1/h` width with `h`-fold redundant work (results were already correct).
 - **CPU fallbacks:** small-batch Euclidean routes through Accelerate (vDSP); `SIMDFallback` dot/Euclidean/normalize use `loadUnaligned` instead of scalar element fills; `manhattanDistance` uses a stack scratch buffer instead of a per-call heap array.
