@@ -200,4 +200,23 @@ final class MetalComputeProviderTests: XCTestCase {
         let refCheby = zip(av, bv).map { abs($0 - $1) }.max() ?? 0
         XCTAssertEqual(ch, refCheby, accuracy: 1e-4)
     }
+
+    // MARK: - Deprecation integrity
+
+    @available(*, deprecated, message: "Exercises deprecated delegation on purpose")
+    func testDeprecatedBatchOperationsStillDelegateCorrectly() async throws {
+        let dim = 128
+        let (q, cands) = makeVectors(count: 600, dim: dim, seed: 4242)
+        let provider = try await MetalComputeProvider()
+
+        // batchDistancesGPU delegates to provider.batchDistance.
+        let legacyDistances = try await BatchOperations.batchDistancesGPU(from: q, to: cands, metric: .euclidean)
+        let providerDistances = try await provider.batchDistance(query: q, candidates: cands, metric: .euclidean)
+        assertClose(legacyDistances, providerDistances)
+
+        // findNearestGPU delegates to provider.findNearest (indices must match).
+        let legacyKnn = try await BatchOperations.findNearestGPU(to: q, in: cands, k: 8, metric: .euclidean)
+        let providerKnn = try await provider.findNearest(query: q, in: cands, k: 8, metric: .euclidean)
+        XCTAssertEqual(legacyKnn.map { $0.index }, providerKnn.map { $0.index })
+    }
 }
