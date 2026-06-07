@@ -65,14 +65,15 @@ public struct AccelerateFallback {
             throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
         }
         
-        // Compute absolute differences
-        var diff = [Float](repeating: 0, count: a.count)
-        vDSP_vsub(b, 1, a, 1, &diff, 1, vDSP_Length(a.count))
-        vDSP_vabs(diff, 1, &diff, 1, vDSP_Length(a.count))
-        
-        // Sum the absolute differences
+        // Compute absolute differences in a scratch buffer instead of a heap [Float] per
+        // call — under concurrent batch use that per-call malloc was pure lock contention.
         var result: Float = 0
-        vDSP_sve(diff, 1, &result, vDSP_Length(a.count))
+        withUnsafeTemporaryAllocation(of: Float.self, capacity: a.count) { diff in
+            let base = diff.baseAddress!
+            vDSP_vsub(b, 1, a, 1, base, 1, vDSP_Length(a.count))
+            vDSP_vabs(base, 1, base, 1, vDSP_Length(a.count))
+            vDSP_sve(base, 1, &result, vDSP_Length(a.count))
+        }
         return result
     }
     

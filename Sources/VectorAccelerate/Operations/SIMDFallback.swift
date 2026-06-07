@@ -105,8 +105,8 @@ public final class SIMDFallback: @unchecked Sendable {
     /// Manual SIMD dot product
     private func simdDotProduct(_ a: [Float], _ b: [Float]) -> Float {
         let count = a.count
-        // Use SIMD8 regardless of configuration to avoid out-of-bounds access
-        let vectorWidth = min(configuration.vectorWidth, 8)
+        // Fixed SIMD8 width so the unaligned 8-wide loads below stay in bounds.
+        let vectorWidth = 8
         var sum: Float = 0
         
         // Process vectors in chunks
@@ -119,12 +119,10 @@ public final class SIMDFallback: @unchecked Sendable {
                 // Vectorized loop
                 for i in 0..<fullVectors {
                     let offset = i * vectorWidth
-                    var va = SIMD8<Float>.zero
-                    var vb = SIMD8<Float>.zero
-                    for j in 0..<vectorWidth {
-                        va[j] = aPtr[offset + j]
-                        vb[j] = bPtr[offset + j]
-                    }
+                    // Direct unaligned vector loads — one NEON/AVX load each, instead of the
+                    // scalar element-by-element register fill the previous loop forced.
+                    let va = UnsafeRawPointer(aPtr.baseAddress! + offset).loadUnaligned(as: SIMD8<Float>.self)
+                    let vb = UnsafeRawPointer(bPtr.baseAddress! + offset).loadUnaligned(as: SIMD8<Float>.self)
                     vectorSum += va * vb
                 }
                 
@@ -167,8 +165,8 @@ public final class SIMDFallback: @unchecked Sendable {
     /// Manual SIMD Euclidean distance
     private func simdEuclideanDistance(_ a: [Float], _ b: [Float]) -> Float {
         let count = a.count
-        // Use SIMD8 regardless of configuration to avoid out-of-bounds access
-        let vectorWidth = min(configuration.vectorWidth, 8)
+        // Fixed SIMD8 width so the unaligned 8-wide loads below stay in bounds.
+        let vectorWidth = 8
         var sumSquared: Float = 0
 
         let fullVectors = count / vectorWidth
@@ -179,12 +177,10 @@ public final class SIMDFallback: @unchecked Sendable {
 
                 for i in 0..<fullVectors {
                     let offset = i * vectorWidth
-                    var va = SIMD8<Float>.zero
-                    var vb = SIMD8<Float>.zero
-                    for j in 0..<vectorWidth {
-                        va[j] = aPtr[offset + j]
-                        vb[j] = bPtr[offset + j]
-                    }
+                    // Direct unaligned vector loads — one NEON/AVX load each, instead of the
+                    // scalar element-by-element register fill the previous loop forced.
+                    let va = UnsafeRawPointer(aPtr.baseAddress! + offset).loadUnaligned(as: SIMD8<Float>.self)
+                    let vb = UnsafeRawPointer(bPtr.baseAddress! + offset).loadUnaligned(as: SIMD8<Float>.self)
                     let diff = va - vb
                     vectorSum += diff * diff
                 }
@@ -274,8 +270,8 @@ public final class SIMDFallback: @unchecked Sendable {
     /// Manual SIMD normalization
     private func simdNormalize(_ vector: [Float]) -> [Float] {
         let count = vector.count
-        // Use SIMD8 regardless of configuration to avoid out-of-bounds access
-        let vectorWidth = min(configuration.vectorWidth, 8)
+        // Fixed SIMD8 width so the unaligned 8-wide loads below stay in bounds.
+        let vectorWidth = 8
         
         // Compute norm
         var norm: Float = 0

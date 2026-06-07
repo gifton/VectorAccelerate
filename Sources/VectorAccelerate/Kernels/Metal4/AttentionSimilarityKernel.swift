@@ -100,7 +100,12 @@ public struct AttentionSimilarityParameters: Sendable {
     public var strideOutput: UInt32
     public var temperature: Float
     public var normalizeSimilarities: UInt8
-    private var padding: (UInt8, UInt8, UInt8) = (0, 0, 0)
+    // Explicit single-byte padding fields (not a tuple) so the struct's memory layout is a
+    // deterministic match for the MSL `uint8_t padding[3]`: Swift does not guarantee a
+    // C-compatible layout for tuples. A `MemoryLayout` assertion is covered in the kernel tests.
+    private var _pad0: UInt8 = 0
+    private var _pad1: UInt8 = 0
+    private var _pad2: UInt8 = 0
 
     public init(
         numQueries: Int,

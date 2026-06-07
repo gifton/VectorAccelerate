@@ -130,14 +130,10 @@ public actor BatchDistanceEngine {
         query: [Float],
         candidates: [[Float]]
     ) -> [Float] {
-        candidates.map { candidate in
-            var sum: Float = 0
-            for i in 0..<query.count {
-                let diff = query[i] - candidate[i]
-                sum += diff * diff
-            }
-            return sqrt(sum)
-        }
+        // Route through Accelerate (vDSP) rather than a hand-rolled scalar loop. Swift can't
+        // auto-vectorize the aliased float loop, so the previous version left NEON/AMX on the
+        // table even for the small batches that land on this path.
+        AccelerateFallback.batchEuclideanDistance(query: query, candidates: candidates)
     }
 
     // MARK: - Batch Cosine Similarity
