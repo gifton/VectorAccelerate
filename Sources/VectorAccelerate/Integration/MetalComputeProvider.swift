@@ -212,4 +212,19 @@ public actor MetalComputeProvider: ComputeProvider {
                                     : pairs.sorted { $0.distance < $1.distance }
         return Array(sorted.prefix(k))
     }
+
+    // MARK: - Distance matrix
+
+    /// Full `queries × candidates` distance matrix; row `i` is `batchDistance(queries[i], candidates)`.
+    public func distanceMatrix<V: VectorProtocol>(
+        queries: [V], candidates: [V], metric: SupportedDistanceMetric
+    ) async throws -> [[Float]] where V.Scalar == Float {
+        guard !queries.isEmpty, !candidates.isEmpty else { return [] }
+        var matrix: [[Float]] = []
+        matrix.reserveCapacity(queries.count)
+        for q in queries {
+            matrix.append(try await batchDistance(query: q, candidates: candidates, metric: metric))
+        }
+        return matrix
+    }
 }

@@ -156,4 +156,24 @@ final class MetalComputeProviderTests: XCTestCase {
         let out = try await provider.findNearest(query: q, in: cands, k: 100, metric: .euclidean)
         XCTAssertEqual(out.count, 3)
     }
+
+    // MARK: - distanceMatrix
+
+    func testDistanceMatrixMatchesReference() async throws {
+        let dim = 64
+        let (_, vectors) = makeVectors(count: 40, dim: dim, seed: 314)   // reuse candidates as both sets
+        let arrays = vectors.map { $0.toArray() }
+
+        let provider = try await MetalComputeProvider(configuration: .init(preferGPU: false))   // deterministic CPU
+        let matrix = try await provider.distanceMatrix(queries: vectors, candidates: vectors, metric: .euclidean)
+
+        XCTAssertEqual(matrix.count, vectors.count)
+        for i in 0..<vectors.count {
+            XCTAssertEqual(matrix[i].count, vectors.count)
+            XCTAssertEqual(matrix[i][i], 0, accuracy: 1e-3, "self-distance is zero")
+            for j in 0..<vectors.count {
+                XCTAssertEqual(matrix[i][j], refEuclidean(arrays[i], arrays[j]), accuracy: max(1e-2, abs(refEuclidean(arrays[i], arrays[j])) * 1e-3))
+            }
+        }
+    }
 }
