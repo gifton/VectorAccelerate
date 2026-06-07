@@ -305,7 +305,11 @@ kernel void cosine_similarity(
         float norm_a = sqrt(dot_aa);
         float norm_b = sqrt(dot_bb);
         float denom = norm_a * norm_b;
-        float similarity = (denom < 1e-8f) ? 0.0f : (dot_ab / denom);
+        // Clamp to the valid cosine range. FP drift in the high-dimensional accumulation
+        // can push |dot_ab| slightly beyond denom, yielding similarity > 1 and hence a
+        // negative "1 - similarity" distance — which breaks the nonnegativity invariant
+        // that downstream min-heap / top-k selection relies on.
+        float similarity = (denom < 1e-8f) ? 0.0f : clamp(dot_ab / denom, -1.0f, 1.0f);
 
         similarities[query_idx] = (output_distance != 0) ? (1.0f - similarity) : similarity;
     }

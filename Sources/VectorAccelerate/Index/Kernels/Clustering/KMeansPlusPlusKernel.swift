@@ -106,9 +106,14 @@ public final class KMeansPlusPlusKernel: @unchecked Sendable, Metal4Kernel {
             throw IndexError.invalidInput(message: "k must be positive")
         }
 
-        // Track selected centroid indices
+        // Track selected centroid indices (ordered list returned to the caller).
         var selectedIndices: [Int] = []
         selectedIndices.reserveCapacity(k)
+        // Parallel O(1) membership test. The sampling loops below previously used
+        // `selectedIndices.contains(_:)` — an O(K) linear scan — inside O(N) loops nested
+        // in the O(K) centroid loop, i.e. O(N·K²). A boolean mask makes membership O(1),
+        // reducing the whole selection to O(N·K).
+        var isSelected = [Bool](repeating: false, count: numVectors)
 
         // Buffer for selected centroids [k × dimension]
         let centroidBufferSize = k * dimension * MemoryLayout<Float>.size
@@ -125,6 +130,7 @@ public final class KMeansPlusPlusKernel: @unchecked Sendable, Metal4Kernel {
         // Step 1: Select first centroid uniformly at random
         let firstIdx = Int.random(in: 0..<numVectors)
         selectedIndices.append(firstIdx)
+        isSelected[firstIdx] = true
 
         // Copy first centroid to centroid buffer
         let vectorsPtr = vectors.contents().bindMemory(to: Float.self, capacity: numVectors * dimension)
@@ -148,23 +154,26 @@ public final class KMeansPlusPlusKernel: @unchecked Sendable, Metal4Kernel {
             // Sample next centroid with probability proportional to D²
             let distancesPtr = distanceBuffer.contents().bindMemory(to: Float.self, capacity: numVectors)
 
-            // Compute total weight (sum of squared distances)
-            var totalWeight: Float = 0
+            // Compute total weight (sum of squared distances).
+            // Accumulate in Double: a Float32 running sum saturates its 24-bit mantissa
+            // when summing millions of positive squared distances (catastrophic absorption),
+            // which silently drives tail points' selection probability toward zero.
+            var totalWeight: Double = 0
             for i in 0..<numVectors {
-                if !selectedIndices.contains(i) {
-                    totalWeight += distancesPtr[i]  // Already squared in kernel
+                if !isSelected[i] {
+                    totalWeight += Double(distancesPtr[i])  // Already squared in kernel
                 }
             }
 
             // Sample next centroid
             var nextIdx = 0
             if totalWeight > 0 {
-                let threshold = Float.random(in: 0..<totalWeight)
-                var cumulative: Float = 0
+                let threshold = Double.random(in: 0..<totalWeight)
+                var cumulative: Double = 0
 
                 for i in 0..<numVectors {
-                    if selectedIndices.contains(i) { continue }
-                    cumulative += distancesPtr[i]
+                    if isSelected[i] { continue }
+                    cumulative += Double(distancesPtr[i])
                     if cumulative >= threshold {
                         nextIdx = i
                         break
@@ -173,7 +182,7 @@ public final class KMeansPlusPlusKernel: @unchecked Sendable, Metal4Kernel {
             } else {
                 // All remaining points are at centroids, pick any unselected
                 for i in 0..<numVectors {
-                    if !selectedIndices.contains(i) {
+                    if !isSelected[i] {
                         nextIdx = i
                         break
                     }
@@ -181,6 +190,7 @@ public final class KMeansPlusPlusKernel: @unchecked Sendable, Metal4Kernel {
             }
 
             selectedIndices.append(nextIdx)
+            isSelected[nextIdx] = true
 
             // Copy selected centroid to buffer
             let offset = centroidIdx * dimension

@@ -121,36 +121,49 @@ public actor QuantizationEngine {
             )
         }
 
-        // Sanitize input: replace NaN/Inf with finite bounds
-        // This allows quantization to proceed with best-effort for edge case data
-        // Also clamp extremely large values to prevent overflow during dequantization
-        // Using a safe maximum that leaves headroom for scale multiplication
-        let safeMaxMagnitude: Float = Float.greatestFiniteMagnitude / 256.0  // Safe headroom for 8-bit scale ops
-        var sanitizedVector = vector
+        // Sanitize input WITHOUT letting an outlier wreck the global scale.
+        //
+        // The previous implementation replaced ±Inf with a near-FLT_MAX constant
+        // (greatestFiniteMagnitude/256 ≈ 1.66e36) and then derived a single symmetric
+        // scale from the global min/max. A lone +Inf therefore set absMax ≈ 1.66e36,
+        // making scale ≈ 1.3e34, so every normal value (e.g. ±2) quantized to exactly 0 —
+        // one edge-case dimension silently destroyed the whole vector's resolution.
+        //
+        // Instead, compute the vector's *finite* range first and pull non-finite entries
+        // into it: +Inf → finiteMax, -Inf → finiteMin, NaN → 0 clamped into range. The
+        // scale then reflects the real data, and non-finite inputs saturate to the integer
+        // extremes rather than dominating.
+        var finiteMin: Float = .infinity
+        var finiteMax: Float = -.infinity
         var hasNonFinite = false
-        for i in 0..<sanitizedVector.count {
-            if !sanitizedVector[i].isFinite {
+        for v in vector {
+            if v.isFinite {
+                finiteMin = min(finiteMin, v)
+                finiteMax = max(finiteMax, v)
+            } else {
                 hasNonFinite = true
+            }
+        }
+
+        var sanitizedVector = vector
+        if finiteMin > finiteMax {
+            // No finite values at all: fall back to zeros (scale collapses to unit below).
+            for i in 0..<sanitizedVector.count { sanitizedVector[i] = 0.0 }
+        } else if hasNonFinite {
+            let nanReplacement = min(max(0.0, finiteMin), finiteMax)  // 0, clamped into range
+            for i in 0..<sanitizedVector.count where !sanitizedVector[i].isFinite {
                 if sanitizedVector[i].isNaN {
-                    sanitizedVector[i] = 0.0  // Replace NaN with zero
+                    sanitizedVector[i] = nanReplacement
                 } else if sanitizedVector[i] == .infinity {
-                    sanitizedVector[i] = safeMaxMagnitude
+                    sanitizedVector[i] = finiteMax
                 } else {  // -infinity
-                    sanitizedVector[i] = -safeMaxMagnitude
+                    sanitizedVector[i] = finiteMin
                 }
-            } else if sanitizedVector[i] > safeMaxMagnitude {
-                // Clamp extremely large positive values to prevent overflow during dequantization
-                hasNonFinite = true
-                sanitizedVector[i] = safeMaxMagnitude
-            } else if sanitizedVector[i] < -safeMaxMagnitude {
-                // Clamp extremely large negative values to prevent overflow during dequantization
-                hasNonFinite = true
-                sanitizedVector[i] = -safeMaxMagnitude
             }
         }
 
         if hasNonFinite {
-            await logger.warning("Vector contains non-finite or extreme values; sanitized for quantization", category: "QuantizationEngine")
+            await logger.warning("Vector contains non-finite values; remapped into the finite data range for quantization", category: "QuantizationEngine")
         }
 
         // Find min and max for quantization range
