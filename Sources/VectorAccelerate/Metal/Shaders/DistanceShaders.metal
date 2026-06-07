@@ -305,7 +305,13 @@ kernel void cosine_similarity(
         float norm_a = sqrt(dot_aa);
         float norm_b = sqrt(dot_bb);
         float denom = norm_a * norm_b;
-        float similarity = (denom < 1e-8f) ? 0.0f : (dot_ab / denom);
+        // Clamp to the valid cosine range so FP drift past ±1 can't produce a negative
+        // "1 - similarity" distance (which would break the nonnegativity invariant that
+        // downstream min-heap / top-k selection relies on). NaN inputs must still propagate,
+        // so only finite values are clamped: Metal's clamp() uses fmax and would otherwise
+        // turn a NaN into -1.
+        float raw = (denom < 1e-8f) ? 0.0f : (dot_ab / denom);
+        float similarity = isnan(raw) ? raw : clamp(raw, -1.0f, 1.0f);
 
         similarities[query_idx] = (output_distance != 0) ? (1.0f - similarity) : similarity;
     }

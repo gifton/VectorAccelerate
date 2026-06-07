@@ -171,7 +171,22 @@ kernel void tiledTranspose(
     }
 }
 
-/// Batch matrix multiplication with fused operations
+/// Fused activation applied after scaling/bias. Codes match Swift's Metal4ActivationType:
+/// 0 = none, 1 = ReLU, 2 = tanh, 3 = sigmoid, 4 = GELU (tanh approximation).
+inline float apply_fused_activation(float x, uint activation) {
+    switch (activation) {
+        case 1: return fmax(0.0f, x);
+        case 2: return tanh(x);
+        case 3: return 1.0f / (1.0f + exp(-x));
+        case 4: {
+            const float k = 0.7978845608028654f; // sqrt(2/pi)
+            return 0.5f * x * (1.0f + tanh(k * (x + 0.044715f * x * x * x)));
+        }
+        default: return x;
+    }
+}
+
+/// Batch matrix multiplication with fused scaling, bias, and activation
 kernel void batchMatrixMultiplyFused(
     device const float* A [[buffer(0)]],
     device const float* B [[buffer(1)]],
@@ -179,6 +194,7 @@ kernel void batchMatrixMultiplyFused(
     constant uint4& params [[buffer(3)]],  // batchSize, M, K, N
     device const float* bias [[buffer(4)]],  // Optional bias
     constant float& alpha [[buffer(5)]],     // Scaling factor
+    constant uint& activation [[buffer(6)]], // Metal4ActivationType raw value
     uint3 gid [[thread_position_in_grid]]
 ) {
     const uint batch = gid.z;
@@ -219,6 +235,9 @@ kernel void batchMatrixMultiplyFused(
     if (bias) {
         sum += bias[row * N + col];
     }
+
+    // Apply fused activation (identity when activation == 0)
+    sum = apply_fused_activation(sum, activation);
     
     // Write result
     C[cOffset + row * N + col] = sum;

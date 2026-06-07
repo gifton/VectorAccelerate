@@ -5,6 +5,39 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-06
+
+Remediation of an external architectural & numerical audit (17 findings: 13 fixed, 2 refuted as non-issues, 1 deprecated/broken kernel removed). Most changes are bug fixes and internal performance work; the minor bump reflects the removed deprecated API and the behavioral change to fused activation.
+
+> Release notes for 0.4.3–0.4.4 are recorded in the `Package.swift` header.
+
+### Removed
+- **`streaming_l2_topk_update` Metal shader and its Swift wiring** (`Metal4StreamingL2Params`, `FusedL2TopKKernel.encodeStreamingUpdate`, the streaming pipeline). The kernel was experimental and already deprecated: each thread kept a private heap but only thread 0 wrote back, discarding every other thread's results. Use `FusedL2TopKKernel.execute()`, which uses the correct chunked two-pass fallback.
+
+### Fixed
+- **Fused activation was a silent no-op.** `BatchMatrixKernel.multiplyFused(config:)` packed `activation` into the parameters but never sent it to the GPU, so it returned a plain linear GEMM. The activation code is now passed and `batchMatrixMultiplyFused` applies ReLU/tanh/sigmoid/GELU. *(Behavioral change for callers using `activation:`.)*
+- **Scalar quantization collapse.** A single `+Inf` was remapped to ~`FLT_MAX`, which dominated the global min/max so every normal value quantized to 0. The scale is now derived from the vector's finite range (with `±Inf` pulled into it); a `/256` magnitude clamp keeps the dequantization round trip overflow-safe.
+- **K-Means++ centroid selection.** Replaced `Array.contains` membership (O(N·K²)) with a boolean mask (O(N·K)); the probability sum now accumulates in `Double`, so Float32 mantissa absorption no longer starves tail points of selection probability.
+- **Cosine distance could go negative.** Clamp similarity to `[-1, 1]` (NaN-preserving) across `cosine_similarity` and `BasicOperations` so floating-point drift can't yield a negative distance and break top-k min-heap invariants.
+- **Softmax over infinities.** A row with *k* `+Inf` entries summed to *k*; mass is now distributed uniformly as `1/k` (both the per-element and per-row kernels) so rows sum to 1.
+- **Batch distance providers** now reject dimension-mismatched candidates instead of staging past a buffer row; **`manhattanDistance`** guards empty input.
+
+### Changed
+- **Dependency: require VectorCore 0.2.2** (was 0.2.1), inheriting its BE3 audit fixes — a `SwiftFloatSIMDProvider` SIMD8 heap-overflow (the root cause of intermittent softmax NaNs), a cosine-denominator infinity overflow, and an async `MemoryPool` leak. No source changes were required: VectorAccelerate uses neither the source-breaking `LinearQuantizationParams.zeroPoint` (`Int8`→`Int32`) nor the renamed SoA euclidean kernel.
+- **Zero-copy distance staging.** Query/candidate storage is copied straight into Metal buffers via `withUnsafeBufferPointer`, eliminating per-vector `toArray()` allocations and intermediate flat arrays on the L2/Cosine provider batch paths.
+- **1-D threadgroup dispatch** for the L2 and cosine kernels. They index by a scalar `thread_position_in_threadgroup`, so the previous 2-D `(w×h)` group ran the reduction at `1/h` width with `h`-fold redundant work (results were already correct).
+- **CPU fallbacks:** small-batch Euclidean routes through Accelerate (vDSP); `SIMDFallback` dot/Euclidean/normalize use `loadUnaligned` instead of scalar element fills; `manhattanDistance` uses a stack scratch buffer instead of a per-call heap array.
+- **`AttentionSimilarityParameters`** uses explicit `UInt8` padding fields (not a tuple) for a deterministic C-compatible layout, pinned by a `MemoryLayout` test.
+
+### Added
+- Regression tests: fused ReLU is actually applied; quantization survives a `+Inf` outlier; `AttentionSimilarityParameters` layout is pinned at 40 bytes; batch top-K K-scaling measurement.
+
+### Notes
+- The audit's two "Critical" infrastructure claims were **refuted**: the L2/cosine kernels were numerically correct (the dispatch item above was a performance, not a correctness, bug), and the buffer pool's pending-return queue drains from multiple call sites (no leak).
+- Batch top-K (`topk_select_batch_kernel`) keeps its per-thread `heap[128]`; profiling shows large-K cost scales (K=128 ≈ 2.5× K=32), so a threadgroup-cooperative rewrite is a tracked follow-up if large-K lands on a hot path.
+
+---
+
 ## [0.4.2] - 2026-04-05
 
 ### Added

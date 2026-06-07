@@ -19,6 +19,22 @@ import Foundation
 @preconcurrency import Metal
 import VectorCore
 
+// MARK: - Zero-copy staging
+
+/// Copy a vector's contiguous storage directly into `dst`, skipping the `Array` that
+/// `toArray()` would heap-allocate. On the batch distance path this removes one allocation
+/// (and its ARC traffic) per query and per candidate.
+@inline(__always)
+private func stageScalars<V: VectorProtocol>(
+    _ vector: V,
+    into dst: UnsafeMutablePointer<Float>
+) where V.Scalar == Float {
+    vector.withUnsafeBufferPointer { src in
+        guard let base = src.baseAddress else { return }
+        dst.update(from: base, count: src.count)
+    }
+}
+
 // MARK: - L2 Kernel Distance Provider
 
 /// VectorCore DistanceProvider backed by Metal4 L2DistanceKernel.
@@ -50,13 +66,14 @@ public actor L2KernelDistanceProvider: DistanceProvider {
             throw VectorError.invalidInput("L2KernelDistanceProvider only supports euclidean metric")
         }
 
-        let a = vector1.toArray()
-        let b = vector2.toArray()
-        let dimension: Int = a.count
+        let dimension: Int = vector1.withUnsafeBufferPointer { $0.count }
 
-        let qToken = try await context.getBuffer(for: a)
-        let tToken = try await context.getBuffer(for: b)
+        let qToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.stride)
+        let tToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.stride)
         let outToken = try await context.getBuffer(size: MemoryLayout<Float>.size)
+
+        stageScalars(vector1, into: qToken.buffer.contents().bindMemory(to: Float.self, capacity: dimension))
+        stageScalars(vector2, into: tToken.buffer.contents().bindMemory(to: Float.self, capacity: dimension))
 
         try await context.executeAndWait { commandBuffer, encoder in
             kernel.encode(
@@ -88,19 +105,32 @@ public actor L2KernelDistanceProvider: DistanceProvider {
 
         guard !candidates.isEmpty else { return [] }
 
-        let queryArray = query.toArray()
-        let dimension: Int = queryArray.count
+        let dimension: Int = query.withUnsafeBufferPointer { $0.count }
         let n: Int = candidates.count
+        // Targets are staged into rows of exactly `dimension` floats, so a longer candidate
+        // would overflow its row. Reject ragged input up front (the previous toArray()-based
+        // path sized the buffer to the actual data and so tolerated this).
+        guard candidates.allSatisfy({ c in c.withUnsafeBufferPointer { $0.count } == dimension }) else {
+            throw VectorError.invalidInput("All candidates must match the query dimension (\(dimension))")
+        }
+        let rowBytes = dimension * MemoryLayout<Float>.stride
 
-        // Replicate query for 1:1 pairing with each candidate
-        var flatQueries = [Float]()
-        flatQueries.reserveCapacity(n * dimension)
-        for _ in 0..<n { flatQueries.append(contentsOf: queryArray) }
-        let flatTargets: [Float] = candidates.flatMap { $0.toArray() }
-
-        let qToken = try await context.getBuffer(for: flatQueries)
-        let tToken = try await context.getBuffer(for: flatTargets)
+        // Stage the query (replicated 1:1 with each candidate) and the targets straight into
+        // the Metal buffers — no per-candidate toArray() and no intermediate flat array.
+        let qToken = try await context.getBuffer(size: n * rowBytes)
+        let tToken = try await context.getBuffer(size: n * rowBytes)
         let outToken = try await context.getBuffer(size: n * MemoryLayout<Float>.size)
+
+        let qBase = qToken.buffer.contents().bindMemory(to: Float.self, capacity: n * dimension)
+        query.withUnsafeBufferPointer { src in
+            guard let base = src.baseAddress else { return }
+            for i in 0..<n { qBase.advanced(by: i * dimension).update(from: base, count: dimension) }
+        }
+
+        let tBase = tToken.buffer.contents().bindMemory(to: Float.self, capacity: n * dimension)
+        for (i, candidate) in candidates.enumerated() {
+            stageScalars(candidate, into: tBase.advanced(by: i * dimension))
+        }
 
         try await context.executeAndWait { commandBuffer, encoder in
             kernel.encode(
@@ -153,17 +183,18 @@ public actor CosineKernelDistanceProvider: DistanceProvider {
             throw VectorError.invalidInput("CosineKernelDistanceProvider only supports cosine metric")
         }
 
-        let a = vector1.toArray()
-        let b = vector2.toArray()
-        let dimension: Int = a.count
+        let dimension: Int = vector1.withUnsafeBufferPointer { $0.count }
 
         // Check if we can use optimized dot product path (requires both vectors to be normalized)
         let isNormalized = (vector1 as? any IndexableVector)?.isNormalized == true &&
                            (vector2 as? any IndexableVector)?.isNormalized == true
 
-        let qToken = try await context.getBuffer(for: a)
-        let tToken = try await context.getBuffer(for: b)
+        let qToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.stride)
+        let tToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.stride)
         let outToken = try await context.getBuffer(size: MemoryLayout<Float>.size)
+
+        stageScalars(vector1, into: qToken.buffer.contents().bindMemory(to: Float.self, capacity: dimension))
+        stageScalars(vector2, into: tToken.buffer.contents().bindMemory(to: Float.self, capacity: dimension))
 
         try await context.executeAndWait { commandBuffer, encoder in
             if isNormalized {
@@ -201,25 +232,37 @@ public actor CosineKernelDistanceProvider: DistanceProvider {
 
         guard !candidates.isEmpty else { return [] }
 
-        let queryArray = query.toArray()
-        let dimension: Int = queryArray.count
+        let dimension: Int = query.withUnsafeBufferPointer { $0.count }
         let n: Int = candidates.count
+        // Candidates are staged into rows of exactly `dimension` floats; reject ragged input
+        // so a longer candidate can't overflow its row.
+        guard candidates.allSatisfy({ c in c.withUnsafeBufferPointer { $0.count } == dimension }) else {
+            throw VectorError.invalidInput("All candidates must match the query dimension (\(dimension))")
+        }
 
         let queryNormalized = (query as? any IndexableVector)?.isNormalized == true
         let allCandidatesNormalized = candidates.allSatisfy { ($0 as? any IndexableVector)?.isNormalized == true }
         let useDotProduct = queryNormalized && allCandidatesNormalized
 
+        // Dot-product path needs the query once; the cosine kernel needs it replicated 1:1.
         let qToken: BufferToken
         if useDotProduct {
-            qToken = try await context.getBuffer(for: queryArray)
+            qToken = try await context.getBuffer(size: dimension * MemoryLayout<Float>.stride)
+            stageScalars(query, into: qToken.buffer.contents().bindMemory(to: Float.self, capacity: dimension))
         } else {
-            var flatQueries = [Float]()
-            flatQueries.reserveCapacity(n * dimension)
-            for _ in 0..<n { flatQueries.append(contentsOf: queryArray) }
-            qToken = try await context.getBuffer(for: flatQueries)
+            qToken = try await context.getBuffer(size: n * dimension * MemoryLayout<Float>.stride)
+            let qBase = qToken.buffer.contents().bindMemory(to: Float.self, capacity: n * dimension)
+            query.withUnsafeBufferPointer { src in
+                guard let base = src.baseAddress else { return }
+                for i in 0..<n { qBase.advanced(by: i * dimension).update(from: base, count: dimension) }
+            }
         }
 
-        let tToken = try await context.getBuffer(for: candidates.flatMap { $0.toArray() })
+        let tToken = try await context.getBuffer(size: n * dimension * MemoryLayout<Float>.stride)
+        let tBase = tToken.buffer.contents().bindMemory(to: Float.self, capacity: n * dimension)
+        for (i, candidate) in candidates.enumerated() {
+            stageScalars(candidate, into: tBase.advanced(by: i * dimension))
+        }
         let outToken = try await context.getBuffer(size: n * MemoryLayout<Float>.size)
 
         try await context.executeAndWait { commandBuffer, encoder in

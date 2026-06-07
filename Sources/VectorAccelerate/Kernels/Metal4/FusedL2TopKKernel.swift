@@ -177,21 +177,6 @@ public struct Metal4FusedL2TopKResult: Sendable {
     }
 }
 
-// MARK: - Streaming Update Parameters
-
-/// Parameters for streaming update kernel.
-///
-/// - Warning: **EXPERIMENTAL** - The underlying `streaming_l2_topk_update` shader
-///   has known correctness issues. Use the chunked two-pass fallback instead.
-@available(*, deprecated, message: "Experimental: streaming_l2_topk_update has correctness issues. Use execute() which automatically uses chunked fallback.")
-public struct Metal4StreamingL2Params: Sendable {
-    var Q: UInt32
-    var chunkSize: UInt32
-    var D: UInt32
-    var K: UInt32
-    var offset: UInt32
-}
-
 // MARK: - Kernel Implementation
 
 /// Metal 4 Fused L2 Distance + Top-K Selection kernel.
@@ -228,9 +213,6 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
 
     /// Main fused L2 + Top-K pipeline
     private let fusedPipeline: any MTLComputePipelineState
-
-    /// Streaming update pipeline for chunked processing
-    private let streamingUpdatePipeline: any MTLComputePipelineState
 
     // MARK: - Fallback Kernels
 
@@ -283,15 +265,8 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
             )
         }
 
-        guard let streamingFunc = library.makeFunction(name: "streaming_l2_topk_update") else {
-            throw VectorError.shaderNotFound(
-                name: "Streaming L2 Top-K update kernel. Ensure AdvancedTopK.metal is compiled."
-            )
-        }
-
         let device = context.device.rawDevice
         self.fusedPipeline = try await device.makeComputePipelineState(function: fusedFunc)
-        self.streamingUpdatePipeline = try await device.makeComputePipelineState(function: streamingFunc)
 
         // All-pairs L2 distance pipeline (used by two-pass fallback paths)
         guard let allPairsL2Func = library.makeFunction(name: "l2_distance_kernel") else {
@@ -369,46 +344,6 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
 
         return Metal4EncodingResult(
             pipelineName: "fused_l2_topk",
-            threadgroups: threadgroups,
-            threadsPerThreadgroup: threadgroupSize
-        )
-    }
-
-    /// Encode streaming update for chunk processing.
-    ///
-    /// - Warning: **EXPERIMENTAL** - The underlying `streaming_l2_topk_update` shader
-    ///   has known correctness issues where only thread 0's results are preserved.
-    ///   Use `execute()` instead, which automatically uses the correct chunked fallback.
-    ///
-    /// Used when processing dataset in chunks to update running top-k.
-    @available(*, deprecated, message: "Experimental: has correctness issues. Use execute() which automatically uses chunked fallback.")
-    @discardableResult
-    public func encodeStreamingUpdate(
-        into encoder: any MTLComputeCommandEncoder,
-        queries: any MTLBuffer,
-        chunk: any MTLBuffer,
-        runningIndices: any MTLBuffer,
-        runningDistances: any MTLBuffer,
-        parameters: Metal4StreamingL2Params
-    ) -> Metal4EncodingResult {
-        encoder.setComputePipelineState(streamingUpdatePipeline)
-        encoder.label = "StreamingL2TopKUpdate"
-
-        encoder.setBuffer(queries, offset: 0, index: 0)
-        encoder.setBuffer(chunk, offset: 0, index: 1)
-        encoder.setBuffer(runningIndices, offset: 0, index: 2)
-        encoder.setBuffer(runningDistances, offset: 0, index: 3)
-
-        var params = parameters
-        encoder.setBytes(&params, length: MemoryLayout<Metal4StreamingL2Params>.size, index: 4)
-
-        let threadgroupSize = MTLSize(width: 256, height: 1, depth: 1)
-        let threadgroups = MTLSize(width: Int(parameters.Q), height: 1, depth: 1)
-
-        encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadgroupSize)
-
-        return Metal4EncodingResult(
-            pipelineName: "streaming_l2_topk_update",
             threadgroups: threadgroups,
             threadsPerThreadgroup: threadgroupSize
         )
@@ -615,11 +550,7 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
         k: Int,
         chunkSize: Int = 100_000
     ) async throws -> Metal4FusedL2TopKResult {
-        // NOTE:
-        // The original implementation used the `streaming_l2_topk_update` shader.
-        // That shader is intentionally marked as experimental in the roadmap.
-        //
-        // This method now delegates to the robust chunked two-pass fallback:
+        // Uses the robust chunked two-pass fallback:
         //   L2Distance (per chunk) -> Selection (per chunk) -> CPU merge.
         let params = try FusedL2TopKParameters(
             numQueries: queryCount,

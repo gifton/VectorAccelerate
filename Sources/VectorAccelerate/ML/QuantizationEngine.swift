@@ -121,31 +121,49 @@ public actor QuantizationEngine {
             )
         }
 
-        // Sanitize input: replace NaN/Inf with finite bounds
-        // This allows quantization to proceed with best-effort for edge case data
-        // Also clamp extremely large values to prevent overflow during dequantization
-        // Using a safe maximum that leaves headroom for scale multiplication
-        let safeMaxMagnitude: Float = Float.greatestFiniteMagnitude / 256.0  // Safe headroom for 8-bit scale ops
+        // Sanitize input WITHOUT letting an outlier wreck the global scale, while keeping the
+        // dequantization round trip overflow-safe. Two concerns:
+        //
+        //  1. A lone +Inf must not be mapped to a near-FLT_MAX constant that then drives the
+        //     scale (the previous code did exactly that — absMax ≈ 1.66e36, so every normal
+        //     value, e.g. ±2, quantized to 0). So ±Inf are pulled into the vector's own finite
+        //     data range instead, where they cannot dominate.
+        //  2. Genuinely huge finite values are clamped to leave headroom for `code * scale`
+        //     during dequantization; without it the round trip overflows back to ±Inf.
+        let safeMaxMagnitude: Float = Float.greatestFiniteMagnitude / 256.0  // dequant headroom
+
+        var finiteMin: Float = .infinity
+        var finiteMax: Float = -.infinity
+        for v in vector where v.isFinite {
+            let clamped = max(-safeMaxMagnitude, min(safeMaxMagnitude, v))
+            finiteMin = min(finiteMin, clamped)
+            finiteMax = max(finiteMax, clamped)
+        }
+
         var sanitizedVector = vector
         var hasNonFinite = false
-        for i in 0..<sanitizedVector.count {
-            if !sanitizedVector[i].isFinite {
-                hasNonFinite = true
-                if sanitizedVector[i].isNaN {
-                    sanitizedVector[i] = 0.0  // Replace NaN with zero
-                } else if sanitizedVector[i] == .infinity {
-                    sanitizedVector[i] = safeMaxMagnitude
+        if finiteMin > finiteMax {
+            // No finite values at all: fall back to zeros (scale collapses to unit below).
+            hasNonFinite = true
+            for i in 0..<sanitizedVector.count { sanitizedVector[i] = 0.0 }
+        } else {
+            let nanReplacement = min(max(0.0, finiteMin), finiteMax)  // 0, clamped into range
+            for i in 0..<sanitizedVector.count {
+                let v = sanitizedVector[i]
+                if v.isFinite {
+                    let clamped = max(-safeMaxMagnitude, min(safeMaxMagnitude, v))
+                    if clamped != v { hasNonFinite = true }
+                    sanitizedVector[i] = clamped
+                } else if v == .infinity {
+                    hasNonFinite = true
+                    sanitizedVector[i] = finiteMax
+                } else if v.isNaN {
+                    hasNonFinite = true
+                    sanitizedVector[i] = nanReplacement
                 } else {  // -infinity
-                    sanitizedVector[i] = -safeMaxMagnitude
+                    hasNonFinite = true
+                    sanitizedVector[i] = finiteMin
                 }
-            } else if sanitizedVector[i] > safeMaxMagnitude {
-                // Clamp extremely large positive values to prevent overflow during dequantization
-                hasNonFinite = true
-                sanitizedVector[i] = safeMaxMagnitude
-            } else if sanitizedVector[i] < -safeMaxMagnitude {
-                // Clamp extremely large negative values to prevent overflow during dequantization
-                hasNonFinite = true
-                sanitizedVector[i] = -safeMaxMagnitude
             }
         }
 

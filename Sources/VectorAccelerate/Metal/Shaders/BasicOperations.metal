@@ -136,10 +136,16 @@ kernel void cosineDistance(
         float magB = sqrt(normB[0]);
         
         if (magA > EPSILON && magB > EPSILON) {
-            float cosineSim = dot / (magA * magB);
+            // Clamp to the valid cosine range so FP drift can't push the similarity past
+            // 1.0 and produce a negative distance.
+            float cosineSim = clamp(dot / (magA * magB), -1.0f, 1.0f);
             result[0] = 1.0f - cosineSim;
+        } else if (isnan(dot) || isnan(magA) || isnan(magB)) {
+            // Propagate NaN (consistent with the cosine_similarity kernel) rather than
+            // collapsing a NaN-bearing pair to a finite distance.
+            result[0] = NAN;
         } else {
-            result[0] = 1.0f;
+            result[0] = 1.0f;  // zero-length vector
         }
     }
 }

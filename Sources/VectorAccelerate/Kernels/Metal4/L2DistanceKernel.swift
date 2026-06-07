@@ -68,9 +68,14 @@ public final class L2DistanceKernel: @unchecked Sendable, Metal4Kernel {
         var sqrtFlag = UInt32(computeSqrt ? 1 : 0)
         encoder.setBytes(&sqrtFlag, length: MemoryLayout<UInt32>.size, index: 4)
 
+        // 1-D threadgroup. The kernel indexes with a scalar `thread_position_in_threadgroup`
+        // (the x lane only) and a scalar `threads_per_threadgroup`, so a 2-D (w × h) group left
+        // every thread in the h rows recomputing the same lanes — the result was correct, but the
+        // reduction ran at 1/h width with h-fold redundant work. A linear group of the same total
+        // size makes all threads contribute distinct work.
         let w = pipelineState.threadExecutionWidth
-        let h = pipelineState.maxTotalThreadsPerThreadgroup / w
-        let threadsPerThreadgroup = MTLSizeMake(w, h, 1)
+        let threadsPerGroup = (pipelineState.maxTotalThreadsPerThreadgroup / w) * w
+        let threadsPerThreadgroup = MTLSizeMake(threadsPerGroup, 1, 1)
         let threadgroupsPerGrid = MTLSizeMake(numQueries, 1, 1)
 
         encoder.dispatchThreadgroups(threadgroupsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)

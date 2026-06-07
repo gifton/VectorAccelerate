@@ -20,7 +20,7 @@ constexpr constant uint MAX_TGS = 256;                // Maximum threadgroup siz
 constexpr constant uint MAX_D = 768;                  // Maximum dimension for query caching (supports BERT-768)
 constexpr constant uint MAX_SHARED_CANDIDATES_POT = 2048; // Max candidates in shared memory
 constexpr constant uint SENTINEL_INDEX = 0xFFFFFFFF;  // Invalid index marker
-constexpr constant uint MAX_K_PRIVATE = 128;          // Maximum K for streaming
+constexpr constant uint MAX_K_PRIVATE = 128;          // Maximum K for private-heap selection kernels
 constexpr constant uint K4_MAX_K = 32;                // Maximum K for warp-optimized kernel
 constexpr constant uint K4_WARP_SIZE = 32;            // SIMD group size
 
@@ -629,136 +629,6 @@ kernel void warp_select_small_k_descending(
     }
 }
 
-// MARK: - Kernel 4: Streaming L2 Top-K Update (Fused Distance + Update)
-//
-// ⚠️ EXPERIMENTAL - KNOWN CORRECTNESS ISSUE ⚠️
-//
-// This kernel has a fundamental correctness bug: each thread maintains its own
-// private heap, but only thread 0 writes back results. This means results from
-// other threads are DISCARDED, leading to incorrect top-k selection.
-//
-// The kernel only processes chunk elements that happen to map to thread 0's
-// loop iterations. For production use, threads would need to cooperatively
-// merge their heaps using threadgroup reduction.
-//
-// Recommendation: Use the chunked two-pass fallback path in FusedL2TopKKernel
-// instead, which correctly handles large datasets via GPU merge.
-//
-// See: QUALITY_IMPROVEMENT_ROADMAP.md P0.9 for details.
-//
-
-/// Parameters for streaming L2 top-k update
-struct StreamingL2Params {
-    uint Q;            // Number of queries
-    uint chunk_size;   // Number of vectors in this chunk
-    uint D;            // Dimension of vectors
-    uint K;            // Number of top-k results to maintain
-    uint offset;       // Global index offset for this chunk
-};
-
-/// Update running top-k results with a new chunk of dataset vectors
-/// Computes L2 distances and updates max-heap based top-k in-place
-kernel void streaming_l2_topk_update(
-    device const float* queries [[buffer(0)]],          // [Q × D]
-    device const float* chunk [[buffer(1)]],            // [chunk_size × D]
-    device uint* running_indices [[buffer(2)]],         // [Q × K] - running top-k indices
-    device float* running_distances [[buffer(3)]],      // [Q × K] - running top-k distances
-    constant StreamingL2Params& params [[buffer(4)]],
-    uint q_id [[threadgroup_position_in_grid]],
-    uint tid [[thread_index_in_threadgroup]],
-    uint tgs [[threads_per_threadgroup]]
-) {
-    if (q_id >= params.Q) return;
-
-    const uint D = params.D;
-    const uint K = params.K;
-    const uint chunk_size = params.chunk_size;
-    const uint global_offset = params.offset;
-
-    // Bounds check
-    if (K == 0 || chunk_size == 0 || K > MAX_K_PRIVATE) return;
-
-    // Load query into thread-local registers (limited dimension)
-    const device float* query_ptr = queries + (ulong)q_id * D;
-
-    // Load current top-k into private memory (max heap: largest distance at root)
-    ulong topk_offset = (ulong)q_id * K;
-    float heap_distances[MAX_K_PRIVATE];
-    uint heap_indices[MAX_K_PRIVATE];
-
-    for (uint i = 0; i < K; ++i) {
-        heap_distances[i] = running_distances[topk_offset + i];
-        heap_indices[i] = running_indices[topk_offset + i];
-    }
-
-    // Process chunk vectors in parallel across threads
-    for (uint n = tid; n < chunk_size; n += tgs) {
-        const device float* vec_ptr = chunk + (ulong)n * D;
-
-        // Compute L2 squared distance
-        float dist_sq = 0.0f;
-        uint d = 0;
-        for (; d + 3 < D; d += 4) {
-            float4 q_data = float4(query_ptr[d], query_ptr[d+1], query_ptr[d+2], query_ptr[d+3]);
-            float4 v_data = float4(vec_ptr[d], vec_ptr[d+1], vec_ptr[d+2], vec_ptr[d+3]);
-            float4 diff = q_data - v_data;
-            dist_sq += dot(diff, diff);
-        }
-        for (; d < D; ++d) {
-            float diff = query_ptr[d] - vec_ptr[d];
-            dist_sq = fma(diff, diff, dist_sq);
-        }
-
-        uint global_index = global_offset + n;
-
-        // Update max-heap if this distance is better than the worst in heap
-        if (dist_sq < heap_distances[0]) {
-            // Replace root with new candidate
-            heap_distances[0] = dist_sq;
-            heap_indices[0] = global_index;
-
-            // Sink down to restore heap property
-            uint parent = 0;
-            while (true) {
-                uint left = 2 * parent + 1;
-                uint right = 2 * parent + 2;
-                uint largest = parent;
-
-                if (left < K && heap_distances[left] > heap_distances[largest]) {
-                    largest = left;
-                }
-                if (right < K && heap_distances[right] > heap_distances[largest]) {
-                    largest = right;
-                }
-                if (largest == parent) break;
-
-                // Swap
-                float tmp_d = heap_distances[parent];
-                uint tmp_i = heap_indices[parent];
-                heap_distances[parent] = heap_distances[largest];
-                heap_indices[parent] = heap_indices[largest];
-                heap_distances[largest] = tmp_d;
-                heap_indices[largest] = tmp_i;
-                parent = largest;
-            }
-        }
-    }
-
-    // Note: This is a simplified implementation where each thread maintains its own heap
-    // For production, threads would need to cooperatively merge their heaps
-    // Since the Swift code dispatches one threadgroup per query with many threads,
-    // we only write back from thread 0 (first thread processes first chunk elements)
-    // A more sophisticated implementation would use threadgroup reduction
-
-    // Write back updated heap (only thread 0 to avoid race conditions)
-    // In a production implementation, you'd want threadgroup cooperation
-    if (tid == 0) {
-        for (uint i = 0; i < K; ++i) {
-            running_distances[topk_offset + i] = heap_distances[i];
-            running_indices[topk_offset + i] = heap_indices[i];
-        }
-    }
-}
 
 // MARK: - Kernel 5: Batch Selection for General K
 

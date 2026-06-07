@@ -99,7 +99,7 @@ This document tracks correctness, performance, and DX improvements based on exte
 
 **P0.9 - Streaming Top-K Marked Experimental**
 - Added `@available(*, deprecated)` to `StreamingTopKKernel` and related types
-- Added experimental warnings to Metal shader (`streaming_l2_topk_update`)
+- `streaming_l2_topk_update` Metal shader: marked experimental, then removed in the audit-remediation pass (it discarded all but thread 0's results)
 - Documented correctness issue: only thread 0's results are preserved
 - Recommendation: Use `FusedL2TopKKernel` with chunked fallback instead
 - Files: `StreamingTopKKernel.swift`, `FusedL2TopKKernel.swift`, `AdvancedTopK.metal`
