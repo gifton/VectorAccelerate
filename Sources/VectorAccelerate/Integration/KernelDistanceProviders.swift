@@ -107,6 +107,12 @@ public actor L2KernelDistanceProvider: DistanceProvider {
 
         let dimension: Int = query.withUnsafeBufferPointer { $0.count }
         let n: Int = candidates.count
+        // Targets are staged into rows of exactly `dimension` floats, so a longer candidate
+        // would overflow its row. Reject ragged input up front (the previous toArray()-based
+        // path sized the buffer to the actual data and so tolerated this).
+        guard candidates.allSatisfy({ c in c.withUnsafeBufferPointer { $0.count } == dimension }) else {
+            throw VectorError.invalidInput("All candidates must match the query dimension (\(dimension))")
+        }
         let rowBytes = dimension * MemoryLayout<Float>.stride
 
         // Stage the query (replicated 1:1 with each candidate) and the targets straight into
@@ -228,6 +234,11 @@ public actor CosineKernelDistanceProvider: DistanceProvider {
 
         let dimension: Int = query.withUnsafeBufferPointer { $0.count }
         let n: Int = candidates.count
+        // Candidates are staged into rows of exactly `dimension` floats; reject ragged input
+        // so a longer candidate can't overflow its row.
+        guard candidates.allSatisfy({ c in c.withUnsafeBufferPointer { $0.count } == dimension }) else {
+            throw VectorError.invalidInput("All candidates must match the query dimension (\(dimension))")
+        }
 
         let queryNormalized = (query as? any IndexableVector)?.isNormalized == true
         let allCandidatesNormalized = candidates.allSatisfy { ($0 as? any IndexableVector)?.isNormalized == true }

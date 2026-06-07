@@ -20,7 +20,7 @@ constexpr constant uint MAX_TGS = 256;                // Maximum threadgroup siz
 constexpr constant uint MAX_D = 768;                  // Maximum dimension for query caching (supports BERT-768)
 constexpr constant uint MAX_SHARED_CANDIDATES_POT = 2048; // Max candidates in shared memory
 constexpr constant uint SENTINEL_INDEX = 0xFFFFFFFF;  // Invalid index marker
-constexpr constant uint MAX_K_PRIVATE = 128;          // Maximum K for streaming
+constexpr constant uint MAX_K_PRIVATE = 128;          // Maximum K for private-heap selection kernels
 constexpr constant uint K4_MAX_K = 32;                // Maximum K for warp-optimized kernel
 constexpr constant uint K4_WARP_SIZE = 32;            // SIMD group size
 

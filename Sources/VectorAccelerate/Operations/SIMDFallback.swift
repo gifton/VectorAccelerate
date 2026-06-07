@@ -282,10 +282,7 @@ public final class SIMDFallback: @unchecked Sendable {
             
             for i in 0..<fullVectors {
                 let offset = i * vectorWidth
-                var v = SIMD8<Float>.zero
-                for j in 0..<vectorWidth {
-                    v[j] = ptr[offset + j]
-                }
+                let v = UnsafeRawPointer(ptr.baseAddress! + offset).loadUnaligned(as: SIMD8<Float>.self)
                 vectorSum += v * v
             }
             
@@ -311,10 +308,7 @@ public final class SIMDFallback: @unchecked Sendable {
             result.withUnsafeMutableBufferPointer { dst in
                 for i in 0..<fullVectors {
                     let offset = i * vectorWidth
-                    var v = SIMD8<Float>.zero
-                    for j in 0..<vectorWidth {
-                        v[j] = src[offset + j]
-                    }
+                    let v = UnsafeRawPointer(src.baseAddress! + offset).loadUnaligned(as: SIMD8<Float>.self)
                     let normalized = v * invNormVec
                     for j in 0..<vectorWidth {
                         dst[offset + j] = normalized[j]

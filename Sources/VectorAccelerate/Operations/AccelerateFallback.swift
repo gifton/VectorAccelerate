@@ -64,6 +64,7 @@ public struct AccelerateFallback {
         guard a.count == b.count else {
             throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
         }
+        guard !a.isEmpty else { return 0 }  // withUnsafeTemporaryAllocation(capacity: 0) base may be nil
         
         // Compute absolute differences in a scratch buffer instead of a heap [Float] per
         // call — under concurrent batch use that per-call malloc was pure lock contention.

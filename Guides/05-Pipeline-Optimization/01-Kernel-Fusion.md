@@ -172,7 +172,6 @@ Available fused kernels:
 | Kernel | Operations Fused | Memory Savings |
 |--------|-----------------|----------------|
 | `FusedL2TopKKernel` | L2 distance + Top-K | ~50% (no distance matrix) |
-| `streaming_l2_topk_update` | L2 distance + Heap update | ~50% per chunk |
 
 📍 See: `Sources/VectorAccelerate/Kernels/Metal4/FusedL2TopKKernel.swift`
 
