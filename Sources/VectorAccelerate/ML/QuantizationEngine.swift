@@ -121,49 +121,54 @@ public actor QuantizationEngine {
             )
         }
 
-        // Sanitize input WITHOUT letting an outlier wreck the global scale.
+        // Sanitize input WITHOUT letting an outlier wreck the global scale, while keeping the
+        // dequantization round trip overflow-safe. Two concerns:
         //
-        // The previous implementation replaced ±Inf with a near-FLT_MAX constant
-        // (greatestFiniteMagnitude/256 ≈ 1.66e36) and then derived a single symmetric
-        // scale from the global min/max. A lone +Inf therefore set absMax ≈ 1.66e36,
-        // making scale ≈ 1.3e34, so every normal value (e.g. ±2) quantized to exactly 0 —
-        // one edge-case dimension silently destroyed the whole vector's resolution.
-        //
-        // Instead, compute the vector's *finite* range first and pull non-finite entries
-        // into it: +Inf → finiteMax, -Inf → finiteMin, NaN → 0 clamped into range. The
-        // scale then reflects the real data, and non-finite inputs saturate to the integer
-        // extremes rather than dominating.
+        //  1. A lone +Inf must not be mapped to a near-FLT_MAX constant that then drives the
+        //     scale (the previous code did exactly that — absMax ≈ 1.66e36, so every normal
+        //     value, e.g. ±2, quantized to 0). So ±Inf are pulled into the vector's own finite
+        //     data range instead, where they cannot dominate.
+        //  2. Genuinely huge finite values are clamped to leave headroom for `code * scale`
+        //     during dequantization; without it the round trip overflows back to ±Inf.
+        let safeMaxMagnitude: Float = Float.greatestFiniteMagnitude / 256.0  // dequant headroom
+
         var finiteMin: Float = .infinity
         var finiteMax: Float = -.infinity
-        var hasNonFinite = false
-        for v in vector {
-            if v.isFinite {
-                finiteMin = min(finiteMin, v)
-                finiteMax = max(finiteMax, v)
-            } else {
-                hasNonFinite = true
-            }
+        for v in vector where v.isFinite {
+            let clamped = max(-safeMaxMagnitude, min(safeMaxMagnitude, v))
+            finiteMin = min(finiteMin, clamped)
+            finiteMax = max(finiteMax, clamped)
         }
 
         var sanitizedVector = vector
+        var hasNonFinite = false
         if finiteMin > finiteMax {
             // No finite values at all: fall back to zeros (scale collapses to unit below).
+            hasNonFinite = true
             for i in 0..<sanitizedVector.count { sanitizedVector[i] = 0.0 }
-        } else if hasNonFinite {
+        } else {
             let nanReplacement = min(max(0.0, finiteMin), finiteMax)  // 0, clamped into range
-            for i in 0..<sanitizedVector.count where !sanitizedVector[i].isFinite {
-                if sanitizedVector[i].isNaN {
-                    sanitizedVector[i] = nanReplacement
-                } else if sanitizedVector[i] == .infinity {
+            for i in 0..<sanitizedVector.count {
+                let v = sanitizedVector[i]
+                if v.isFinite {
+                    let clamped = max(-safeMaxMagnitude, min(safeMaxMagnitude, v))
+                    if clamped != v { hasNonFinite = true }
+                    sanitizedVector[i] = clamped
+                } else if v == .infinity {
+                    hasNonFinite = true
                     sanitizedVector[i] = finiteMax
+                } else if v.isNaN {
+                    hasNonFinite = true
+                    sanitizedVector[i] = nanReplacement
                 } else {  // -infinity
+                    hasNonFinite = true
                     sanitizedVector[i] = finiteMin
                 }
             }
         }
 
         if hasNonFinite {
-            await logger.warning("Vector contains non-finite values; remapped into the finite data range for quantization", category: "QuantizationEngine")
+            await logger.warning("Vector contains non-finite or extreme values; sanitized for quantization", category: "QuantizationEngine")
         }
 
         // Find min and max for quantization range
