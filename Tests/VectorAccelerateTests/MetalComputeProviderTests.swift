@@ -121,4 +121,39 @@ final class MetalComputeProviderTests: XCTestCase {
         let out = try await provider.batchDistance(query: DynamicVector([1, 2, 3]), candidates: [], metric: .euclidean)
         XCTAssertTrue(out.isEmpty)
     }
+
+    // MARK: - findNearest (top-K)
+
+    func testFindNearestMatchesCPUReference() async throws {
+        let dim = 256
+        let (q, cands) = makeVectors(count: 1200, dim: dim, seed: 1234)
+        let k = 10
+
+        // Reference: brute-force euclidean top-k (ascending distance).
+        let qa = q.toArray()
+        let refPairs = cands.enumerated()
+            .map { (index: $0.offset, distance: refEuclidean(qa, $0.element.toArray())) }
+            .sorted { $0.distance < $1.distance }
+            .prefix(k)
+        let refIndices = refPairs.map { $0.index }
+
+        let provider = try await MetalComputeProvider()
+        let out = try await provider.findNearest(query: q, in: cands, k: k, metric: .euclidean)
+
+        XCTAssertEqual(out.count, k)
+        XCTAssertEqual(out.map { $0.index }, refIndices, "top-k indices should match brute force")
+        for (got, ref) in zip(out, refPairs) {
+            XCTAssertEqual(got.distance, ref.distance, accuracy: max(1e-2, abs(ref.distance) * 1e-3))
+        }
+    }
+
+    func testFindNearestEmptyAndKClamp() async throws {
+        let provider = try await MetalComputeProvider()
+        let (q, cands) = makeVectors(count: 3, dim: 8, seed: 5)
+        let empty = try await provider.findNearest(query: q, in: [], k: 5, metric: .euclidean)
+        XCTAssertTrue(empty.isEmpty)
+        // k larger than candidate count clamps to candidate count.
+        let out = try await provider.findNearest(query: q, in: cands, k: 100, metric: .euclidean)
+        XCTAssertEqual(out.count, 3)
+    }
 }

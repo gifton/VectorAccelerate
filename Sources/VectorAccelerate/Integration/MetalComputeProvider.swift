@@ -168,4 +168,48 @@ public actor MetalComputeProvider: ComputeProvider {
         for i in 0..<min(a.count, b.count) { m = max(m, abs(a[i] - b[i])) }
         return m
     }
+
+    // MARK: - k-Nearest Neighbors (top-K)
+
+    /// Return the `k` nearest candidates as (index, distance), ordered nearest-first. Euclidean/cosine
+    /// use the fused GPU distance+top-K kernel on a GPU vote; other metrics (and CPU vote / GPU error
+    /// with `fallbackToCPU`) compute `batchDistance` then select top-K on the CPU.
+    public func findNearest<V: VectorProtocol>(
+        query: V, in candidates: [V], k: Int, metric: SupportedDistanceMetric
+    ) async throws -> [(index: Int, distance: Float)] where V.Scalar == Float {
+        guard k > 0, !candidates.isEmpty else { return [] }
+        let dim = query.withUnsafeBufferPointer { $0.count }
+        guard candidates.allSatisfy({ $0.withUnsafeBufferPointer { $0.count } == dim }) else {
+            throw VectorError.invalidInput("All candidates must match the query dimension (\(dim))")
+        }
+        let effectiveK = min(k, candidates.count)
+
+        // GPU fused path (euclidean/cosine only).
+        if metric == .euclidean || metric == .cosine,
+           await routeToGPU(.topKSelection, candidateCount: candidates.count, k: effectiveK, dimension: dim) {
+            let m: Metal4DistanceMetric = (metric == .euclidean) ? .euclidean : .cosine
+            do {
+                let result = try await engine.fusedDistanceTopK(
+                    query: query.toArray(), database: candidates.map { $0.toArray() },
+                    k: effectiveK, metric: m
+                )
+                if !result.isEmpty { return result }
+            } catch {
+                if !configuration.fallbackToCPU { throw error }
+            }
+        }
+
+        // CPU path: batch distance then select top-K.
+        let distances = try await batchDistance(query: query, candidates: candidates, metric: metric)
+        return Self.selectTopK(distances, k: effectiveK, largerIsCloser: metric == .dotProduct)
+    }
+
+    /// Select the k nearest (index, distance) pairs. For similarity metrics (dotProduct) larger is
+    /// nearer; for distance metrics smaller is nearer.
+    static func selectTopK(_ distances: [Float], k: Int, largerIsCloser: Bool) -> [(index: Int, distance: Float)] {
+        let pairs = distances.enumerated().map { (index: $0.offset, distance: $0.element) }
+        let sorted = largerIsCloser ? pairs.sorted { $0.distance > $1.distance }
+                                    : pairs.sorted { $0.distance < $1.distance }
+        return Array(sorted.prefix(k))
+    }
 }
