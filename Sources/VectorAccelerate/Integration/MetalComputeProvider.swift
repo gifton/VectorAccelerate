@@ -106,4 +106,66 @@ public actor MetalComputeProvider: ComputeProvider {
     public static func makeDefault() async throws -> MetalComputeProvider {
         try await MetalComputeProvider()
     }
+
+    // MARK: - Batch distance
+
+    /// Distance from `query` to each candidate. Per-metric semantics match the existing engine
+    /// (euclidean → L2 distance; cosine → 1−similarity; dotProduct → raw dot; manhattan → L1;
+    /// chebyshev → L∞). Euclidean/cosine use the no-copy GPU kernel path on a GPU vote; everything
+    /// else (and the CPU vote / GPU error with `fallbackToCPU`) uses Accelerate.
+    public func batchDistance<V: VectorProtocol>(
+        query: V, candidates: [V], metric: SupportedDistanceMetric
+    ) async throws -> [Float] where V.Scalar == Float {
+        guard !candidates.isEmpty else { return [] }
+        let dim = query.withUnsafeBufferPointer { $0.count }
+        guard candidates.allSatisfy({ $0.withUnsafeBufferPointer { $0.count } == dim }) else {
+            throw VectorError.invalidInput("All candidates must match the query dimension (\(dim))")
+        }
+
+        switch metric {
+        case .euclidean:
+            let cpu = { AccelerateFallback.batchEuclideanDistance(query: query.toArray(), candidates: candidates.map { $0.toArray() }) }
+            guard await routeToGPU(.l2Distance, candidateCount: candidates.count, k: 0, dimension: dim) else { return cpu() }
+            do { return try await l2Provider.batchDistance(from: query, to: candidates, metric: .euclidean) }
+            catch { if configuration.fallbackToCPU { return cpu() } else { throw error } }
+
+        case .cosine:
+            let cpu = { AccelerateFallback.batchCosineSimilarity(query: query.toArray(), candidates: candidates.map { $0.toArray() }).map { 1.0 - $0 } }
+            guard await routeToGPU(.cosineSimilarity, candidateCount: candidates.count, k: 0, dimension: dim) else { return cpu() }
+            do { return try await cosineProvider.batchDistance(from: query, to: candidates, metric: .cosine) }
+            catch { if configuration.fallbackToCPU { return cpu() } else { throw error } }
+
+        case .dotProduct:
+            return AccelerateFallback.batchDotProduct(query: query.toArray(), candidates: candidates.map { $0.toArray() })
+
+        case .manhattan:
+            let q = query.toArray()
+            return try candidates.map { try AccelerateFallback.manhattanDistance(q, $0.toArray()) }
+
+        case .chebyshev:
+            let q = query.toArray()
+            return candidates.map { Self.chebyshev(q, $0.toArray()) }
+        }
+    }
+
+    // MARK: - Private routing / CPU helpers
+
+    /// Ask the decision engine whether to use the GPU for an operation (honoring `preferGPU`).
+    private func routeToGPU(_ op: GPUOperation, candidateCount: Int, k: Int, dimension: Int) async -> Bool {
+        guard configuration.preferGPU else { return false }
+        return await decisionEngine.shouldUseGPU(
+            operation: op,
+            vectorCount: candidateCount,
+            candidateCount: candidateCount,
+            k: k,
+            dimension: dimension
+        )
+    }
+
+    /// Chebyshev (L∞) distance — no Accelerate primitive; computed inline.
+    static func chebyshev(_ a: [Float], _ b: [Float]) -> Float {
+        var m: Float = 0
+        for i in 0..<min(a.count, b.count) { m = max(m, abs(a[i] - b[i])) }
+        return m
+    }
 }
