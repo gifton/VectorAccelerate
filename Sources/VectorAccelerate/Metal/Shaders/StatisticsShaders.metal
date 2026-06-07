@@ -416,10 +416,13 @@ kernel void computeCorrelation(
     // Pearson correlation calculation
     // correlation = cov_sum / sqrt(M2_i * M2_j). (N-1) terms cancel out.
     float correlation = 0.0f;
-    float corr_denom = sqrt(M2_i * M2_j);
+    // sqrt(a)*sqrt(b), not sqrt(a*b): the product of two large variances can overflow to +Inf
+    // (BE3 4.2). Floor with FLT_MIN (leastNormalMagnitude), not a precision-relative epsilon, so
+    // low-but-nonzero variance isn't misread as constant data (BE3 4.5).
+    float corr_denom = sqrt(M2_i) * sqrt(M2_j);
 
     // Check for zero variance (constant data)
-    if (corr_denom < EPSILON) {
+    if (corr_denom < FLT_MIN) {
         // If variance is zero, correlation is undefined. Return 0.0 as required by spec.
         correlation = 0.0f;
     } else {
@@ -429,7 +432,7 @@ kernel void computeCorrelation(
     }
     
     // Ensure diagonal is exactly 1.0 if variance exists, improving numerical robustness
-    if (i == j && M2_i > EPSILON) {
+    if (i == j && M2_i > FLT_MIN) {
         correlation = 1.0f;
     }
 
