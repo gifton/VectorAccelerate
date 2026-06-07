@@ -310,7 +310,10 @@ kernel void cosine_similarity(
         // downstream min-heap / top-k selection relies on). NaN inputs must still propagate,
         // so only finite values are clamped: Metal's clamp() uses fmax and would otherwise
         // turn a NaN into -1.
-        float raw = (denom < 1e-8f) ? 0.0f : (dot_ab / denom);
+        // Absolute-domain floor (FLT_MIN = leastNormalMagnitude) for the zero-vector test,
+        // matching VectorCore's BE3 fix: a precision-relative 1e-8 wrongly rejects valid dense
+        // micro-vectors (denom > 0 but < 1e-8) as "zero".
+        float raw = (denom < FLT_MIN) ? 0.0f : (dot_ab / denom);
         float similarity = isnan(raw) ? raw : clamp(raw, -1.0f, 1.0f);
 
         similarities[query_idx] = (output_distance != 0) ? (1.0f - similarity) : similarity;

@@ -45,6 +45,19 @@ final class KernelDistanceProviderTests: XCTestCase {
         XCTAssertEqual(distance, 0.0, accuracy: 1e-5)
     }
 
+    /// Parity with VectorCore BE3 4.5: a precision-relative zero-vector floor (the old `1e-8`)
+    /// wrongly rejects valid dense micro-vectors as "zero". With the `leastNormalMagnitude`
+    /// (`FLT_MIN`) floor, two identical micro-vectors (‖v‖ ≈ 1.1e-9, below the old floor) have
+    /// cosine distance 0 — not the spurious 1.0 the old kernel returned.
+    func testCosineKernelDistanceProvider_MicroVectorsNotRejected() async throws {
+        let provider = try await CosineKernelDistanceProvider(context: context)
+
+        let v = DynamicVector(Array(repeating: Float(1e-10), count: 128))
+        let distance = try await provider.distance(from: v, to: v, metric: .cosine)
+
+        XCTAssertEqual(distance, 0.0, accuracy: 1e-3, "micro-vectors must not be rejected as zero")
+    }
+
     func testL2KernelDistanceProvider_BatchDistance() async throws {
         let provider = try await L2KernelDistanceProvider(context: context)
 
