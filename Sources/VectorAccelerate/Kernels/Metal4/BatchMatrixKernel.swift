@@ -289,6 +289,9 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
         var alpha = parameters.alpha
         encoder.setBytes(&alpha, length: MemoryLayout<Float>.size, index: 5)
 
+        var activation = parameters.activation
+        encoder.setBytes(&activation, length: MemoryLayout<UInt32>.size, index: 6)
+
         // 3D dispatch for batch dimension
         let threadgroupSize = MTLSize(width: BLOCK_SIZE, height: BLOCK_SIZE, depth: 1)
         let threadgroupCount = MTLSize(
