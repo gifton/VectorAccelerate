@@ -220,6 +220,45 @@ public actor MetalDevice {
         return device.makeBuffer(length: length, options: actualOptions)
     }
 
+    // MARK: - Zero-Copy Bridging (groundwork for VectorCore page-aligned storage)
+
+    /// Host memory page size — the base alignment and length granularity that
+    /// ``makeNoCopyBuffer(bytes:length:options:deallocator:)`` requires.
+    public static var pageSize: Int { Int(getpagesize()) }
+
+    /// Round `byteLength` up to a whole number of pages (the length `makeNoCopyBuffer` requires).
+    public static func pageAlignedLength(_ byteLength: Int) -> Int {
+        let p = pageSize
+        return (byteLength + p - 1) & ~(p - 1)
+    }
+
+    /// Wrap an externally-owned, **page-aligned** memory region as an `MTLBuffer` with **no copy**
+    /// (Apple Silicon UMA zero-copy via `makeBuffer(bytesNoCopy:)`).
+    ///
+    /// Returns `nil` when `bytes`/`length` don't meet the requirement — base page-aligned and
+    /// `length` a multiple of the page size; callers then fall back to a staged copy. This is the
+    /// groundwork for bridging a dependency's page-aligned storage (e.g. VectorCore's aligned/SoA
+    /// buffers, per its BE3 Phase-4 alignment work) straight into Metal, skipping the
+    /// candidate-database copy across the memory bus on large-batch GPU search.
+    ///
+    /// - Important: `bytes` must remain valid for the buffer's lifetime. Pass a `deallocator` if
+    ///   Metal should free it when the buffer is released; otherwise the caller retains ownership.
+    public nonisolated func makeNoCopyBuffer(
+        bytes: UnsafeMutableRawPointer,
+        length: Int,
+        options: MTLResourceOptions = .storageModeShared,
+        deallocator: (@Sendable (UnsafeMutableRawPointer, Int) -> Void)? = nil
+    ) -> (any MTLBuffer)? {
+        let p = Self.pageSize
+        guard length > 0,
+              Int(bitPattern: bytes) % p == 0,
+              length % p == 0
+        else {
+            return nil
+        }
+        return rawDevice.makeBuffer(bytesNoCopy: bytes, length: length, options: options, deallocator: deallocator)
+    }
+
     /// Create an empty buffer wrapped as `MetalBuffer` for Sendable crossing
     /// - Note: Defaults to `.float32` element type; `count` is computed as `length / 4`.
     public func makeMetalBuffer(length: Int, options: MTLResourceOptions = []) -> MetalBuffer? {
