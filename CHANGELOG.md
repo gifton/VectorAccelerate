@@ -5,6 +5,16 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`MetalComputeProvider`** — a single GPU compute façade (`batchDistance`, `findNearest`/top-K, `distanceMatrix`, single `distance`) that routes GPU-vs-CPU through `GPUDecisionEngine`, falls back to Accelerate, and reuses the no-copy kernel staging. Conforms to VectorCore's `ComputeProvider` as a capability shim (`device == .gpu`, real `deviceInfo`); its `execute`/`parallel*` run their CPU closures, so it does **not** transparently move VectorCore's Operations onto the GPU — that needs VectorCore request **R4** (filed in `docs/VECTORCORE_INTEGRATION_REQUESTS.md`).
+
+### Deprecated
+- **The scattered GPU distance/search surface**, all superseded by `MetalComputeProvider` and **scheduled for removal in 0.6.0**: `BatchOperations.findNearestGPU` / `batchDistancesGPU` / `pairwiseDistancesGPU` (now thin delegates to the provider — also fixing `pairwiseDistancesGPU`'s Chebyshev-as-Euclidean bug), `AcceleratedDistanceProvider`, the `acceleratedDistance(to:metric:)` / `acceleratedDistanceOptimized(...)` convenience extensions, and the `AcceleratedVectorFactory.createDefaultProviders` / `createProviders` / `VectorCoreIntegration.createDistanceProvider` vendors. (`AcceleratedVectorOperations` vector ops are unaffected.)
+
+---
+
 ## [0.5.0] - 2026-06-06
 
 Remediation of an external architectural & numerical audit (17 findings: 13 fixed, 2 refuted as non-issues, 1 deprecated/broken kernel removed). Most changes are bug fixes and internal performance work; the minor bump reflects the removed deprecated API and the behavioral change to fused activation.
