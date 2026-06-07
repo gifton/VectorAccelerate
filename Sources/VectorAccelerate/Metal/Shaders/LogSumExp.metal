@@ -326,11 +326,17 @@ kernel void softmax_row_kernel(
 
     // Handle edge case
     if (maxVal == -INFINITY || maxVal == INFINITY) {
-        // If all -inf, output would be NaN (0/0), set to 0
-        // If contains +inf, the +inf element gets 1, others 0
         if (maxVal == INFINITY) {
-            output[row * d + col] = (input[row * d + col] == INFINITY) ? 1.0f : 0.0f;
+            // One or more +Inf: the softmax limit is uniform over the argmax (Inf) set, so each
+            // +Inf position gets 1/count and the rest get 0 — keeping the row summed to 1. (The
+            // previous code assigned 1.0 to every +Inf, so a row with k infinities summed to k.)
+            uint infCount = 0;
+            for (uint i = 0; i < d; i++) {
+                if (rowPtr[i] == INFINITY) infCount++;
+            }
+            output[row * d + col] = (input[row * d + col] == INFINITY) ? (1.0f / float(infCount)) : 0.0f;
         } else {
+            // All -inf would give 0/0 = NaN; define the row as all zeros.
             output[row * d + col] = 0.0f;
         }
         return;
@@ -383,8 +389,13 @@ kernel void softmax_row_efficient_kernel(
         return;
     }
     if (maxVal == INFINITY) {
+        // Uniform over the argmax (Inf) set so the row sums to 1 (previously each +Inf got 1.0).
+        uint infCount = 0;
         for (uint i = 0; i < d; i++) {
-            rowOut[i] = (rowIn[i] == INFINITY) ? 1.0f : 0.0f;
+            if (rowIn[i] == INFINITY) infCount++;
+        }
+        for (uint i = 0; i < d; i++) {
+            rowOut[i] = (rowIn[i] == INFINITY) ? (1.0f / float(infCount)) : 0.0f;
         }
         return;
     }
