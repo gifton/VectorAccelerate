@@ -26,6 +26,7 @@ public protocol MetalAccelerable {
 // MARK: - Distance Provider Implementation
 
 /// GPU-accelerated distance computation provider using Metal 4
+@available(*, deprecated, message: "Use MetalComputeProvider (distance/batchDistance). Removed in 0.6.0.")
 public actor AcceleratedDistanceProvider: DistanceProvider {
     private let engine: Metal4ComputeEngine
     private let context: Metal4Context
@@ -197,6 +198,7 @@ public actor AcceleratedVectorOperations: VectorOperationsProvider {
 public enum AcceleratedVectorFactory {
 
     /// Create default accelerated providers using Metal 4
+    @available(*, deprecated, message: "Construct MetalComputeProvider (distance) and AcceleratedVectorOperations (vector ops) directly. Removed in 0.6.0.")
     public static func createDefaultProviders() async throws -> (
         distance: AcceleratedDistanceProvider,
         operations: AcceleratedVectorOperations
@@ -215,6 +217,7 @@ public enum AcceleratedVectorFactory {
     }
 
     /// Create providers with custom configuration
+    @available(*, deprecated, message: "Construct MetalComputeProvider (distance) and AcceleratedVectorOperations (vector ops) directly. Removed in 0.6.0.")
     public static func createProviders(
         configuration: Metal4Configuration
     ) async throws -> (
@@ -262,6 +265,7 @@ public struct AccelerationStatistics: Sendable {
 public extension VectorProtocol where Scalar == Float {
 
     /// Compute distance using GPU acceleration if available
+    @available(*, deprecated, message: "Use MetalComputeProvider.distance(_:_:metric:). Removed in 0.6.0.")
     func acceleratedDistance(
         to other: Self,
         metric: SupportedDistanceMetric = .euclidean
@@ -302,6 +306,7 @@ public extension VectorProtocol where Scalar == Float {
 public extension IndexableVector where Scalar == Float {
 
     /// Compute distance with GPU acceleration, skipping normalization if already normalized
+    @available(*, deprecated, message: "Use MetalComputeProvider.distance(_:_:metric:). Removed in 0.6.0.")
     func acceleratedDistanceOptimized(
         to other: Self,
         metric: SupportedDistanceMetric = .euclidean
@@ -381,6 +386,7 @@ public struct VectorCoreIntegration: Sendable {
     }
 
     /// Create a GPU-accelerated distance provider
+    @available(*, deprecated, message: "Use MetalComputeProvider. Removed in 0.6.0.")
     public func createDistanceProvider() async throws -> AcceleratedDistanceProvider {
         guard ComputeDevice.gpu().isAvailable else { throw IntegrationError.metalUnavailable }
         return try await AcceleratedDistanceProvider(context: context)
@@ -400,122 +406,30 @@ public extension BatchOperations {
     // MARK: - GPU-Accelerated k-NN Search
 
     /// Find k nearest neighbors using GPU acceleration (Metal 4)
+    @available(*, deprecated, message: "Use MetalComputeProvider.findNearest(query:in:k:metric:). Removed in 0.6.0.")
     static func findNearestGPU<V: VectorProtocol & Sendable>(
         to query: V,
         in vectors: [V],
         k: Int,
         metric: SupportedDistanceMetric = .euclidean
     ) async throws -> [(index: Int, distance: Float)] where V.Scalar == Float {
-        guard ComputeDevice.gpu().isAvailable else {
-            throw VectorError.metalNotAvailable()
-        }
-
-        guard k > 0 && !vectors.isEmpty else {
-            return []
-        }
-
-        let context = try await Metal4Context()
-        let engine = try await Metal4ComputeEngine(context: context)
-
-        let queryArray = query.toArray()
-        let candidateArrays = vectors.map { $0.toArray() }
-
-        // Compute distances using GPU
-        let distances: [Float]
-        switch metric {
-        case .euclidean:
-            distances = try await engine.batchEuclideanDistance(query: queryArray, candidates: candidateArrays)
-        case .cosine:
-            distances = try await engine.batchCosineDistance(query: queryArray, candidates: candidateArrays)
-        default:
-            // For other metrics, compute individually
-            distances = try await withThrowingTaskGroup(of: (Int, Float).self) { group in
-                for (index, candidate) in candidateArrays.enumerated() {
-                    group.addTask {
-                        let dist: Float
-                        switch metric {
-                        case .dotProduct:
-                            dist = try await engine.dotProduct(queryArray, candidate)
-                        case .manhattan:
-                            dist = try await engine.manhattanDistance(queryArray, candidate)
-                        case .chebyshev:
-                            dist = try await engine.chebyshevDistance(queryArray, candidate)
-                        default:
-                            dist = try await engine.euclideanDistance(queryArray, candidate)
-                        }
-                        return (index, dist)
-                    }
-                }
-
-                var results = [(Int, Float)]()
-                for try await (index, dist) in group {
-                    results.append((index, dist))
-                }
-                return results.sorted { $0.0 < $1.0 }.map { $0.1 }
-            }
-        }
-
-        // Create (index, distance) pairs
-        let pairs = distances.enumerated().map { (index: $0.offset, distance: $0.element) }
-
-        // Select top-k
-        return selectTopK(pairs, k: k)
+        guard ComputeDevice.gpu().isAvailable else { throw VectorError.metalNotAvailable() }
+        guard k > 0, !vectors.isEmpty else { return [] }
+        return try await MetalComputeProvider().findNearest(query: query, in: vectors, k: k, metric: metric)
     }
 
     // MARK: - GPU-Accelerated Batch Distance Computation
 
     /// Compute distances from a query to multiple candidates using GPU
+    @available(*, deprecated, message: "Use MetalComputeProvider.batchDistance(query:candidates:metric:). Removed in 0.6.0.")
     static func batchDistancesGPU<V: VectorProtocol & Sendable>(
         from query: V,
         to candidates: [V],
         metric: SupportedDistanceMetric = .euclidean
     ) async throws -> [Float] where V.Scalar == Float {
-        guard ComputeDevice.gpu().isAvailable else {
-            throw VectorError.metalNotAvailable()
-        }
-
-        guard !candidates.isEmpty else {
-            return []
-        }
-
-        let context = try await Metal4Context()
-        let engine = try await Metal4ComputeEngine(context: context)
-
-        let queryArray = query.toArray()
-        let candidateArrays = candidates.map { $0.toArray() }
-
-        switch metric {
-        case .euclidean:
-            return try await engine.batchEuclideanDistance(query: queryArray, candidates: candidateArrays)
-        case .cosine:
-            return try await engine.batchCosineDistance(query: queryArray, candidates: candidateArrays)
-        default:
-            // For other metrics, compute individually
-            return try await withThrowingTaskGroup(of: (Int, Float).self) { group in
-                for (index, candidate) in candidateArrays.enumerated() {
-                    group.addTask {
-                        let dist: Float
-                        switch metric {
-                        case .dotProduct:
-                            dist = try await engine.dotProduct(queryArray, candidate)
-                        case .manhattan:
-                            dist = try await engine.manhattanDistance(queryArray, candidate)
-                        case .chebyshev:
-                            dist = try await engine.chebyshevDistance(queryArray, candidate)
-                        default:
-                            dist = try await engine.euclideanDistance(queryArray, candidate)
-                        }
-                        return (index, dist)
-                    }
-                }
-
-                var results = [(Int, Float)]()
-                for try await (index, dist) in group {
-                    results.append((index, dist))
-                }
-                return results.sorted { $0.0 < $1.0 }.map { $0.1 }
-            }
-        }
+        guard ComputeDevice.gpu().isAvailable else { throw VectorError.metalNotAvailable() }
+        guard !candidates.isEmpty else { return [] }
+        return try await MetalComputeProvider().batchDistance(query: query, candidates: candidates, metric: metric)
     }
 
     // MARK: - GPU-Accelerated Batch Vector Operations
@@ -601,79 +515,13 @@ public extension BatchOperations {
     }
 
     /// Compute pairwise distances using GPU acceleration
+    @available(*, deprecated, message: "Use MetalComputeProvider.distanceMatrix(queries:candidates:metric:). Removed in 0.6.0.")
     static func pairwiseDistancesGPU<V: VectorProtocol & Sendable>(
         _ vectors: [V],
         metric: SupportedDistanceMetric = .euclidean
     ) async throws -> [[Float]] where V.Scalar == Float {
-        guard ComputeDevice.gpu().isAvailable else {
-            throw VectorError.metalNotAvailable()
-        }
-
-        let n = vectors.count
-        guard n > 0 else {
-            return []
-        }
-
-        // For small matrices, CPU is more efficient
-        if n < 100 {
-            switch metric {
-            case .euclidean:
-                return await pairwiseDistances(vectors, metric: EuclideanDistance())
-            case .cosine:
-                return await pairwiseDistances(vectors, metric: CosineDistance())
-            case .dotProduct:
-                return await pairwiseDistances(vectors, metric: DotProductDistance())
-            case .manhattan:
-                return await pairwiseDistances(vectors, metric: ManhattanDistance())
-            case .chebyshev:
-                return await pairwiseDistances(vectors, metric: EuclideanDistance())
-            }
-        }
-
-        let context = try await Metal4Context()
-        let engine = try await Metal4ComputeEngine(context: context)
-
-        let arrays = vectors.map { $0.toArray() }
-        var matrix = Array(repeating: Array(repeating: Float(0), count: n), count: n)
-
-        // Process rows
-        for i in 0..<n {
-            let query = arrays[i]
-            let candidates = Array(arrays[i..<n])
-
-            let distances: [Float]
-            switch metric {
-            case .euclidean:
-                distances = try await engine.batchEuclideanDistance(query: query, candidates: candidates)
-            case .cosine:
-                distances = try await engine.batchCosineDistance(query: query, candidates: candidates)
-            default:
-                // Compute individually for other metrics
-                var dists: [Float] = []
-                for candidate in candidates {
-                    switch metric {
-                    case .dotProduct:
-                        dists.append(try await engine.dotProduct(query, candidate))
-                    case .manhattan:
-                        dists.append(try await engine.manhattanDistance(query, candidate))
-                    case .chebyshev:
-                        dists.append(try await engine.chebyshevDistance(query, candidate))
-                    default:
-                        dists.append(try await engine.euclideanDistance(query, candidate))
-                    }
-                }
-                distances = dists
-            }
-
-            // Fill symmetric matrix
-            for j in i..<n {
-                let dist = distances[j - i]
-                matrix[i][j] = dist
-                matrix[j][i] = dist
-            }
-        }
-
-        return matrix
+        guard !vectors.isEmpty else { return [] }
+        return try await MetalComputeProvider().distanceMatrix(queries: vectors, candidates: vectors, metric: metric)
     }
 
     // MARK: - Helper Methods
