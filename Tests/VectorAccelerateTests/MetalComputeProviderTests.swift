@@ -219,4 +219,38 @@ final class MetalComputeProviderTests: XCTestCase {
         let providerKnn = try await provider.findNearest(query: q, in: cands, k: 8, metric: .euclidean)
         XCTAssertEqual(legacyKnn.map { $0.index }, providerKnn.map { $0.index })
     }
+
+    // MARK: - BatchKernelProvider conformance (R4: transparent VectorCore dispatch)
+
+    func testUsableAsBatchKernelProvider_euclideanTopKMatchesReference() async throws {
+        let provider = try await MetalComputeProvider()
+        let bk: any BatchKernelProvider = provider   // the VectorCore dispatch hook (R4)
+
+        let (q, cands) = makeVectors(count: 500, dim: 768, seed: 0xB47C)
+        let k = 10
+        let result = try await bk.findNearest(query: q, candidates: cands, k: k, metric: EuclideanDistance())
+
+        XCTAssertEqual(result.count, k)
+        // Sorted ascending by distance.
+        for i in 1..<result.count { XCTAssertLessThanOrEqual(result[i - 1].distance, result[i].distance + 1e-3) }
+        // The k returned distances are the k smallest euclidean distances (robust to near-tie index swaps).
+        let refSmallestK = cands.map { refEuclidean(q.toArray(), $0.toArray()) }.sorted().prefix(k)
+        assertClose(result.map { $0.distance }, Array(refSmallestK), tol: 1e-2)
+        // Each (index, distance) pair is self-consistent against the CPU reference.
+        for r in result {
+            XCTAssertEqual(r.distance, refEuclidean(q.toArray(), cands[r.index].toArray()), accuracy: 1e-2)
+        }
+    }
+
+    func testBatchKernelProvider_unsupportedMetricDefersToVectorCore() async throws {
+        let provider = try await MetalComputeProvider()
+        let bk: any BatchKernelProvider = provider
+
+        let (q, cands) = makeVectors(count: 200, dim: 256, seed: 0x3A11)
+        // Manhattan is not a GPU-routed metric → the bridge must defer to VectorCore's own
+        // ManhattanDistance.batchDistance (never the raw VA path), so results match exactly.
+        let got = try await bk.batchDistance(query: q, candidates: cands, metric: ManhattanDistance())
+        let ref = cands.map { refManhattan(q.toArray(), $0.toArray()) }
+        assertClose(got, ref, tol: 1e-3)
+    }
 }

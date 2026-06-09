@@ -1,5 +1,7 @@
 # MetalComputeProvider Implementation Plan
 
+> **⚠️ Superseded (VectorAccelerate 0.5.0):** this plan was written when VectorCore's R4 transparent-dispatch hook was still an open *request* and `MetalComputeProvider` conformed to `ComputeProvider` as a capability shim. As shipped, R4 was **delivered in VectorCore 0.3.0 as `BatchKernelProvider`**, and `MetalComputeProvider` **adopts it** — so `Operations.findNearest`/`findNearestBatch` now dispatch to the GPU transparently. References below to a "capability shim" / "files the R4 request" are historical. See `CHANGELOG.md` and `docs/VECTORCORE_INTEGRATION_REQUESTS.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build `MetalComputeProvider` — one canonical GPU compute façade for VectorAccelerate that unifies the scattered GPU distance/search surface behind batch distance, k-NN, distance-matrix, and single-distance methods, routes GPU-vs-CPU via `GPUDecisionEngine`, conforms to VectorCore's `ComputeProvider` as an honest capability shim, aggressively deprecates the superseded surface, and files the VectorCore R4 transparent-dispatch request.

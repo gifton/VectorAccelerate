@@ -47,6 +47,11 @@ confirm the version (and bump our floor if it's a later release).
 
 ### R4 — A kernel-injection hook so `ComputeProvider` can supply GPU kernels (P2, unlocks transparent dispatch)
 
+> **✅ DELIVERED (VectorCore 0.3.0) + ADOPTED.** VectorCore 0.3.0 ships `BatchKernelProvider` exactly as
+> proposed below, and `Operations.findNearest` / `findNearestBatch` downcast to it. `MetalComputeProvider`
+> now conforms — euclidean/cosine route to the fused GPU kernel; other metrics defer to the metric's own
+> `batchDistance`. The original ask is retained below for context.
+
 `ComputeProvider` is a *work-scheduler*: `execute` / `parallelExecute` / `parallelReduce` take opaque
 `@Sendable` closures, and the closures VectorCore passes already call its own CPU kernels
 (`BatchKernels.range_euclid_512`, `TopKSelectionKernels.range_topk_euclid2_512`). A provider can only
@@ -75,13 +80,14 @@ if let gpu = Operations.computeProvider as? BatchKernelProvider {
 // …existing CPU path…
 ```
 
-VectorAccelerate's `MetalComputeProvider` already implements matching `batchDistance`/`findNearest`
-methods (today over `SupportedDistanceMetric`); conforming to `BatchKernelProvider` once VectorCore
-defines it is a thin adapter — the routing/kernels are done.
+VectorAccelerate's `MetalComputeProvider` **now conforms to `BatchKernelProvider`** (VectorCore 0.3.0): a
+thin adapter over its existing `SupportedDistanceMetric` kernels that maps `any DistanceMetric` to the
+euclidean/cosine GPU paths and defers every other metric to that metric's own `batchDistance` (so
+semantics never diverge — VectorCore maps `dotProduct` to −dot, which the raw-dot GPU kernel does not).
 
-**Payoff:** GPU acceleration becomes transparent through VectorCore's own `findNearest`/`batchDistance`
-— no separate VectorAccelerate entry point needed — completing the §11.2 "ComputeProvider/ComputeDevice(.gpu)"
-hook. We have the implementation ready (see `MetalComputeProvider`); only the protocol + downcast are owed.
+**Payoff (realized):** GPU acceleration is now transparent through VectorCore's own
+`findNearest`/`findNearestBatch` — no separate VectorAccelerate entry point needed — completing the §11.2
+"ComputeProvider/ComputeDevice(.gpu)" hook.
 
 ## Expected payoff
 
@@ -92,9 +98,9 @@ of VectorAccelerate's zero-copy staging work (PR #30, T2a).
 ## Adjacent (not blocking, tracked)
 
 - **ComputeProvider(.gpu) backend** (their §11.2): ✅ `MetalComputeProvider` shipped — a GPU façade
-  (batch distance / k-NN / distance matrix with `GPUDecisionEngine` routing + CPU fallback) that
-  conforms to `ComputeProvider` as a capability shim. Transparent *dispatch* (VectorCore routing work
-  to us through its own Operations) now depends on **R4** above.
+  (batch distance / k-NN / distance matrix with `GPUDecisionEngine` routing + CPU fallback) that now
+  conforms to **`BatchKernelProvider`** (R4), so transparent *dispatch* through VectorCore's own
+  Operations is live (euclidean/cosine on the GPU; other metrics fall back to the metric's `batchDistance`).
 - **Pointer Top-K** (their §9.3, shipped): feed our GPU distance buffers into VectorCore's
   `select(k:from:UnsafePointer<Float>,count:,ids:)` for the hybrid path (no distance copy-back).
 - **Numerical parity** (BE3 Phase 1): ongoing — cosine zero-vector floor aligned to

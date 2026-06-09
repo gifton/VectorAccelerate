@@ -15,15 +15,18 @@ import VectorCore
 
 /// GPU compute façade for VectorAccelerate.
 ///
-/// Use the dedicated methods (`batchDistance`, `findNearest`, `distanceMatrix`, `distance`) for
-/// GPU-accelerated work. The `ComputeProvider` conformance is a capability/identity shim: it reports
-/// `device == .gpu` with real device info, but its `execute`/`parallel*` methods run their (CPU)
-/// closures via Swift concurrency — installing this as `Operations.computeProvider` does **not** move
-/// VectorCore's Operations onto the GPU (those closures are CPU kernels; it will not be slower than
-/// `CPUComputeProvider`, but it will not accelerate). For transparent GPU dispatch through VectorCore's
-/// own API, see VectorCore request R4 in `docs/VECTORCORE_INTEGRATION_REQUESTS.md`.
+/// Conforms to VectorCore's **`BatchKernelProvider`** — the R4 dispatch hook shipped in VectorCore
+/// 0.3.0. Installing this as `Operations.computeProvider` makes VectorCore's `Operations.findNearest`
+/// / `findNearestBatch` dispatch transparently to the GPU: euclidean/cosine run on the fused
+/// distance+top-K kernel (GPU vote), and every other metric falls back to that metric's own
+/// `batchDistance` so results never diverge from the CPU path.
+///
+/// The inherited `ComputeProvider` scheduling members (`execute` / `parallel*`) still just *schedule*
+/// their closures via Swift concurrency — they do not GPU-accelerate arbitrary CPU closures. GPU work
+/// is reached through the `BatchKernelProvider` kernels and the dedicated methods (`batchDistance`,
+/// `findNearest`, `distanceMatrix`, `distance`).
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
-public actor MetalComputeProvider: ComputeProvider {
+public actor MetalComputeProvider: BatchKernelProvider {
 
     /// Routing/fallback configuration.
     public struct Configuration: Sendable {
@@ -212,6 +215,51 @@ public actor MetalComputeProvider: ComputeProvider {
                                     : pairs.sorted { $0.distance < $1.distance }
         return Array(sorted.prefix(k))
     }
+
+    // MARK: - BatchKernelProvider conformance (R4: transparent VectorCore dispatch)
+
+    /// GPU-accelerate only the built-in metrics whose VA kernel semantics provably match VectorCore's
+    /// metric (euclidean → L2 distance; cosine → 1 − similarity). Any other metric returns `nil` and is
+    /// computed via that metric's own authoritative `batchDistance`, so results never diverge from the
+    /// CPU path the caller would otherwise get (VectorCore maps `dotProduct` to −dot, which VA's raw-dot
+    /// kernel does not — so it must not be silently GPU-routed).
+    private static func gpuMetric(for metric: any DistanceMetric) -> SupportedDistanceMetric? {
+        if metric is EuclideanDistance { return .euclidean }
+        if metric is CosineDistance { return .cosine }
+        return nil
+    }
+
+    /// `BatchKernelProvider`: distance from `query` to each candidate, in candidate order.
+    public func batchDistance<V: VectorProtocol>(
+        query: V, candidates: [V], metric: any DistanceMetric
+    ) async throws -> [Float] where V.Scalar == Float {
+        if let supported = Self.gpuMetric(for: metric) {
+            return try await batchDistance(query: query, candidates: candidates, metric: supported)
+        }
+        // Non-accelerated metric: defer to its own authoritative batch path. Constrain the
+        // existential to `DistanceMetric<Float>` so `batchDistance` returns `[Float]` — the open
+        // `any DistanceMetric` erases `Scalar` to `any BinaryFloatingPoint`.
+        guard let floatMetric = metric as? any DistanceMetric<Float> else {
+            throw VectorError.invalidInput("MetalComputeProvider requires a Float-scalar DistanceMetric; got \(type(of: metric))")
+        }
+        return floatMetric.batchDistance(query: query, candidates: candidates)
+    }
+
+    /// `BatchKernelProvider`: up to `k` nearest candidates, sorted ascending by distance.
+    public func findNearest<V: VectorProtocol>(
+        query: V, candidates: [V], k: Int, metric: any DistanceMetric
+    ) async throws -> [(index: Int, distance: Float)] where V.Scalar == Float {
+        guard k > 0, !candidates.isEmpty else { return [] }
+        if let supported = Self.gpuMetric(for: metric) {
+            return try await findNearest(query: query, in: candidates, k: k, metric: supported)
+        }
+        // Non-accelerated metric: reuse the metric-aware batchDistance, then CPU top-K.
+        let distances = try await batchDistance(query: query, candidates: candidates, metric: metric)
+        return Self.selectTopK(distances, k: min(k, candidates.count), largerIsCloser: false)
+    }
+
+    // findNearestBatch(queries:candidates:k:metric:) uses the BatchKernelProvider default
+    // (parallelExecute over findNearest); a single batched GPU dispatch is a fast-follow.
 
     // MARK: - Distance matrix
 
