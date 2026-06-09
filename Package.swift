@@ -13,14 +13,17 @@
 // There is NO backwards compatibility with older OS versions.
 // For Metal 3 support, use VectorAccelerate 0.2.x or earlier.
 //
-// 0.5.0 — Audit remediation (numerical correctness, performance, cleanup):
+// 0.5.0 — GPU compute façade + VectorCore 0.3.0 integration + audit remediation:
+//   - Added: MetalComputeProvider (unified GPU façade) conforming to VectorCore's BatchKernelProvider (R4)
+//     — transparent GPU dispatch for Operations.findNearest/findNearestBatch
+//   - Deprecated: the scattered GPU distance/search surface (→ removed in 0.6.0)
 //   - Fixed: fused activation now actually applies (was a silent no-op linear GEMM)
 //   - Fixed: scalar quantization no longer collapses to zero on an Inf outlier
 //   - Fixed: K-Means++ O(N·K^2) -> O(N·K); Double probability accumulation
 //   - Fixed: cosine clamped to [-1,1] (NaN-preserving); softmax sums to 1 over the Inf set
 //   - Changed: zero-copy distance staging; 1-D L2/cosine dispatch; vDSP/loadUnaligned CPU fallbacks
 //   - Removed: experimental streaming_l2_topk_update shader + Metal4StreamingL2Params + encodeStreamingUpdate
-//   - Requires VectorCore 0.2.2+ (inherits BE3 memory-safety & numerical fixes)
+//   - Requires VectorCore 0.3.0+ (frozen SoA layout contract + BatchKernelProvider / R4 dispatch hook)
 //   See CHANGELOG.md for the full list.
 //
 // 0.4.4 — VectorCore 0.2.1 integration + internal refactor:
@@ -76,7 +79,7 @@ let package = Package(
     ],
     dependencies: [
         // VectorCore for base protocols and types
-        .package(url: "https://github.com/gifton/VectorCore", from: "0.2.2"),
+        .package(url: "https://github.com/gifton/VectorCore", from: "0.3.0"),
         // MetalCompilerPlugin for debuggable Metal shaders (enables Xcode Metal Debugger)
         .package(url: "https://github.com/schwa/MetalCompilerPlugin", from: "0.1.5")
     ],

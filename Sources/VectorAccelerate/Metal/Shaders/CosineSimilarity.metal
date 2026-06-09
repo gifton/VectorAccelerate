@@ -41,10 +41,13 @@ constant float EPSILON = 1e-8f;  // Tighter epsilon for cosine similarity
 // Helper function to calculate the final result from dot product and norms
 inline float calculate_similarity(float dotProduct, float queryNormSq, float databaseNormSq, bool outputDistance) {
     // Compute cosine similarity with numerical stability
-    float denominator = sqrt(queryNormSq * databaseNormSq);
+    // sqrt(a)*sqrt(b), not sqrt(a*b): the product can overflow to +Inf for large unnormalized
+    // norms (BE3 4.2). Floor with FLT_MIN (leastNormalMagnitude), not a precision-relative
+    // epsilon, so valid dense micro-vectors aren't rejected as zero (BE3 4.5).
+    float denominator = sqrt(queryNormSq) * sqrt(databaseNormSq);
 
     float similarity;
-    if (denominator > EPSILON) {
+    if (denominator > FLT_MIN) {
         similarity = dotProduct / denominator;
         // Clamp to handle potential floating-point inaccuracies
         similarity = clamp(similarity, -1.0f, 1.0f);

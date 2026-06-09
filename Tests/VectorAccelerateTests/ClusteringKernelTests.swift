@@ -41,7 +41,6 @@ final class ClusteringTestHelpers {
         srand48(Int(seed))
         var vectors: [[Float]] = []
         var labels: [Int] = []
-        let dimension = centroids[0].count
 
         for (clusterIdx, centroid) in centroids.enumerated() {
             for _ in 0..<pointsPerCluster {

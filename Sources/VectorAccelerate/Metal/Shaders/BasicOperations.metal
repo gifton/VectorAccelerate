@@ -135,7 +135,9 @@ kernel void cosineDistance(
         float magA = sqrt(normA[0]);
         float magB = sqrt(normB[0]);
         
-        if (magA > EPSILON && magB > EPSILON) {
+        // FLT_MIN (leastNormalMagnitude) floor, not 1e-8: don't reject valid dense micro-vectors
+        // as zero (parity with VectorCore BE3 4.5).
+        if (magA > FLT_MIN && magB > FLT_MIN) {
             // Clamp to the valid cosine range so FP drift can't push the similarity past
             // 1.0 and produce a negative distance.
             float cosineSim = clamp(dot / (magA * magB), -1.0f, 1.0f);
@@ -466,7 +468,8 @@ kernel void batchCosineSimilarity(
     queryNorm = sqrt(queryNorm);
     dbNorm = sqrt(dbNorm);
     
-    if (queryNorm > EPSILON && dbNorm > EPSILON) {
+    // FLT_MIN floor (parity with VectorCore BE3 4.5; see cosineDistance above).
+    if (queryNorm > FLT_MIN && dbNorm > FLT_MIN) {
         similarities[id] = dotProduct / (queryNorm * dbNorm);
     } else {
         similarities[id] = 0.0f;

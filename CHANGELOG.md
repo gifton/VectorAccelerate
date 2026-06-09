@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.0] - 2026-06-06
 
-Remediation of an external architectural & numerical audit (17 findings: 13 fixed, 2 refuted as non-issues, 1 deprecated/broken kernel removed). Most changes are bug fixes and internal performance work; the minor bump reflects the removed deprecated API and the behavioral change to fused activation.
+The GPU compute façade + VectorCore 0.3.0 integration, layered on the earlier remediation of an external architectural & numerical audit (17 findings: 13 fixed, 2 refuted as non-issues, 1 deprecated/broken kernel removed). The minor bump reflects the new `MetalComputeProvider` API, the deprecation of the scattered GPU surface, the removed deprecated kernel, and the behavioral change to fused activation.
 
 > Release notes for 0.4.3–0.4.4 are recorded in the `Package.swift` header.
+
+### Added
+- **`MetalComputeProvider`** — a single GPU compute façade (`batchDistance`, `findNearest`/top-K, `distanceMatrix`, single `distance`) that routes GPU-vs-CPU through `GPUDecisionEngine`, falls back to Accelerate, and reuses the no-copy kernel staging. Conforms to VectorCore's **`BatchKernelProvider`** — the R4 dispatch hook shipped in VectorCore 0.3.0. Installed as `Operations.computeProvider`, it makes VectorCore's `Operations.findNearest` / `findNearestBatch` dispatch transparently to the GPU: euclidean/cosine run on the fused distance+top-K kernel, and every other metric falls back to that metric's own `batchDistance` so results never diverge from the CPU path.
+
+### Deprecated
+- **The scattered GPU distance/search surface**, all superseded by `MetalComputeProvider` and **scheduled for removal in 0.6.0**: `BatchOperations.findNearestGPU` / `batchDistancesGPU` / `pairwiseDistancesGPU` (now thin delegates to the provider — also fixing `pairwiseDistancesGPU`'s Chebyshev-as-Euclidean bug), `AcceleratedDistanceProvider`, the `acceleratedDistance(to:metric:)` / `acceleratedDistanceOptimized(...)` convenience extensions, and the `AcceleratedVectorFactory.createDefaultProviders` / `createProviders` / `VectorCoreIntegration.createDistanceProvider` vendors. (`AcceleratedVectorOperations` vector ops are unaffected.)
 
 ### Removed
 - **`streaming_l2_topk_update` Metal shader and its Swift wiring** (`Metal4StreamingL2Params`, `FusedL2TopKKernel.encodeStreamingUpdate`, the streaming pipeline). The kernel was experimental and already deprecated: each thread kept a private heap but only thread 0 wrote back, discarding every other thread's results. Use `FusedL2TopKKernel.execute()`, which uses the correct chunked two-pass fallback.
@@ -23,7 +29,7 @@ Remediation of an external architectural & numerical audit (17 findings: 13 fixe
 - **Batch distance providers** now reject dimension-mismatched candidates instead of staging past a buffer row; **`manhattanDistance`** guards empty input.
 
 ### Changed
-- **Dependency: require VectorCore 0.2.2** (was 0.2.1), inheriting its BE3 audit fixes — a `SwiftFloatSIMDProvider` SIMD8 heap-overflow (the root cause of intermittent softmax NaNs), a cosine-denominator infinity overflow, and an async `MemoryPool` leak. No source changes were required: VectorAccelerate uses neither the source-breaking `LinearQuantizationParams.zeroPoint` (`Int8`→`Int32`) nor the renamed SoA euclidean kernel.
+- **Dependency: require VectorCore 0.3.0** (was 0.2.1) — for the frozen SoA layout contract and the `BatchKernelProvider` / R4 dispatch hook behind the GPU façade and the zero-copy bridge, and inheriting (via 0.2.2) the BE3 audit fixes: a `SwiftFloatSIMDProvider` SIMD8 heap-overflow (the root cause of intermittent softmax NaNs), a cosine-denominator infinity overflow, and an async `MemoryPool` leak. No source changes were required for the bump: VectorAccelerate uses neither the source-breaking `LinearQuantizationParams.zeroPoint` (`Int8`→`Int32`) nor the renamed SoA euclidean kernel.
 - **Zero-copy distance staging.** Query/candidate storage is copied straight into Metal buffers via `withUnsafeBufferPointer`, eliminating per-vector `toArray()` allocations and intermediate flat arrays on the L2/Cosine provider batch paths.
 - **1-D threadgroup dispatch** for the L2 and cosine kernels. They index by a scalar `thread_position_in_threadgroup`, so the previous 2-D `(w×h)` group ran the reduction at `1/h` width with `h`-fold redundant work (results were already correct).
 - **CPU fallbacks:** small-batch Euclidean routes through Accelerate (vDSP); `SIMDFallback` dot/Euclidean/normalize use `loadUnaligned` instead of scalar element fills; `manhattanDistance` uses a stack scratch buffer instead of a per-call heap array.
