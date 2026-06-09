@@ -15,7 +15,10 @@ import VectorCore
 public extension MetalComputeProvider {
 
     /// Zero-copy batch distance from `query` to every candidate in a prebuilt SoA set.
-    /// Euclidean → L2 distance; cosine → 1 − similarity. Other metrics are unsupported on this path.
+    /// Euclidean → L2 distance; cosine → 1 − similarity. Other metrics throw `invalidInput`.
+    ///
+    /// This is an explicit, build-once / query-many API — it is **not** reached by the transparent
+    /// `BatchKernelProvider` dispatch (which has no prebuilt `SoACandidateSet` to pass).
     func batchDistance<V: SoACompatible & VectorProtocol>(
         query: V, against set: SoACandidateSet<V>, metric: SupportedDistanceMetric
     ) async throws -> [Float] where V.Scalar == Float {
@@ -28,7 +31,6 @@ public extension MetalComputeProvider {
         let qa = query.toArray()
         let qToken = try await context.getBuffer(for: qa)
         let outToken = try await context.getBuffer(size: count * MemoryLayout<Float>.stride)
-        let qNormSq: Float = metric == .cosine ? qa.reduce(0) { $0 + $1 * $1 } : 0
         let lanes = set.layout.lanes
         let kernel = soaKernel    // capture the Sendable kernel reference for the @Sendable closure
 
@@ -36,7 +38,7 @@ public extension MetalComputeProvider {
             kernel.encode(
                 into: enc, queryBuffer: qToken.buffer, candidateBuffer: set.buffer,
                 distancesBuffer: outToken.buffer, count: count, lanes: lanes,
-                metric: metric, computeSqrt: true, queryNormSq: qNormSq)
+                metric: metric, computeSqrt: true)
             qToken.keepAlive(until: cb)
             outToken.keepAlive(until: cb)
             cb.addCompletedHandler { _ in _ = set }   // borrow mode: pin the SoA until the GPU completes

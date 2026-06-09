@@ -47,13 +47,12 @@ final class SoAKernelGoldenTests: XCTestCase {
         let set = try SoACandidateSet(candidates: cs, device: context.device)
 
         let qa = q.toArray()
-        let qNormSq = qa.reduce(Float(0)) { $0 + $1 * $1 }
         let qToken = try await context.getBuffer(for: qa)
         let outToken = try await context.getBuffer(size: cs.count * MemoryLayout<Float>.stride)
         try await context.executeAndWait { cb, enc in
             kernel.encode(into: enc, queryBuffer: qToken.buffer, candidateBuffer: set.buffer,
                           distancesBuffer: outToken.buffer, count: set.layout.count,
-                          lanes: set.layout.lanes, metric: .cosine, queryNormSq: qNormSq)
+                          lanes: set.layout.lanes, metric: .cosine)
             qToken.keepAlive(until: cb); outToken.keepAlive(until: cb)
             cb.addCompletedHandler { _ in _ = set }
         }

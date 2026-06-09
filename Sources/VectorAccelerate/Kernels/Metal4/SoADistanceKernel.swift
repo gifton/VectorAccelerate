@@ -22,14 +22,13 @@ public struct SoAL2Params: Sendable {
     }
 }
 
-/// Parameters for `soa_cosine_distance` (16 bytes; mirrors the MSL `SoACosineParams`).
+/// Parameters for `soa_cosine_distance` (8 bytes; mirrors the MSL `SoACosineParams`).
+/// The cosine kernel computes both norms internally, so no host-supplied query norm is needed.
 public struct SoACosineParams: Sendable {
     public var count: UInt32
     public var lanes: UInt32
-    public var queryNormSq: Float
-    public var _pad: UInt32 = 0
-    public init(count: Int, lanes: Int, queryNormSq: Float) {
-        self.count = UInt32(count); self.lanes = UInt32(lanes); self.queryNormSq = queryNormSq
+    public init(count: Int, lanes: Int) {
+        self.count = UInt32(count); self.lanes = UInt32(lanes)
     }
 }
 
@@ -56,12 +55,13 @@ public final class SoADistanceKernel: @unchecked Sendable, Metal4Kernel {
 
     public func warmUp() async throws {}
 
-    /// `count`/`lanes` come from the candidate set's `SoALayout`. `queryNormSq` is used for cosine only.
+    /// `count`/`lanes` come from the candidate set's `SoALayout`. The cosine kernel computes both
+    /// norms internally, so there is no host-supplied query-norm parameter to get wrong.
     public func encode(
         into encoder: any MTLComputeCommandEncoder,
         queryBuffer: any MTLBuffer, candidateBuffer: any MTLBuffer, distancesBuffer: any MTLBuffer,
         count: Int, lanes: Int, metric: SupportedDistanceMetric,
-        computeSqrt: Bool = true, queryNormSq: Float = 0)
+        computeSqrt: Bool = true)
     {
         let pipeline = (metric == .cosine) ? cosinePipeline : l2Pipeline
         encoder.setComputePipelineState(pipeline)
@@ -70,7 +70,7 @@ public final class SoADistanceKernel: @unchecked Sendable, Metal4Kernel {
         encoder.setBuffer(candidateBuffer, offset: 0, index: 1)
         encoder.setBuffer(distancesBuffer, offset: 0, index: 2)
         if metric == .cosine {
-            var p = SoACosineParams(count: count, lanes: lanes, queryNormSq: queryNormSq)
+            var p = SoACosineParams(count: count, lanes: lanes)
             encoder.setBytes(&p, length: MemoryLayout<SoACosineParams>.stride, index: 3)
         } else {
             var p = SoAL2Params(count: count, lanes: lanes, computeSqrt: computeSqrt)

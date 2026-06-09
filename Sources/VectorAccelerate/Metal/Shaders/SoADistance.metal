@@ -8,7 +8,7 @@
 #include "Metal4Common.h"
 
 struct SoAL2Params { uint count; uint lanes; uint computeSqrt; uint _pad; };
-struct SoACosineParams { uint count; uint lanes; float queryNormSq; uint _pad; };
+struct SoACosineParams { uint count; uint lanes; };
 
 kernel void soa_l2_distance(
     device const float4* query      [[buffer(0)]],   // `lanes` elements
@@ -36,17 +36,20 @@ kernel void soa_cosine_distance(
 {
     if (j >= p.count) return;
     float4 dotAcc = float4(0.0f);
+    float4 qNormAcc = float4(0.0f);
     float4 cNormAcc = float4(0.0f);
     for (uint l = 0; l < p.lanes; ++l) {
         float4 q = query[l];
         float4 c = candidates[l * p.count + j];
         dotAcc = fma(q, c, dotAcc);
+        qNormAcc = fma(q, q, qNormAcc);     // query norm computed in-kernel (self-contained; symmetric with cNorm)
         cNormAcc = fma(c, c, cNormAcc);
     }
     float dot = dotAcc.x + dotAcc.y + dotAcc.z + dotAcc.w;
+    float qNormSq = qNormAcc.x + qNormAcc.y + qNormAcc.z + qNormAcc.w;
     float cNormSq = cNormAcc.x + cNormAcc.y + cNormAcc.z + cNormAcc.w;
     // BE3 parity: sqrt(a)*sqrt(b) (overflow-safe), FLT_MIN floor, NaN-preserving clamp.
-    float denom = sqrt(p.queryNormSq) * sqrt(cNormSq);
+    float denom = sqrt(qNormSq) * sqrt(cNormSq);
     float raw = (denom < FLT_MIN) ? 0.0f : (dot / denom);
     float sim = isnan(raw) ? raw : clamp(raw, -1.0f, 1.0f);
     distances[j] = 1.0f - sim;

@@ -24,7 +24,9 @@ final class SoACandidateSetTests: XCTestCase {
 
         XCTAssertEqual(set.layout.count, 5)
         XCTAssertEqual(set.layout.lanes, 128)
-        XCTAssertEqual(set.layout.allocatedByteCount, 16384)        // 16 KB page (Apple Silicon)
+        // Page-rounded length, derived (host-agnostic) rather than hardcoding the 16 KB page size.
+        XCTAssertEqual(set.layout.allocatedByteCount, MetalDevice.pageAlignedLength(set.layout.logicalByteCount))
+        XCTAssertEqual(set.layout.allocatedByteCount % MetalDevice.pageSize, 0)
         XCTAssertTrue(set.isZeroCopy)
         // Borrow mode: the MTLBuffer aliases the SoA allocation (no copy).
         let (base, _) = try XCTUnwrap(set.soa.pageAlignedBytes)

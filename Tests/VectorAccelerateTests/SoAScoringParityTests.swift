@@ -60,8 +60,27 @@ final class SoAScoringParityTests: XCTestCase {
     func testParity768() async throws { try await assertParity(Vector768Optimized.self,  dim: 768) }
     func testParity1536() async throws { try await assertParity(Vector1536Optimized.self, dim: 1536) }
 
-    /// Build the set once, query it twice — proves the bridged buffer is reused across queries and
-    /// each query matches a brute-force CPU top-K.
+    /// Counts that exercise the kernel's `j >= count` tail guard: 1 (single thread), 7 (sub-warp),
+    /// 257 (two 256-thread groups, with a partial trailing group).
+    func testParityTailCounts() async throws {
+        let dim = 512
+        for count in [1, 7, 257] {
+            let query = try Vector512Optimized(lcg(dim, seed: UInt64(count)))
+            let candArrays = (0..<count).map { lcg(dim, seed: UInt64(count) &+ UInt64($0) &+ 1) }
+            let candidates = try candArrays.map { try Vector512Optimized($0) }
+            let set = try SoACandidateSet(candidates: candidates, device: context.device)
+            let qa = query.toArray()
+            let l2 = try await provider.batchDistance(query: query, against: set, metric: .euclidean)
+            XCTAssertEqual(l2.count, count)
+            for (i, c) in candArrays.enumerated() {
+                let ref = refL2(qa, c)
+                XCTAssertEqual(l2[i], ref, accuracy: max(1e-2, abs(ref) * 1e-3), "count \(count) idx \(i)")
+            }
+        }
+    }
+
+    /// Build the set once, query it twice — each query's k nearest DISTANCES match brute force.
+    /// Compared by value (not index), so genuine/near ties between candidates don't flake the assertion.
     func testBuildOnceReuseAcrossQueries() async throws {
         let dim = 768
         let candArrays = (0..<200).map { lcg(dim, seed: 1000 &+ UInt64($0)) }
@@ -71,11 +90,12 @@ final class SoAScoringParityTests: XCTestCase {
         for qSeed in [UInt64(7), 99] {
             let qa = lcg(dim, seed: qSeed)
             let query = try Vector768Optimized(qa)
-            let refTop = candArrays.enumerated()
-                .map { (index: $0.offset, d: refL2(qa, $0.element)) }
-                .sorted { $0.d < $1.d }.prefix(5).map { $0.index }
+            let refDists = candArrays.map { refL2(qa, $0) }.sorted().prefix(5)
             let got = try await provider.findNearest(query: query, in: set, k: 5, metric: .euclidean)
-            XCTAssertEqual(got.map { $0.index }, refTop, "reuse query seed \(qSeed)")
+            XCTAssertEqual(got.count, 5, "reuse seed \(qSeed)")
+            for (g, r) in zip(got.map { $0.distance }, refDists) {
+                XCTAssertEqual(g, r, accuracy: max(1e-2, abs(r) * 1e-3), "reuse seed \(qSeed)")
+            }
         }
     }
 }

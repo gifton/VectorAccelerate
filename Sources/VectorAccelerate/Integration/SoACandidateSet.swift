@@ -24,6 +24,10 @@ public final class SoACandidateSet<V: SoACompatible>: @unchecked Sendable {
     /// Owns the SoA allocation; pinned for the buffer's lifetime (borrow mode).
     public let soa: SoA<V>
     /// The candidate buffer the kernel reads (zero-copy alias, or a staged copy — see `isZeroCopy`).
+    ///
+    /// - Important: read-only by contract. In zero-copy mode this aliases `soa`'s allocation, which is
+    ///   freed on `soa`'s `deinit`. Do not submit `buffer` to the GPU on any path that does not keep
+    ///   this `SoACandidateSet` alive until the GPU completes (borrow mode).
     public let buffer: any MTLBuffer
     /// Frozen layout descriptor (lanes, count, strides) — the kernel's source of truth.
     public let layout: SoALayout
