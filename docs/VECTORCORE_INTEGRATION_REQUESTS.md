@@ -21,6 +21,10 @@ copy) when alignment isn't met. It's tested and ready to consume aligned VectorC
 
 ### R1 — Page-align the SoA batch buffer (P1, blocks zero-copy batch search)
 
+> **✅ RESOLVED — VectorCore 0.3.0.** `SoA.build(from:pageAligned: true)` ships the page-aligned batch
+> buffer; consumed by `SoACandidateSet` (zero-copy via `makeNoCopyBuffer`, borrow mode) and scored by
+> the lane-major `SoADistanceKernel`. Validated on Apple Silicon (golden fixture + 512/768/1536 parity).
+
 `SoA<Vector>` (the batch candidate-database layout) allocates via
 `UnsafeMutablePointer<SIMD4<Float>>.allocate(capacity:)` ≈ **16-byte** alignment. The BE3 Phase-4
 page alignment landed on `AlignedMemory`/`AlignedDynamicArrayStorage` (now `getpagesize()` ≈ 16 KB),
@@ -33,6 +37,10 @@ full candidate-database copy.
 
 ### R2 — Publicly expose the SoA buffer pointer + byte length (P1)
 
+> **✅ RESOLVED — VectorCore 0.3.0.** `SoA.pageAlignedBytes` (base + page-rounded length),
+> `consumeAllocation()`, and the `SoALayout` descriptor are public/stable. Lifetime contract honored:
+> `SoACandidateSet` holds the `SoA` strongly (borrow mode) for the `MTLBuffer`'s life.
+
 `SoA.buffer` is `@usableFromInline internal`. We need a public, stable accessor —
 `withUnsafeRawBuffer { (ptr, byteCount) in … }` or `var rawBufferBytes: (UnsafeRawPointer, Int)` —
 so we can hand the base pointer to `makeNoCopyBuffer`. Document the **lifetime contract**: the
@@ -40,6 +48,9 @@ so we can hand the base pointer to `makeNoCopyBuffer`. Document the **lifetime c
 honor a deallocator handshake).
 
 ### R3 — Confirm the release that ships AlignedMemory page alignment
+
+> **✅ RESOLVED.** Shipped in the **VectorCore 0.3.0** tag (pinned `from: "0.3.0"`); the page-size
+> handshake (16 KB) is validated by the SoA bridge smoke-test and golden-fixture parity.
 
 The 0.2.2 release notes cover BE3 Phases 1–3 only; Phase-4 alignment appears in the working copy
 (ahead of the 0.2.1 tag) but we could **not confirm it's in the `v0.2.2` tag** we pin. Please
