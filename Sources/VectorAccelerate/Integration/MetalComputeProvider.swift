@@ -41,11 +41,12 @@ public actor MetalComputeProvider: BatchKernelProvider {
     }
 
     // Composed collaborators.
-    private let context: Metal4Context
+    let context: Metal4Context          // internal: used by the SoA scoring extension (+SoA.swift)
     private let engine: Metal4ComputeEngine
     private let decisionEngine: GPUDecisionEngine
     private let l2Provider: L2KernelDistanceProvider
     private let cosineProvider: CosineKernelDistanceProvider
+    let soaKernel: SoADistanceKernel    // internal: lane-major zero-copy SoA scoring (built once)
     private let configuration: Configuration
 
     // Nonisolated ComputeProvider shim state, captured at init (no actor hop on access).
@@ -85,6 +86,7 @@ public actor MetalComputeProvider: BatchKernelProvider {
         self.engine = try await Metal4ComputeEngine(context: context, decisionEngine: resolvedDecision)
         self.l2Provider = try await L2KernelDistanceProvider(context: context)
         self.cosineProvider = try await CosineKernelDistanceProvider(context: context)
+        self.soaKernel = try await SoADistanceKernel(context: context)
 
         // `context.device` is nonisolated; `rawDevice` is a nonisolated `any MTLDevice`.
         let raw = context.device.rawDevice
