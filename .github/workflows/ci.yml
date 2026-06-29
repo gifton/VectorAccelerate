@@ -120,7 +120,7 @@ jobs:
           xcodebuild -downloadComponent MetalToolchain
 
       - name: Cache SPM
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             .build
@@ -183,7 +183,7 @@ jobs:
         run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Restore SPM Cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             .build
@@ -223,7 +223,7 @@ jobs:
         run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Cache SPM
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             .build
@@ -268,7 +268,7 @@ jobs:
         run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Restore SPM Cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             .build
