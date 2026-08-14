@@ -48,7 +48,6 @@ public actor MetalComputeProvider: BatchKernelProvider {
     private let l2Provider: L2KernelDistanceProvider
     private let cosineProvider: CosineKernelDistanceProvider
     let soaKernel: SoADistanceKernel    // internal: lane-major zero-copy SoA scoring (built once)
-    let soaTopKKernel: TopKSelectionKernel  // internal: GPU top-K fused into SoA findNearest (built once)
     private let configuration: Configuration
 
     // Nonisolated ComputeProvider shim state, captured at init (no actor hop on access).
@@ -89,7 +88,6 @@ public actor MetalComputeProvider: BatchKernelProvider {
         self.l2Provider = try await L2KernelDistanceProvider(context: context)
         self.cosineProvider = try await CosineKernelDistanceProvider(context: context)
         self.soaKernel = try await SoADistanceKernel(context: context)
-        self.soaTopKKernel = try await TopKSelectionKernel(context: context)
 
         // `context.device` is nonisolated; `rawDevice` is a nonisolated `any MTLDevice`.
         let raw = context.device.rawDevice

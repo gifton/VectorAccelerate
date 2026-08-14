@@ -46,17 +46,21 @@ public extension MetalComputeProvider {
         return outToken.copyData(as: Float.self, count: count)
     }
 
-    /// k nearest candidates in a prebuilt SoA set, nearest-first.
+    /// k nearest candidates in a prebuilt SoA set, nearest-first. The distance kernel runs on the
+    /// GPU, then VectorCore's zero-copy pointer selection (`TopKSelection.select(k:from:
+    /// UnsafePointer<Float>,count:...)`) selects the top-k directly off the shared-storage
+    /// distances buffer's contents — no `[Float]` materialization via `copyData`, unlike
+    /// `batchDistance`.
     ///
-    /// `k ≤ 128` (`TopKParameters.maxK`, the selection kernel's register-heap cap): the distance
-    /// kernel and `TopKSelectionKernel` are encoded into the **same** command buffer, separated by
-    /// `encoder.memoryBarrier(scope: .buffers)` — only the k selected (index, distance) pairs are
-    /// read back; the full N-element distance vector never leaves the GPU.
-    ///
-    /// `k > 128`: the distance kernel runs alone (as before), then VectorCore's zero-copy pointer
-    /// selection (`TopKSelection.select(k:from:UnsafePointer<Float>,count:...)`) selects the top-k
-    /// directly off the shared-storage distances buffer's contents — no `[Float]` materialization
-    /// via `copyData`, unlike `batchDistance`.
+    /// A GPU-fused single-command-buffer variant was prototyped and measured (distance kernel +
+    /// `TopKSelectionKernel`, `encoder.memoryBarrier(scope: .buffers)` between passes, for
+    /// `k ≤ TopKParameters.maxK`) and **rejected**: `topk_select_batch_kernel` dispatches one
+    /// thread per query, so at `batchSize == 1` a single GPU thread serially scans all N
+    /// candidates through a 128-slot thread-private heap (register-spilling for most of that
+    /// range). Measured on an Apple M3 Max, dim 768, euclidean: 1.8×–6.7× **slower** than this
+    /// CPU pointer-select path across N ∈ {1e3, 1e4, 1e5} × k ∈ {8, 128}, with the gap widening as
+    /// N grows — see `.superpowers/sdd/soa-060-release-hardening/task-3-report.md` ("Performance
+    /// evidence") for the full table.
     func findNearest<V: SoACompatible & VectorProtocol>(
         query: V, in set: SoACandidateSet<V>, k: Int, metric: SupportedDistanceMetric
     ) async throws -> [(index: Int, distance: Float)] where V.Scalar == Float {
@@ -71,38 +75,8 @@ public extension MetalComputeProvider {
         let qa = query.toArray()
         let qToken = try await context.getBuffer(for: qa)
         let distToken = try await context.getBuffer(size: count * MemoryLayout<Float>.stride)
-        let distanceKernel = soaKernel   // capture Sendable kernel refs for the @Sendable closures
+        let distanceKernel = soaKernel   // capture the Sendable kernel reference for the @Sendable closure
 
-        if effectiveK <= TopKParameters.maxK {
-            let selectionKernel = soaTopKKernel
-            let valuesToken = try await context.getBuffer(size: effectiveK * MemoryLayout<Float>.stride)
-            let indicesToken = try await context.getBuffer(size: effectiveK * MemoryLayout<UInt32>.stride)
-            let params = TopKParameters(
-                batchSize: 1, numElements: count, k: effectiveK, mode: .minimum, sorted: true)
-
-            try await context.executeAndWait { cb, enc in
-                distanceKernel.encode(
-                    into: enc, queryBuffer: qToken.buffer, candidateBuffer: set.buffer,
-                    distancesBuffer: distToken.buffer, count: count, lanes: lanes,
-                    metric: metric, computeSqrt: true)
-                enc.memoryBarrier(scope: .buffers)
-                selectionKernel.encode(
-                    into: enc, input: distToken.buffer, outputValues: valuesToken.buffer,
-                    outputIndices: indicesToken.buffer, parameters: params)
-                qToken.keepAlive(until: cb)
-                distToken.keepAlive(until: cb)
-                valuesToken.keepAlive(until: cb)
-                indicesToken.keepAlive(until: cb)
-                cb.addCompletedHandler { _ in _ = set }   // borrow mode: pin the SoA until the GPU completes
-            }
-
-            let indices = indicesToken.copyData(as: UInt32.self, count: effectiveK)
-            let values = valuesToken.copyData(as: Float.self, count: effectiveK)
-            return zip(indices, values).map { index, distance in (index: Int(index), distance: distance) }
-        }
-
-        // k > 128: distance kernel alone, then CPU pointer-select straight off the shared-storage
-        // buffer's contents (avoids the full N-element `[Float]` that `copyData` would allocate).
         try await context.executeAndWait { cb, enc in
             distanceKernel.encode(
                 into: enc, queryBuffer: qToken.buffer, candidateBuffer: set.buffer,
@@ -113,9 +87,18 @@ public extension MetalComputeProvider {
             cb.addCompletedHandler { _ in _ = set }   // borrow mode: pin the SoA until the GPU completes
         }
 
-        let distancesPtr = distToken.contents(as: Float.self)
-        let selected = TopKSelection.select(
-            k: effectiveK, from: distancesPtr, count: count, tieBreaker: .smallerIndex)
+        // ARC lifetime: `distToken`'s last syntactic use is `.contents(as:)`, so under -O the
+        // optimizer is free to release it (→ `BufferToken.deinit` → `PendingBufferReturns.enqueue`,
+        // making the buffer eligible for reuse by a concurrent task) before `TopKSelection.select`
+        // finishes reading `count` floats through the raw pointer it returned. `keepAlive(until:)`
+        // does not cover this window: its completion handler already fired before `executeAndWait`
+        // returned, so past that point the local `let distToken` is the only strong reference.
+        // `withExtendedLifetime` keeps it alive through the read and the construction of `selected`.
+        let selected = withExtendedLifetime(distToken) { () -> (indices: [Int32], distances: [Float]) in
+            let distancesPtr = distToken.contents(as: Float.self)
+            return TopKSelection.select(
+                k: effectiveK, from: distancesPtr, count: count, tieBreaker: .smallerIndex)
+        }
         return zip(selected.indices, selected.distances).map { index, distance in
             (index: Int(index), distance: distance)
         }

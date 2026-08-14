@@ -2,15 +2,21 @@
 //  SoAFusedTopKTests.swift
 //  VectorAccelerateTests
 //
-//  Fused GPU top-K for the SoA `findNearest` path: the distance kernel and
-//  `TopKSelectionKernel` are encoded into a single command buffer (separated by
-//  `encoder.memoryBarrier(scope: .buffers)`) for k ≤ `TopKParameters.maxK` (128); above that,
-//  the distance kernel runs alone and VectorCore's zero-copy pointer `TopKSelection.select`
-//  selects top-k directly off the shared-storage buffer's contents (no `copyData` materialization).
+//  Top-K for the SoA `findNearest` path: the GPU distance kernel runs alone, then VectorCore's
+//  zero-copy pointer `TopKSelection.select` selects top-k directly off the shared-storage
+//  distances buffer's contents (no `copyData` materialization). This is the *only* path — a
+//  GPU-fused single-command-buffer variant (distance kernel + `TopKSelectionKernel` for
+//  k ≤ `TopKParameters.maxK`/128, separated by `encoder.memoryBarrier(scope: .buffers)`) was
+//  prototyped and measured, then rejected: `topk_select_batch_kernel` dispatches one thread per
+//  query, so at `batchSize == 1` it serially scans all N candidates on a single GPU thread with a
+//  register-spilling 128-slot heap — 1.8×–6.7× slower than pointer-select across the measured
+//  range (N ∈ {1e3, 1e4, 1e5}, k ∈ {8, 128}, Apple M3 Max). See
+//  `.superpowers/sdd/soa-060-release-hardening/task-3-report.md` ("Performance evidence").
 //
 //  Coverage: CPU-reference parity at dims {512, 768, 1536} × tail counts {1000, 1027},
-//  k ∈ {1, 8, 128} (fused path) and k = 129 (pointer-select fallback path), both metrics,
-//  nearest-first ordering, index validity, and build-once/query-many buffer reuse.
+//  k ∈ {1, 8, 128, 129} (129 exceeds `TopKParameters.maxK`, retained as a regression seam even
+//  though the implementation no longer branches on it), both metrics, nearest-first ordering,
+//  index validity, and build-once/query-many buffer reuse.
 //
 //  Distances are compared **by value** (sorted list), not by strict index-array equality: the
 //  GPU distance kernel (SIMD4 lane-major partial sums) and the scalar CPU reference sum in a
@@ -102,7 +108,8 @@ final class SoAFusedTopKTests: XCTestCase {
         }
     }
 
-    // MARK: - Fused (k ≤ 128) parity across dims × tail counts × metrics
+    // MARK: - Parity across dims × tail counts × metrics, k on both sides of the historical 128
+    // boundary (see file header: the implementation is uniform now, but 128 is kept as a seam)
 
     private func assertFusedParity<V: SoACompatible & VectorProtocol>(
         _ type: V.Type, dim: Int, count: Int, seed: UInt64,
@@ -147,7 +154,8 @@ final class SoAFusedTopKTests: XCTestCase {
         try await assertFusedParity(Vector1536Optimized.self, dim: 1536, count: 1027, seed: 0x1536_1027)
     }
 
-    // MARK: - k = 129: CPU pointer-select fallback (TopKSelection.select over the raw buffer contents)
+    // MARK: - k = 129: still just TopKSelection.select over the raw buffer contents (no branch,
+    // but 129 is retained as a boundary-value regression case above the historical 128 cap)
 
     func testK129UsesPointerSelectFallbackParity() async throws {
         let dim = 512, count = 300
@@ -158,7 +166,8 @@ final class SoAFusedTopKTests: XCTestCase {
         let qArray = (0..<dim).map { _ in rng.nextFloat(in: -1...1) }
         let query = try Vector512Optimized(qArray)
 
-        XCTAssertGreaterThan(129, TopKParameters.maxK, "sanity: k=129 must exceed the fused kernel's cap")
+        XCTAssertGreaterThan(129, TopKParameters.maxK,
+                              "sanity: k=129 must exceed the historical register-heap cap this boundary marks")
 
         for metric: SupportedDistanceMetric in [.euclidean, .cosine] {
             let got = try await provider.findNearest(query: query, in: set, k: 129, metric: metric)
