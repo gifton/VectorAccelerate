@@ -290,7 +290,7 @@ public extension VectorProtocol where Scalar == Float {
         }
     }
 
-    /// Fast normalization without runtime validation (VectorCore 0.1.5)
+    /// Fast normalization without runtime validation, using VectorCore's unchecked normalization path
     func acceleratedNormalizeUnchecked() async throws -> Self {
         if AcceleratedVectorFactory.isAccelerationAvailable {
             let provider = try await AcceleratedVectorOperations()
@@ -301,7 +301,7 @@ public extension VectorProtocol where Scalar == Float {
     }
 }
 
-// MARK: - IndexableVector Extensions (VectorCore 0.1.5)
+// MARK: - IndexableVector Extensions
 
 public extension IndexableVector where Scalar == Float {
 
@@ -464,7 +464,7 @@ public extension BatchOperations {
         return results
     }
 
-    /// Fast batch normalization using normalizedUnchecked() (VectorCore 0.1.5)
+    /// Fast batch normalization using VectorCore's normalizedUnchecked()
     static func normalizeGPUUnchecked<V: VectorProtocol & Sendable>(
         _ vectors: [V]
     ) async throws -> [V] where V.Scalar == Float {

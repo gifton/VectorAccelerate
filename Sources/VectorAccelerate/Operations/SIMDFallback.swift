@@ -198,12 +198,13 @@ public final class SIMDFallback: @unchecked Sendable {
         return sqrt(sumSquared)
     }
 
-    // MARK: - Manhattan Distance (VectorCore 0.1.5 SIMD-optimized)
+    // MARK: - Manhattan Distance (SIMD4-optimized)
 
     /// Compute Manhattan (L1) distance using VectorCore's SIMD4-optimized implementation
     ///
-    /// VectorCore 0.1.5 provides 3-4x faster Manhattan distance computation using SIMD4 vectorization.
-    /// This method delegates to VectorCore's optimized `ManhattanDistance` for best performance.
+    /// VectorCore's SIMD4-optimized implementation is 3-4x faster than scalar Manhattan distance
+    /// computation. This method delegates to VectorCore's optimized `ManhattanDistance` for best
+    /// performance.
     ///
     /// - Parameters:
     ///   - a: First vector
@@ -218,7 +219,7 @@ public final class SIMDFallback: @unchecked Sendable {
         let start = CFAbsoluteTimeGetCurrent()
         defer { trackOperation(start: start) }
 
-        // Delegate to VectorCore's SIMD4-optimized ManhattanDistance (0.1.5)
+        // Delegate to VectorCore's SIMD4-optimized ManhattanDistance
         // Use DynamicVector for optimal performance with VectorCore's optimized path
         let vectorA = DynamicVector(a)
         let vectorB = DynamicVector(b)
@@ -228,7 +229,7 @@ public final class SIMDFallback: @unchecked Sendable {
     /// Compute Manhattan distance for VectorProtocol types using VectorCore's SIMD optimization
     ///
     /// This generic version works with any VectorProtocol conforming type, leveraging
-    /// VectorCore 0.1.5's SIMD4-vectorized Manhattan distance implementation.
+    /// VectorCore's SIMD4-vectorized Manhattan distance implementation.
     ///
     /// - Parameters:
     ///   - a: First vector
