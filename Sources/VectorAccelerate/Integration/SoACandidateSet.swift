@@ -17,18 +17,18 @@ import VectorCore
 /// zero-copy `MTLBuffer` (borrow mode). Build once, score many times against it.
 ///
 /// Borrow mode (SoA Layout Contract §5): the `SoA` is held strongly and frees its allocation on
-/// `deinit`, so it must outlive `buffer`. Holding both on this one object guarantees that — and
-/// callers that hand `buffer` to the GPU must keep this object alive until the GPU completes.
+/// `deinit`, so it must outlive the internal `buffer`. Holding both on this one object guarantees that.
+/// The only intended GPU submitter is `MetalComputeProvider`'s extension methods, which own the borrow-mode
+/// pin and keep this object alive until the GPU completes.
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 public final class SoACandidateSet<V: SoACompatible>: @unchecked Sendable {
     /// Owns the SoA allocation; pinned for the buffer's lifetime (borrow mode).
-    public let soa: SoA<V>
+    let soa: SoA<V>
     /// The candidate buffer the kernel reads (zero-copy alias, or a staged copy — see `isZeroCopy`).
     ///
-    /// - Important: read-only by contract. In zero-copy mode this aliases `soa`'s allocation, which is
-    ///   freed on `soa`'s `deinit`. Do not submit `buffer` to the GPU on any path that does not keep
-    ///   this `SoACandidateSet` alive until the GPU completes (borrow mode).
-    public let buffer: any MTLBuffer
+    /// Internal contract: In zero-copy mode this aliases `soa`'s allocation, which is freed on `soa`'s
+    /// `deinit`. The GPU submitter (`MetalComputeProvider` extension) owns the borrow-mode pin.
+    let buffer: any MTLBuffer
     /// Frozen layout descriptor (lanes, count, strides) — the kernel's source of truth.
     public let layout: SoALayout
     /// True when `buffer` is a zero-copy alias of the SoA allocation; false when a staged copy was made.
