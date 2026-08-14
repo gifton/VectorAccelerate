@@ -5,6 +5,15 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **End-to-end dispatch tests** (`OperationsDispatchTests`): proves VectorCore's `Operations.findNearest` / `findNearestBatch` route through `Operations.$computeProvider` to the installed `BatchKernelProvider`.
+
+### Changed
+- **Dependency: VectorCore floor raised 0.3.0 → 0.3.2.** `Package.resolved` is now tracked in git for reproducible resolution across local/CI/clones.
+- **Transitive public surface growth.** Via the package's `@_exported import VectorCore`, consumers now transitively receive VectorCore 0.3.2's enlarged public surface (`LinearAlgebra`, `ManifoldLearning`, `AccelerateArraySIMDProvider`) and its new `VectorCoreC` C target builds as a transitive dependency.
+
 ## [0.5.0] - 2026-06-06
 
 The GPU compute façade + VectorCore 0.3.0 integration, layered on the earlier remediation of an external architectural & numerical audit (17 findings: 13 fixed, 2 refuted as non-issues, 1 deprecated/broken kernel removed). The minor bump reflects the new `MetalComputeProvider` API, the deprecation of the scattered GPU surface, the removed deprecated kernel, and the behavioral change to fused activation.

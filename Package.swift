@@ -13,6 +13,12 @@
 // There is NO backwards compatibility with older OS versions.
 // For Metal 3 support, use VectorAccelerate 0.2.x or earlier.
 //
+// Unreleased — VectorCore 0.3.2 floor:
+//   - Changed: VectorCore dependency floor raised 0.3.0 → 0.3.2 (version-constant fix, @TaskLocal doc
+//     idiom, AccelerateArraySIMDProvider upstream)
+//   - Changed: Package.resolved now tracked in git for reproducible resolution across local/CI/clones
+//   - Requires VectorCore 0.3.2+
+//
 // 0.5.0 — GPU compute façade + VectorCore 0.3.0 integration + audit remediation:
 //   - Added: MetalComputeProvider (unified GPU façade) conforming to VectorCore's BatchKernelProvider (R4)
 //     — transparent GPU dispatch for Operations.findNearest/findNearestBatch
@@ -23,7 +29,7 @@
 //   - Fixed: cosine clamped to [-1,1] (NaN-preserving); softmax sums to 1 over the Inf set
 //   - Changed: zero-copy distance staging; 1-D L2/cosine dispatch; vDSP/loadUnaligned CPU fallbacks
 //   - Removed: experimental streaming_l2_topk_update shader + Metal4StreamingL2Params + encodeStreamingUpdate
-//   - Requires VectorCore 0.3.2+ (frozen SoA layout contract + BatchKernelProvider / R4 dispatch hook)
+//   - Requires VectorCore 0.3.0+ (frozen SoA layout contract + BatchKernelProvider / R4 dispatch hook)
 //   See CHANGELOG.md for the full list.
 //
 // 0.4.4 — VectorCore 0.2.1 integration + internal refactor:

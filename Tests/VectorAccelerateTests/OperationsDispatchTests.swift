@@ -125,6 +125,7 @@ final class OperationsDispatchTests: XCTestCase {
         tol: Float = 1e-3, file: StaticString = #filePath, line: UInt = #line
     ) {
         XCTAssertEqual(results.count, k, "expected \(k) results", file: file, line: line)
+        guard !results.isEmpty else { return }
         for i in 1..<results.count {
             XCTAssertLessThanOrEqual(
                 results[i - 1].distance, results[i].distance + 1e-3,
@@ -249,10 +250,10 @@ final class OperationsDispatchTests: XCTestCase {
     /// implementation — never a VA-internal manhattan path. That CPU-authoritative computation is
     /// what end-to-end results are checked against.
     ///
-    /// Routing finding (see task-4-report.md for the full writeup): VectorCore's
-    /// `Operations.findNearest` decides whether to dispatch to the provider *before* it knows
-    /// anything about the metric — `if let gpu = computeProvider as? any BatchKernelProvider` is
-    /// the very first branch, unconditional on `M`. So the spy's `findNearest` counter increments
+    /// Routing finding: VectorCore's `Operations.findNearest` decides whether to dispatch to the
+    /// provider *before* it knows anything about the metric —
+    /// `if let gpu = computeProvider as? any BatchKernelProvider` is the very first branch,
+    /// unconditional on `M`. So the spy's `findNearest` counter increments
     /// for manhattan exactly the same as for euclidean/cosine: VectorCore always hands the call to
     /// an installed `BatchKernelProvider`, and it is *that provider's own* responsibility (not
     /// VectorCore's) to decide, per metric, whether to GPU-accelerate or defer to the metric's
