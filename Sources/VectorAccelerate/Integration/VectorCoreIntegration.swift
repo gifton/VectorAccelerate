@@ -435,6 +435,7 @@ public extension BatchOperations {
     // MARK: - GPU-Accelerated Batch Vector Operations
 
     /// Normalize vectors in batch using GPU
+    @available(*, deprecated, message: "Construct AcceleratedVectorOperations and call normalize(_:). Removed in 0.6.0.")
     static func normalizeGPU<V: VectorProtocol & Sendable>(
         _ vectors: [V]
     ) async throws -> [V] where V.Scalar == Float {
@@ -465,6 +466,7 @@ public extension BatchOperations {
     }
 
     /// Fast batch normalization using VectorCore's normalizedUnchecked()
+    @available(*, deprecated, message: "Construct AcceleratedVectorOperations and call normalize(_:), or use VectorCore's normalizedUnchecked(). Removed in 0.6.0.")
     static func normalizeGPUUnchecked<V: VectorProtocol & Sendable>(
         _ vectors: [V]
     ) async throws -> [V] where V.Scalar == Float {
@@ -488,6 +490,7 @@ public extension BatchOperations {
     }
 
     /// Scale vectors by a constant using GPU
+    @available(*, deprecated, message: "Construct AcceleratedVectorOperations and call scale(_:by:). Removed in 0.6.0.")
     static func scaleGPU<V: VectorProtocol & Sendable>(
         _ vectors: [V],
         by scalar: Float

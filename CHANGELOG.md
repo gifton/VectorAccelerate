@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **End-to-end dispatch tests** (`OperationsDispatchTests`): proves VectorCore's `Operations.findNearest` / `findNearestBatch` route through `Operations.$computeProvider` to the installed `BatchKernelProvider`.
 
+### Deprecated
+- **`BatchOperations.normalizeGPU` / `normalizeGPUUnchecked` / `scaleGPU`** join the 0.5.0 deprecation wave, **scheduled for removal in 0.6.0**. They were carved out of that wave but are unused, pay a fresh `Metal4Context` per call with a sequential per-vector loop, and `normalizeGPU` silently drops vectors whose reconstruction fails (`try?`), so the output can be shorter than the input. Construct `AcceleratedVectorOperations` and call `normalize(_:)` / `scale(_:by:)` directly.
+
 ### Changed
 - **Dependency: VectorCore floor raised 0.3.0 → 0.3.2.** `Package.resolved` is now tracked in git for reproducible resolution across local/CI/clones.
 - **Transitive public surface growth.** Via the package's `@_exported import VectorCore`, consumers now transitively receive VectorCore 0.3.2's enlarged public surface (`LinearAlgebra`, `ManifoldLearning`, `AccelerateArraySIMDProvider`) and its new `VectorCoreC` C target builds as a transitive dependency.
