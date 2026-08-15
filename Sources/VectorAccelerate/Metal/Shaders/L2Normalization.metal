@@ -11,18 +11,21 @@
 // One thread owns one vector and runs the two-pass Kahan pre-scaled algorithm:
 //
 //   1. maxAbs = max |v_i|
-//   2. den    = max(maxAbs, VA_NORM_MIN_DENOM)     // 0x1p-126f, the *normal* FLT_MIN
-//   3. scale  = 1 / den                            // always finite: den >= 2^-126 => scale <= 2^126
-//   4. sumSq  = Σ (v_i · scale)²                   // every term <= 1 => finite for any finite input
-//   5. sNorm  = sqrt(sumSq) = ||v|| / den
-//   6. norm   = den · sNorm = ||v||                // exact reconstruction, no overflow
-//   7. out    = v · (scale / sNorm) = v / ||v||    // iff sNorm > 0.5 (VA_NORM_MIN_SCALED)
+//   2. den    = clamp(maxAbs, 2^-126, 2^126)       // VA_NORM_MIN/MAX_DENOM: keeps scale normal
+//   3. scale  = 1 / den                            // normal: 2^-126 <= scale <= 2^126
+//   4. sumSq  = Σ (v_i · scale)²                   // every term <= 16 => finite for any finite input
+//   5. sNorm  = sqrt(sumSq) = ||v|| · scale
+//   6. norm   = den · sNorm = ||v||                // reported only; saturates to +Inf above FLT_MAX
+//   7. out    = precise::divide(v · scale, sNorm)  // = v/||v||, iff sNorm > 0.5 (VA_NORM_MIN_SCALED)
 //
 // Without step 1–3 the naive Σ v² underflows to 0 for subnormal-magnitude vectors
 // (GPU returned an all-zero vector where the CPU returns a unit vector) and
 // overflows to +Inf for vectors with huge components (GPU returned an all-zero
-// vector after dividing by +Inf). Both are now gone: sumSq is bounded by the
-// dimension count, and `norm` is the true L2 norm for every finite input.
+// vector after dividing by +Inf). Both are now gone: sumSq is bounded by
+// 16·dimension, and every finite input with a representable reciprocal norm is
+// normalized correctly — including ||v|| > FLT_MAX, where the output is still the
+// exact unit vector because 1/||v|| is never formed. The reported `norm` is the
+// true ||v||_2 whenever that is representable and +Inf above FLT_MAX.
 //
 // Degenerate inputs (step 7 guard fails — the true zero vector, and vectors whose
 // magnitude is so small that 1/||v|| overflows FP32) are copied through
@@ -64,10 +67,10 @@ struct L2NormParams {
 
 /// Result of the pre-scaled norm computation for one vector.
 struct L2NormFactor {
-    float scale;        // 1 / max(maxAbs, VA_NORM_MIN_DENOM), always finite
+    float scale;        // 1 / clamp(maxAbs, 2^-126, 2^126) — always a normal float
     float scaled_norm;  // ||v||_2 · scale — normal-range whenever the vector is nonzero
-    float norm;         // ||v||_2, exact Kahan reconstruction; reported, never inverted
-    float inv_norm;     // 1/||v||_2, or 0 when that reciprocal is not representable in FP32
+    float norm;         // ||v||_2, reported only; saturates to +Inf above FLT_MAX
+    bool normalizable;  // false ⇒ pass the input through unchanged
 };
 
 /// Maximum absolute component of a vector (pass 1 of the stable algorithm).
@@ -88,6 +91,10 @@ inline float l2_max_abs(device const float* vector, uint dimension) {
 }
 
 /// Sum of squares of the pre-scaled vector: Σ (v_i · scale)² (pass 2).
+///
+/// The scale must be applied per element *before* squaring: folding it out as
+/// `(Σ v²) · scale²` underflows (`scale² = 2^-252` for the largest vectors) and
+/// overflows (`v²`) — the two failures this whole algorithm exists to prevent.
 inline float l2_scaled_norm_sq(device const float* vector, uint dimension, float scale) {
     float norm_sq = 0.0f;
     const uint simd_blocks = dimension / 4;
@@ -111,19 +118,22 @@ inline float l2_scaled_norm_sq(device const float* vector, uint dimension, float
 
 /// Full two-pass norm computation for one vector (steps 1–7 of the policy above).
 ///
-/// The reciprocal is formed as `scale / sNorm`, not `1 / (den · sNorm)`: the two
-/// are algebraically identical, but the former never inverts the product
-/// `den · sNorm`, which is subnormal for deep-subnormal vectors and would be
-/// flushed to zero — then inverted to +Inf — on a GPU with denormals-are-zero.
+/// Everything the *output* depends on stays in the pre-scaled domain: `scale` and
+/// `scaled_norm` are both normal floats, whereas `1/||v||` is subnormal for any
+/// vector with `||v|| > 2^126` and would be flushed to zero — and the vector
+/// misread as degenerate — on a GPU with denormals-are-zero. `norm` is reported
+/// but never inverted, and the output is produced by `precise::divide` so that
+/// fast-math cannot reassociate the two scalings back into that subnormal factor.
 inline L2NormFactor l2_norm_factor(device const float* vector, uint dimension) {
     const float max_abs = l2_max_abs(vector, dimension);
-    const float den = max(max_abs, VA_NORM_MIN_DENOM);
+    // Clamped on BOTH sides so `scale` is always normal (see VA_NORM_MIN/MAX_DENOM).
+    const float den = clamp(max_abs, VA_NORM_MIN_DENOM, VA_NORM_MAX_DENOM);
 
     L2NormFactor f;
     f.scale = 1.0f / den;
     f.scaled_norm = sqrt(l2_scaled_norm_sq(vector, dimension, f.scale));
-    f.norm = den * f.scaled_norm;
-    f.inv_norm = (f.scaled_norm > VA_NORM_MIN_SCALED) ? (f.scale / f.scaled_norm) : 0.0f;
+    f.norm = den * f.scaled_norm;   // +Inf when ||v|| genuinely exceeds FLT_MAX
+    f.normalizable = (f.scaled_norm > VA_NORM_MIN_SCALED);
     return f;
 }
 
@@ -148,10 +158,20 @@ inline void l2_copy_bits(device const float* input, device float* output, uint d
     }
 }
 
-/// Write `input · inv_norm` (or a verbatim bitwise copy when `inv_norm` is
-/// negative, which the callers use to request the degenerate pass-through).
-void apply_normalization(device const float* input, device float* output, uint dimension, float inv_norm) {
-    if (inv_norm < 0.0f) {
+/// Write `precise::divide(input · scale, divisor)`.
+///
+/// `divisor < 0` requests the degenerate pass-through (a verbatim bitwise copy);
+/// `divisor == 0` emits zeros — the caller's epsilon policy. Both operands of the
+/// division are normal-range, and `precise::divide` prevents fast-math from
+/// rewriting it as a multiply by the (subnormal) reciprocal.
+void apply_normalization(
+    device const float* input,
+    device float* output,
+    uint dimension,
+    float scale,
+    float divisor
+) {
+    if (divisor < 0.0f) {
         l2_copy_bits(input, output, dimension);
         return;
     }
@@ -161,29 +181,38 @@ void apply_normalization(device const float* input, device float* output, uint d
     device const float4* in4 = (device const float4*)input;
     device float4* out4 = (device float4*)output;
 
-    // Vectorized normalization
+    if (divisor == 0.0f) {
+        for (uint i = 0; i < simd_blocks; ++i) { out4[i] = float4(0.0f); }
+        for (uint i = simd_blocks * 4; i < dimension; ++i) { output[i] = 0.0f; }
+        return;
+    }
+
+    const float4 divisor4 = float4(divisor);
+
+    // Vectorized normalization (both operands normal-range; see l2_norm_factor)
     for (uint i = 0; i < simd_blocks; ++i) {
-        out4[i] = in4[i] * inv_norm;
+        out4[i] = precise::divide(in4[i] * scale, divisor4);
     }
 
     // Handle remaining elements
     for (uint i = simd_blocks * 4; i < dimension; ++i) {
-        output[i] = input[i] * inv_norm;
+        output[i] = precise::divide(input[i] * scale, divisor);
     }
 }
 
-/// Resolve the multiplier to apply, encoding the degenerate pass-through as -1.
+/// Resolve the divisor to apply, encoding the degenerate pass-through as -1.
 ///
-/// - `inv_norm == 0` → 1/||v|| is not representable (zero vector or deep subnormal):
-///   copy the input through unchanged, matching VectorCore CPU.
+/// - not normalizable (zero vector or deep subnormal) → copy the input through
+///   unchanged, matching VectorCore CPU.
 /// - `||v|| <= epsilon` → the caller's explicit degenerate threshold: emit zeros.
 ///   Tested as `sNorm > epsilon · scale`, which is `||v|| > epsilon` scaled into the
 ///   normal range on both sides (epsilon · scale saturating to +Inf simply means
-///   epsilon dwarfs ||v||, which is the correct answer).
-/// - otherwise → the finite reciprocal 1/||v||.
-inline float l2_resolve_multiplier(L2NormFactor f, float epsilon) {
-    if (f.inv_norm == 0.0f) { return -1.0f; }       // pass-through sentinel
-    return (f.scaled_norm > epsilon * f.scale) ? f.inv_norm : 0.0f;
+///   epsilon dwarfs ||v||, which is the correct answer; underflowing to 0 means the
+///   opposite, and both are handled correctly by the comparison).
+/// - otherwise → `sNorm`, the divisor for the pre-scaled vector.
+inline float l2_resolve_divisor(L2NormFactor f, float epsilon) {
+    if (!f.normalizable) { return -1.0f; }             // pass-through sentinel
+    return (f.scaled_norm > epsilon * f.scale) ? f.scaled_norm : 0.0f;
 }
 
 // MARK: - General Kernel (Spec Section: Metal Kernel Signatures)
@@ -214,7 +243,7 @@ kernel void l2_normalize_general_kernel(
 
     // Phase 2: Normalize and Write
     apply_normalization(current_input, current_output, params.dimension,
-                        l2_resolve_multiplier(f, params.epsilon));
+                        f.scale, l2_resolve_divisor(f, params.epsilon));
 }
 
 // MARK: - In-place Kernel (Spec Section: Metal Kernel Signatures)
@@ -241,7 +270,7 @@ kernel void l2_normalize_inplace_kernel(
 
     // Phase 2: Normalize and Write (In-place)
     apply_normalization(current_vector, current_vector, params.dimension,
-                        l2_resolve_multiplier(f, params.epsilon));
+                        f.scale, l2_resolve_divisor(f, params.epsilon));
 }
 
 // MARK: - Optimized Kernels (Spec Section: Implementation Requirements 3)
@@ -277,7 +306,7 @@ void l2_normalize_optimized_impl(
     float4 m = max(max(m0, m1), max(m2, m3));
     const float max_abs = max(max(m.x, m.y), max(m.z, m.w));
 
-    const float den = max(max_abs, VA_NORM_MIN_DENOM);
+    const float den = clamp(max_abs, VA_NORM_MIN_DENOM, VA_NORM_MAX_DENOM);
     const float scale = 1.0f / den;
 
     // Phase 1b: Σ (v_i · scale)², again with 4 accumulators
@@ -305,8 +334,8 @@ void l2_normalize_optimized_impl(
     L2NormFactor f;
     f.scale = scale;
     f.scaled_norm = scaled_norm;
-    f.norm = den * scaled_norm;
-    f.inv_norm = (scaled_norm > VA_NORM_MIN_SCALED) ? (scale / scaled_norm) : 0.0f;
+    f.norm = den * scaled_norm;   // +Inf when ||v|| genuinely exceeds FLT_MAX
+    f.normalizable = (scaled_norm > VA_NORM_MIN_SCALED);
 
     // Store norm if requested
     if (params.store_norms && norms != nullptr) {
@@ -314,14 +343,19 @@ void l2_normalize_optimized_impl(
     }
 
     // Phase 2: Normalize
-    const float multiplier = l2_resolve_multiplier(f, params.epsilon);
-    if (multiplier < 0.0f) {
+    const float divisor = l2_resolve_divisor(f, params.epsilon);
+    if (divisor < 0.0f) {
         l2_copy_bits(input + offset, output + offset, DIMENSION);
         return;
     }
+    if (divisor == 0.0f) {
+        for (uint i = 0; i < NUM_BLOCKS; ++i) { out4[i] = float4(0.0f); }
+        return;
+    }
 
+    const float4 divisor4 = float4(divisor);
     for (uint i = 0; i < NUM_BLOCKS; ++i) {
-        out4[i] = in4[i] * multiplier;
+        out4[i] = precise::divide(in4[i] * scale, divisor4);
     }
 }
 

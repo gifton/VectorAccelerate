@@ -61,29 +61,64 @@ constant float VA_INFINITY = INFINITY;
 // -----------------------------------------------------------------------------
 // Normalization policy constants (BE3 §4.4 — CPU parity with VectorCore's
 // NormalizeKernels). Every VectorAccelerate normalize kernel pre-scales by
-// 1 / max(maxAbs, VA_NORM_MIN_DENOM) before accumulating squares.
+// 1 / clamp(maxAbs, VA_NORM_MIN_DENOM, VA_NORM_MAX_DENOM) before accumulating
+// squares, and forms the output in that pre-scaled domain.
+//
+// !! DUPLICATED IN Sources/VectorAccelerate/Core/KernelContext.swift !!
+// `compileMetalSourcesFromBundle` strips `#include "Metal4Common.h"` and prepends
+// its own preamble, so the runtime-compilation load path (the ONLY path in release
+// builds, where debug.metallib is not loaded) needs these values as #defines
+// there. The `#ifndef` guards below let those macros win when this header is
+// nonetheless included; the two definitions MUST stay numerically identical.
 // -----------------------------------------------------------------------------
 
 // Smallest positive *normal* float (0x1p-126f == FLT_MIN == Swift's
 // Float.leastNormalMagnitude). Deliberately NOT the denormal minimum: it is the
-// clamp that keeps 1/den finite (<= 2^126) for subnormal-dominated vectors.
+// lower clamp that keeps `scale = 1/den` finite (<= 2^126) for subnormal-dominated
+// vectors.
+#ifndef VA_NORM_MIN_DENOM
 constant float VA_NORM_MIN_DENOM = 0x1p-126f;
+#endif
+
+// Largest pre-scale denominator (0x1p126f). Upper clamp: without it, a vector
+// whose maxAbs exceeds 2^126 yields a *subnormal* `scale`, which a GPU running
+// with denormals-are-zero (Metal's default math mode) flushes to 0 — the whole
+// sum of squares then collapses to 0 and the vector is misclassified as
+// degenerate. Clamping costs nothing: with den == 2^126 the largest scaled
+// component is maxAbs/2^126 <= FLT_MAX/2^126 < 4, so the sum of squares is still
+// bounded by 16·dimension.
+#ifndef VA_NORM_MAX_DENOM
+constant float VA_NORM_MAX_DENOM = 0x1p126f;
+#endif
 
 // Guard on the pre-scaled norm sNorm = ||v|| / den, i.e. on ||v|| >= 2^-127.
 //
 // The exact representability condition for 1/||v|| in FP32 is ||v|| > 2^-128
 // (= 1/FLT_MAX), which for den == 2^-126 is `sNorm > 0.25`. This constant is one
-// binade stricter so that the reciprocal — formed as `scale / sNorm` with
-// scale <= 2^126 — stays at or below 2^127, a full factor of two below FLT_MAX,
-// and so that no subnormal intermediate is ever produced (a GPU running with
-// denormals-are-zero would flush such an intermediate and invert it to +Inf).
-// The resulting output is bounded by |v_i| / ||v|| <= 1/sNorm <= 2.
+// binade stricter, keeping every operand of the final division comfortably normal,
+// so the output is identical whether or not the GPU flushes denormals.
+//
+// Bounds, with den clamped to [2^-126, 2^126] and the guard passed:
+//   scale     = 1/den ∈ [2^-126, 2^126]             (normal)
+//   |v·scale| <= maxAbs/den <= 4                    (normal)
+//   sumSq     <= 16 · dimension                     (no overflow)
+//   sNorm     ∈ (0.5, 4·sqrt(dimension)]            (normal)
+//   |out|     = |v_i| / ||v|| <= 1
+// No operand of the output computation is subnormal. The output is formed as
+// `precise::divide(v · scale, sNorm)` rather than a multiply by `1/sNorm`,
+// because under fast math (Metal's default) the compiler may reassociate
+// `(v · scale) · (1/sNorm)` into `v · (scale/sNorm)`, and that single factor IS
+// subnormal whenever ||v|| > 2^126 — measured: it flushed a 4e36 vector to all
+// zeros. The one value that can still leave the normal range is the *reported*
+// norm `den · sNorm`, which saturates to +Inf when ||v|| exceeds FLT_MAX (the
+// honest answer) and may read 0 for a subnormal ||v|| on an FTZ GPU.
 //
 // When den == maxAbs the largest scaled component is ±1, so sNorm >= 1 and the
 // guard always passes; it can only fail for the zero vector and for vectors whose
-// largest magnitude is subnormal. The comparison involves only normal-range
-// values, so the outcome does not depend on the GPU's denormal (FTZ) mode.
+// largest magnitude is subnormal.
+#ifndef VA_NORM_MIN_SCALED
 constant float VA_NORM_MIN_SCALED = 0.5f;
+#endif
 
 // Sentinel values for invalid indices
 constant uint VA_INVALID_INDEX = 0xFFFFFFFF;

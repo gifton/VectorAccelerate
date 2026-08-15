@@ -9,15 +9,20 @@
 //  and VectorAccelerate's CPU fallbacks implement the same Kahan pre-scaled
 //  algorithm as VectorCore's `NormalizeKernels`:
 //
-//      den = max(maxAbs, FLT_MIN=0x1p-126) ; scale = 1/den
-//      ‖v‖ = den · sqrt(Σ (v·scale)²)      ; out = v · (1/‖v‖)
+//      den   = clamp(maxAbs, 0x1p-126, 0x1p126) ; scale = 1/den
+//      sNorm = sqrt(Σ (v·scale)²) = ‖v‖ · scale
+//      out   = (v · scale) · (1/sNorm)          iff sNorm > 0.5
 //
 //  Invariants asserted here, for every fixture and every path:
 //    * no NaN/Inf ever reaches the output,
-//    * ‖out‖₂ = 1 ± 1e-5 whenever 1/‖v‖₂ is representable in FP32,
-//    * the input is returned unchanged otherwise (zero vector, deep subnormals) —
-//      the observable behavior of `NormalizeKernels.normalizeUnchecked`,
-//    * GPU and CPU agree elementwise within 1e-5.
+//    * ‖out‖₂ = 1 ± 1e-5 whenever the vector is normalizable — including vectors
+//      whose ‖v‖₂ is not itself representable in FP32 (elements ≥ 1e38), since
+//      1/‖v‖₂ is never formed,
+//    * the input is returned BIT-EXACTLY unchanged otherwise (zero vector, deep
+//      subnormals) — the observable behavior of `NormalizeKernels.normalizeUnchecked`,
+//    * GPU and CPU agree elementwise within 1e-5,
+//    * the runtime-compiled Metal library (the only library load path in release
+//      builds) still contains every normalize kernel.
 //
 
 import XCTest
@@ -32,22 +37,25 @@ final class NormalizationParityTests: XCTestCase {
     private struct Fixture: Sendable {
         let name: String
         let input: [Float]
-        /// True when `1/‖v‖₂` is representable in FP32, i.e. the normalizer must
+        /// True when the vector is normalizable, i.e. the implementation must
         /// return a unit vector. False for the classes every implementation
         /// (CPU and GPU) passes through unchanged.
         let isNormalizable: Bool
+        /// False where VectorCore's own `normalizeUnchecked` is known to be wrong,
+        /// so cross-checking VectorAccelerate against it would enshrine that bug.
+        let crossCheckVectorCore: Bool
     }
 
     /// 1e-40 is subnormal in FP32 (below `Float.leastNormalMagnitude` = 1.18e-38).
     private static let subnormal = Float(1e-40 as Double)
 
     private static func fixtures(dimension: Int) -> [Fixture] {
-        precondition(dimension % 8 == 0)
+        precondition(dimension >= 8)
 
-        // Subnormal background with 8 unit spikes → maxAbs = 1 (normal) while most
+        // Subnormal background with unit spikes → maxAbs = 1 (normal) while most
         // components are subnormal: exercises the pre-scale on a mixed vector.
         var mixed = [Float](repeating: subnormal, count: dimension)
-        for i in stride(from: 0, to: dimension, by: dimension / 8) { mixed[i] = 1.0 }
+        for i in stride(from: 0, to: dimension, by: Swift.max(1, dimension / 8)) { mixed[i] = 1.0 }
 
         var rng = TestRNG(seed: 0xBE30044)
         var random = [Float](repeating: 0, count: dimension)
@@ -57,21 +65,41 @@ final class NormalizationParityTests: XCTestCase {
             // ‖v‖ = 2.26e-39 → 1/‖v‖ = 4.4e38 > FLT_MAX: not normalizable in FP32.
             Fixture(name: "all-subnormal(1e-40)",
                     input: [Float](repeating: subnormal, count: dimension),
-                    isNormalizable: false),
+                    isNormalizable: false, crossCheckVectorCore: true),
             // Naive Σ v² = 5.1e-38 survives, but the old GPU epsilon (1e-7/1e-8)
             // rejected the 2.26e-19 norm and returned zeros / the input unchanged.
             Fixture(name: "micro(1e-20)",
                     input: [Float](repeating: 1e-20, count: dimension),
-                    isNormalizable: true),
+                    isNormalizable: true, crossCheckVectorCore: true),
             // Naive Σ v² = 5.1e40 → +Inf on the old path → all-zero output.
             Fixture(name: "huge(1e19)",
                     input: [Float](repeating: 1e19, count: dimension),
-                    isNormalizable: true),
+                    isNormalizable: true, crossCheckVectorCore: true),
+            // ‖v‖ = 9.1e37 > 2^126, so 1/‖v‖ = 1.1e-38 is SUBNORMAL. Forming it on
+            // the GPU (denormals-are-zero) flushed it to 0 and the vector was
+            // misread as degenerate; the output is now built in the scaled domain.
+            Fixture(name: "big(4e36)",
+                    input: [Float](repeating: 4e36, count: dimension),
+                    isNormalizable: true, crossCheckVectorCore: true),
+            // maxAbs > 2^126, so the pre-scale `1/maxAbs` is itself subnormal — the
+            // upper clamp keeps it normal. ‖v‖ = 2.3e39 exceeds FLT_MAX entirely,
+            // yet the unit vector is still exactly representable.
+            // VectorCore's normalizeUnchecked returns all-zeros here (its `mag`
+            // overflows to +Inf and 1/(+Inf) = 0 passes its `isFinite` guard), so it
+            // is deliberately not used as the reference for this fixture.
+            Fixture(name: "overflow-norm(1e38)",
+                    input: [Float](repeating: 1e38, count: dimension),
+                    isNormalizable: true, crossCheckVectorCore: false),
             Fixture(name: "zero",
                     input: [Float](repeating: 0, count: dimension),
-                    isNormalizable: false),
-            Fixture(name: "mixed-subnormal-normal", input: mixed, isNormalizable: true),
-            Fixture(name: "ordinary-random", input: random, isNormalizable: true)
+                    // `normalizeUnchecked` carries `assert(maxAbs > 0)`, which traps
+                    // in debug builds; its release behavior (buffer untouched) is
+                    // what `isNormalizable == false` already asserts.
+                    isNormalizable: false, crossCheckVectorCore: false),
+            Fixture(name: "mixed-subnormal-normal", input: mixed,
+                    isNormalizable: true, crossCheckVectorCore: true),
+            Fixture(name: "ordinary-random", input: random,
+                    isNormalizable: true, crossCheckVectorCore: true)
         ]
     }
 
@@ -105,8 +133,11 @@ final class NormalizationParityTests: XCTestCase {
             XCTAssertEqual(l2Norm(output), 1.0, accuracy: 1e-5,
                            "\(label): expected a unit vector", file: file, line: line)
         } else {
-            XCTAssertEqual(output, fixture.input,
-                           "\(label): a vector whose reciprocal norm is not representable must be returned unchanged",
+            // Bit patterns, not values: a subnormal that survived as a raw copy and
+            // one that was flushed to +0 compare equal as Floats but are not the
+            // same bits, and "unchanged" is a claim about the bits.
+            XCTAssertEqual(output.map(\.bitPattern), fixture.input.map(\.bitPattern),
+                           "\(label): a vector that is not normalizable must be returned bit-exactly unchanged",
                            file: file, line: line)
         }
     }
@@ -130,6 +161,25 @@ final class NormalizationParityTests: XCTestCase {
             "\(label): max |Δ| = \(worst) at [\(worstIndex)] (got \(got[worstIndex]) vs \(expected[worstIndex]))",
             file: file, line: line
         )
+    }
+
+    /// `norms[]` must be the true ‖v‖₂ — or +Inf when ‖v‖₂ genuinely exceeds
+    /// FLT_MAX, which is the honest answer (0.0 would be silently wrong).
+    private func assertStoredNorm(
+        _ stored: Float, input: [Float], label: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let expected = l2Norm(input)
+        if expected > Double(Float.greatestFiniteMagnitude) {
+            XCTAssertTrue(stored.isInfinite && stored > 0,
+                          "\(label): ‖v‖ = \(expected) exceeds FLT_MAX, expected +Inf, got \(stored)",
+                          file: file, line: line)
+        } else if expected > 1e-30 {
+            XCTAssertTrue(stored.isFinite, "\(label): stored norm \(stored) is not finite", file: file, line: line)
+            XCTAssertEqual(Double(stored) / expected, 1.0, accuracy: 1e-4,
+                           "\(label): stored norm \(stored) vs true \(expected)", file: file, line: line)
+        }
+        // Subnormal norms may read 0 on a GPU that flushes denormals — not asserted.
     }
 
     // MARK: - Metal helpers
@@ -169,11 +219,44 @@ final class NormalizationParityTests: XCTestCase {
         return outputBuffer.copyData(as: Float.self, count: dimension)
     }
 
+    // MARK: - Release-configuration library guard
+
+    /// The Metal library that `KernelContext` compiles from bundled `.metal`
+    /// sources must contain every normalize kernel.
+    ///
+    /// This is the **only** library load path in release builds: `debug.metallib`
+    /// is loaded under `#if DEBUG`, and no `default.metallib` ships in the bundle.
+    /// That path strips `#include "Metal4Common.h"` and substitutes its own
+    /// preamble, so a constant added to the header but not mirrored into
+    /// `KernelContext`'s preamble makes the single combined source fail to compile
+    /// — taking down *every* kernel in the package, in release only. This test runs
+    /// in both configurations and fails loudly with the compiler diagnostic.
+    func testRuntimeCompiledLibraryContainsNormalizeKernels() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            throw XCTSkip("Metal device not available")
+        }
+        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle(),
+                                   "VectorAccelerate resource bundle not found")
+
+        let library = try KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle)
+
+        for name in [
+            "vectorNormalize", "normalizeVectors", "batchNormalize",
+            "l2_normalize_general_kernel", "l2_normalize_inplace_kernel",
+            "l2_normalize_512_kernel", "l2_normalize_768_kernel", "l2_normalize_1536_kernel",
+            // Sentinels used by KernelContext.isVectorAccelerateLibrary
+            "l2_distance_kernel", "dot_product_kernel"
+        ] {
+            XCTAssertNotNil(library.makeFunction(name: name),
+                            "runtime-compiled library is missing '\(name)'")
+        }
+    }
+
     // MARK: - CPU: VectorAccelerate fallbacks vs VectorCore
 
     /// Every VectorAccelerate CPU normalize path implements the same policy, and
     /// that policy is observationally identical to VectorCore's public
-    /// `NormalizeKernels.normalizeUnchecked`.
+    /// `NormalizeKernels.normalizeUnchecked` wherever the latter is correct.
     func testCPUFallbacksMatchVectorCore() async {
         let simdFallback = SIMDFallback()
         let provider = FallbackProvider()
@@ -193,32 +276,30 @@ final class NormalizationParityTests: XCTestCase {
             let async = await simdFallback.normalize(fixture.input)
             assertParity(async, reference, label: "SIMDFallback/\(fixture.name)")
 
-            // VectorCore reference. The zero vector is skipped because
-            // `normalizeUnchecked` carries `assert(maxAbs > 0)`, which traps in
-            // debug builds; its documented release behavior (buffer untouched) is
-            // what `isNormalizable == false` already asserts above.
-            if fixture.name != "zero" {
-                var buffer = fixture.input
-                buffer.withUnsafeMutableBufferPointer { p in
-                    NormalizeKernels.normalizeUnchecked(p.baseAddress!, dimension: p.count)
-                }
-                assertParity(reference, buffer, label: "VectorCore.normalizeUnchecked/\(fixture.name)")
+            guard fixture.crossCheckVectorCore else { continue }
+            var buffer = fixture.input
+            buffer.withUnsafeMutableBufferPointer { p in
+                NormalizeKernels.normalizeUnchecked(p.baseAddress!, dimension: p.count)
             }
+            assertParity(reference, buffer, label: "VectorCore.normalizeUnchecked/\(fixture.name)")
         }
     }
 
     // MARK: - GPU: vectorNormalize / normalizeVectors
 
     /// `Metal4ComputeEngine.normalize` (→ `vectorNormalize`) matches the CPU.
+    /// Dimension 100 is deliberately ragged (non-power-of-two threadgroup).
     func testVectorNormalizeMatchesCPU() async throws {
         let context = try await makeContext()
         let engine = try await Metal4ComputeEngine(context: context, configuration: .default)
 
-        for fixture in Self.fixtures(dimension: 512) {
-            let gpu = try await engine.normalize(fixture.input)
-            assertPolicy(gpu, fixture: fixture, label: "vectorNormalize/\(fixture.name)")
-            assertParity(gpu, StableNormalization.normalizedAccelerate(fixture.input),
-                         label: "vectorNormalize vs CPU/\(fixture.name)")
+        for dimension in [512, 100] {
+            for fixture in Self.fixtures(dimension: dimension) {
+                let gpu = try await engine.normalize(fixture.input)
+                assertPolicy(gpu, fixture: fixture, label: "vectorNormalize(dim=\(dimension))/\(fixture.name)")
+                assertParity(gpu, StableNormalization.normalizedAccelerate(fixture.input),
+                             label: "vectorNormalize(dim=\(dimension)) vs CPU/\(fixture.name)")
+            }
         }
     }
 
@@ -231,7 +312,8 @@ final class NormalizationParityTests: XCTestCase {
             let primary = try await runBasicNormalizeKernel("vectorNormalize", fixture.input, context: context)
 
             assertPolicy(alias, fixture: fixture, label: "normalizeVectors/\(fixture.name)")
-            assertParity(alias, primary, label: "normalizeVectors vs vectorNormalize/\(fixture.name)", accuracy: 0)
+            XCTAssertEqual(alias.map(\.bitPattern), primary.map(\.bitPattern),
+                           "normalizeVectors must be bit-identical to vectorNormalize/\(fixture.name)")
         }
     }
 
@@ -253,14 +335,53 @@ final class NormalizationParityTests: XCTestCase {
         }
     }
 
+    /// The two magnitudes where a GPU that flushes denormals used to silently give
+    /// up and pass the vector through: `1/‖v‖` subnormal (‖v‖ > 2^126) and the
+    /// pre-scale `1/maxAbs` itself subnormal (maxAbs > 2^126).
+    func testTopOfRangeMagnitudesAreNormalized() async throws {
+        let context = try await makeContext()
+        let engine = try await Metal4ComputeEngine(context: context, configuration: .default)
+        let kernel = try await L2NormalizationKernel(context: context)
+
+        let dimension = 512
+        let magnitudes: [(String, Float)] = [
+            ("4e36 (1/‖v‖ subnormal)", 4e36),
+            ("2^126 (maxAbs at the clamp)", 0x1p126),
+            ("1e38 (pre-scale subnormal, ‖v‖ > FLT_MAX)", 1e38),
+            ("FLT_MAX", .greatestFiniteMagnitude)
+        ]
+
+        for (name, magnitude) in magnitudes {
+            let input = [Float](repeating: magnitude, count: dimension)
+            let cpu = StableNormalization.normalizedAccelerate(input)
+            XCTAssertEqual(l2Norm(cpu), 1.0, accuracy: 1e-5, "CPU/\(name)")
+
+            let basic = try await engine.normalize(input)
+            assertNoNonFinite(basic, "vectorNormalize/\(name)")
+            XCTAssertEqual(l2Norm(basic), 1.0, accuracy: 1e-5, "vectorNormalize/\(name)")
+            XCTAssertNotEqual(basic.map(\.bitPattern), input.map(\.bitPattern),
+                              "vectorNormalize/\(name): must not fall back to the pass-through")
+            assertParity(basic, cpu, label: "vectorNormalize vs CPU/\(name)")
+
+            let result = try await kernel.normalize([input], storeNorms: true)
+            let l2 = result.asArrays()[0]
+            assertNoNonFinite(l2, "l2_normalize/\(name)")
+            XCTAssertEqual(l2Norm(l2), 1.0, accuracy: 1e-5, "l2_normalize/\(name)")
+            assertParity(l2, cpu, label: "l2_normalize vs CPU/\(name)")
+            assertStoredNorm(try XCTUnwrap(result.normsAsArray()).first ?? 0,
+                             input: input, label: "l2_normalize/\(name)")
+        }
+    }
+
     // MARK: - GPU: l2_normalize_* family
 
-    /// Specialized (512) and general (384, non-specialized) kernels, default epsilon.
+    /// All three specialized kernels (512/768/1536), plus the general kernel at a
+    /// non-specialized dimension (384) and a ragged one (100), at default epsilon.
     func testL2NormalizationMatchesCPU_defaultEpsilon() async throws {
         let context = try await makeContext()
         let kernel = try await L2NormalizationKernel(context: context)
 
-        for dimension in [512, 384] {
+        for dimension in [512, 768, 1536, 384, 100] {
             let fixtures = Self.fixtures(dimension: dimension)
             let result = try await kernel.normalize(fixtures.map(\.input), storeNorms: true)
             let outputs = result.asArrays()
@@ -271,20 +392,13 @@ final class NormalizationParityTests: XCTestCase {
                 assertPolicy(outputs[i], fixture: fixture, label: label)
                 assertParity(outputs[i], StableNormalization.normalizedAccelerate(fixture.input),
                              label: "\(label) vs CPU")
-
-                // Stored norms are the true ‖v‖₂ — never +Inf for huge inputs.
-                XCTAssertTrue(norms[i].isFinite, "\(label): stored norm \(norms[i]) is not finite")
-                let expected = l2Norm(fixture.input)
-                if expected > 1e-30 {
-                    XCTAssertEqual(Double(norms[i]) / expected, 1.0, accuracy: 1e-4,
-                                   "\(label): stored norm \(norms[i]) vs true \(expected)")
-                }
+                assertStoredNorm(norms[i], input: fixture.input, label: label)
             }
         }
     }
 
     /// `epsilon: 0` must never produce Inf/NaN — the reciprocal is only formed
-    /// after the kernel has proved it representable.
+    /// after the kernel has proved the vector normalizable.
     func testL2NormalizationMatchesCPU_epsilonZero() async throws {
         let context = try await makeContext()
         let kernel = try await L2NormalizationKernel(context: context)

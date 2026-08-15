@@ -113,11 +113,16 @@ public struct Metal4L2NormalizationResult: Sendable {
 /// → Σ (v·(1/den))² → ‖v‖ = den·√Σ`. Consequences:
 ///
 /// - Vectors with huge components (`Σ v²` would overflow to `+∞`) normalize
-///   correctly instead of collapsing to the zero vector.
+///   correctly instead of collapsing to the zero vector — including vectors whose
+///   `‖v‖₂` itself exceeds `.greatestFiniteMagnitude` (elements ≥ 1e38), because
+///   `1/‖v‖₂` is never formed: the output is `precise::divide(v · scale, ‖v‖ · scale)`.
 /// - Vectors with subnormal components (`Σ v²` would underflow to `0`) normalize
 ///   correctly instead of collapsing to the zero vector.
-/// - `norms` (when `storeNorms` is set) is the true `‖v‖₂`, never `+∞`.
-/// - No input can produce `Inf`/`NaN` output.
+/// - `norms` (when `storeNorms` is set) is the true `‖v‖₂`. It saturates to `+∞`
+///   for the vectors whose norm genuinely exceeds `.greatestFiniteMagnitude` —
+///   the honest answer, where the pre-fix kernel reported a finite-looking `0`.
+///   (The normalized *output* for those vectors is still exact.)
+/// - No finite input can produce `Inf`/`NaN` output, for any `epsilon` including `0`.
 ///
 /// ## Degenerate Inputs
 ///

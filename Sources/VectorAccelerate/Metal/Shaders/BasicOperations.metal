@@ -30,12 +30,12 @@ constant float EPSILON = VA_EPSILON;
 // both passes reduced across the threadgroup:
 //
 //   1. maxAbs = max |v_i|                            (threadgroup max reduction)
-//   2. den    = max(maxAbs, VA_NORM_MIN_DENOM)       // 0x1p-126f, the *normal* FLT_MIN
-//   3. scale  = 1 / den                              // finite: den >= 2^-126 => scale <= 2^126
-//   4. sumSq  = Σ (v_i · scale)²                     (threadgroup sum reduction; each term <= 1)
-//   5. sNorm  = sqrt(sumSq) = ||v|| / den
-//   6. ||v||  = den · sNorm                          // exact reconstruction (never materialized)
-//   7. out    = v · (scale / sNorm) = v / ||v||      // iff sNorm > 0.5 (see VA_NORM_MIN_SCALED)
+//   2. den    = clamp(maxAbs, 2^-126, 2^126)         // VA_NORM_MIN/MAX_DENOM: keeps scale normal
+//   3. scale  = 1 / den                              // normal: 2^-126 <= scale <= 2^126
+//   4. sumSq  = Σ (v_i · scale)²                     (threadgroup sum reduction; each term <= 16)
+//   5. sNorm  = sqrt(sumSq) = ||v|| · scale
+//   6. ||v||  = sNorm / scale                        // never materialized here
+//   7. out    = precise::divide(v · scale, sNorm)    // = v/||v||, iff sNorm > 0.5
 //
 // The previous implementation accumulated Σ v² directly and fell back to
 // `magnitude > EPSILON (1e-7)`, which diverged from the CPU three ways: vectors
@@ -116,18 +116,33 @@ inline float va_tg_reduce_add(float value, threadgroup float* scratch, uint lane
     return result;
 }
 
+/// The pre-scale and the divisor that turn `v` into `v / ||v||_2`, as
+/// `precise::divide(v_i · scale, scaled_norm)`.
+///
+/// Both operands are normal-range (`|v·scale| <= 4`, `scaled_norm > 0.5`), so the
+/// result never depends on the GPU's denormal mode. Two things are deliberately
+/// avoided here:
+///
+///  * `1/||v||` is never formed — it is subnormal for every vector with
+///    `||v|| > 2^126` (components ≈ 4e36 upwards) and does not exist at all for
+///    `||v|| > FLT_MAX`, so a denormals-are-zero GPU would flush it to 0 and
+///    misread the vector as degenerate.
+///  * the scaling is a *division*, not a multiplication by `1/scaled_norm`.
+///    Under `-ffast-math` (Metal's default) the compiler is free to reassociate
+///    `(v · scale) · (1/sNorm)` back into `v · (scale/sNorm)`, which reintroduces
+///    exactly the subnormal multiplier this design removes — measured: every
+///    component of a 4e36 vector came out as 0. `precise::divide` is IEEE-exact
+///    and is not rewritten into a reciprocal-multiply.
+struct VANormScales {
+    float scale;        // 1 / clamp(maxAbs, 2^-126, 2^126)
+    float scaled_norm;  // ||v|| · scale ∈ (0.5, 4·sqrt(dim)], or 0 ⇒ pass through unchanged
+};
+
 /// Steps 1–7 of the normalization policy above, computed cooperatively.
 ///
 /// Every thread receives the same result; `lane`/`lanes` must be uniform across
 /// the threadgroup.
-///
-/// - Returns: `1/||v||_2`, or `0` when that reciprocal is not representable in
-///   FP32 (the caller then passes the input through unchanged). The reciprocal is
-///   formed as `scale / sNorm` rather than `1 / (den · sNorm)`: the two are
-///   algebraically identical, but the former never materializes the product
-///   `den · sNorm`, which is subnormal for deep-subnormal vectors and would be
-///   flushed to zero — and then inverted to +Inf — on a GPU with denormals-are-zero.
-inline float va_normalize_inv_norm(
+inline VANormScales va_normalize_scales(
     device const float* v,
     uint dimension,
     threadgroup float* scratch,
@@ -142,19 +157,28 @@ inline float va_normalize_inv_norm(
     }
     const float max_abs = va_tg_reduce_max(local_max, scratch, lane, lanes);
 
-    const float den = max(max_abs, VA_NORM_MIN_DENOM);
-    const float scale = 1.0f / den;
+    // Clamped on BOTH sides so `scale` is always a normal float: below 2^-126 the
+    // reciprocal would overflow, above 2^126 the reciprocal would be subnormal
+    // (and flushed to zero on a denormals-are-zero GPU).
+    const float den = clamp(max_abs, VA_NORM_MIN_DENOM, VA_NORM_MAX_DENOM);
 
+    VANormScales r;
+    r.scale = 1.0f / den;
+
+    // Do not "simplify" this to fma(v*v, scale*scale, ...): scale² underflows to
+    // zero for the largest vectors (scale = 2^-126 ⇒ scale² = 2^-252) and v² overflows
+    // for them, so the pre-scale must be applied per element, before squaring.
     float local_sum = 0.0f;
     if (lane < lanes) {
         for (uint i = lane; i < dimension; i += lanes) {
-            const float s = v[i] * scale;
+            const float s = v[i] * r.scale;
             local_sum = fma(s, s, local_sum);
         }
     }
     const float scaled_norm = sqrt(va_tg_reduce_add(local_sum, scratch, lane, lanes));
 
-    return (scaled_norm > VA_NORM_MIN_SCALED) ? (scale / scaled_norm) : 0.0f;
+    r.scaled_norm = (scaled_norm > VA_NORM_MIN_SCALED) ? scaled_norm : 0.0f;
+    return r;
 }
 
 // MARK: - Basic Distance Operations
@@ -344,14 +368,14 @@ kernel void batchNormalize(
     // normalization policy above). `shared_sums` is the caller-provided scratch;
     // only its first min(tg_size, 256) elements are touched.
     const uint lanes = min(tg_size, VA_NORM_REDUCE_LANES);
-    const float invNorm = va_normalize_inv_norm(
+    const VANormScales f = va_normalize_scales(
         input + vector_offset, dimension, shared_sums, tid, lanes);
 
     // Phase 2: Normalize all dimensions of this vector (degenerate → unchanged)
     for (uint d = tid; d < dimension; d += tg_size) {
         const uint idx = vector_offset + d;
-        if (invNorm > 0.0f) {
-            output[idx] = input[idx] * invNorm;
+        if (f.scaled_norm > 0.0f) {
+            output[idx] = precise::divide(input[idx] * f.scale, f.scaled_norm);
         } else {
             va_copy_bits(input, output, idx);
         }
@@ -431,11 +455,11 @@ kernel void vectorNormalize(
     threadgroup float partialSums[VA_NORM_REDUCE_LANES];
     const uint lanes = min(tgSize, VA_NORM_REDUCE_LANES);
 
-    const float invNorm = va_normalize_inv_norm(input, dimension, partialSums, threadId, lanes);
+    const VANormScales f = va_normalize_scales(input, dimension, partialSums, threadId, lanes);
 
     if (tid < dimension) {
-        if (invNorm > 0.0f) {
-            output[tid] = input[tid] * invNorm;
+        if (f.scaled_norm > 0.0f) {
+            output[tid] = precise::divide(input[tid] * f.scale, f.scaled_norm);
         } else {
             va_copy_bits(input, output, tid);
         }
@@ -635,7 +659,7 @@ kernel void elementwiseMultiply(
 // MARK: - Shader Aliases for Compatibility
 
 /// Alias for vectorNormalize - some code expects "normalizeVectors"
-/// Both kernels share `va_normalize_inv_norm`, so they cannot drift apart.
+/// Both kernels share `va_normalize_scales`, so they cannot drift apart.
 kernel void normalizeVectors(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
@@ -647,11 +671,11 @@ kernel void normalizeVectors(
     threadgroup float partialSums[VA_NORM_REDUCE_LANES];
     const uint lanes = min(tgSize, VA_NORM_REDUCE_LANES);
 
-    const float invNorm = va_normalize_inv_norm(input, dimension, partialSums, threadId, lanes);
+    const VANormScales f = va_normalize_scales(input, dimension, partialSums, threadId, lanes);
 
     if (tid < dimension) {
-        if (invNorm > 0.0f) {
-            output[tid] = input[tid] * invNorm;
+        if (f.scaled_norm > 0.0f) {
+            output[tid] = precise::divide(input[tid] * f.scale, f.scaled_norm);
         } else {
             va_copy_bits(input, output, tid);
         }

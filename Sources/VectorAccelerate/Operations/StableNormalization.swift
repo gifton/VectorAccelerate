@@ -14,27 +14,32 @@ import simd
 
 /// L2 normalization with Kahan pre-scaling (BE3 §4.4 parity with VectorCore).
 ///
-/// Mirrors `VectorCore.NormalizeKernels` and the GPU kernels exactly:
+/// Numerically identical to VectorAccelerate's Metal kernels (`BasicOperations.metal`,
+/// `L2Normalization.metal`) — the constants and the expression order are shared:
 ///
 /// 1. `maxAbs = max |v_i|`
-/// 2. `den   = max(maxAbs, Float.leastNormalMagnitude)` — the *normal* `FLT_MIN`
-///    (`0x1p-126`), deliberately not `leastNonzeroMagnitude`: it is the clamp that
-///    keeps `1/den` finite (`≤ 2^126`) for subnormal-dominated vectors.
+/// 2. `den   = min(max(maxAbs, 0x1p-126), 0x1p126)` — clamped on both sides so
+///    `scale` is always a *normal* float. The lower bound is `FLT_MIN`
+///    (`Float.leastNormalMagnitude`), deliberately not `leastNonzeroMagnitude`:
+///    below it `1/den` would overflow. Above `2^126`, `1/den` would be subnormal —
+///    harmless on the CPU, but flushed to zero by the GPU's default math mode, so
+///    both sides clamp identically to keep the results bit-comparable.
 /// 3. `scale = 1 / den`
-/// 4. `sumSq = Σ (v_i · scale)²` — every term is `≤ 1`, so the accumulation is
+/// 4. `sumSq = Σ (v_i · scale)²` — every term is `≤ 16`, so the accumulation is
 ///    finite for any finite input (a naive `Σ v²` overflows to `+∞` for `|v| > 1e19`
 ///    and underflows to `0` for subnormal `v`).
-/// 5. `sNorm = √sumSq = ‖v‖ / den`
-/// 6. `norm  = den · sNorm = ‖v‖` — exact reconstruction, cannot overflow.
-/// 7. `out   = v · (scale / sNorm)` — algebraically `v / ‖v‖` — taken only when
-///    `sNorm > 0.5`.
+/// 5. `sNorm = √sumSq = ‖v‖ · scale`
+/// 6. `out   = (v · scale) / sNorm` — algebraically `v / ‖v‖` — taken only when
+///    `sNorm > 0.5`. A *division*, matching the kernels' `precise::divide`: the
+///    equivalent multiply by `1/sNorm` is reassociable by the Metal compiler back
+///    into the subnormal factor `scale/sNorm`, so both sides divide.
 ///
-/// Because `den ≥ 2^-126`, `1/‖v‖` is representable exactly when `‖v‖ > 2^-128`,
-/// i.e. `sNorm > 0.25`; the guard uses `0.5` (one binade stricter) so the
-/// reciprocal `scale / sNorm ≤ 2^127` keeps a factor of two below
-/// `greatestFiniteMagnitude` and no subnormal intermediate is ever formed — the
-/// same expression the Metal kernels use, where a subnormal intermediate would be
-/// flushed to zero and then inverted to `+Inf`. When `den == maxAbs` the largest
+/// `1/‖v‖` is never formed: it is subnormal for every `‖v‖ > 2^126` and does not
+/// exist at all for `‖v‖ > greatestFiniteMagnitude`, yet such vectors are perfectly
+/// normalizable in the pre-scaled domain (`1/sNorm ∈ (0, 2]` and `|v·scale| ≤ 4`
+/// are both normal). Representability of `1/‖v‖` is still the *low-end* criterion:
+/// it holds exactly when `‖v‖ > 2^-128`, i.e. `sNorm > 0.25`; the guard uses `0.5`,
+/// one binade stricter, to keep `1/sNorm ≤ 2`. When `den == maxAbs` the largest
 /// scaled component is `±1`, so `sNorm ≥ 1` and the guard always passes; it can only
 /// fail for the zero vector and for vectors whose largest magnitude is subnormal.
 ///
@@ -42,13 +47,25 @@ import simd
 ///   `VectorCore.NormalizeKernels.normalizeUnchecked`, which leaves the buffer
 ///   untouched rather than scaling every element by `Inf`/`NaN`. For the zero
 ///   vector "unchanged" and "zeroed" coincide.
+/// - Note: Two *deliberate* deviations from `NormalizeKernels.normalizeUnchecked`,
+///   both cases where it is demonstrably wrong: it reconstructs `‖v‖` with the
+///   *unclamped* `maxAbs` (yielding a result of norm 1.1755 when `maxAbs` is
+///   subnormal), and for `‖v‖ > greatestFiniteMagnitude` its `mag` overflows to
+///   `+∞`, whose reciprocal `0` passes its `isFinite` guard and zeroes the whole
+///   vector. This implementation returns the correct unit vector in both cases.
 /// - Complexity: `O(n)` in three passes (max, scaled squares, scale).
 @usableFromInline
 internal enum StableNormalization {
 
-    /// Pre-scale clamp: the smallest positive *normal* float, `0x1p-126`.
+    /// Lower pre-scale clamp: the smallest positive *normal* float, `0x1p-126`.
+    /// Mirrors `VA_NORM_MIN_DENOM` in `Metal4Common.h`.
     @usableFromInline
     internal static let minDenominator: Float = .leastNormalMagnitude
+
+    /// Upper pre-scale clamp, `0x1p126` — keeps `1/den` normal (see the type doc).
+    /// Mirrors `VA_NORM_MAX_DENOM` in `Metal4Common.h`.
+    @usableFromInline
+    internal static let maxDenominator: Float = 0x1p126
 
     /// Guard on `‖v‖ / den`; see the type documentation for the derivation.
     /// Mirrors `VA_NORM_MIN_SCALED` in `Metal4Common.h`.
@@ -66,10 +83,10 @@ internal enum StableNormalization {
         var maxAbs: Float = 0
         vDSP_maxmgv(vector, 1, &maxAbs, n)
 
-        let den = Swift.max(maxAbs, minDenominator)
+        let den = Swift.min(Swift.max(maxAbs, minDenominator), maxDenominator)
         var scale = 1.0 / den
 
-        // Pass 2: sumSq = Σ (v_i · scale)²  (scratch doubles as the output buffer)
+        // Pass 2: sumSq = Σ (v_i · scale)²  (scratch holds the pre-scaled vector)
         var scratch = [Float](repeating: 0, count: count)
         vDSP_vsmul(vector, 1, &scale, &scratch, 1, n)
 
@@ -79,10 +96,11 @@ internal enum StableNormalization {
         let scaledNorm = sqrt(sumSquares)
         guard scaledNorm > minScaledNorm else { return vector }
 
-        // Pass 3: out = v · (1 / ‖v‖), formed as scale / sNorm (no subnormal
-        // intermediate — see the type documentation).
-        var invNorm = scale / scaledNorm
-        vDSP_vsmul(vector, 1, &invNorm, &scratch, 1, n)
+        // Pass 3: out = (v · scale) / sNorm ≡ v / ‖v‖. Dividing the already
+        // pre-scaled buffer keeps every operand in the normal range (‖v‖ itself is
+        // never inverted, and may not even be representable).
+        var divisor = scaledNorm
+        vDSP_vsdiv(scratch, 1, &divisor, &scratch, 1, n)
         return scratch
     }
 
@@ -116,7 +134,7 @@ internal enum StableNormalization {
                 maxAbs = Swift.max(maxAbs, Swift.abs(base[i]))
             }
 
-            den = Swift.max(maxAbs, minDenominator)
+            den = Swift.min(Swift.max(maxAbs, minDenominator), maxDenominator)
             scale = 1.0 / den
 
             // Pass 2: sumSq of the pre-scaled vector
@@ -136,9 +154,9 @@ internal enum StableNormalization {
         let scaledNorm = sqrt(sumSquares)
         guard scaledNorm > minScaledNorm else { return vector }
 
-        // Pass 3: out = v · (1 / ‖v‖), formed as scale / sNorm
-        let invNorm = scale / scaledNorm
-        let invVec = SIMD8<Float>(repeating: invNorm)
+        // Pass 3: out = (v · scale) / sNorm ≡ v / ‖v‖ (see the type doc)
+        let scaleVec = SIMD8<Float>(repeating: scale)
+        let divisorVec = SIMD8<Float>(repeating: scaledNorm)
 
         var result = [Float](repeating: 0, count: count)
         vector.withUnsafeBufferPointer { src in
@@ -147,11 +165,11 @@ internal enum StableNormalization {
                 for i in 0..<full {
                     let offset = i * width
                     let v = UnsafeRawPointer(s + offset).loadUnaligned(as: SIMD8<Float>.self)
-                    let scaled = v * invVec
+                    let scaled = (v * scaleVec) / divisorVec
                     for j in 0..<width { d[offset + j] = scaled[j] }
                 }
                 for i in tailStart..<count {
-                    d[i] = s[i] * invNorm
+                    d[i] = (s[i] * scale) / scaledNorm
                 }
             }
         }
