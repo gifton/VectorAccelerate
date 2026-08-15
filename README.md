@@ -123,7 +123,7 @@ let scalar = try await ScalarQuantKernel(context: context)
 - **Swift 6.0+**
 
 ### Dependencies
-- **VectorCore 0.2.0**: The foundational vector mathematics package
+- **VectorCore 0.3.2**: The foundational vector mathematics package
 
 ### Products
 - **VectorAccelerate**: Core GPU acceleration library
@@ -308,7 +308,7 @@ Add VectorAccelerate to your `Package.swift`:
 ```swift
 dependencies: [
     .package(url: "https://github.com/gifton/VectorAccelerate.git", from: "0.5.0"),
-    .package(url: "https://github.com/gifton/VectorCore.git", from: "0.2.0")
+    .package(url: "https://github.com/gifton/VectorCore.git", from: "0.3.2")
 ],
 targets: [
     .target(
@@ -586,7 +586,7 @@ For production use, prefer the **flat index** until these are resolved (see `QUA
 
 ### Metal Shader Compilation
 
-Shaders are validated with `-std=metal3.0` in CI for syntax checking, but the runtime requires **Metal 4** features (macOS 26.0+). This is intentional — Metal 3 syntax is a subset of Metal 4.
+Shaders are validated with `-std=metal4.0` in CI, matching the runtime requirement of **Metal 4** features (macOS 26.0+).
 
 ## 🧪 Testing
 

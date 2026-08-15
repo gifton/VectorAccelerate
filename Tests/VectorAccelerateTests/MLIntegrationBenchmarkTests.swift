@@ -572,7 +572,9 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
         print("Compression ratio: \(String(format: "%.1f", config.compressionRatio))x")
 
         // Should achieve reasonable throughput
-        XCTAssertGreaterThan(throughput, 1000, "Neural encoding should process >1000 vectors/sec")
+        if PerfGate.strict {
+            XCTAssertGreaterThan(throughput, 1000, "Neural encoding should process >1000 vectors/sec")
+        }
     }
 
     /// Benchmark: Neural encoding throughput (384 -> 64) - MiniLM config
@@ -606,7 +608,9 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
         print("Throughput: \(String(format: "%.0f", throughput)) vectors/sec")
         print("Compression ratio: \(String(format: "%.1f", config.compressionRatio))x")
 
-        XCTAssertGreaterThan(throughput, 2000, "MiniLM encoding should be faster")
+        if PerfGate.strict {
+            XCTAssertGreaterThan(throughput, 2000, "MiniLM encoding should be faster")
+        }
     }
 
     /// Benchmark: High compression (768 -> 64)
@@ -952,7 +956,9 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
         // Performance floor: GitHub-hosted macOS runners use a virtualized GPU
         // that delivers ~90k vec/s on this workload (vs ~500k+ on dedicated
         // Apple Silicon). 50k is a regression detector, not a perf target.
-        XCTAssertGreaterThan(transposedThroughput, 50_000, "Transposed decode should exceed 50k vec/s (CI floor)")
+        if PerfGate.strict {
+            XCTAssertGreaterThan(transposedThroughput, 50_000, "Transposed decode should exceed 50k vec/s (CI floor)")
+        }
     }
 
     /// Helper to decode and return output values
@@ -1066,7 +1072,9 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
         print(String(format: "Numerical accuracy: max diff = %.6f", maxDiff))
 
         XCTAssertEqual(maxDiff, 0, "decode() and decodeFlat() should produce identical results")
-        XCTAssertGreaterThan(decodeThroughput, 10000, "decode() should exceed 10K vec/s with optimizations")
+        if PerfGate.strict {
+            XCTAssertGreaterThan(decodeThroughput, 10000, "decode() should exceed 10K vec/s with optimizations")
+        }
     }
 
     /// Benchmark: End-to-end decode performance with buffer pooling.
@@ -1116,7 +1124,9 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
         print(String(format: "Stable avg| %10.2f | %17.0f", stableAvg * 1000, stableThroughput))
 
         // Target: >50k vec/s with buffer pooling and extraction optimization
-        XCTAssertGreaterThan(stableThroughput, 20000, "Pooled decode should exceed 20K vec/s")
+        if PerfGate.strict {
+            XCTAssertGreaterThan(stableThroughput, 20000, "Pooled decode should exceed 20K vec/s")
+        }
     }
 
     // MARK: - Scaling Benchmarks
@@ -1224,7 +1234,9 @@ final class AttentionSimilarityBenchmarkTests: XCTestCase {
         print("Avg time: \(String(format: "%.2f", avgTime * 1000)) ms")
         print("Throughput: \(String(format: "%.0f", throughput)) pairs/sec")
 
-        XCTAssertGreaterThan(throughput, 10000, "Should process >10K pairs/sec")
+        if PerfGate.strict {
+            XCTAssertGreaterThan(throughput, 10000, "Should process >10K pairs/sec")
+        }
     }
 
     /// Benchmark: Single-head attention (384 -> 64) MiniLM style
@@ -1299,7 +1311,9 @@ final class AttentionSimilarityBenchmarkTests: XCTestCase {
         print("Avg time: \(String(format: "%.2f", avgTime * 1000)) ms")
         print("Throughput: \(String(format: "%.0f", throughput)) pairs/sec")
 
-        XCTAssertGreaterThan(throughput, 5000, "Multi-head should still be reasonably fast")
+        if PerfGate.strict {
+            XCTAssertGreaterThan(throughput, 5000, "Multi-head should still be reasonably fast")
+        }
     }
 
     /// Benchmark: Multi-head attention (MiniLM config)

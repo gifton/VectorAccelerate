@@ -5,6 +5,18 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **End-to-end dispatch tests** (`OperationsDispatchTests`): proves VectorCore's `Operations.findNearest` / `findNearestBatch` route through `Operations.$computeProvider` to the installed `BatchKernelProvider`.
+
+### Deprecated
+- **`BatchOperations.normalizeGPU` / `normalizeGPUUnchecked` / `scaleGPU`** join the 0.5.0 deprecation wave, **scheduled for removal in 0.6.0**. They were carved out of that wave but are unused, pay a fresh `Metal4Context` per call with a sequential per-vector loop, and `normalizeGPU` silently drops vectors whose reconstruction fails (`try?`), so the output can be shorter than the input. Construct `AcceleratedVectorOperations` and call `normalize(_:)` / `scale(_:by:)` directly.
+
+### Changed
+- **Dependency: VectorCore floor raised 0.3.0 → 0.3.2.** `Package.resolved` is now tracked in git for reproducible resolution across local/CI/clones.
+- **Transitive public surface growth.** Via the package's `@_exported import VectorCore`, consumers now transitively receive VectorCore 0.3.2's enlarged public surface (`LinearAlgebra`, `ManifoldLearning`, `AccelerateArraySIMDProvider`) and its new `VectorCoreC` C target builds as a transitive dependency.
+
 ## [0.5.0] - 2026-06-06
 
 The GPU compute façade + VectorCore 0.3.0 integration, layered on the earlier remediation of an external architectural & numerical audit (17 findings: 13 fixed, 2 refuted as non-issues, 1 deprecated/broken kernel removed). The minor bump reflects the new `MetalComputeProvider` API, the deprecation of the scattered GPU surface, the removed deprecated kernel, and the behavioral change to fused activation.
@@ -12,7 +24,7 @@ The GPU compute façade + VectorCore 0.3.0 integration, layered on the earlier r
 > Release notes for 0.4.3–0.4.4 are recorded in the `Package.swift` header.
 
 ### Added
-- **`MetalComputeProvider`** — a single GPU compute façade (`batchDistance`, `findNearest`/top-K, `distanceMatrix`, single `distance`) that routes GPU-vs-CPU through `GPUDecisionEngine`, falls back to Accelerate, and reuses the no-copy kernel staging. Conforms to VectorCore's **`BatchKernelProvider`** — the R4 dispatch hook shipped in VectorCore 0.3.0. Installed as `Operations.computeProvider`, it makes VectorCore's `Operations.findNearest` / `findNearestBatch` dispatch transparently to the GPU: euclidean/cosine run on the fused distance+top-K kernel, and every other metric falls back to that metric's own `batchDistance` so results never diverge from the CPU path.
+- **`MetalComputeProvider`** — a single GPU compute façade (`batchDistance`, `findNearest`/top-K, `distanceMatrix`, single `distance`) that routes GPU-vs-CPU through `GPUDecisionEngine`, falls back to Accelerate, and reuses the no-copy kernel staging. Conforms to VectorCore's **`BatchKernelProvider`** — the R4 dispatch hook shipped in VectorCore 0.3.0. Installed via `Operations.$computeProvider.withValue(provider) { … }`, it makes VectorCore's `Operations.findNearest` / `findNearestBatch` dispatch transparently to the GPU inside the scope: euclidean/cosine run on the fused distance+top-K kernel, and every other metric falls back to that metric's own `batchDistance` so results never diverge from the CPU path.
 
 ### Deprecated
 - **The scattered GPU distance/search surface**, all superseded by `MetalComputeProvider` and **scheduled for removal in 0.6.0**: `BatchOperations.findNearestGPU` / `batchDistancesGPU` / `pairwiseDistancesGPU` (now thin delegates to the provider — also fixing `pairwiseDistancesGPU`'s Chebyshev-as-Euclidean bug), `AcceleratedDistanceProvider`, the `acceleratedDistance(to:metric:)` / `acceleratedDistanceOptimized(...)` convenience extensions, and the `AcceleratedVectorFactory.createDefaultProviders` / `createProviders` / `VectorCoreIntegration.createDistanceProvider` vendors. (`AcceleratedVectorOperations` vector ops are unaffected.)

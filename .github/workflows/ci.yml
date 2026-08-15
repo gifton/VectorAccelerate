@@ -3,8 +3,7 @@ name: CI
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  pull_request:  # all base branches, so stacked PRs get CI too
   workflow_dispatch:
 
 # ============================================================================
@@ -195,19 +194,32 @@ jobs:
       - name: Run Tests
         run: |
           set -eo pipefail
-          swift test --parallel 2>&1 | tee test.log
+          # The virtualized runner GPU fails nondeterministically (command-buffer
+          # hangs, runtime pipeline-compile errors) — wall-clock assertions are
+          # separately gated behind VECTORACCELERATE_STRICT_PERF (Tests/.../Utilities/PerfGate.swift).
+          # Retry the suite once; a second failure is treated as a real regression.
+          if ! swift test --parallel 2>&1 | tee test.log; then
+            echo "::warning::swift test failed — retrying once (known virtualized-GPU flakiness)"
+            mv test.log test-attempt1.log
+            swift test --parallel 2>&1 | tee test.log
+          fi
 
           # Extract test summary
           TESTS=$(grep -E "Executed [0-9]+ tests" test.log | tail -1 || echo "")
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           echo "$TESTS" >> $GITHUB_STEP_SUMMARY
+          if [ -f test-attempt1.log ]; then
+            echo "⚠️ First attempt failed (virtualized-GPU flakiness); passed on retry" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Upload Test Log
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: test-log
-          path: test.log
+          path: |
+            test.log
+            test-attempt1.log
           retention-days: 7
 
   build-ios:

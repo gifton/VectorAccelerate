@@ -38,10 +38,7 @@ playground.xcworkspace
 .swiftpm/
 Packages/
 Package.pins
-Package.resolved
 *.xcodeproj
-# Uncomment if you have a Package.resolved you want to check in
-Package.resolved
 
 # CocoaPods
 # ==========
@@ -246,6 +243,7 @@ VectorAccelerateBenchmarks.xcodeproj/
 VectorAccelerate.xcodeproj/
 .benchmark/
 .metal-cache/
+.superpowers/
 
 # Development Tools
 # =================

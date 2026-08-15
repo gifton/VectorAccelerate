@@ -13,6 +13,12 @@
 // There is NO backwards compatibility with older OS versions.
 // For Metal 3 support, use VectorAccelerate 0.2.x or earlier.
 //
+// Unreleased — VectorCore 0.3.2 floor:
+//   - Changed: VectorCore dependency floor raised 0.3.0 → 0.3.2 (version-constant fix, @TaskLocal doc
+//     idiom, AccelerateArraySIMDProvider upstream)
+//   - Changed: Package.resolved now tracked in git for reproducible resolution across local/CI/clones
+//   - Requires VectorCore 0.3.2+
+//
 // 0.5.0 — GPU compute façade + VectorCore 0.3.0 integration + audit remediation:
 //   - Added: MetalComputeProvider (unified GPU façade) conforming to VectorCore's BatchKernelProvider (R4)
 //     — transparent GPU dispatch for Operations.findNearest/findNearestBatch
@@ -79,7 +85,7 @@ let package = Package(
     ],
     dependencies: [
         // VectorCore for base protocols and types
-        .package(url: "https://github.com/gifton/VectorCore", from: "0.3.0"),
+        .package(url: "https://github.com/gifton/VectorCore", from: "0.3.2"),
         // MetalCompilerPlugin for debuggable Metal shaders (enables Xcode Metal Debugger)
         .package(url: "https://github.com/schwa/MetalCompilerPlugin", from: "0.1.5")
     ],

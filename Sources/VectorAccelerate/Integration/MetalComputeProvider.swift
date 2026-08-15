@@ -16,10 +16,11 @@ import VectorCore
 /// GPU compute façade for VectorAccelerate.
 ///
 /// Conforms to VectorCore's **`BatchKernelProvider`** — the R4 dispatch hook shipped in VectorCore
-/// 0.3.0. Installing this as `Operations.computeProvider` makes VectorCore's `Operations.findNearest`
-/// / `findNearestBatch` dispatch transparently to the GPU: euclidean/cosine run on the fused
-/// distance+top-K kernel (GPU vote), and every other metric falls back to that metric's own
-/// `batchDistance` so results never diverge from the CPU path.
+/// 0.3.0. Installing this via `Operations.$computeProvider.withValue(provider) { … }` makes
+/// VectorCore's `Operations.findNearest` / `findNearestBatch` dispatch transparently to the GPU
+/// inside the scope: euclidean/cosine run on the fused distance+top-K kernel (GPU vote), and every
+/// other metric falls back to that metric's own `batchDistance` so results never diverge from the
+/// CPU path.
 ///
 /// The inherited `ComputeProvider` scheduling members (`execute` / `parallel*`) still just *schedule*
 /// their closures via Swift concurrency — they do not GPU-accelerate arbitrary CPU closures. GPU work
