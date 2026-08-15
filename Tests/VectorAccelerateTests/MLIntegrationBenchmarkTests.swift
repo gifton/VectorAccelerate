@@ -1172,6 +1172,8 @@ final class AttentionSimilarityBenchmarkTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
+        // Wedges the virtualized CI GPU under sustained load — see PerfGate.
+        try PerfGate.skipUnlessGPUStressAllowed()
         guard MTLCreateSystemDefaultDevice() != nil else {
             throw XCTSkip("Metal device not available")
         }
