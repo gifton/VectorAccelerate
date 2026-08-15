@@ -21,6 +21,142 @@
 // Local alias for backward compatibility
 constant float EPSILON = VA_EPSILON;
 
+// =============================================================================
+// MARK: - Normalization Core (BE3 §4.4 — parity with VectorCore CPU)
+// =============================================================================
+//
+// `vectorNormalize`, `normalizeVectors` and `batchNormalize` all run the same
+// two-pass Kahan pre-scaled algorithm as VectorCore's `NormalizeKernels`, with
+// both passes reduced across the threadgroup:
+//
+//   1. maxAbs = max |v_i|                            (threadgroup max reduction)
+//   2. den    = max(maxAbs, VA_NORM_MIN_DENOM)       // 0x1p-126f, the *normal* FLT_MIN
+//   3. scale  = 1 / den                              // finite: den >= 2^-126 => scale <= 2^126
+//   4. sumSq  = Σ (v_i · scale)²                     (threadgroup sum reduction; each term <= 1)
+//   5. sNorm  = sqrt(sumSq) = ||v|| / den
+//   6. ||v||  = den · sNorm                          // exact reconstruction (never materialized)
+//   7. out    = v · (scale / sNorm) = v / ||v||      // iff sNorm > 0.5 (see VA_NORM_MIN_SCALED)
+//
+// The previous implementation accumulated Σ v² directly and fell back to
+// `magnitude > EPSILON (1e-7)`, which diverged from the CPU three ways: vectors
+// with subnormal components underflowed to magnitude 0, vectors with huge
+// components overflowed to +Inf (then divided to all-zero), and any vector with a
+// legitimately small norm (e.g. 1e-19) was silently returned unnormalized.
+//
+// Degenerate policy (step 7 guard fails): the true zero vector and vectors whose
+// norm is too small for 1/||v|| to be representable in FP32 are copied through
+// **unchanged**. That is exactly what VectorCore's
+// `NormalizeKernels.normalizeUnchecked` / `normalizedUncheckedNNN` do — they
+// leave the buffer untouched rather than scaling it by Inf/NaN. (VectorCore's
+// *checked* `normalized()` returns `.failure` for these inputs; these kernels have
+// no error channel, so they mirror the unchecked form.)
+//
+// Denormal (FTZ) invariance: the step-7 guard compares only normal-range values,
+// and the pass-through copies raw bits (`va_copy_bits`) rather than float values,
+// because Metal's default math mode flushes subnormals to zero — a float copy
+// would silently rewrite a subnormal input as 0 and diverge from the CPU. The
+// decision itself is FTZ-invariant: a subnormal-magnitude vector either reduces to
+// maxAbs == 0 (denormals flushed) or to sNorm <= 0.5 (denormals honored), and
+// both land on the pass-through.
+//
+// Residual limitation: a vector whose components are *all* subnormal but whose
+// norm still exceeds 2^-127 (e.g. every component 1e-38) is normalizable on the
+// CPU but passes through unchanged on a GPU that flushes denormals — normalizing
+// it requires arithmetic on subnormal operands, which such a GPU cannot do.
+
+#define VA_NORM_REDUCE_LANES 256u
+
+/// Bit-exact element copy used by the degenerate pass-through.
+///
+/// A float load/store would be flushed to zero for subnormal values under Metal's
+/// default (denormals-are-zero) math mode, turning "return the input unchanged"
+/// into "return zeros" and diverging from the CPU. Copying the raw 32-bit pattern
+/// is immune to that.
+inline void va_copy_bits(device const float* src, device float* dst, uint i) {
+    ((device uint*)dst)[i] = ((device const uint*)src)[i];
+}
+
+/// Threadgroup tree reduction (max). `scratch` must hold at least `lanes` floats.
+///
+/// Every thread of the threadgroup must call this — the barriers are uniform.
+/// Threads with `lane >= lanes` contribute nothing and simply pass through.
+/// Correct for any `lanes` in [1, VA_NORM_REDUCE_LANES], power of two or not:
+/// the `lane + stride < lanes` guard folds the ragged tail into the low lanes on
+/// the first pass, after which the tree is a clean power-of-two reduction.
+inline float va_tg_reduce_max(float value, threadgroup float* scratch, uint lane, uint lanes) {
+    if (lane < lanes) { scratch[lane] = value; }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (uint stride = VA_NORM_REDUCE_LANES / 2; stride > 0; stride >>= 1) {
+        if (lane < stride && lane + stride < lanes) {
+            scratch[lane] = max(scratch[lane], scratch[lane + stride]);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    const float result = scratch[0];
+    threadgroup_barrier(mem_flags::mem_threadgroup);  // every read completes before reuse
+    return result;
+}
+
+/// Threadgroup tree reduction (sum). See `va_tg_reduce_max` for the contract.
+inline float va_tg_reduce_add(float value, threadgroup float* scratch, uint lane, uint lanes) {
+    if (lane < lanes) { scratch[lane] = value; }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (uint stride = VA_NORM_REDUCE_LANES / 2; stride > 0; stride >>= 1) {
+        if (lane < stride && lane + stride < lanes) {
+            scratch[lane] += scratch[lane + stride];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    const float result = scratch[0];
+    threadgroup_barrier(mem_flags::mem_threadgroup);  // every read completes before reuse
+    return result;
+}
+
+/// Steps 1–7 of the normalization policy above, computed cooperatively.
+///
+/// Every thread receives the same result; `lane`/`lanes` must be uniform across
+/// the threadgroup.
+///
+/// - Returns: `1/||v||_2`, or `0` when that reciprocal is not representable in
+///   FP32 (the caller then passes the input through unchanged). The reciprocal is
+///   formed as `scale / sNorm` rather than `1 / (den · sNorm)`: the two are
+///   algebraically identical, but the former never materializes the product
+///   `den · sNorm`, which is subnormal for deep-subnormal vectors and would be
+///   flushed to zero — and then inverted to +Inf — on a GPU with denormals-are-zero.
+inline float va_normalize_inv_norm(
+    device const float* v,
+    uint dimension,
+    threadgroup float* scratch,
+    uint lane,
+    uint lanes
+) {
+    float local_max = 0.0f;
+    if (lane < lanes) {
+        for (uint i = lane; i < dimension; i += lanes) {
+            local_max = max(local_max, fabs(v[i]));
+        }
+    }
+    const float max_abs = va_tg_reduce_max(local_max, scratch, lane, lanes);
+
+    const float den = max(max_abs, VA_NORM_MIN_DENOM);
+    const float scale = 1.0f / den;
+
+    float local_sum = 0.0f;
+    if (lane < lanes) {
+        for (uint i = lane; i < dimension; i += lanes) {
+            const float s = v[i] * scale;
+            local_sum = fma(s, s, local_sum);
+        }
+    }
+    const float scaled_norm = sqrt(va_tg_reduce_add(local_sum, scratch, lane, lanes));
+
+    return (scaled_norm > VA_NORM_MIN_SCALED) ? (scale / scaled_norm) : 0.0f;
+}
+
 // MARK: - Basic Distance Operations
 
 /// Compute Euclidean distance between two vectors
@@ -203,45 +339,35 @@ kernel void batchNormalize(
     if (vector_idx >= num_vectors) return;
     
     const uint vector_offset = vector_idx * dimension;
-    
-    // Phase 1: Compute magnitude for this vector (parallel reduction)
-    float local_sum = 0.0f;
+
+    // Phase 1: Compute ||v|| with the pre-scaled two-pass algorithm (see the
+    // normalization policy above). `shared_sums` is the caller-provided scratch;
+    // only its first min(tg_size, 256) elements are touched.
+    const uint lanes = min(tg_size, VA_NORM_REDUCE_LANES);
+    const float invNorm = va_normalize_inv_norm(
+        input + vector_offset, dimension, shared_sums, tid, lanes);
+
+    // Phase 2: Normalize all dimensions of this vector (degenerate → unchanged)
     for (uint d = tid; d < dimension; d += tg_size) {
-        float val = input[vector_offset + d];
-        local_sum += val * val;
-    }
-    
-    // Shared memory reduction
-    shared_sums[tid] = local_sum;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    
-    // Tree reduction
-    for (uint stride = tg_size / 2; stride > 0; stride /= 2) {
-        if (tid < stride) {
-            shared_sums[tid] += shared_sums[tid + stride];
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    
-    // Get final magnitude
-    threadgroup float magnitude;
-    if (tid == 0) {
-        magnitude = sqrt(shared_sums[0]);
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    
-    // Phase 2: Normalize all dimensions of this vector
-    for (uint d = tid; d < dimension; d += tg_size) {
-        if (magnitude > EPSILON) {
-            output[vector_offset + d] = input[vector_offset + d] / magnitude;
+        const uint idx = vector_offset + d;
+        if (invNorm > 0.0f) {
+            output[idx] = input[idx] * invNorm;
         } else {
-            output[vector_offset + d] = input[vector_offset + d];
+            va_copy_bits(input, output, idx);
         }
     }
 }
 
 /// Optimized batch normalization for contiguous vectors
 /// Uses 2D grid for efficient parallel processing
+///
+/// - Warning: Legacy/unused. This kernel accumulates the magnitude with device
+///   atomics across threadgroups and then relies on a threadgroup barrier for
+///   cross-threadgroup visibility, which Metal does not provide — the magnitude
+///   it reads back is not guaranteed complete. It is therefore left on the old
+///   `EPSILON` path and does **not** implement the normalization policy above.
+///   Use `batchNormalize` (threadgroup-per-vector) or the `l2_normalize_*`
+///   kernels, both of which are CPU-parity correct.
 kernel void batchNormalize2D(
     device const float* input [[buffer(0)]],      // [num_vectors, dimension]
     device float* output [[buffer(1)]],           // [num_vectors, dimension]
@@ -286,7 +412,14 @@ kernel void batchNormalize2D(
 }
 
 /// Normalize vector to unit length (single vector)
-/// Two-pass algorithm for numerical stability
+///
+/// Two-pass pre-scaled algorithm — see the normalization policy at the top of
+/// this file. Every threadgroup redundantly reduces the whole vector, so the
+/// dispatch may cover `dimension` with any number of threadgroups.
+///
+/// Degenerate inputs (zero vector; ||v|| too small for 1/||v|| to be
+/// representable) are copied through unchanged, matching VectorCore's
+/// `NormalizeKernels.normalizeUnchecked`.
 kernel void vectorNormalize(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
@@ -295,38 +428,16 @@ kernel void vectorNormalize(
     uint threadId [[thread_position_in_threadgroup]],
     uint tgSize [[threads_per_threadgroup]]
 ) {
-    threadgroup float partialSums[256];
-    
-    // First pass: compute magnitude
-    float localSum = 0.0f;
-    for (uint i = threadId; i < dimension; i += tgSize) {
-        float val = input[i];
-        localSum += val * val;
-    }
-    
-    partialSums[threadId] = localSum;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    
-    // Reduction for magnitude
-    for (uint stride = tgSize / 2; stride > 0; stride /= 2) {
-        if (threadId < stride) {
-            partialSums[threadId] += partialSums[threadId + stride];
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    
-    threadgroup float magnitude;
-    if (threadId == 0) {
-        magnitude = sqrt(partialSums[0]);
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    
-    // Second pass: normalize each element
+    threadgroup float partialSums[VA_NORM_REDUCE_LANES];
+    const uint lanes = min(tgSize, VA_NORM_REDUCE_LANES);
+
+    const float invNorm = va_normalize_inv_norm(input, dimension, partialSums, threadId, lanes);
+
     if (tid < dimension) {
-        if (magnitude > EPSILON) {
-            output[tid] = input[tid] / magnitude;
+        if (invNorm > 0.0f) {
+            output[tid] = input[tid] * invNorm;
         } else {
-            output[tid] = input[tid];
+            va_copy_bits(input, output, tid);
         }
     }
 }
@@ -524,7 +635,7 @@ kernel void elementwiseMultiply(
 // MARK: - Shader Aliases for Compatibility
 
 /// Alias for vectorNormalize - some code expects "normalizeVectors"
-/// Note: This duplicates the vectorNormalize code since kernels can't call other kernels
+/// Both kernels share `va_normalize_inv_norm`, so they cannot drift apart.
 kernel void normalizeVectors(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
@@ -533,38 +644,16 @@ kernel void normalizeVectors(
     uint threadId [[thread_position_in_threadgroup]],
     uint tgSize [[threads_per_threadgroup]]
 ) {
-    threadgroup float partialSums[256];
-    
-    // First pass: compute magnitude
-    float localSum = 0.0f;
-    for (uint i = threadId; i < dimension; i += tgSize) {
-        float val = input[i];
-        localSum += val * val;
-    }
-    
-    partialSums[threadId] = localSum;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    
-    // Reduction for magnitude
-    for (uint stride = tgSize / 2; stride > 0; stride /= 2) {
-        if (threadId < stride) {
-            partialSums[threadId] += partialSums[threadId + stride];
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    
-    threadgroup float magnitude;
-    if (threadId == 0) {
-        magnitude = sqrt(partialSums[0]);
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    
-    // Second pass: normalize each element
+    threadgroup float partialSums[VA_NORM_REDUCE_LANES];
+    const uint lanes = min(tgSize, VA_NORM_REDUCE_LANES);
+
+    const float invNorm = va_normalize_inv_norm(input, dimension, partialSums, threadId, lanes);
+
     if (tid < dimension) {
-        if (magnitude > EPSILON) {
-            output[tid] = input[tid] / magnitude;
+        if (invNorm > 0.0f) {
+            output[tid] = input[tid] * invNorm;
         } else {
-            output[tid] = input[tid];
+            va_copy_bits(input, output, tid);
         }
     }
 }

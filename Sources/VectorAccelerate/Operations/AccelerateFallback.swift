@@ -81,17 +81,15 @@ public struct AccelerateFallback {
     // MARK: - Vector Operations
     
     /// Normalize a vector using Accelerate
+    ///
+    /// Uses the Kahan pre-scaled algorithm (see ``StableNormalization``), so the
+    /// result matches VectorCore's CPU normalization — and VectorAccelerate's
+    /// Metal kernels — for subnormal and huge-magnitude inputs alike.
+    ///
+    /// - Returns: `v / ‖v‖₂`, or `v` unchanged when `1/‖v‖₂` is not representable
+    ///   in FP32 (the zero vector and deep-subnormal vectors).
     public static func normalize(_ vector: [Float]) -> [Float] {
-        var norm: Float = 0
-        vDSP_svesq(vector, 1, &norm, vDSP_Length(vector.count))
-        norm = sqrt(norm)
-        
-        guard norm > 0 else { return vector }
-        
-        var result = [Float](repeating: 0, count: vector.count)
-        var divisor = norm
-        vDSP_vsdiv(vector, 1, &divisor, &result, 1, vDSP_Length(vector.count))
-        return result
+        StableNormalization.normalizedAccelerate(vector)
     }
     
     /// Add two vectors using Accelerate

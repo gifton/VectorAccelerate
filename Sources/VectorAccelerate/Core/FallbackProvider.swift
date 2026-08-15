@@ -181,23 +181,17 @@ public struct FallbackProvider: Sendable {
 
     /// Normalize a vector to unit length.
     ///
+    /// Kahan pre-scaled (see ``StableNormalization``), so the result matches
+    /// VectorCore's CPU normalization and VectorAccelerate's Metal kernels for
+    /// subnormal and huge-magnitude inputs alike.
+    ///
     /// - Parameter vector: Input vector
-    /// - Returns: Unit vector, or original if zero-length
+    /// - Returns: `v / ‖v‖₂`, or the input unchanged when `1/‖v‖₂` is not
+    ///   representable in FP32 (empty input, the zero vector, deep subnormals)
     ///
     /// - Complexity: O(n) where n is vector dimension
     public func normalize(_ vector: [Float]) -> [Float] {
-        guard !vector.isEmpty else { return vector }
-
-        var norm: Float = 0
-        vDSP_dotpr(vector, 1, vector, 1, &norm, vDSP_Length(vector.count))
-        norm = sqrt(norm)
-
-        guard norm > 0 else { return vector }
-
-        var result = [Float](repeating: 0, count: vector.count)
-        var divisor = norm
-        vDSP_vsdiv(vector, 1, &divisor, &result, 1, vDSP_Length(vector.count))
-        return result
+        StableNormalization.normalizedAccelerate(vector)
     }
 
     /// Normalize a batch of vectors.

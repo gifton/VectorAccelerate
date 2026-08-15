@@ -179,6 +179,10 @@ public actor AcceleratedVectorOperations: VectorOperationsProvider {
         return try T(scaled)
     }
 
+    /// Normalize a vector on the GPU: `v / ‖v‖₂`.
+    ///
+    /// Matches VectorCore's CPU normalization for every input class (subnormal,
+    /// huge, degenerate) — see ``Metal4ComputeEngine/normalize(_:)``.
     public func normalize<T: VectorProtocol>(_ vector: T) async throws -> T where T.Scalar == Float {
         let array = vector.toArray()
         let normalized = try await engine.normalize(array)

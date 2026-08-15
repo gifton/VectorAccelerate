@@ -58,6 +58,33 @@ constant float VA_EPSILON = 1e-7f;
 constant float VA_EPSILON_HALF = 1e-4h;
 constant float VA_INFINITY = INFINITY;
 
+// -----------------------------------------------------------------------------
+// Normalization policy constants (BE3 §4.4 — CPU parity with VectorCore's
+// NormalizeKernels). Every VectorAccelerate normalize kernel pre-scales by
+// 1 / max(maxAbs, VA_NORM_MIN_DENOM) before accumulating squares.
+// -----------------------------------------------------------------------------
+
+// Smallest positive *normal* float (0x1p-126f == FLT_MIN == Swift's
+// Float.leastNormalMagnitude). Deliberately NOT the denormal minimum: it is the
+// clamp that keeps 1/den finite (<= 2^126) for subnormal-dominated vectors.
+constant float VA_NORM_MIN_DENOM = 0x1p-126f;
+
+// Guard on the pre-scaled norm sNorm = ||v|| / den, i.e. on ||v|| >= 2^-127.
+//
+// The exact representability condition for 1/||v|| in FP32 is ||v|| > 2^-128
+// (= 1/FLT_MAX), which for den == 2^-126 is `sNorm > 0.25`. This constant is one
+// binade stricter so that the reciprocal — formed as `scale / sNorm` with
+// scale <= 2^126 — stays at or below 2^127, a full factor of two below FLT_MAX,
+// and so that no subnormal intermediate is ever produced (a GPU running with
+// denormals-are-zero would flush such an intermediate and invert it to +Inf).
+// The resulting output is bounded by |v_i| / ||v|| <= 1/sNorm <= 2.
+//
+// When den == maxAbs the largest scaled component is ±1, so sNorm >= 1 and the
+// guard always passes; it can only fail for the zero vector and for vectors whose
+// largest magnitude is subnormal. The comparison involves only normal-range
+// values, so the outcome does not depend on the GPU's denormal (FTZ) mode.
+constant float VA_NORM_MIN_SCALED = 0.5f;
+
 // Sentinel values for invalid indices
 constant uint VA_INVALID_INDEX = 0xFFFFFFFF;
 constant uint VA_SENTINEL_INDEX = 0xFFFFFFFF;

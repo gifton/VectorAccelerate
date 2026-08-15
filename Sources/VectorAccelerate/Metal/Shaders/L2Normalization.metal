@@ -4,6 +4,47 @@
 //
 // MSL Version: 4.0 (Metal 4 SDK)
 // Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
+//
+// -----------------------------------------------------------------------------
+// Numerical policy (BE3 §4.4 — parity with VectorCore's NormalizeKernels)
+// -----------------------------------------------------------------------------
+// One thread owns one vector and runs the two-pass Kahan pre-scaled algorithm:
+//
+//   1. maxAbs = max |v_i|
+//   2. den    = max(maxAbs, VA_NORM_MIN_DENOM)     // 0x1p-126f, the *normal* FLT_MIN
+//   3. scale  = 1 / den                            // always finite: den >= 2^-126 => scale <= 2^126
+//   4. sumSq  = Σ (v_i · scale)²                   // every term <= 1 => finite for any finite input
+//   5. sNorm  = sqrt(sumSq) = ||v|| / den
+//   6. norm   = den · sNorm = ||v||                // exact reconstruction, no overflow
+//   7. out    = v · (scale / sNorm) = v / ||v||    // iff sNorm > 0.5 (VA_NORM_MIN_SCALED)
+//
+// Without step 1–3 the naive Σ v² underflows to 0 for subnormal-magnitude vectors
+// (GPU returned an all-zero vector where the CPU returns a unit vector) and
+// overflows to +Inf for vectors with huge components (GPU returned an all-zero
+// vector after dividing by +Inf). Both are now gone: sumSq is bounded by the
+// dimension count, and `norm` is the true L2 norm for every finite input.
+//
+// Degenerate inputs (step 7 guard fails — the true zero vector, and vectors whose
+// magnitude is so small that 1/||v|| overflows FP32) are copied through
+// **unchanged**, matching VectorCore's `NormalizeKernels.normalizeUnchecked`,
+// which leaves the buffer untouched rather than poisoning it with Inf/NaN. For the
+// zero vector "unchanged" and "zeroed" coincide, so this also preserves the
+// historical L2 behavior.
+//
+// Denormal (FTZ) invariance: the step-7 guard compares only normal-range values,
+// and the pass-through copies raw bits (`l2_copy_bits`), because Metal's default
+// math mode flushes subnormals to zero — a float copy would rewrite a subnormal
+// input as 0. A subnormal-magnitude vector reduces to maxAbs == 0 (denormals
+// flushed) or to sNorm <= 0.5 (denormals honored); both land on the pass-through.
+// Residual limitation: an all-subnormal vector whose norm still exceeds 2^-127 is
+// normalizable on the CPU but passes through unchanged on a GPU that flushes
+// denormals — normalizing it needs arithmetic on subnormal operands.
+//
+// `epsilon` is purely the caller's *explicit* degenerate threshold: vectors with
+// 0 < ||v|| <= epsilon are zeroed. It is no longer load-bearing for numerical
+// stability, so it defaults to 0 on the Swift side; no epsilon value (including 0)
+// can produce Inf/NaN because the reciprocal is only ever formed after the
+// `sNorm > VA_NORM_MIN_SCALED` guard has proved it representable.
 
 #include "Metal4Common.h"
 
@@ -21,8 +62,33 @@ struct L2NormParams {
 
 // MARK: - Helper Functions (Implementation Requirements 1 & 2)
 
-// Helper to compute the norm squared using SIMD and handle remainders
-float compute_norm_sq(device const float* vector, uint dimension) {
+/// Result of the pre-scaled norm computation for one vector.
+struct L2NormFactor {
+    float scale;        // 1 / max(maxAbs, VA_NORM_MIN_DENOM), always finite
+    float scaled_norm;  // ||v||_2 · scale — normal-range whenever the vector is nonzero
+    float norm;         // ||v||_2, exact Kahan reconstruction; reported, never inverted
+    float inv_norm;     // 1/||v||_2, or 0 when that reciprocal is not representable in FP32
+};
+
+/// Maximum absolute component of a vector (pass 1 of the stable algorithm).
+inline float l2_max_abs(device const float* vector, uint dimension) {
+    const uint simd_blocks = dimension / 4;
+    device const float4* vec4 = (device const float4*)vector;
+
+    float4 acc = 0.0f;
+    for (uint i = 0; i < simd_blocks; ++i) {
+        acc = max(acc, fabs(vec4[i]));
+    }
+    float max_abs = max(max(acc.x, acc.y), max(acc.z, acc.w));
+
+    for (uint i = simd_blocks * 4; i < dimension; ++i) {
+        max_abs = max(max_abs, fabs(vector[i]));
+    }
+    return max_abs;
+}
+
+/// Sum of squares of the pre-scaled vector: Σ (v_i · scale)² (pass 2).
+inline float l2_scaled_norm_sq(device const float* vector, uint dimension, float scale) {
     float norm_sq = 0.0f;
     const uint simd_blocks = dimension / 4;
 
@@ -30,23 +96,65 @@ float compute_norm_sq(device const float* vector, uint dimension) {
 
     // Process 4 elements at a time
     for (uint i = 0; i < simd_blocks; ++i) {
-        float4 v = vec4[i];
-        norm_sq += dot(v, v);
+        float4 s = vec4[i] * scale;
+        norm_sq += dot(s, s);
     }
 
     // Handle remaining elements
     for (uint i = simd_blocks * 4; i < dimension; ++i) {
-        float v = vector[i];
-        norm_sq += v * v;
+        float s = vector[i] * scale;
+        norm_sq += s * s;
     }
 
     return norm_sq;
 }
 
-// Helper to apply normalization and write out the vector
-void apply_normalization(device const float* input, device float* output, uint dimension, float norm, float epsilon) {
-    // Calculate inverse norm, handling division by zero (Numerical Stability)
-    float inv_norm = (norm > epsilon) ? (1.0f / norm) : 0.0f;
+/// Full two-pass norm computation for one vector (steps 1–7 of the policy above).
+///
+/// The reciprocal is formed as `scale / sNorm`, not `1 / (den · sNorm)`: the two
+/// are algebraically identical, but the former never inverts the product
+/// `den · sNorm`, which is subnormal for deep-subnormal vectors and would be
+/// flushed to zero — then inverted to +Inf — on a GPU with denormals-are-zero.
+inline L2NormFactor l2_norm_factor(device const float* vector, uint dimension) {
+    const float max_abs = l2_max_abs(vector, dimension);
+    const float den = max(max_abs, VA_NORM_MIN_DENOM);
+
+    L2NormFactor f;
+    f.scale = 1.0f / den;
+    f.scaled_norm = sqrt(l2_scaled_norm_sq(vector, dimension, f.scale));
+    f.norm = den * f.scaled_norm;
+    f.inv_norm = (f.scaled_norm > VA_NORM_MIN_SCALED) ? (f.scale / f.scaled_norm) : 0.0f;
+    return f;
+}
+
+/// Bit-exact copy of a whole vector (the degenerate pass-through).
+///
+/// Copies raw 32-bit patterns rather than floats: Metal's default math mode
+/// flushes subnormals to zero, so a float copy would rewrite a subnormal input as
+/// 0 and diverge from the CPU's "return the input unchanged".
+inline void l2_copy_bits(device const float* input, device float* output, uint dimension) {
+    const uint simd_blocks = dimension / 4;
+
+    device const uint4* in4 = (device const uint4*)input;
+    device uint4* out4 = (device uint4*)output;
+    for (uint i = 0; i < simd_blocks; ++i) {
+        out4[i] = in4[i];
+    }
+
+    device const uint* in1 = (device const uint*)input;
+    device uint* out1 = (device uint*)output;
+    for (uint i = simd_blocks * 4; i < dimension; ++i) {
+        out1[i] = in1[i];
+    }
+}
+
+/// Write `input · inv_norm` (or a verbatim bitwise copy when `inv_norm` is
+/// negative, which the callers use to request the degenerate pass-through).
+void apply_normalization(device const float* input, device float* output, uint dimension, float inv_norm) {
+    if (inv_norm < 0.0f) {
+        l2_copy_bits(input, output, dimension);
+        return;
+    }
 
     const uint simd_blocks = dimension / 4;
 
@@ -62,6 +170,20 @@ void apply_normalization(device const float* input, device float* output, uint d
     for (uint i = simd_blocks * 4; i < dimension; ++i) {
         output[i] = input[i] * inv_norm;
     }
+}
+
+/// Resolve the multiplier to apply, encoding the degenerate pass-through as -1.
+///
+/// - `inv_norm == 0` → 1/||v|| is not representable (zero vector or deep subnormal):
+///   copy the input through unchanged, matching VectorCore CPU.
+/// - `||v|| <= epsilon` → the caller's explicit degenerate threshold: emit zeros.
+///   Tested as `sNorm > epsilon · scale`, which is `||v|| > epsilon` scaled into the
+///   normal range on both sides (epsilon · scale saturating to +Inf simply means
+///   epsilon dwarfs ||v||, which is the correct answer).
+/// - otherwise → the finite reciprocal 1/||v||.
+inline float l2_resolve_multiplier(L2NormFactor f, float epsilon) {
+    if (f.inv_norm == 0.0f) { return -1.0f; }       // pass-through sentinel
+    return (f.scaled_norm > epsilon * f.scale) ? f.inv_norm : 0.0f;
 }
 
 // MARK: - General Kernel (Spec Section: Metal Kernel Signatures)
@@ -82,17 +204,17 @@ kernel void l2_normalize_general_kernel(
     device const float* current_input = input + input_offset;
     device float* current_output = output + output_offset;
 
-    // Phase 1: Compute Norm
-    float norm_sq = compute_norm_sq(current_input, params.dimension);
-    float norm = sqrt(norm_sq);
+    // Phase 1: Compute Norm (pre-scaled, overflow- and underflow-safe)
+    L2NormFactor f = l2_norm_factor(current_input, params.dimension);
 
     // Store norm if requested (Metal safely handles nullptr if the buffer wasn't bound)
     if (params.store_norms && norms != nullptr) {
-        norms[tid] = norm;
+        norms[tid] = f.norm;
     }
 
     // Phase 2: Normalize and Write
-    apply_normalization(current_input, current_output, params.dimension, norm, params.epsilon);
+    apply_normalization(current_input, current_output, params.dimension,
+                        l2_resolve_multiplier(f, params.epsilon));
 }
 
 // MARK: - In-place Kernel (Spec Section: Metal Kernel Signatures)
@@ -109,17 +231,17 @@ kernel void l2_normalize_inplace_kernel(
     const uint offset = tid * params.input_stride;
     device float* current_vector = vectors + offset;
 
-    // Phase 1: Compute Norm
-    float norm_sq = compute_norm_sq(current_vector, params.dimension);
-    float norm = sqrt(norm_sq);
+    // Phase 1: Compute Norm (pre-scaled, overflow- and underflow-safe)
+    L2NormFactor f = l2_norm_factor(current_vector, params.dimension);
 
     // Store norm if requested
     if (params.store_norms && norms != nullptr) {
-        norms[tid] = norm;
+        norms[tid] = f.norm;
     }
 
     // Phase 2: Normalize and Write (In-place)
-    apply_normalization(current_vector, current_vector, params.dimension, norm, params.epsilon);
+    apply_normalization(current_vector, current_vector, params.dimension,
+                        l2_resolve_multiplier(f, params.epsilon));
 }
 
 // MARK: - Optimized Kernels (Spec Section: Implementation Requirements 3)
@@ -141,18 +263,32 @@ void l2_normalize_optimized_impl(
     device const float4* in4 = (device const float4*)(input + offset);
     device float4* out4 = (device float4*)(output + offset);
 
-    // Phase 1: Compute norm with 4 accumulators for Instruction Level Parallelism (ILP)
-    float4 acc0 = 0.0f, acc1 = 0.0f, acc2 = 0.0f, acc3 = 0.0f;
-
     constexpr uint NUM_BLOCKS = DIMENSION / 4;
     constexpr uint UNROLL_FACTOR = 4; // Unrolling 4 float4s (16 elements)
 
+    // Phase 1a: max |v_i| with 4 accumulators for Instruction Level Parallelism (ILP)
+    float4 m0 = 0.0f, m1 = 0.0f, m2 = 0.0f, m3 = 0.0f;
+    for (uint i = 0; i < NUM_BLOCKS; i += UNROLL_FACTOR) {
+        m0 = max(m0, fabs(in4[i]));
+        m1 = max(m1, fabs(in4[i+1]));
+        m2 = max(m2, fabs(in4[i+2]));
+        m3 = max(m3, fabs(in4[i+3]));
+    }
+    float4 m = max(max(m0, m1), max(m2, m3));
+    const float max_abs = max(max(m.x, m.y), max(m.z, m.w));
+
+    const float den = max(max_abs, VA_NORM_MIN_DENOM);
+    const float scale = 1.0f / den;
+
+    // Phase 1b: Σ (v_i · scale)², again with 4 accumulators
+    float4 acc0 = 0.0f, acc1 = 0.0f, acc2 = 0.0f, acc3 = 0.0f;
+
     // Process 16 elements per iteration
     for (uint i = 0; i < NUM_BLOCKS; i += UNROLL_FACTOR) {
-        float4 v0 = in4[i];
-        float4 v1 = in4[i+1];
-        float4 v2 = in4[i+2];
-        float4 v3 = in4[i+3];
+        float4 v0 = in4[i] * scale;
+        float4 v1 = in4[i+1] * scale;
+        float4 v2 = in4[i+2] * scale;
+        float4 v3 = in4[i+3] * scale;
 
         // Use Fused Multiply-Add (FMA) for better performance and precision
         acc0 = fma(v0, v0, acc0);
@@ -164,18 +300,28 @@ void l2_normalize_optimized_impl(
     // Final reduction
     float4 sum = acc0 + acc1 + acc2 + acc3;
     float norm_sq = sum.x + sum.y + sum.z + sum.w;
-    float norm = sqrt(norm_sq);
+    float scaled_norm = sqrt(norm_sq);
+
+    L2NormFactor f;
+    f.scale = scale;
+    f.scaled_norm = scaled_norm;
+    f.norm = den * scaled_norm;
+    f.inv_norm = (scaled_norm > VA_NORM_MIN_SCALED) ? (scale / scaled_norm) : 0.0f;
 
     // Store norm if requested
     if (params.store_norms && norms != nullptr) {
-        norms[tid] = norm;
+        norms[tid] = f.norm;
     }
 
     // Phase 2: Normalize
-    float inv_norm = (norm > params.epsilon) ? (1.0f / norm) : 0.0f;
+    const float multiplier = l2_resolve_multiplier(f, params.epsilon);
+    if (multiplier < 0.0f) {
+        l2_copy_bits(input + offset, output + offset, DIMENSION);
+        return;
+    }
 
     for (uint i = 0; i < NUM_BLOCKS; ++i) {
-        out4[i] = in4[i] * inv_norm;
+        out4[i] = in4[i] * multiplier;
     }
 }
 
