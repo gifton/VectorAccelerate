@@ -100,11 +100,29 @@ semantics never diverge — VectorCore maps `dotProduct` to −dot, which the ra
 `findNearest`/`findNearestBatch` — no separate VectorAccelerate entry point needed — completing the §11.2
 "ComputeProvider/ComputeDevice(.gpu)" hook.
 
+### R5 — Freeze the SoAFP16 layout contract (P2, blocks the 0.7 FP16 bridge)
+
+> **OPEN — requested 2026-08-14.**
+
+`SoA<Vector>` in VectorCore has a documented layout contract (`Docs/SoA_Layout_Contract.md` upstream), with a stable descriptor type (`SoALayout`) and page-aligned allocation (`pageAlignedBytes`). VectorAccelerate plans to bridge `SoAFP16` (half-precision) zero-copy in version 0.7, but the FP32 layout contract does not cover the FP16 case: the new layout groups elements in fours (SIMD4<Float16>) and stores dimension-first, per the zero-copy planning brief §7. Without an upstream contract, we cannot reliably consume the buffer via `makeNoCopyBuffer`.
+
+**Ask:** (a) a frozen, documented layout formula for `SoAFP16` (groups-of-4, dimension-first, with the rounding logic for ragged vectors) and a descriptor surface equivalent to `SoALayout` (dimensions, groups, page alignment, byte offsets); (b) a page-aligned build option for `SoA<Vector16>` parallel to the current `SoA.build(from:pageAligned: true)` for FP32; (c) a golden fixture equivalent to the FP32 one, so VA can validate the same way.
+
 ## Expected payoff
 
 For large-batch GPU search the candidate-database transfer dominates latency. R1+R2 turn that
 copy into a pointer hand-off — the single biggest win on the GPU path, and the natural completion
 of VectorAccelerate's zero-copy staging work (PR #30, T2a).
+
+## Upstream defect reports from the 0.6.0 normalization parity work (BE3 §4.4)
+
+Measured during the normalization parity audit (Task 4, fix-round discussions); all three reflect the BE3 §4.4 fix landing in `NormalizeKernels` but not in the generic `VectorProtocol` paths or the CPU reference implementation. Status for all three: **OPEN — reported 2026-08-15.**
+
+**D1 — Generic `Vector<D>.normalized()` returns +Inf-poisoned output for all-subnormal input.** File/line: VectorCore `Operations/VectorNormalization.swift`. Measured: with all-subnormal input (1e-40, ‖v‖₂ = 2.26e-39), the generic `Vector<D>.normalized()` returns every element as `+Inf` (Table §1.2, Task 4 report). VectorAccelerate's `StableNormalization` handles all-subnormal vectors by passing the input unchanged, matching the CPU reference path `normalizeUnchecked`.
+
+**D2 — `NormalizeKernels.normalizeUnchecked` reconstructs the magnitude with the unclamped `maxAbs` while dividing by the clamped one.** File/line: VectorCore `Sources/VectorCore/Operations/Kernels/NormalizeKernels.swift` (steps 4 & 6). Measured: for [1e-38]×512 (all-subnormal, genuinely normalizable to unit), step 4 divides by `max(maxAbs, FLT_MIN)` but step 6 reconstructs as `mag = maxAbs · sqrt(sumSquares)`, yielding output norm ≈ 1.1755 instead of 1 (Task 4, §1.4). VectorAccelerate reconstructs as `‖v‖ = den · sNorm` (clamped denominator), which is exact for every input class and yields unit norm precisely.
+
+**D3 — `NormalizeKernels.normalizeUnchecked` returns all-zeros for any vector with ‖v‖₂ > FLT_MAX.** File/line: VectorCore `Sources/VectorCore/Operations/Kernels/NormalizeKernels.swift` (steps 6–8: magnitude overflow and finiteness guard). Measured: with `FLT_MAX` elements at dimension 512, `mag` overflows to `+Inf`; step 8's `guard invMag.isFinite` passes (since 1/Inf = 0.0 is finite), scaling the vector by 0.0 → all-zeros (elements 1e38, 2^126, `FLT_MAX` all measured in Task 4, §9.3). VectorAccelerate never forms 1/‖v‖, instead dividing in the pre-scaled domain (v·scale)/sNorm, avoiding overflow and yielding the exact unit vector.
 
 ## Adjacent (not blocking, tracked)
 
