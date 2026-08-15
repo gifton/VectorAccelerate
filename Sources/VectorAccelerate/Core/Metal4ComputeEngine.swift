@@ -701,9 +701,9 @@ public actor Metal4ComputeEngine {
     /// and vectors with subnormal components no longer pass through unnormalized
     /// via an underflowed one.
     ///
-    /// - Returns: The unit vector, or the input **unchanged** when `1/‖v‖₂` is not
-    ///   representable in FP32 (the zero vector and deep-subnormal vectors) —
-    ///   matching `VectorCore.NormalizeKernels.normalizeUnchecked`.
+    /// - Returns: The unit vector, or the input **unchanged** when the vector cannot
+    ///   be normalized — the zero vector, `‖v‖₂ ≤ 2^-127`, or a non-finite
+    ///   component — matching `VectorCore.NormalizeKernels.normalizeUnchecked`.
     public func normalize(_ vector: [Float]) async throws -> [Float] {
         let dimension = vector.count
 

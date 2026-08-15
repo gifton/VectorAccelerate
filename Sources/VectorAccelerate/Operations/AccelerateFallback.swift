@@ -86,8 +86,8 @@ public struct AccelerateFallback {
     /// result matches VectorCore's CPU normalization — and VectorAccelerate's
     /// Metal kernels — for subnormal and huge-magnitude inputs alike.
     ///
-    /// - Returns: `v / ‖v‖₂`, or `v` unchanged when `1/‖v‖₂` is not representable
-    ///   in FP32 (the zero vector and deep-subnormal vectors).
+    /// - Returns: `v / ‖v‖₂`, or `v` unchanged when the vector cannot be normalized:
+    ///   the zero vector, `‖v‖₂ ≤ 2^-127` (deep subnormal), or a non-finite component.
     public static func normalize(_ vector: [Float]) -> [Float] {
         StableNormalization.normalizedAccelerate(vector)
     }

@@ -35,7 +35,7 @@ constant float EPSILON = VA_EPSILON;
 //   4. sumSq  = Σ (v_i · scale)²                     (threadgroup sum reduction; each term <= 16)
 //   5. sNorm  = sqrt(sumSq) = ||v|| · scale
 //   6. ||v||  = sNorm / scale                        // never materialized here
-//   7. out    = precise::divide(v · scale, sNorm)    // = v/||v||, iff sNorm > 0.5
+//   7. out    = precise::divide(v · scale, sNorm)    // = v/||v||, iff 0.5 < sNorm < 2^100
 //
 // The previous implementation accumulated Σ v² directly and fell back to
 // `magnitude > EPSILON (1e-7)`, which diverged from the CPU three ways: vectors
@@ -43,9 +43,10 @@ constant float EPSILON = VA_EPSILON;
 // components overflowed to +Inf (then divided to all-zero), and any vector with a
 // legitimately small norm (e.g. 1e-19) was silently returned unnormalized.
 //
-// Degenerate policy (step 7 guard fails): the true zero vector and vectors whose
-// norm is too small for 1/||v|| to be representable in FP32 are copied through
-// **unchanged**. That is exactly what VectorCore's
+// Degenerate policy (step 7 guard fails): the true zero vector, vectors whose norm
+// is too small for 1/||v|| to be representable in FP32 (||v|| <= 2^-127), and
+// vectors containing a non-finite component (±Inf ⇒ sNorm +Inf; NaN ⇒ sNorm NaN)
+// are copied through **unchanged**. That is exactly what VectorCore's
 // `NormalizeKernels.normalizeUnchecked` / `normalizedUncheckedNNN` do — they
 // leave the buffer untouched rather than scaling it by Inf/NaN. (VectorCore's
 // *checked* `normalized()` returns `.failure` for these inputs; these kernels have
@@ -123,6 +124,9 @@ inline float va_tg_reduce_add(float value, threadgroup float* scratch, uint lane
 /// result never depends on the GPU's denormal mode. Two things are deliberately
 /// avoided here:
 ///
+///  * a vector containing ±Inf reduces to `scaled_norm == +Inf`, which fails the
+///    upper half of the guard (`VA_NORM_MAX_SCALED`) and is passed through
+///    unchanged rather than producing `Inf/Inf = NaN`.
 ///  * `1/||v||` is never formed — it is subnormal for every vector with
 ///    `||v|| > 2^126` (components ≈ 4e36 upwards) and does not exist at all for
 ///    `||v|| > FLT_MAX`, so a denormals-are-zero GPU would flush it to 0 and
@@ -177,7 +181,11 @@ inline VANormScales va_normalize_scales(
     }
     const float scaled_norm = sqrt(va_tg_reduce_add(local_sum, scratch, lane, lanes));
 
-    r.scaled_norm = (scaled_norm > VA_NORM_MIN_SCALED) ? scaled_norm : 0.0f;
+    // Range guard, both ends: too small ⇒ 1/||v|| is not representable; not finite
+    // ⇒ the input contained ±Inf (or NaN, already excluded by the lower compare).
+    // Both take the bit-exact pass-through leg.
+    const bool normalizable = (scaled_norm > VA_NORM_MIN_SCALED) && (scaled_norm < VA_NORM_MAX_SCALED);
+    r.scaled_norm = normalizable ? scaled_norm : 0.0f;
     return r;
 }
 

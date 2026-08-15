@@ -16,7 +16,7 @@
 //   4. sumSq  = Σ (v_i · scale)²                   // every term <= 16 => finite for any finite input
 //   5. sNorm  = sqrt(sumSq) = ||v|| · scale
 //   6. norm   = den · sNorm = ||v||                // reported only; saturates to +Inf above FLT_MAX
-//   7. out    = precise::divide(v · scale, sNorm)  // = v/||v||, iff sNorm > 0.5 (VA_NORM_MIN_SCALED)
+//   7. out    = precise::divide(v · scale, sNorm)  // = v/||v||, iff 0.5 < sNorm < 2^100
 //
 // Without step 1–3 the naive Σ v² underflows to 0 for subnormal-magnitude vectors
 // (GPU returned an all-zero vector where the CPU returns a unit vector) and
@@ -27,8 +27,9 @@
 // exact unit vector because 1/||v|| is never formed. The reported `norm` is the
 // true ||v||_2 whenever that is representable and +Inf above FLT_MAX.
 //
-// Degenerate inputs (step 7 guard fails — the true zero vector, and vectors whose
-// magnitude is so small that 1/||v|| overflows FP32) are copied through
+// Degenerate inputs (step 7 guard fails — the true zero vector, vectors whose
+// magnitude is so small that 1/||v|| overflows FP32, and vectors containing a
+// non-finite component) are copied through
 // **unchanged**, matching VectorCore's `NormalizeKernels.normalizeUnchecked`,
 // which leaves the buffer untouched rather than poisoning it with Inf/NaN. For the
 // zero vector "unchanged" and "zeroed" coincide, so this also preserves the
@@ -133,7 +134,10 @@ inline L2NormFactor l2_norm_factor(device const float* vector, uint dimension) {
     f.scale = 1.0f / den;
     f.scaled_norm = sqrt(l2_scaled_norm_sq(vector, dimension, f.scale));
     f.norm = den * f.scaled_norm;   // +Inf when ||v|| genuinely exceeds FLT_MAX
-    f.normalizable = (f.scaled_norm > VA_NORM_MIN_SCALED);
+    // Range guard, both ends: too small ⇒ 1/||v|| is not representable; not finite
+    // ⇒ a ±Inf component (NaN is already excluded by the lower compare). Both take
+    // the bit-exact pass-through leg.
+    f.normalizable = (f.scaled_norm > VA_NORM_MIN_SCALED) && (f.scaled_norm < VA_NORM_MAX_SCALED);
     return f;
 }
 
@@ -335,7 +339,7 @@ void l2_normalize_optimized_impl(
     f.scale = scale;
     f.scaled_norm = scaled_norm;
     f.norm = den * scaled_norm;   // +Inf when ||v|| genuinely exceeds FLT_MAX
-    f.normalizable = (scaled_norm > VA_NORM_MIN_SCALED);
+    f.normalizable = (scaled_norm > VA_NORM_MIN_SCALED) && (scaled_norm < VA_NORM_MAX_SCALED);
 
     // Store norm if requested
     if (params.store_norms && norms != nullptr) {

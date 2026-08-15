@@ -49,6 +49,15 @@ final class NormalizationParityTests: XCTestCase {
     /// 1e-40 is subnormal in FP32 (below `Float.leastNormalMagnitude` = 1.18e-38).
     private static let subnormal = Float(1e-40 as Double)
 
+    /// Ordinary values with one non-finite component planted at `index`.
+    private static func infixed(_ dimension: Int, at index: Int, value: Float) -> [Float] {
+        var v = [Float](repeating: 0, count: dimension)
+        var rng = TestRNG(seed: 0x11F0000)
+        for i in 0..<dimension { v[i] = rng.nextFloat(in: -1...1) }
+        v[index] = value
+        return v
+    }
+
     private static func fixtures(dimension: Int) -> [Fixture] {
         precondition(dimension >= 8)
 
@@ -98,6 +107,22 @@ final class NormalizationParityTests: XCTestCase {
                     isNormalizable: false, crossCheckVectorCore: false),
             Fixture(name: "mixed-subnormal-normal", input: mixed,
                     isNormalizable: true, crossCheckVectorCore: true),
+            // Non-finite components. The upper `den` clamp keeps `scale` finite, so
+            // a ±Inf component survives the pre-scale and makes sNorm = +Inf; the
+            // guard's upper half sends it to the pass-through instead of computing
+            // Inf/Inf = NaN. VectorCore agrees in release (its `mag` is NaN and
+            // fails `guard mag > 0`) but carries `assert(mag > 0)`, which traps in
+            // debug builds — hence no cross-check.
+            Fixture(name: "single-+Inf", input: infixed(dimension, at: 3, value: .infinity),
+                    isNormalizable: false, crossCheckVectorCore: false),
+            Fixture(name: "single--Inf", input: infixed(dimension, at: dimension - 1, value: -.infinity),
+                    isNormalizable: false, crossCheckVectorCore: false),
+            Fixture(name: "all-Inf", input: [Float](repeating: .infinity, count: dimension),
+                    isNormalizable: false, crossCheckVectorCore: false),
+            // NaN fails the lower comparison (`NaN > 0.5` is false) and passes
+            // through with its payload bits intact.
+            Fixture(name: "single-NaN", input: infixed(dimension, at: 5, value: .nan),
+                    isNormalizable: false, crossCheckVectorCore: false),
             Fixture(name: "ordinary-random", input: random,
                     isNormalizable: true, crossCheckVectorCore: true)
         ]
@@ -127,7 +152,13 @@ final class NormalizationParityTests: XCTestCase {
     ) {
         XCTAssertEqual(output.count, fixture.input.count, "\(label): wrong length", file: file, line: line)
         guard output.count == fixture.input.count else { return }
-        assertNoNonFinite(output, label, file: file, line: line)
+
+        // "No NaN/Inf" means none is *introduced*: a non-finite input is passed
+        // through verbatim, so its own ±Inf/NaN lanes are expected in the output
+        // (and are pinned by the bit-exact comparison below).
+        if fixture.input.allSatisfy(\.isFinite) {
+            assertNoNonFinite(output, label, file: file, line: line)
+        }
 
         if fixture.isNormalizable {
             XCTAssertEqual(l2Norm(output), 1.0, accuracy: 1e-5,
@@ -153,6 +184,9 @@ final class NormalizationParityTests: XCTestCase {
         var worst: Float = 0
         var worstIndex = 0
         for i in 0..<got.count {
+            // Identical bits (including NaN payloads and ±Inf) are a perfect match;
+            // subtracting them would yield NaN and look like a failure.
+            if got[i].bitPattern == expected[i].bitPattern { continue }
             let d = Swift.abs(got[i] - expected[i])
             if d > worst || !d.isFinite { worst = d; worstIndex = i }
         }

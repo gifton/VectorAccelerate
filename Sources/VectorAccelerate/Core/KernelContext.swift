@@ -342,6 +342,9 @@ public final class KernelContext: @unchecked Sendable {
         #ifndef VA_NORM_MIN_SCALED
         #define VA_NORM_MIN_SCALED 0.5f
         #endif
+        #ifndef VA_NORM_MAX_SCALED
+        #define VA_NORM_MAX_SCALED 0x1p100f
+        #endif
 
         """
 

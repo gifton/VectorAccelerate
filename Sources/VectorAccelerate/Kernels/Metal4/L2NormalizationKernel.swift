@@ -118,17 +118,24 @@ public struct Metal4L2NormalizationResult: Sendable {
 ///   `1/‖v‖₂` is never formed: the output is `precise::divide(v · scale, ‖v‖ · scale)`.
 /// - Vectors with subnormal components (`Σ v²` would underflow to `0`) normalize
 ///   correctly instead of collapsing to the zero vector.
-/// - `norms` (when `storeNorms` is set) is the true `‖v‖₂`. It saturates to `+∞`
-///   for the vectors whose norm genuinely exceeds `.greatestFiniteMagnitude` —
-///   the honest answer, where the pre-fix kernel reported a finite-looking `0`.
-///   (The normalized *output* for those vectors is still exact.)
+/// - `norms` (when `storeNorms` is set) is the true `‖v‖₂` over the normal range.
+///   It saturates to `+∞` where the norm genuinely exceeds
+///   `.greatestFiniteMagnitude` — the honest answer, where the pre-fix kernel
+///   reported a finite-looking `0` — and at the other end may read `0` for a
+///   subnormal `‖v‖₂` on a GPU that flushes denormals (see the `VA_NORM_MIN_SCALED`
+///   note in `Metal4Common.h`; those vectors are the pass-through class anyway).
+///   The normalized *output* is exact in both cases.
 /// - No finite input can produce `Inf`/`NaN` output, for any `epsilon` including `0`.
 ///
 /// ## Degenerate Inputs
 ///
-/// When `1/‖v‖₂` is not representable in FP32 — the true zero vector, and vectors
-/// whose largest component is deeply subnormal — the input is copied through
-/// **unchanged**, matching `VectorCore.NormalizeKernels.normalizeUnchecked`
+/// The input is copied through **unchanged** when it cannot be normalized: the true
+/// zero vector, vectors too small for `1/‖v‖₂` to be representable
+/// (`‖v‖₂ ≤ 2^-127`, i.e. a deeply subnormal largest component), and vectors
+/// containing a non-finite component (`±Inf`/`NaN`). This is a small-side
+/// criterion — `‖v‖₂` *above* `.greatestFiniteMagnitude` has no representable
+/// reciprocal either, yet those vectors normalize correctly because `1/‖v‖₂` is
+/// never formed. Matches `VectorCore.NormalizeKernels.normalizeUnchecked`
 /// (VectorCore's checked `normalized()` returns `.failure` for these; this kernel
 /// has no error channel, so it mirrors the unchecked form). For the zero vector,
 /// "unchanged" and "zeroed" coincide.

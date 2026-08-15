@@ -186,8 +186,9 @@ public struct FallbackProvider: Sendable {
     /// subnormal and huge-magnitude inputs alike.
     ///
     /// - Parameter vector: Input vector
-    /// - Returns: `v / ‖v‖₂`, or the input unchanged when `1/‖v‖₂` is not
-    ///   representable in FP32 (empty input, the zero vector, deep subnormals)
+    /// - Returns: `v / ‖v‖₂`, or the input unchanged when the vector cannot be
+    ///   normalized (empty input, the zero vector, `‖v‖₂ ≤ 2^-127`, or a
+    ///   non-finite component)
     ///
     /// - Complexity: O(n) where n is vector dimension
     public func normalize(_ vector: [Float]) -> [Float] {

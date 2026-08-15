@@ -43,6 +43,12 @@ import simd
 /// scaled component is `±1`, so `sNorm ≥ 1` and the guard always passes; it can only
 /// fail for the zero vector and for vectors whose largest magnitude is subnormal.
 ///
+/// The guard is a range check, not just a lower bound: a vector containing ±Inf
+/// reduces to `sNorm = +Inf` (the upper `den` clamp keeps `scale` finite, so the
+/// infinity survives into the sum) and must be passed through rather than divided
+/// into `Inf/Inf = NaN`. A NaN component gives `sNorm = NaN`, which fails the lower
+/// comparison already.
+///
 /// - Note: Degenerate inputs (guard failed) are returned **unchanged**, matching
 ///   `VectorCore.NormalizeKernels.normalizeUnchecked`, which leaves the buffer
 ///   untouched rather than scaling every element by `Inf`/`NaN`. For the zero
@@ -72,6 +78,15 @@ internal enum StableNormalization {
     @usableFromInline
     internal static let minScaledNorm: Float = 0.5
 
+    /// Upper end of the same guard: `sNorm` must be finite. A ±Inf component makes
+    /// it `+Inf`, which must take the pass-through leg rather than produce
+    /// `Inf/Inf = NaN`. Expressed as a magnitude bound (unreachable for any finite
+    /// input, where `sNorm ≤ 4·√dimension`) so that CPU and GPU share one
+    /// expression — the kernels cannot use `isfinite()`, which fast math may fold.
+    /// Mirrors `VA_NORM_MAX_SCALED` in `Metal4Common.h`.
+    @usableFromInline
+    internal static let maxScaledNorm: Float = 0x1p100
+
     /// Accelerate (vDSP) implementation of the policy above.
     @usableFromInline
     internal static func normalizedAccelerate(_ vector: [Float]) -> [Float] {
@@ -94,7 +109,7 @@ internal enum StableNormalization {
         vDSP_svesq(scratch, 1, &sumSquares, n)
 
         let scaledNorm = sqrt(sumSquares)
-        guard scaledNorm > minScaledNorm else { return vector }
+        guard scaledNorm > minScaledNorm, scaledNorm < maxScaledNorm else { return vector }
 
         // Pass 3: out = (v · scale) / sNorm ≡ v / ‖v‖. Dividing the already
         // pre-scaled buffer keeps every operand in the normal range (‖v‖ itself is
@@ -152,7 +167,7 @@ internal enum StableNormalization {
         }
 
         let scaledNorm = sqrt(sumSquares)
-        guard scaledNorm > minScaledNorm else { return vector }
+        guard scaledNorm > minScaledNorm, scaledNorm < maxScaledNorm else { return vector }
 
         // Pass 3: out = (v · scale) / sNorm ≡ v / ‖v‖ (see the type doc)
         let scaleVec = SIMD8<Float>(repeating: scale)
