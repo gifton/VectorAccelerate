@@ -52,8 +52,10 @@ constant float EPSILON = VA_EPSILON;
 // *checked* `normalized()` returns `.failure` for these inputs; these kernels have
 // no error channel, so they mirror the unchecked form.)
 //
-// Denormal (FTZ) invariance: the step-7 guard compares only normal-range values,
-// and the pass-through copies raw bits (`va_copy_bits`) rather than float values,
+// Denormal (FTZ) invariance: every value reaching the step-7 guard is normal-range,
+// ±Inf, or NaN — none affected by denormal flushing — so the guard's decision is
+// identical whether or not the GPU flushes;
+// the pass-through copies raw bits (`va_copy_bits`) rather than float values,
 // because Metal's default math mode flushes subnormals to zero — a float copy
 // would silently rewrite a subnormal input as 0 and diverge from the CPU. The
 // decision itself is FTZ-invariant: a subnormal-magnitude vector either reduces to

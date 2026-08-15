@@ -15,7 +15,7 @@
 //   3. scale  = 1 / den                            // normal: 2^-126 <= scale <= 2^126
 //   4. sumSq  = Σ (v_i · scale)²                   // every term <= 16 => finite for any finite input
 //   5. sNorm  = sqrt(sumSq) = ||v|| · scale
-//   6. norm   = den · sNorm = ||v||                // reported only; saturates to +Inf above FLT_MAX
+//   6. norm   = den · sNorm = ||v||                // reported only; +Inf above FLT_MAX, 0 for FTZ pass-through
 //   7. out    = precise::divide(v · scale, sNorm)  // = v/||v||, iff 0.5 < sNorm < 2^100
 //
 // Without step 1–3 the naive Σ v² underflows to 0 for subnormal-magnitude vectors
@@ -25,7 +25,9 @@
 // 16·dimension, and every finite input with a representable reciprocal norm is
 // normalized correctly — including ||v|| > FLT_MAX, where the output is still the
 // exact unit vector because 1/||v|| is never formed. The reported `norm` is the
-// true ||v||_2 whenever that is representable and +Inf above FLT_MAX.
+// true ||v||_2 for normal-range magnitudes, +Inf above FLT_MAX, and 0 for inputs
+// that take the pass-through (under FTZ a subnormal ||v|| reads as 0 — see the
+// VA_NORM constant notes in Metal4Common.h).
 //
 // Degenerate inputs (step 7 guard fails — the true zero vector, vectors whose
 // magnitude is so small that 1/||v|| overflows FP32, and vectors containing a
@@ -35,7 +37,9 @@
 // zero vector "unchanged" and "zeroed" coincide, so this also preserves the
 // historical L2 behavior.
 //
-// Denormal (FTZ) invariance: the step-7 guard compares only normal-range values,
+// Denormal (FTZ) invariance: every value reaching the step-7 guard is normal-range,
+// ±Inf, or NaN — none affected by denormal flushing — so the guard's decision is
+// identical whether or not the GPU flushes;
 // and the pass-through copies raw bits (`l2_copy_bits`), because Metal's default
 // math mode flushes subnormals to zero — a float copy would rewrite a subnormal
 // input as 0. A subnormal-magnitude vector reduces to maxAbs == 0 (denormals
@@ -47,8 +51,9 @@
 // `epsilon` is purely the caller's *explicit* degenerate threshold: vectors with
 // 0 < ||v|| <= epsilon are zeroed. It is no longer load-bearing for numerical
 // stability, so it defaults to 0 on the Swift side; no epsilon value (including 0)
-// can produce Inf/NaN because the reciprocal is only ever formed after the
-// `sNorm > VA_NORM_MIN_SCALED` guard has proved it representable.
+// can produce Inf/NaN because division only happens after the two-sided guard
+// (`VA_NORM_MIN_SCALED < sNorm < VA_NORM_MAX_SCALED`) has excluded both the
+// unrepresentable-reciprocal range and non-finite sNorm.
 
 #include "Metal4Common.h"
 
@@ -70,7 +75,7 @@ struct L2NormParams {
 struct L2NormFactor {
     float scale;        // 1 / clamp(maxAbs, 2^-126, 2^126) — always a normal float
     float scaled_norm;  // ||v||_2 · scale — normal-range whenever the vector is nonzero
-    float norm;         // ||v||_2, reported only; saturates to +Inf above FLT_MAX
+    float norm;         // ||v||_2, reported only; +Inf above FLT_MAX, 0 for FTZ pass-through
     bool normalizable;  // false ⇒ pass the input through unchanged
 };
 

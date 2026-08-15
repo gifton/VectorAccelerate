@@ -131,8 +131,10 @@ constant float VA_NORM_MIN_SCALED = 0.5f;
 //
 // Expressed as a plain magnitude comparison rather than `isfinite()`: under fast
 // math (Metal's default) the compiler is permitted to assume no Inf/NaN operands
-// and may fold `isfinite()` to a constant, whereas a dynamic float compare cannot
-// be folded away. Any finite input satisfies sNorm <= 4·sqrt(dimension), so this
+// and may fold `isfinite()` to a constant, whereas current toolchains do not fold
+// a dynamic float compare (an empirical guarantee, not a spec one — the Inf
+// fixtures in NormalizationParityTests fail loudly if a toolchain starts folding
+// it). Any finite input satisfies sNorm <= 4·sqrt(dimension), so this
 // bound (2^100 ≈ 1.27e30) is unreachable for a legitimate vector — a dimension of
 // 2^196 would be needed. NaN inputs are already excluded by the lower comparison
 // (`NaN > 0.5` is false).

@@ -11,7 +11,12 @@
 //
 //      den   = clamp(maxAbs, 0x1p-126, 0x1p126) ; scale = 1/den
 //      sNorm = sqrt(Σ (v·scale)²) = ‖v‖ · scale
-//      out   = (v · scale) · (1/sNorm)          iff sNorm > 0.5
+//      out   = (v · scale) / sNorm              iff 0.5 < sNorm < 0x1p100
+//
+//  The division is literal (precise::divide on GPU, vDSP/SIMD division on CPU) —
+//  fast math would reassociate a (v·scale)·(1/sNorm) form back into the subnormal
+//  multiplier v·(scale/sNorm); the two-sided guard excludes both unrepresentable
+//  reciprocals (lower leg) and Inf-contaminated sNorm (upper leg).
 //
 //  Invariants asserted here, for every fixture and every path:
 //    * no NaN/Inf ever reaches the output,

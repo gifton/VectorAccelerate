@@ -132,5 +132,7 @@ Measured during the normalization parity audit (Task 4, fix-round discussions); 
   Operations is live (euclidean/cosine on the GPU; other metrics fall back to the metric's `batchDistance`).
 - **Pointer Top-K** (their §9.3, shipped): feed our GPU distance buffers into VectorCore's
   `select(k:from:UnsafePointer<Float>,count:,ids:)` for the hybrid path (no distance copy-back).
-- **Numerical parity** (BE3 Phase 1): ongoing — cosine zero-vector floor aligned to
-  `leastNormalMagnitude` (this branch); normalization subnormal handling (BE3 4.4) still to audit.
+- **Numerical parity** (BE3 Phase 1): cosine zero-vector floor aligned to
+  `leastNormalMagnitude`; normalization subnormal handling (BE3 4.4) audited and fixed in the
+  0.6.0 branch — all five VA normalize implementations unified on VectorCore's algorithm, and
+  three upstream defects filed above (D1–D3).
