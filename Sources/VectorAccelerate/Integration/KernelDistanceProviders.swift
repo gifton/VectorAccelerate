@@ -8,8 +8,8 @@
 //  kernels through VectorCore's DistanceProvider protocol. Use these when you
 //  need the full performance of the GPU kernels with VectorCore type compatibility.
 //
-//  For most use cases, AcceleratedDistanceProvider (which uses ComputeEngine)
-//  is sufficient. Use these kernel providers when:
+//  For most use cases, MetalComputeProvider is sufficient. Use these kernel
+//  providers when:
 //  - You need maximum GPU performance for large batches
 //  - You want to avoid the ComputeEngine abstraction layer
 //  - You need access to kernel-specific features (dimension optimizations, etc.)
