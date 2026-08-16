@@ -326,7 +326,7 @@ public actor BatchDistanceEngine {
         }
     }
 
-    // MARK: - Batch Manhattan Distance (VectorCore 0.1.5)
+    // MARK: - Batch Manhattan Distance
 
     /// Compute Manhattan (L1) distances between a query and multiple candidates
     public func batchManhattanDistance(

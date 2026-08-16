@@ -16,10 +16,11 @@ import VectorCore
 /// GPU compute façade for VectorAccelerate.
 ///
 /// Conforms to VectorCore's **`BatchKernelProvider`** — the R4 dispatch hook shipped in VectorCore
-/// 0.3.0. Installing this as `Operations.computeProvider` makes VectorCore's `Operations.findNearest`
-/// / `findNearestBatch` dispatch transparently to the GPU: euclidean/cosine run on the fused
-/// distance+top-K kernel (GPU vote), and every other metric falls back to that metric's own
-/// `batchDistance` so results never diverge from the CPU path.
+/// 0.3.0. Installing this via `Operations.$computeProvider.withValue(provider) { … }` makes
+/// VectorCore's `Operations.findNearest` / `findNearestBatch` dispatch transparently to the GPU
+/// inside the scope: euclidean/cosine run on the fused distance+top-K kernel (GPU vote), and every
+/// other metric falls back to that metric's own `batchDistance` so results never diverge from the
+/// CPU path.
 ///
 /// The inherited `ComputeProvider` scheduling members (`execute` / `parallel*`) still just *schedule*
 /// their closures via Swift concurrency — they do not GPU-accelerate arbitrary CPU closures. GPU work
@@ -41,11 +42,12 @@ public actor MetalComputeProvider: BatchKernelProvider {
     }
 
     // Composed collaborators.
-    private let context: Metal4Context
+    let context: Metal4Context          // internal: used by the SoA scoring extension (+SoA.swift)
     private let engine: Metal4ComputeEngine
     private let decisionEngine: GPUDecisionEngine
     private let l2Provider: L2KernelDistanceProvider
     private let cosineProvider: CosineKernelDistanceProvider
+    let soaKernel: SoADistanceKernel    // internal: lane-major zero-copy SoA scoring (built once)
     private let configuration: Configuration
 
     // Nonisolated ComputeProvider shim state, captured at init (no actor hop on access).
@@ -85,6 +87,7 @@ public actor MetalComputeProvider: BatchKernelProvider {
         self.engine = try await Metal4ComputeEngine(context: context, decisionEngine: resolvedDecision)
         self.l2Provider = try await L2KernelDistanceProvider(context: context)
         self.cosineProvider = try await CosineKernelDistanceProvider(context: context)
+        self.soaKernel = try await SoADistanceKernel(context: context)
 
         // `context.device` is nonisolated; `rawDevice` is a nonisolated `any MTLDevice`.
         let raw = context.device.rawDevice
@@ -209,11 +212,38 @@ public actor MetalComputeProvider: BatchKernelProvider {
 
     /// Select the k nearest (index, distance) pairs. For similarity metrics (dotProduct) larger is
     /// nearer; for distance metrics smaller is nearer.
+    ///
+    /// Delegates to VectorCore's `TopKSelection.select(k:from:tieBreaker:)`, which adaptively picks
+    /// a max-heap select (O(n log k)) when k < n/10 or a partial sort (O(n log n), better constants)
+    /// otherwise — replacing this method's previous unconditional O(n log n) full sort.
+    ///
+    /// - `largerIsCloser` (dotProduct: higher similarity is nearer) is implemented by negating the
+    ///   input, selecting the k *smallest* of the negated array (the only primitive
+    ///   `TopKSelection.select` exposes), then negating the selected distances back. Negation is
+    ///   exact for finite `Float` (bit-flip of the sign bit, no rounding), so the returned distances
+    ///   are bit-identical to the originals. The result is indifferent to `-0.0` vs. `0.0`: ordering
+    ///   only ever compares magnitudes via `<`/`>`, and IEEE 754 defines `-0.0 == 0.0` under those
+    ///   operators.
+    /// - Ties are broken deterministically by `TieBreaker.smallerIndex` (ascending original index) —
+    ///   a strict improvement over the previous full-sort, whose tie order was an accident of
+    ///   `Array.sorted`'s introsort (not guaranteed stable, so equal-distance order was unspecified).
+    /// - NaN distances follow `TopKSelection`'s underlying `TopKBuffer` heap semantics observed by
+    ///   inspection (VectorCore internal, not part of its documented contract): a NaN admitted while
+    ///   the heap is still filling (`size < k`) can never afterwards be evicted or itself evict
+    ///   another entry, because every `<`/`>` comparison against a NaN operand is `false`. Distances
+    ///   are not expected to be NaN on any call path reaching this method today (both metric
+    ///   computation and the fused GPU path exclude it), so this is documentation of existing
+    ///   VectorCore behavior, not a guarantee this call site adds.
     static func selectTopK(_ distances: [Float], k: Int, largerIsCloser: Bool) -> [(index: Int, distance: Float)] {
-        let pairs = distances.enumerated().map { (index: $0.offset, distance: $0.element) }
-        let sorted = largerIsCloser ? pairs.sorted { $0.distance > $1.distance }
-                                    : pairs.sorted { $0.distance < $1.distance }
-        return Array(sorted.prefix(k))
+        guard k > 0, !distances.isEmpty else { return [] }
+        guard largerIsCloser else {
+            return TopKSelection.select(k: k, from: distances, tieBreaker: .smallerIndex).toTuples()
+        }
+        let negated = distances.map { -$0 }
+        let result = TopKSelection.select(k: k, from: negated, tieBreaker: .smallerIndex)
+        return zip(result.indices, result.distances).map { index, negatedDistance in
+            (index: index, distance: -negatedDistance)
+        }
     }
 
     // MARK: - BatchKernelProvider conformance (R4: transparent VectorCore dispatch)

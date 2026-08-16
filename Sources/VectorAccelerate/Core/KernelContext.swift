@@ -82,7 +82,10 @@ public final class KernelContext: @unchecked Sendable {
     /// 2. `Bundle(for: KernelContext.self)` - works for frameworks/transitive deps
     /// 3. Search all loaded bundles for one containing our resources
     /// 4. Known bundle identifiers as last resort
-    private static func findVectorAccelerateBundle() -> Bundle? {
+    ///
+    /// - Note: `internal` rather than `private` so tests can drive the
+    ///   runtime-compilation path directly.
+    internal static func findVectorAccelerateBundle() -> Bundle? {
         // Strategy 1: Bundle.module (works for direct SPM consumption)
         #if SWIFT_PACKAGE
         let moduleBundle = Bundle.module
@@ -214,17 +217,39 @@ public final class KernelContext: @unchecked Sendable {
 
     /// Compile Metal shader sources from bundle resources.
     ///
-    /// This is a fallback for edge cases where pre-compiled metallib is unavailable.
-    /// Runtime compilation supports all shaders but has higher startup latency.
+    /// This is a fallback for edge cases where pre-compiled metallib is unavailable
+    /// — which in **release** builds is the primary path, since `debug.metallib` is
+    /// only loaded under `#if DEBUG`. A single compile error here disables every
+    /// kernel in the package, so `NormalizationParityTests` exercises this entry
+    /// point directly as a regression guard.
     ///
     /// - Parameters:
     ///   - device: The Metal device to create the library for
     ///   - bundle: The bundle containing .metal source files
     /// - Returns: The compiled Metal library, or nil if compilation fails
-    private static func compileMetalSourcesFromBundle(
+    internal static func compileMetalSourcesFromBundle(
         device: any MTLDevice,
         bundle: Bundle
     ) -> (any MTLLibrary)? {
+        do {
+            return try makeLibraryFromBundleSources(device: device, bundle: bundle)
+        } catch {
+            // Compilation failed - log error details
+            #if DEBUG
+            print("[VectorAccelerate] Warning: Failed to compile Metal shaders from bundle: \(error)")
+            #endif
+            return nil
+        }
+    }
+
+    /// Throwing core of ``compileMetalSourcesFromBundle(device:bundle:)``.
+    ///
+    /// Internal (not private) so tests can assert on the compiler diagnostic rather
+    /// than on a silent `nil`.
+    internal static func makeLibraryFromBundleSources(
+        device: any MTLDevice,
+        bundle: Bundle
+    ) throws -> any MTLLibrary {
         // Load shader files that can be safely combined without symbol conflicts
         let shaderFiles = [
             // Core distance kernels
@@ -298,6 +323,29 @@ public final class KernelContext: @unchecked Sendable {
         #define VA_INFINITY INFINITY
         #endif
 
+        // Normalization policy constants (BE3 §4.4) for BasicOperations.metal and
+        // L2Normalization.metal.
+        //
+        // !! MUST STAY NUMERICALLY IDENTICAL TO Metal/Shaders/Metal4Common.h !!
+        // The `#include "Metal4Common.h"` line is stripped below, so anything this
+        // preamble omits is simply undeclared — and because a single compile error
+        // fails the ONE combined source, that takes down every kernel in the
+        // package, not just the file that used the constant. Metal4Common.h wraps
+        // its own definitions in `#ifndef`, so these macros win if both are ever
+        // seen. Any constant added there must be mirrored here.
+        #ifndef VA_NORM_MIN_DENOM
+        #define VA_NORM_MIN_DENOM 0x1p-126f
+        #endif
+        #ifndef VA_NORM_MAX_DENOM
+        #define VA_NORM_MAX_DENOM 0x1p126f
+        #endif
+        #ifndef VA_NORM_MIN_SCALED
+        #define VA_NORM_MIN_SCALED 0.5f
+        #endif
+        #ifndef VA_NORM_MAX_SCALED
+        #define VA_NORM_MAX_SCALED 0x1p100f
+        #endif
+
         """
 
         for fileName in shaderFiles {
@@ -347,18 +395,9 @@ public final class KernelContext: @unchecked Sendable {
         }
 
         // Compile the combined source
-        do {
-            let options = MTLCompileOptions()
-            options.mathMode = .fast
-            let library = try device.makeLibrary(source: combinedSource, options: options)
-            return library
-        } catch {
-            // Compilation failed - log error details
-            #if DEBUG
-            print("[VectorAccelerate] Warning: Failed to compile Metal shaders from bundle: \(error)")
-            #endif
-            return nil
-        }
+        let options = MTLCompileOptions()
+        options.mathMode = .fast
+        return try device.makeLibrary(source: combinedSource, options: options)
     }
 
     /// Get the shared Metal library (loads if needed)
