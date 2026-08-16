@@ -5,7 +5,9 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-08-15
+
+The zero-copy SoA scoring release, plus the removal promised in 0.5.0. The minor bump reflects the removed deprecated GPU surface, the `L2NormalizationParameters.epsilon` default change, and the new SoA scoring API. The normalization parity work was validated with measured GPU evidence (fast-math reassociation and FTZ boundary behavior probed on hardware) and is gated by a release-configuration test that also guards the runtime shader-compile path.
 
 ### Added
 - **Zero-copy SoA scoring** — the release headline. `SoACandidateSet` builds VectorCore's page-aligned lane-major SoA once and bridges it into a zero-copy `MTLBuffer` (borrow mode; staged-copy fallback when zero-copy is unavailable), and `MetalComputeProvider` gains `batchDistance(query:against:metric:)` / `findNearest(query:in:k:metric:)` against a prebuilt set — build once, score many. Distances run on lane-major L2/cosine Metal kernels validated against VectorCore's golden layout fixture; `findNearest` selects top-K with VectorCore's zero-copy pointer `TopKSelection.select` directly on the GPU output buffer (O(N log k), no full distance-array materialization — a fused single-thread GPU selection variant was benchmarked at 1.8–6.7× slower and rejected). The borrow-mode lifetime contract is enforced structurally: the SoA allocation and `MTLBuffer` are internal, so the provider methods — which pin the set until GPU completion — are the only possible submitters.

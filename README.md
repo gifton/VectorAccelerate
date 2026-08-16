@@ -4,7 +4,7 @@
 
 VectorAccelerate provides high-performance GPU acceleration for vector operations, serving as the computational backbone for the VectorCore ecosystem. By leveraging Metal 4's compute shaders, unified command encoding, and Apple Silicon's unified memory architecture, VectorAccelerate delivers up to 100x speedups for large-scale vector operations.
 
-> **⚠️ Version 0.5.0**: Requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+). For older OS support, use VectorAccelerate 0.2.x
+> **⚠️ Version 0.6.0**: Requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+). For older OS support, use VectorAccelerate 0.2.x
 > 
 > **⚠️ This package is still experimental, with development and real-world testing in progress** for Production grade Vector operations see VectorCore and VectorIndex's CPU-bound implementation
 
@@ -307,7 +307,7 @@ Add VectorAccelerate to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/gifton/VectorAccelerate.git", from: "0.5.0"),
+    .package(url: "https://github.com/gifton/VectorAccelerate.git", from: "0.6.0"),
     .package(url: "https://github.com/gifton/VectorCore.git", from: "0.3.2")
 ],
 targets: [
@@ -366,6 +366,30 @@ let similarity = try await cosineSim.compute(
     database: [vector2]
 )
 ```
+
+### Zero-Copy SoA Scoring (build once, query many)
+
+For repeated queries against a fixed candidate set, build the set once in VectorCore's
+page-aligned lane-major SoA layout — the GPU reads it zero-copy (no staging, no transfer):
+
+```swift
+import VectorCore
+
+let candidates = try database.map { try Vector768Optimized($0) }       // any SoACompatible type
+let device = try MetalDevice()
+let set = try SoACandidateSet(candidates: candidates, device: device)  // built + bridged once
+
+let provider = try await MetalComputeProvider()
+let query = try Vector768Optimized(queryValues)
+
+// All N distances, or just the k nearest (euclidean and cosine)
+let distances = try await provider.batchDistance(query: query, against: set, metric: .euclidean)
+let nearest = try await provider.findNearest(query: query, in: set, k: 10, metric: .cosine)
+```
+
+Distances run on lane-major Metal kernels (memory-coalesced); top-K selection uses
+VectorCore's zero-copy pointer `TopKSelection` directly on the GPU output buffer. The set
+pins its allocation for the GPU's lifetime automatically — no manual lifetime management.
 
 ### Advanced: Fused Operations
 

@@ -13,11 +13,20 @@
 // There is NO backwards compatibility with older OS versions.
 // For Metal 3 support, use VectorAccelerate 0.2.x or earlier.
 //
-// Unreleased — VectorCore 0.3.2 floor:
-//   - Changed: VectorCore dependency floor raised 0.3.0 → 0.3.2 (version-constant fix, @TaskLocal doc
-//     idiom, AccelerateArraySIMDProvider upstream)
-//   - Changed: Package.resolved now tracked in git for reproducible resolution across local/CI/clones
+// 0.6.0 — Zero-copy SoA scoring + normalization parity + the promised removal:
+//   - Added: SoACandidateSet (page-aligned lane-major SoA, zero-copy MTLBuffer, borrow mode enforced
+//     structurally) + MetalComputeProvider batchDistance/findNearest against a prebuilt set
+//   - Changed: CPU top-K via VectorCore TopKSelection (O(N log k), deterministic smaller-index ties)
+//   - Fixed: both GPU normalize shader families + all CPU fallbacks unified on VectorCore's Kahan
+//     pre-scaled algorithm (subnormal/huge/non-finite parity; norms saturate to +Inf above FLT_MAX;
+//     runtime shader-compile preamble regression-guarded for release config)
+//   - Behavioral: L2NormalizationParameters.epsilon default 1e-8 → 0 (pass epsilon: 1e-8 to keep old zeroing)
+//   - Removed: the entire 0.5.0-deprecated GPU surface (AcceleratedDistanceProvider, factory vendors,
+//     acceleratedDistance* conveniences, the six BatchOperations GPU shims) — migrate to
+//     MetalComputeProvider (distance/search) and AcceleratedVectorOperations (vector ops)
+//   - Changed: VectorCore dependency floor raised 0.3.0 → 0.3.2; Package.resolved now tracked in git
 //   - Requires VectorCore 0.3.2+
+//   See CHANGELOG.md for the full list.
 //
 // 0.5.0 — GPU compute façade + VectorCore 0.3.0 integration + audit remediation:
 //   - Added: MetalComputeProvider (unified GPU façade) conforming to VectorCore's BatchKernelProvider (R4)
