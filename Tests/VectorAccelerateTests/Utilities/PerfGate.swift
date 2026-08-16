@@ -16,8 +16,26 @@
 //
 
 import Foundation
+import XCTest
 
 enum PerfGate {
     /// True when perf assertions should be enforced (dedicated hardware).
     static let strict = ProcessInfo.processInfo.environment["VECTORACCELERATE_STRICT_PERF"] == "1"
+
+    /// Skip gate for sustained-GPU-load benchmark suites on shared CI runners.
+    ///
+    /// The virtualized runner GPU wedges under sustained load: once one command
+    /// buffer hangs (kIOGPUCommandBufferCallbackErrorHang), subsequent GPU work in
+    /// the same VM — including unrelated suites running in parallel — fails with
+    /// hangs and pipeline CompilerErrors. AttentionSimilarityBenchmarkTests was the
+    /// epicenter in every observed failing run (2026-06 investigation + PR #36/#37
+    /// reruns), so its suite skips where the CI env var is set (GitHub Actions sets
+    /// CI=true) unless VECTORACCELERATE_GPU_STRESS=1 opts back in (dedicated
+    /// hardware). Local runs are unaffected: CI is unset.
+    static func skipUnlessGPUStressAllowed() throws {
+        let env = ProcessInfo.processInfo.environment
+        if env["CI"] != nil && env["VECTORACCELERATE_GPU_STRESS"] != "1" {
+            throw XCTSkip("GPU-stress benchmark suite skipped on shared CI runner (set VECTORACCELERATE_GPU_STRESS=1 to run)")
+        }
+    }
 }

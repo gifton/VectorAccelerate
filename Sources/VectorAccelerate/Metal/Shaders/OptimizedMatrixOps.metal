@@ -244,6 +244,13 @@ kernel void batchMatrixMultiplyFused(
 }
 
 /// High-performance vector normalization with fast inverse sqrt
+///
+/// - Warning: Legacy/unused (no Swift caller). It accumulates `Σ v²` without the
+///   max-abs pre-scale and biases the reciprocal with `+1e-8`, so it does **not**
+///   follow the normalization policy documented in `BasicOperations.metal` /
+///   `L2Normalization.metal`: huge-magnitude vectors overflow to zeros and
+///   small-magnitude vectors come out far from unit length. Use `vectorNormalize`
+///   or the `l2_normalize_*` kernels, which are CPU-parity correct.
 kernel void fastNormalize(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],

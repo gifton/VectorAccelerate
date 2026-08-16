@@ -23,75 +23,6 @@ public protocol MetalAccelerable {
     static func fromMetalBuffer(_ buffer: BufferToken, dimension: Int) -> Self
 }
 
-// MARK: - Distance Provider Implementation
-
-/// GPU-accelerated distance computation provider using Metal 4
-@available(*, deprecated, message: "Use MetalComputeProvider (distance/batchDistance). Removed in 0.6.0.")
-public actor AcceleratedDistanceProvider: DistanceProvider {
-    private let engine: Metal4ComputeEngine
-    private let context: Metal4Context
-
-    public init() async throws {
-        guard ComputeDevice.gpu().isAvailable else {
-            throw VectorError.metalNotAvailable()
-        }
-
-        self.context = try await Metal4Context()
-        self.engine = try await Metal4ComputeEngine(context: context)
-    }
-
-    public init(context: Metal4Context) async throws {
-        self.context = context
-        self.engine = try await Metal4ComputeEngine(context: context)
-    }
-
-    public func distance<T: VectorProtocol>(
-        from vector1: T,
-        to vector2: T,
-        metric: SupportedDistanceMetric
-    ) async throws -> Float where T.Scalar == Float {
-        let v1Array = vector1.toArray()
-        let v2Array = vector2.toArray()
-
-        switch metric {
-        case .euclidean:
-            return try await engine.euclideanDistance(v1Array, v2Array)
-        case .cosine:
-            return try await engine.cosineDistance(v1Array, v2Array)
-        case .dotProduct:
-            return try await engine.dotProduct(v1Array, v2Array)
-        case .manhattan:
-            return try await engine.manhattanDistance(v1Array, v2Array)
-        case .chebyshev:
-            return try await engine.chebyshevDistance(v1Array, v2Array)
-        }
-    }
-
-    public func batchDistance<T: VectorProtocol>(
-        from query: T,
-        to candidates: [T],
-        metric: SupportedDistanceMetric
-    ) async throws -> [Float] where T.Scalar == Float {
-        let queryArray = query.toArray()
-        let candidateArrays = candidates.map { $0.toArray() }
-
-        switch metric {
-        case .euclidean:
-            return try await engine.batchEuclideanDistance(query: queryArray, candidates: candidateArrays)
-        case .cosine:
-            return try await engine.batchCosineDistance(query: queryArray, candidates: candidateArrays)
-        case .dotProduct, .manhattan, .chebyshev:
-            // No specialized batch kernels yet - compute sequentially
-            var distances: [Float] = []
-            distances.reserveCapacity(candidateArrays.count)
-            for candidate in candidates {
-                distances.append(try await self.distance(from: query, to: candidate, metric: metric))
-            }
-            return distances
-        }
-    }
-}
-
 // MARK: - Vector Operations Provider
 
 /// GPU-accelerated vector operations provider using Metal 4
@@ -179,6 +110,10 @@ public actor AcceleratedVectorOperations: VectorOperationsProvider {
         return try T(scaled)
     }
 
+    /// Normalize a vector on the GPU: `v / ‖v‖₂`.
+    ///
+    /// Matches VectorCore's CPU normalization for every input class (subnormal,
+    /// huge, degenerate) — see ``Metal4ComputeEngine/normalize(_:)``.
     public func normalize<T: VectorProtocol>(_ vector: T) async throws -> T where T.Scalar == Float {
         let array = vector.toArray()
         let normalized = try await engine.normalize(array)
@@ -197,39 +132,9 @@ public actor AcceleratedVectorOperations: VectorOperationsProvider {
 /// Factory for creating GPU-accelerated vector computation providers
 public enum AcceleratedVectorFactory {
 
-    /// Create default accelerated providers using Metal 4
-    @available(*, deprecated, message: "Construct MetalComputeProvider (distance) and AcceleratedVectorOperations (vector ops) directly. Removed in 0.6.0.")
-    public static func createDefaultProviders() async throws -> (
-        distance: AcceleratedDistanceProvider,
-        operations: AcceleratedVectorOperations
-    ) {
-        let context = try await Metal4Context()
-
-        let distance = try await AcceleratedDistanceProvider(context: context)
-        let operations = try await AcceleratedVectorOperations(context: context)
-
-        return (distance, operations)
-    }
-
     /// Check if acceleration is available
     public static var isAccelerationAvailable: Bool {
         ComputeDevice.gpu().isAvailable
-    }
-
-    /// Create providers with custom configuration
-    @available(*, deprecated, message: "Construct MetalComputeProvider (distance) and AcceleratedVectorOperations (vector ops) directly. Removed in 0.6.0.")
-    public static func createProviders(
-        configuration: Metal4Configuration
-    ) async throws -> (
-        distance: AcceleratedDistanceProvider,
-        operations: AcceleratedVectorOperations
-    ) {
-        let context = try await Metal4Context(configuration: configuration)
-
-        let distance = try await AcceleratedDistanceProvider(context: context)
-        let operations = try await AcceleratedVectorOperations(context: context)
-
-        return (distance, operations)
     }
 }
 
@@ -264,21 +169,6 @@ public struct AccelerationStatistics: Sendable {
 
 public extension VectorProtocol where Scalar == Float {
 
-    /// Compute distance using GPU acceleration if available
-    @available(*, deprecated, message: "Use MetalComputeProvider.distance(_:_:metric:). Removed in 0.6.0.")
-    func acceleratedDistance(
-        to other: Self,
-        metric: SupportedDistanceMetric = .euclidean
-    ) async throws -> Float {
-        if AcceleratedVectorFactory.isAccelerationAvailable {
-            let provider = try await AcceleratedDistanceProvider()
-            return try await provider.distance(from: self, to: other, metric: metric)
-        } else {
-            // Fall back to CPU implementation
-            return distance(to: other, metric: metric)
-        }
-    }
-
     /// Normalize using GPU acceleration if available
     func acceleratedNormalize() async throws -> Self {
         if AcceleratedVectorFactory.isAccelerationAvailable {
@@ -298,31 +188,6 @@ public extension VectorProtocol where Scalar == Float {
         } else {
             return normalizedUnchecked()
         }
-    }
-}
-
-// MARK: - IndexableVector Extensions
-
-public extension IndexableVector where Scalar == Float {
-
-    /// Compute distance with GPU acceleration, skipping normalization if already normalized
-    @available(*, deprecated, message: "Use MetalComputeProvider.distance(_:_:metric:). Removed in 0.6.0.")
-    func acceleratedDistanceOptimized(
-        to other: Self,
-        metric: SupportedDistanceMetric = .euclidean
-    ) async throws -> Float {
-        // For cosine with normalized vectors, use dot product directly
-        if metric == .cosine && self.isNormalized && other.isNormalized {
-            if AcceleratedVectorFactory.isAccelerationAvailable {
-                let provider = try await AcceleratedVectorOperations()
-                let dot = try await provider.dotProduct(self, other)
-                return 1.0 - dot  // Convert similarity to distance
-            } else {
-                return 1.0 - DotProductDistance().distance(self, other)
-            }
-        }
-
-        return try await acceleratedDistance(to: other, metric: metric)
     }
 }
 
@@ -385,193 +250,9 @@ public struct VectorCoreIntegration: Sendable {
         self.configuration = configuration
     }
 
-    /// Create a GPU-accelerated distance provider
-    @available(*, deprecated, message: "Use MetalComputeProvider. Removed in 0.6.0.")
-    public func createDistanceProvider() async throws -> AcceleratedDistanceProvider {
-        guard ComputeDevice.gpu().isAvailable else { throw IntegrationError.metalUnavailable }
-        return try await AcceleratedDistanceProvider(context: context)
-    }
-
     /// Create a GPU-accelerated vector operations provider
     public func createVectorOperations() async throws -> AcceleratedVectorOperations {
         guard ComputeDevice.gpu().isAvailable else { throw IntegrationError.metalUnavailable }
         return try await AcceleratedVectorOperations(context: context)
-    }
-}
-
-// MARK: - GPU-Accelerated Batch Operations Extension
-
-public extension BatchOperations {
-
-    // MARK: - GPU-Accelerated k-NN Search
-
-    /// Find k nearest neighbors using GPU acceleration (Metal 4)
-    @available(*, deprecated, message: "Use MetalComputeProvider.findNearest(query:in:k:metric:). Removed in 0.6.0.")
-    static func findNearestGPU<V: VectorProtocol & Sendable>(
-        to query: V,
-        in vectors: [V],
-        k: Int,
-        metric: SupportedDistanceMetric = .euclidean
-    ) async throws -> [(index: Int, distance: Float)] where V.Scalar == Float {
-        guard ComputeDevice.gpu().isAvailable else { throw VectorError.metalNotAvailable() }
-        guard k > 0, !vectors.isEmpty else { return [] }
-        return try await MetalComputeProvider().findNearest(query: query, in: vectors, k: k, metric: metric)
-    }
-
-    // MARK: - GPU-Accelerated Batch Distance Computation
-
-    /// Compute distances from a query to multiple candidates using GPU
-    @available(*, deprecated, message: "Use MetalComputeProvider.batchDistance(query:candidates:metric:). Removed in 0.6.0.")
-    static func batchDistancesGPU<V: VectorProtocol & Sendable>(
-        from query: V,
-        to candidates: [V],
-        metric: SupportedDistanceMetric = .euclidean
-    ) async throws -> [Float] where V.Scalar == Float {
-        guard ComputeDevice.gpu().isAvailable else { throw VectorError.metalNotAvailable() }
-        guard !candidates.isEmpty else { return [] }
-        return try await MetalComputeProvider().batchDistance(query: query, candidates: candidates, metric: metric)
-    }
-
-    // MARK: - GPU-Accelerated Batch Vector Operations
-
-    /// Normalize vectors in batch using GPU
-    @available(*, deprecated, message: "Construct AcceleratedVectorOperations and call normalize(_:). Removed in 0.6.0.")
-    static func normalizeGPU<V: VectorProtocol & Sendable>(
-        _ vectors: [V]
-    ) async throws -> [V] where V.Scalar == Float {
-        guard ComputeDevice.gpu().isAvailable else {
-            throw VectorError.metalNotAvailable()
-        }
-
-        guard !vectors.isEmpty else {
-            return []
-        }
-
-        let context = try await Metal4Context()
-        let engine = try await Metal4ComputeEngine(context: context)
-
-        var results: [V] = []
-        results.reserveCapacity(vectors.count)
-
-        for vector in vectors {
-            let array = vector.toArray()
-            let normalized = try await engine.normalize(array)
-
-            if let result = try? V(normalized) {
-                results.append(result)
-            }
-        }
-
-        return results
-    }
-
-    /// Fast batch normalization using VectorCore's normalizedUnchecked()
-    @available(*, deprecated, message: "Construct AcceleratedVectorOperations and call normalize(_:), or use VectorCore's normalizedUnchecked(). Removed in 0.6.0.")
-    static func normalizeGPUUnchecked<V: VectorProtocol & Sendable>(
-        _ vectors: [V]
-    ) async throws -> [V] where V.Scalar == Float {
-        guard !vectors.isEmpty else {
-            return []
-        }
-
-        if ComputeDevice.gpu().isAvailable {
-            return try await normalizeGPU(vectors)
-        }
-
-        // CPU fallback
-        var results: [V] = []
-        results.reserveCapacity(vectors.count)
-
-        for vector in vectors {
-            results.append(vector.normalizedUnchecked())
-        }
-
-        return results
-    }
-
-    /// Scale vectors by a constant using GPU
-    @available(*, deprecated, message: "Construct AcceleratedVectorOperations and call scale(_:by:). Removed in 0.6.0.")
-    static func scaleGPU<V: VectorProtocol & Sendable>(
-        _ vectors: [V],
-        by scalar: Float
-    ) async throws -> [V] where V.Scalar == Float {
-        guard ComputeDevice.gpu().isAvailable else {
-            throw VectorError.metalNotAvailable()
-        }
-
-        guard !vectors.isEmpty else {
-            return []
-        }
-
-        let context = try await Metal4Context()
-        let operations = try await AcceleratedVectorOperations(context: context)
-
-        var results: [V] = []
-        results.reserveCapacity(vectors.count)
-
-        for vector in vectors {
-            let scaled = try await operations.scale(vector, by: scalar)
-            results.append(scaled)
-        }
-
-        return results
-    }
-
-    /// Compute pairwise distances using GPU acceleration
-    @available(*, deprecated, message: "Use MetalComputeProvider.distanceMatrix(queries:candidates:metric:). Removed in 0.6.0.")
-    static func pairwiseDistancesGPU<V: VectorProtocol & Sendable>(
-        _ vectors: [V],
-        metric: SupportedDistanceMetric = .euclidean
-    ) async throws -> [[Float]] where V.Scalar == Float {
-        guard !vectors.isEmpty else { return [] }
-        return try await MetalComputeProvider().distanceMatrix(queries: vectors, candidates: vectors, metric: metric)
-    }
-
-    // MARK: - Helper Methods
-
-    /// Select top-k elements using heap selection
-    private static func selectTopK(
-        _ elements: [(index: Int, distance: Float)],
-        k: Int
-    ) -> [(index: Int, distance: Float)] {
-        guard k < elements.count else {
-            return elements.sorted { $0.distance < $1.distance }
-        }
-
-        var heap = [(index: Int, distance: Float)]()
-        heap.reserveCapacity(k + 1)
-
-        for element in elements {
-            if heap.count < k {
-                heap.append(element)
-                if heap.count == k {
-                    heap.sort { $0.distance > $1.distance }
-                }
-            } else if element.distance < heap[0].distance {
-                heap[0] = element
-                var i = 0
-                while i < k {
-                    let left = 2 * i + 1
-                    let right = 2 * i + 2
-                    var largest = i
-
-                    if left < heap.count && heap[left].distance > heap[largest].distance {
-                        largest = left
-                    }
-                    if right < heap.count && heap[right].distance > heap[largest].distance {
-                        largest = right
-                    }
-
-                    if largest == i {
-                        break
-                    }
-
-                    heap.swapAt(i, largest)
-                    i = largest
-                }
-            }
-        }
-
-        return heap.sorted { $0.distance < $1.distance }
     }
 }
