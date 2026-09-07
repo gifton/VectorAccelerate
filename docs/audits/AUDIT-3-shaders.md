@@ -1002,6 +1002,42 @@ and final production/test hashes are in `/private/tmp/va3-028/`. Work remains on
 single `gifton/metal-hardening-checkpoint` branch.
 
 
+## Remediation slice 20 (2026-09-07, owner-approved: VA3-019 IVF candidate bounds) — EXECUTED
+
+**Scope:** first bounded VA3-019 slice. The fused IVF builder previously reserved and
+wrote beyond an estimated allocation. It also returned atomic per-query starts as CSR
+boundaries, which is incorrect whenever allocation order differs from query order.
+Both defects reproduced in two initial `IVFCandidateBoundsTests`: **446 assertions**,
+zero unexpected failures. They passed after bounded reservations and CSR conversion.
+
+The fused shader now reserves complete query segments within explicit physical capacity,
+uses a non-wrapping overflow marker, and publishes invalid/empty descriptors on failure.
+Host overflow recovery discards the attempt and runs exact count/prefix/build; allocation
+hints never silently truncate recall. Completed unordered segments are validated and
+GPU-blitted into query-ordered CSR, with zero-copy retention when already ordered.
+The fourth UInt32 shader parameter now carries capacity; raw callers must supply it.
+Three-pass prefix accumulation is wide and saturates to a rejected UInt32.max marker.
+
+Expanded tests exposed a zero-query division-by-zero in dispatch configuration; empty
+inputs now return before encoding. Independent review found that the pool can return
+64 MiB for larger requests: fused capacity now uses actual lengths, and every exact
+output/metadata allocation checks physical storage before writes. The global pool
+behavior remains separate debt. Review approved after both issues were addressed.
+Descriptor/counter pool leases are retained through GPU completion and CSR conversion.
+
+Eight tests cover both compile paths, logical canaries, complete reservations, empty
+queries, counter saturation, prefix overflow, skewed-list fallback, deliberate segment
+permutations, invalid layouts/counts, and oversized pooled outputs. Targeted **139 / 0 failures / 11 skipped** (113.332s),
+API+shader validation **8 / 0** (1.130s), exit 0 with no reported validation errors.
+Restoring the old prefix arithmetic produced two assertion failures in its dedicated
+regression (both compile paths); the final fix was restored before the gates.
+Full debug **1690 / 0 / 11** (256.476s), full release **1690 / 0 / 11** (54.272s),
+both exit 0, on identical final production/test sources. Read-only review approved.
+See [the IVF candidate contract](../stability/IVF-CANDIDATE-BOUNDS-CONTRACT.md).
+Logs and initial production sources are in `/private/tmp/va3-019/`. No performance claim.
+**VA3-019 remains open for UMAP's embedding race and atomic accumulation policy.**
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).
@@ -1030,7 +1066,7 @@ Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live be
 | VA3-016 | P2 | **FIXED** (slices 10–12) | LSE/basic-statistics NaN propagation; VectorCore 0.3.3 CPU contract; shared GPU NaN-last/index-tie ordering and CPU chunk merge alignment |
 | VA3-017 | P2 | FIXED (slice 16) | Scalar-backed device/threadgroup vector accesses use packed views; compiler alignment guard and odd-layout GPU tests; neural tail overread also fixed |
 | VA3-018 | P2 | FIXED (slice 15) | Row/address products and downstream indices use `ulong` across 21 shader files; existing count/grid/ID limits retained |
-| VA3-019 | P2 | LIVE | Atomics/determinism class: UMAP negative-sample read/write race, relaxed float accumulation (UMAP, PQ, k-means), fused IVF builder missing capacity clamp |
+| VA3-019 | P2 | LIVE | UMAP negative-sample race and float accumulation policy remain open; fused IVF bounds and CSR conversion fixed in slice 20 |
 | VA3-020 | P3 | **EXECUTED** (minus warp/batch/streaming select — live, see slice-1 notes) | Dead/broken kernel inventory for deletion — including `minkowski_distance_fractional` (tile load is a stub comment; reads uninitialized shared memory) and `tiled_kmeans_distance` (incoherent tile load) |
 | VA3-021 | P2 | **FIXED** (slice 8: all 8 phantom makeFunction literals deleted, class test closes the family) | `tiledTransposeInPlace` — 6th phantom function name; in-place requests silently downgrade and write to the *output* buffer |
 | VA3-022 | P2 | **FIXED** (slices 1, 13) | Removed power cutoffs/clamps and approximate p substitution; stable normalization/rescaling hardened; explicit fast-path FP32 limits retained |
@@ -1236,7 +1272,7 @@ comment, and the VA3-021 note's proposal (resolve every Swift `makeFunction(name
 ### VA3-019 (P2, LIVE)
 - `umap_negative_sample_kernel` (UMAPGradient.metal:156-190): reads `embedding[j]` while sibling threads write `embedding[tid]` in the same dispatch — true data race, nondeterministic gradients (known anchor, confirmed in tree).
 - Relaxed `atomic_float` accumulation orders: UMAP target gradients (:202-223), PQ training (ProductQuantization.metal:103-138), k-means update (ClusteringShaders.metal:492-580) — run-to-run nondeterminism by design; needs a stated determinism policy (the "no atomics" contract in the handoffs is currently false in 10 files).
-- `ivf_build_candidates_fused` (IVFCandidateBuilder.metal:272-344): atomic offset allocation → nondeterministic candidate layout **and** no `writePos` capacity clamp (its non-fused sibling clamps against `candidateOffsets[q+1]`); loaded optionally by IVFGPUCandidateBuilderKernel.swift:206.
+- **Fused IVF FIXED — slice 20:** bounded whole-query reservations, physical capacity checks, exact-path overflow recovery, and query-ordered CSR conversion. Atomic segment starts were also incorrectly returned as CSR boundaries; this is now covered by scheduling-independent permutation tests. Raw segment order remains unspecified; see [the contract](../stability/IVF-CANDIDATE-BOUNDS-CONTRACT.md).
 - UMAP kernel-1 gradient-clip point differs from reference UMAP (clips coefficient *after* lr/weight multiply, not the per-dim gradient) — the never-completed input-clamping backlog item from NUMERICAL_STABILITY_FINDINGS.
 
 ### VA3-027 (P2, LIVE-cond): silently dropped flags

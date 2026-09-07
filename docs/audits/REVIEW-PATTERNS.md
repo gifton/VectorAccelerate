@@ -173,3 +173,15 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   at capacity+1. Checked readback throws before consuming an incomplete round. Tests
   cover logical output guards, already-overflowed counters, UInt32.max saturation,
   repeated fusion calls, and the actual geometric bound with CPU merging.
+
+
+## 16. Reservation order is not logical order; requested size is not storage
+- **Mechanism:** an atomic allocator returns disjoint segments in execution order.
+  Treating per-owner starts as CSR boundaries silently gives consumers another owner's
+  records or reversed ranges. Separately, an allocator request is not proof of returned
+  storage capacity when a pool clamps bucket sizes.
+- **Incident:** VA3-019 slice 20 — fused IVF assumed both query-ordered allocation and
+  sufficient estimated/pooled storage. Tests force an explicit permutation independent
+  of scheduler behavior, exercise underestimated hints, and request outputs above the
+  pool's largest bucket. Validate actual storage and completed segment coverage before
+  publishing CSR; do not infer either property from allocation intent.

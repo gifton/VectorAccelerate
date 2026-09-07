@@ -10,7 +10,7 @@
 //
 //  The kernel supports two modes:
 //  1. Three-pass: count → prefix sum → build (deterministic ordering)
-//  2. Fused: single pass with atomics (faster but non-deterministic ordering)
+//  2. Fused: bounded atomic segments, reordered to CSR before return
 //
 
 import Foundation
@@ -214,6 +214,19 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         // Pipelines created in init
     }
 
+    // The pool may select a bucket smaller than a large request. Exact outputs
+    // and metadata must fail before any CPU/GPU write into that storage.
+    private func candidateBuffer(size: Int) async throws -> BufferToken {
+        guard size > 0, size <= context.device.rawDevice.maxBufferLength else {
+            throw VectorError.bufferAllocationFailed(size: size)
+        }
+        let token = try await context.getBuffer(size: size)
+        guard token.buffer.length >= size else {
+            throw VectorError.bufferAllocationFailed(size: size)
+        }
+        return token
+    }
+
     // MARK: - Build Candidates
 
     /// Build candidate lists from coarse quantization results.
@@ -245,8 +258,27 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
                 "nprobe \(nprobe) exceeds the IVF candidate builder kernel capability (max \(Self.maxNprobe)) — probes beyond the cap would be silently dropped")
         }
 
-        // Use fused kernel for small query batches (faster due to single pass)
-        if numQueries <= Self.fusedMaxQueries, let _ = fusedPipeline {
+        guard numQueries >= 0, numQueries < Int(UInt32.max),
+              nprobe >= 0, numLists >= 0, numLists < Int(UInt32.max),
+              maxCandidatesPerQuery.map({ $0 >= 0 }) ?? true else {
+            throw VectorError.invalidInput("IVF candidate counts and allocation hints must be nonnegative and representable")
+        }
+        guard nearestCentroids.length / 4 >= numQueries * nprobe,
+              listOffsets.length / 4 >= numLists + 1 else {
+            throw VectorError.invalidInput("IVF candidate input buffer is too small")
+        }
+
+        if numQueries == 0 || nprobe == 0 || numLists == 0 {
+            let indices = try await candidateBuffer(size: 4)
+            let ids = try await candidateBuffer(size: 4)
+            let offsets = try await candidateBuffer(size: (numQueries + 1) * 4)
+            offsets.buffer.contents().initializeMemory(as: UInt32.self, repeating: 0, count: numQueries + 1)
+            return IVFGPUCandidateResult(indicesToken: indices, queryIdsToken: ids,
+                offsetsToken: offsets, totalCandidates: 0, numQueries: numQueries)
+        }
+
+        // Small batches can use fused reservations followed by CSR ordering.
+        if numQueries > 0, numQueries <= Self.fusedMaxQueries, let _ = fusedPipeline {
             return try await buildCandidatesFused(
                 nearestCentroids: nearestCentroids,
                 listOffsets: listOffsets,
@@ -277,8 +309,8 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         numLists: Int
     ) async throws -> IVFGPUCandidateResult {
         // Step 1: Count candidates per query
-        let countsBytes = numQueries * MemoryLayout<UInt32>.size
-        let candidateCountsToken = try await context.getBuffer(size: countsBytes)
+        let countsBytes = max(numQueries, 1) * MemoryLayout<UInt32>.size
+        let candidateCountsToken = try await candidateBuffer(size: countsBytes)
         let candidateCounts = candidateCountsToken.buffer
         candidateCounts.label = "IVFCandidateBuilder.counts"
 
@@ -300,7 +332,7 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
 
         // Step 2: Prefix sum to compute offsets
         let offsetsBytes = (numQueries + 1) * MemoryLayout<UInt32>.size
-        let candidateOffsetsToken = try await context.getBuffer(size: offsetsBytes)
+        let candidateOffsetsToken = try await candidateBuffer(size: offsetsBytes)
         let candidateOffsets = candidateOffsetsToken.buffer
         candidateOffsets.label = "IVFCandidateBuilder.offsets"
 
@@ -318,11 +350,15 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         // Read total candidates from offsets[numQueries]
         let offsetsPtr = candidateOffsets.contents().bindMemory(to: UInt32.self, capacity: numQueries + 1)
         let totalCandidates = Int(offsetsPtr[numQueries])
+        guard totalCandidates < Int(UInt32.max),
+              totalCandidates <= context.device.rawDevice.maxBufferLength / 4 else {
+            throw VectorError.invalidInput("IVF candidate total exceeds the count or device buffer limit")
+        }
 
         if totalCandidates == 0 {
             // No candidates - return empty result
-            let emptyIndicesToken = try await context.getBuffer(size: 4)
-            let emptyQueryIdsToken = try await context.getBuffer(size: 4)
+            let emptyIndicesToken = try await candidateBuffer(size: 4)
+            let emptyQueryIdsToken = try await candidateBuffer(size: 4)
             emptyIndicesToken.buffer.label = "IVFCandidateBuilder.indices.empty"
             emptyQueryIdsToken.buffer.label = "IVFCandidateBuilder.queryIds.empty"
 
@@ -338,8 +374,8 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         // Step 3: Build candidate lists
         let indicesBytes = totalCandidates * MemoryLayout<UInt32>.size
         let queryIdsBytes = totalCandidates * MemoryLayout<UInt32>.size
-        let candidateIVFIndicesToken = try await context.getBuffer(size: indicesBytes)
-        let candidateQueryIdsToken = try await context.getBuffer(size: queryIdsBytes)
+        let candidateIVFIndicesToken = try await candidateBuffer(size: indicesBytes)
+        let candidateQueryIdsToken = try await candidateBuffer(size: queryIdsBytes)
         let candidateIVFIndices = candidateIVFIndicesToken.buffer
         let candidateQueryIds = candidateQueryIdsToken.buffer
         candidateIVFIndices.label = "IVFCandidateBuilder.indices"
@@ -398,21 +434,28 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         let offsetsPtr = listOffsets.contents().bindMemory(to: UInt32.self, capacity: numLists + 1)
         let totalIVFEntries = Int(offsetsPtr[numLists])
         let avgListSize = totalIVFEntries / max(1, numLists)
-        let estimatedMax = maxCandidatesPerQuery ?? (nprobe * avgListSize * 2)  // 2x for safety
+        let estimatedMax = maxCandidatesPerQuery ?? (nprobe * avgListSize * 2)
+        let capacityLimit = min(Int(UInt32.max) - 1, context.device.rawDevice.maxBufferLength / 4)
+        // A hint is not a truncation limit. Avoid overflowing its product or making
+        // an impossible allocation; the exact path can still serve a small result.
+        guard estimatedMax <= capacityLimit / numQueries else {
+            return try await buildCandidatesThreePass(nearestCentroids: nearestCentroids,
+                listOffsets: listOffsets, numQueries: numQueries, nprobe: nprobe, numLists: numLists)
+        }
         let maxTotalCandidates = numQueries * estimatedMax
 
         // Allocate output buffers
         let indicesBytes = maxTotalCandidates * MemoryLayout<UInt32>.size
         let queryIdsBytes = maxTotalCandidates * MemoryLayout<UInt32>.size
         let offsetsBytes = numQueries * MemoryLayout<UInt32>.size
-        let countsBytes = numQueries * MemoryLayout<UInt32>.size
+        let countsBytes = max(numQueries, 1) * MemoryLayout<UInt32>.size
         let atomicBytes = MemoryLayout<UInt32>.size
 
         let candidateIVFIndicesToken = try await context.getBuffer(size: max(indicesBytes, 4))
         let candidateQueryIdsToken = try await context.getBuffer(size: max(queryIdsBytes, 4))
-        let perQueryOffsetsToken = try await context.getBuffer(size: offsetsBytes)
-        let perQueryCountsToken = try await context.getBuffer(size: countsBytes)
-        let totalCounterToken = try await context.getBuffer(size: atomicBytes)
+        let perQueryOffsetsToken = try await candidateBuffer(size: offsetsBytes)
+        let perQueryCountsToken = try await candidateBuffer(size: countsBytes)
+        let totalCounterToken = try await candidateBuffer(size: atomicBytes)
 
         let candidateIVFIndices = candidateIVFIndicesToken.buffer
         let candidateQueryIds = candidateQueryIdsToken.buffer
@@ -426,14 +469,19 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         perQueryCounts.label = "IVFCandidateBuilder.fused.counts"
         totalCounter.label = "IVFCandidateBuilder.fused.counter"
 
+        let physicalCapacity = min(maxTotalCandidates,
+            min(candidateIVFIndices.length, candidateQueryIds.length) / 4)
+        // Raw buffers do not own their pool leases; keep descriptors/counter leased
+        // through GPU completion and CSR conversion, including its allocations.
+        defer { withExtendedLifetime((perQueryOffsetsToken, perQueryCountsToken, totalCounterToken)) {} }
+
         // Initialize atomic counter to 0
         let counterPtr = totalCounter.contents().bindMemory(to: UInt32.self, capacity: 1)
         counterPtr[0] = 0
 
-        let countParams = IVFCandidateCountParameters(
-            numQueries: numQueries,
-            nprobe: nprobe,
-            numLists: numLists
+        let countParams = IVFCandidateBuildParameters(
+            numQueries: numQueries, nprobe: nprobe, numLists: numLists,
+            totalCandidates: physicalCapacity
         )
 
         try await context.executeAndWait { _, encoder in
@@ -449,43 +497,79 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
             encoder.setBuffer(perQueryCounts, offset: 0, index: 6)
 
             var params = countParams
-            encoder.setBytes(&params, length: MemoryLayout<IVFCandidateCountParameters>.size, index: 7)
+            encoder.setBytes(&params, length: MemoryLayout<IVFCandidateBuildParameters>.size, index: 7)
 
             let config = Metal4ThreadConfiguration.linear(count: numQueries, pipeline: fusedPipeline)
             encoder.dispatchThreadgroups(config.threadgroups, threadsPerThreadgroup: config.threadsPerThreadgroup)
         }
 
-        // Read actual total from atomic counter
+        // Overflow is detected before reading segment descriptors or candidates.
         let actualTotal = Int(counterPtr[0])
-
-        // Build proper CSR offsets from perQueryOffsets and perQueryCounts
-        let csrOffsetsBytes = (numQueries + 1) * MemoryLayout<UInt32>.size
-        let candidateOffsetsToken = try await context.getBuffer(size: csrOffsetsBytes)
-        let candidateOffsets = candidateOffsetsToken.buffer
-        candidateOffsets.label = "IVFCandidateBuilder.fused.csrOffsets"
-
-        // Build CSR offsets on CPU (small data)
-        // The fused kernel provides per-query offsets and counts directly.
-        // CSR format: offset[q] = start of query q's candidates, offset[q+1] = end
-        let csrPtr = candidateOffsets.contents().bindMemory(to: UInt32.self, capacity: numQueries + 1)
-        let fusedOffsetsPtr = perQueryOffsets.contents().bindMemory(to: UInt32.self, capacity: numQueries)
-
-        // Build CSR offsets directly from fused kernel output
-        // (existing code does this right after...)
-        // offset[q] = start position for query q, offset[q+1] = start + count
-        for q in 0..<numQueries {
-            csrPtr[q] = fusedOffsetsPtr[q]
+        guard actualTotal <= physicalCapacity else {
+            return try await buildCandidatesThreePass(nearestCentroids: nearestCentroids,
+                listOffsets: listOffsets, numQueries: numQueries, nprobe: nprobe, numLists: numLists)
         }
-        // Final offset is the total count
-        csrPtr[numQueries] = UInt32(actualTotal)
+        return try await makeFusedCSR(indices: candidateIVFIndicesToken, queryIds: candidateQueryIdsToken,
+            offsets: perQueryOffsets, counts: perQueryCounts, total: actualTotal, numQueries: numQueries)
+    }
 
-        return IVFGPUCandidateResult(
-            indicesToken: candidateIVFIndicesToken,
-            queryIdsToken: candidateQueryIdsToken,
-            offsetsToken: candidateOffsetsToken,
-            totalCandidates: actualTotal,
-            numQueries: numQueries
-        )
+    /// Convert unordered, completed fused segments into the public query-ordered CSR
+    /// contract. Keep the common already-ordered case zero-copy. GPU blits reorder
+    /// disjoint segments when scheduling allocated them in a different order.
+    func makeFusedCSR(indices: BufferToken, queryIds: BufferToken,
+                      offsets: any MTLBuffer, counts: any MTLBuffer,
+                      total: Int, numQueries: Int) async throws -> IVFGPUCandidateResult {
+        let starts = offsets.contents().assumingMemoryBound(to: UInt32.self)
+        let sizes = counts.contents().assumingMemoryBound(to: UInt32.self)
+        let csrToken = try await candidateBuffer(size: (numQueries + 1) * 4)
+        csrToken.buffer.label = "IVFCandidateBuilder.fused.csrOffsets"
+        let csr = csrToken.buffer.contents().assumingMemoryBound(to: UInt32.self)
+        var sum = 0
+        var ordered = true
+        var segments: [(source: Int, destination: Int, count: Int)] = []
+        for q in 0..<numQueries {
+            let start = Int(starts[q]), count = Int(sizes[q])
+            guard start <= total, count <= total - start, count <= total - sum else {
+                throw VectorError.computeFailed(reason: "Invalid fused IVF candidate segment")
+            }
+            csr[q] = UInt32(sum)
+            if count > 0 {
+                ordered = ordered && start == sum
+                segments.append((start, sum, count))
+            }
+            sum += count
+        }
+        guard sum == total else {
+            throw VectorError.computeFailed(reason: "Incomplete fused IVF candidate result")
+        }
+        // Segment bounds and sums alone do not exclude overlap or holes.
+        var end = 0
+        for segment in segments.sorted(by: { $0.source < $1.source }) {
+            guard segment.source == end else {
+                throw VectorError.computeFailed(reason: "Overlapping fused IVF candidate segments")
+            }
+            end += segment.count
+        }
+        csr[numQueries] = UInt32(total)
+        if ordered {
+            return IVFGPUCandidateResult(indicesToken: indices, queryIdsToken: queryIds,
+                offsetsToken: csrToken, totalCandidates: total, numQueries: numQueries)
+        }
+        let orderedIndices = try await candidateBuffer(size: max(total * 4, 4))
+        let orderedIds = try await candidateBuffer(size: max(total * 4, 4))
+        orderedIndices.buffer.label = "IVFCandidateBuilder.fused.orderedIndices"
+        orderedIds.buffer.label = "IVFCandidateBuilder.fused.orderedQueryIds"
+        let copies = segments
+        try await context.executeBlitAndWait { _, encoder in
+            for segment in copies {
+                encoder.copy(from: indices.buffer, sourceOffset: segment.source * 4,
+                    to: orderedIndices.buffer, destinationOffset: segment.destination * 4, size: segment.count * 4)
+                encoder.copy(from: queryIds.buffer, sourceOffset: segment.source * 4,
+                    to: orderedIds.buffer, destinationOffset: segment.destination * 4, size: segment.count * 4)
+            }
+        }
+        return IVFGPUCandidateResult(indicesToken: orderedIndices, queryIdsToken: orderedIds,
+            offsetsToken: csrToken, totalCandidates: total, numQueries: numQueries)
     }
 
     // MARK: - Encode Methods

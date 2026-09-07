@@ -108,12 +108,13 @@ kernel void ivf_prefix_sum_sequential(
     if (tid != 0) return;  // Single thread
 
     const uint n = params.num_elements;
-    uint sum = 0;
+    ulong sum = 0;
 
     candidateOffsets[0] = 0;
     for (uint i = 0; i < n; ++i) {
         sum += candidateCounts[i];
-        candidateOffsets[i + 1] = sum;
+        // UINT_MAX marks an unrepresentable cumulative candidate count.
+        candidateOffsets[i + 1] = uint(min(sum, ulong(0xffffffffu)));
     }
 }
 
@@ -201,8 +202,11 @@ kernel void ivf_build_candidates(
 /// Output:
 ///   - candidateIVFIndices: [max_candidates] - flat list of IVF entry indices
 ///   - candidateQueryIds: [max_candidates] - query ID for each candidate
-///   - candidateOffsets: [Q + 1] - output offsets per query
-///   - totalCandidateCount: [1] - atomic counter for total candidates
+///   - perQueryOffsets / perQueryCounts: [Q] - unordered segment descriptors, NOT CSR
+///   - totalCandidateCount: [1] - count; > capacity means discard the entire result
+/// params.total_candidates is the available record capacity in BOTH output buffers.
+/// Initialize the counter to zero. Read only after GPU completion. Failed queries
+/// publish UINT_MAX/0 descriptors; the host must recover rather than consume a prefix.
 kernel void ivf_build_candidates_fused(
     device const uint* nearestCentroids [[buffer(0)]],
     device const uint* listOffsets [[buffer(1)]],
@@ -211,7 +215,7 @@ kernel void ivf_build_candidates_fused(
     device atomic_uint* totalCandidateCount [[buffer(4)]],
     device uint* perQueryOffsets [[buffer(5)]],
     device uint* perQueryCounts [[buffer(6)]],
-    constant IVFCandidateCountParams& params [[buffer(7)]],
+    constant IVFCandidateBuildParams& params [[buffer(7)]],
     uint tid [[thread_position_in_grid]]
 ) {
     if (tid >= params.num_queries) return;
@@ -223,7 +227,7 @@ kernel void ivf_build_candidates_fused(
     // First pass: count candidates for this query
     uint seenLists[64];
     uint numSeen = 0;
-    uint count = 0;
+    ulong count = 0;
 
     for (uint p = 0; p < nprobe && p < 64; ++p) {
         uint listIdx = nearestCentroids[(ulong)q * nprobe + p];
@@ -242,10 +246,22 @@ kernel void ivf_build_candidates_fused(
         count += listOffsets[listIdx + 1] - listOffsets[listIdx];
     }
 
-    // Atomically allocate space for this query's candidates
-    uint writeStart = atomic_fetch_add_explicit(totalCandidateCount, count, memory_order_relaxed);
+    // Reserve a complete query segment or publish failure. Leave one uint value
+    // for overflow; even an already corrupted counter must never wrap into storage.
+    const uint capacity = min(params.total_candidates, 0xfffffffeu);
+    perQueryOffsets[q] = 0xffffffffu;
+    perQueryCounts[q] = 0;
+    uint writeStart = atomic_load_explicit(totalCandidateCount, memory_order_relaxed);
+    while (true) {
+        if (writeStart > capacity || count > ulong(capacity - writeStart)) {
+            atomic_fetch_max_explicit(totalCandidateCount, capacity + 1, memory_order_relaxed);
+            return;
+        }
+        if (atomic_compare_exchange_weak_explicit(totalCandidateCount, &writeStart,
+                writeStart + uint(count), memory_order_relaxed, memory_order_relaxed)) break;
+    }
     perQueryOffsets[q] = writeStart;
-    perQueryCounts[q] = count;
+    perQueryCounts[q] = uint(count);
 
     // Second pass: write candidates
     numSeen = 0;
