@@ -27,6 +27,15 @@ struct PQConfig {
     uint32_t D_sub;  // Dimensions per subspace (D/M)
 };
 
+// Byte codes support 1...256 centroids. ADC retains an 8192-float (32 KB)
+// shared-table cap; the host also checks the device/pipeline memory budget.
+constant uint VA_PQ_MAX_CENTROIDS = 256;
+constant uint VA_PQ_MAX_ADC_ENTRIES = 8192;
+
+inline bool pq_valid_centroid_count(uint K) {
+    return K > 0 && K <= VA_PQ_MAX_CENTROIDS;
+}
+
 // MARK: - Helper Functions
 
 // Helper function for calculating L2 distance squared (Vectorized)
@@ -74,6 +83,13 @@ kernel void pq_assignment_or_encoding(
     const uint D_sub = config.D_sub;
     const uint K = config.K;
 
+    if (!pq_valid_centroid_count(K)) {
+        // The entire config is unsupported; 0xff is a marker, not a reserved
+        // code in valid K=256 models (where centroid 255 remains usable).
+        assignments_or_codes[(ulong)vec_id * config.M + m] = 0xff;
+        return;
+    }
+
     // Pointers
     device const float* vec_sub = vectors + (ulong)vec_id * config.D + (ulong)m * D_sub;
     device const float* codebook_m = codebooks + (ulong)m * K * D_sub;
@@ -118,8 +134,11 @@ kernel void pq_train_update_accumulate(
     const uint D_sub = config.D_sub;
     const uint K = config.K;
 
-    // Get the assignment
+    if (!pq_valid_centroid_count(K)) return;
+
+    // Reject codes outside this subspace before forming accumulator pointers.
     uint8_t assignment = assignments[(ulong)vec_id * config.M + m];
+    if (assignment >= K) return;
 
     // Pointers
     device const float* vec_sub = training_data + (ulong)vec_id * config.D + (ulong)m * D_sub;
@@ -225,6 +244,12 @@ kernel void pq_compute_distances_adc(
 ) {
     const uint M = config.M;
     const uint K = config.K;
+    // Uniform across the threadgroup: reject before any shared-memory access
+    // or barrier. Divide the bound before multiplying to avoid uint overflow.
+    if (!pq_valid_centroid_count(K) || M == 0 || M > VA_PQ_MAX_ADC_ENTRIES / K) {
+        if (tid < config.N) distances[tid] = NAN;
+        return;
+    }
     const uint MK = M * K;
 
     // 1. Cooperatively load the distance table into threadgroup memory
@@ -246,6 +271,10 @@ kernel void pq_compute_distances_adc(
     #pragma unroll
     for (uint m = 0; m < M; ++m) {
         uint8_t code = vector_codes[m];
+        if (code >= K) {
+            distances[tid] = NAN;
+            return;  // All threads have already passed the shared-table barrier.
+        }
         // Access pattern in shared memory: [m * K + code]
         approx_dist_sq += shared_dist_table[(ulong)m * K + code];
     }

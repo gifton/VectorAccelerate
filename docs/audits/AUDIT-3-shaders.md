@@ -906,6 +906,54 @@ checkpointing slice 17 on `gifton/metal-hardening-checkpoint`, the ongoing branc
 all work before and after the handoff. Slices 1–16 are backed up in `d39eee0`.
 
 
+
+## Remediation slice 18 (2026-09-07, owner-approved: VA3-026 PQ bounds) — EXECUTED
+
+**Scope:** retain UInt8 codes, K=1...256, and the 32 KB ADC shared-table limit. The
+existing host initializer already rejected K>256 (the original short audit description
+omitted that guard). The missing bounds were raw shader capability checks, nonpositive-K
+execution validation, the ADC allocation/dispatch limit, and code indices within K.
+
+**Implementation:** assignment fills 0xff for unsupported K before input reads; centroid
+255 remains valid for K=256. Training accumulation rejects unsupported K and skips codes
+outside their subspace before pointer formation. ADC uses a group-uniform guard before
+shared loading/barriers, with `M <= 8192 / K` checked only after positive valid K. Invalid
+shapes fill live output distances with NaN. Invalid codes in otherwise valid tables fill
+that vector with NaN after the barrier, before lookup. Full-byte codes and ordinary
+at-cap arithmetic are preserved.
+
+Host train/encode/ADC entry points reject nonpositive K before allocation; combined
+training/encoding does so before staging. `computeDistances` checks the table bound
+before product/allocation/UInt32 conversion/encoding, rounds dynamic shared binding to
+16 bytes, and checks device memory minus static pipeline usage. Oversized ADC throws;
+training/encoding retain larger-model support. Binding alignment is required by Apple's
+Metal API, and the small/odd-table tests cover the rounded host path.
+
+**Evidence so far:** four initial `PQBoundsTests` failed with **57 assertions**, covering
+centroid 256 wrapping to byte zero, unsupported shapes reaching shared loads (including
+a product wrapping at 2^32), invalid-code lookups, and cross-subspace/out-of-range atomic
+writes. All four passed after the fix. Test-only source instrumentation intercepts bad
+ADC accesses before dereferencing so the baseline cannot fault the GPU; raw accumulation
+uses physically allocated guard capacity. Six further tests cover real library rejection,
+at-cap/ragged dispatch, early host rejection including Int.max M, small table alignment,
+retained larger-model train/encode, and nonpositive-K host validation. Both plugin and
+runtime libraries are exercised in debug, runtime in release.
+
+Targeted **47 tests / 0 failures** (2.824 seconds). Independent review found no production
+blockers; added its requested accumulation controls for unsupported K=0/257 and valid
+K=256/code255 to the existing test. Final API+shader validation **10 / 0** (0.277 seconds),
+exit 0, no reported validation errors. Full debug: **1672 / 0 failures / 11 skipped**
+(256.920 seconds), exit 0. Full release: **1672 / 0 / 11** (56.807 seconds), exit 0.
+Both full gates use the final production and test sources. VA3-026 is **FIXED**; Group C
+now has only VA3-028 remaining.
+
+No general buffer/shape/model-compatibility or CPU decode validation claim; raw callers
+still supply sufficient aligned dynamic shared memory and valid layouts. No performance
+or deterministic-training claim. See [the PQ bounds contract](../stability/PQ-BOUNDS-CONTRACT.md).
+Logs and exact slice-start sources are in `/private/tmp/va3-026/`. Work remains on the
+single `gifton/metal-hardening-checkpoint` branch.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).
@@ -941,7 +989,7 @@ Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live be
 | VA3-023 | P3 | LIVE | `use_fast_math=0` in DataTransformations doesn't disable fast math (whole library compiles `.fast`) — dishonest API flag |
 | VA3-024 | P3 | LIVE | Perf pathologies: single-pair euclidean dispatches **one thread**; `batch_select_k_nearest` uses 1/256 threads; hamming-single 256× overdispatch; per-element softmax O(D²/row) |
 | VA3-025 | P3 | **FIXED** | Slice 17: scalar-bounded c-TF-IDF vector tails; zero-K shader/host no-op; invalid K rejected; vector ABI and host routing retained |
-| VA3-026 | P3 | LIVE-cond | PQ contracts unenforced in-kernel: K ≤ 256 uint8 cast, ADC threadgroup memory M·K·4 ≤ 32 KB |
+| VA3-026 | P3 | **FIXED** | Slice 18: byte-code and ADC 32 KB bounds enforced; host throws before encoding, raw ADC NaN-fills; invalid assignments cannot cross subspaces; larger-model training/encoding retained |
 | VA3-027 | P2 | LIVE-cond | Silently dropped flags: `neural_encode_pass1` hardcodes ReLU (ignores useActivation); specialized learned kernels ignore `normalizeProjected` |
 | VA3-028 | P3 | LIVE | Borůvka candidate-edge buffer bound (2n) is exactly tight only via the components-halve invariant; kernel writes unchecked; comment says "usually enough" |
 | VA3-029 | P3 | — | Header/hygiene: triplicated helper families (va_/ivf_/bare), `VA_EPSILON_HALF` type mismatch, misnamed prefix-sum, non-hygienic debug macro |
@@ -1093,14 +1141,19 @@ conversion remain separate limitations; see the slice-15 verification and width 
 slice 15. They now promote `vectorIdx * INPUT_DIM` before multiplication, with a red-first
 boundary probe; the new generic neural scalar-tail output offset is also tested.
 
-### VA3-025 (FIXED, slice 17) / VA3-026 / VA3-028 (P3): input-contract edges
+### VA3-025 (FIXED, slice 17) / VA3-026 (FIXED, slice 18) / VA3-028 (P3): input-contract edges
 
 - **VA3-025 FIXED — slice 17:** vectorized c-TF-IDF previously loaded/gathered/stored
   unused partial-tail lanes (shielded by host `nnz % 4 == 0` routing); raw and standalone
   Top-K lacked a K=0 guard. Scalar tail accesses and zero-K shader/host returns now close
   both defects. Invalid K is rejected; the vector ABI minimum remains 16 bound bytes.
   See slice 17 and [the bounds contract](../stability/SPARSE-TFIDF-BOUNDS-CONTRACT.md).
-- PQ: `(uint8_t)k` cast assumes K ≤ 256; ADC shared table needs M·K·4 ≤ 32 KB — both caller contracts with no assert (ProductQuantization.metal:91, 221).
+- **VA3-026 FIXED — slice 18:** raw assignment/accumulation/ADC enforce byte-code bounds;
+  ADC rejects tables above 8192 floats before multiplication/shared access. Host ADC throws
+  before allocation/encoding, aligns dynamic binding to 16 bytes, and checks device minus
+  static pipeline memory. Training/encoding remain available above the ADC-only cap.
+  The host initializer's existing K<=256 precondition is retained; execution also rejects
+  nonpositive K. See [the PQ bounds contract](../stability/PQ-BOUNDS-CONTRACT.md).
 - Borůvka: candidate buffer `max(2n, n-1)` (BoruvkaMSTKernel.swift:363-370) is safe *only* by the components-halve-per-round invariant (Σ Cᵣ < 2n); the kernel's `atomic_fetch_add` write is unclamped (BoruvkaMST.metal:200-203) and the comment says "N*2 is usually enough". Add a kernel-side clamp and rewrite the comment with the actual bound. Also `INFINITY` edge weight is conflated with the no-edge sentinel (:186).
 
 ---

@@ -11,7 +11,7 @@ release `swift test -c release` → **1590 / 0 / 11**. Both must stay that way (
 
 This document is self-contained, but the authoritative per-finding record is
 `docs/audits/AUDIT-3-shaders.md` (findings VA3-001…034, groups A–G, remediation
-slices 1–17) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
+slices 1–18) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
 `docs/audits/REVIEW-PATTERNS.md` holds the project's adversarial-review pattern library.
 
 ---
@@ -32,7 +32,7 @@ NaN-containing input, including mixed NaN/Inf. Empty input and infinity without 
 throw; higher-moment, quantile, and correlation requests retain finite-only validation.
 Histograms and softmax are unchanged. Nine further tests cover both shader paths and public APIs.
 
-Current full gates: **debug 1662 / 0 failures / 11 skipped; release 1662 / 0 / 11**.
+Current full gates: **debug 1672 / 0 failures / 11 skipped; release 1672 / 0 / 11**.
 The original state stamp above is historical. On 2026-09-07, the owner authorized
 checkpointing all project work through slice 16 on `gifton/metal-hardening-checkpoint`
 and pushing that branch to `origin`. This checkpoint includes the hardening tests, audit
@@ -99,6 +99,17 @@ The owner authorized checkpointing this slice on the same branch on 2026-09-07.
 the handoff; it includes the full `gifton/metal-compute-provider` ancestry.
 Group C remainder: VA3-026/-028.
 
+
+**Slice 18 completed: VA3-026 is FIXED.** PQ retains all 256 byte codes and a 32 KB
+ADC-only table cap. Host ADC rejects oversize requests before allocation/encoding,
+rounds shared bindings to 16 bytes, and checks device/static memory. Raw shaders reject
+unsupported K/table sizes and invalid codes before unsafe accesses; training/encoding
+retain larger-model support. Ten tests: initial red 57 assertions, targeted 47 / 0,
+API+shader validation 10 / 0, full debug/release 1672 / 0 / 11. See
+[the PQ bounds contract](../stability/PQ-BOUNDS-CONTRACT.md) for sentinels and retained
+caller requirements. All work continues on `gifton/metal-hardening-checkpoint`.
+**Group C remainder: VA3-028 only.**
+
 ## 1. What this project is
 
 VectorAccelerate (VA) is the GPU-acceleration package of the VSK suite: Metal 4 compute
@@ -115,7 +126,7 @@ numerics policy are the parity reference), VectorIndex (pins VA 0.3.1 — not in
 - Swift: `Core/` (Metal4Context, Metal4ComputeEngine, KernelContext, PipelineCache/Key,
   PipelineRegistry, GPUDecisionEngine), `Kernels/Metal4/` (per-kernel wrappers),
   `Integration/` (MetalComputeProvider, KernelDistanceProviders), `Index/` (IVF pipeline).
-- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **19 permanent guard
+- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **20 permanent guard
   suites** created by this epic (§5).
 
 ## 2. Architecture facts you must internalize first
@@ -187,7 +198,7 @@ to the VA3-015 stragglers was completed in slice 9, including smaller-norm-first
    that discriminate (e.g. data where the honest and the buggy answer differ in FP32).
 3. **Gates.** After the fix: targeted suites, then FULL debug suite, then FULL release
    suite (`swift test -c release`) — release exercises the runtime-compiled library
-   (§2.1). Record exact counts. Current expectation: 1662/0/11 both configs.
+   (§2.1). Record exact counts. Current expectation: 1672/0/11 both configs.
 4. **Ledger + memory.** Append a "Remediation slice N" section to
    `docs/audits/AUDIT-3-shaders.md`, flip the finding's summary-table row and detail
    heading to **FIXED**, and append a dated paragraph to the session memory file
@@ -238,6 +249,7 @@ E determinism, F deletion inventory, G hygiene. Then sixteen remediation slices:
 | 15 | 09-07 | VA3-018 address width | Promote row products before multiplication; wide downstream locals/helper arguments across 21 shaders; ten GPU arithmetic tests, retained ABI limits | 1645/0/11 |
 | 16 | 09-07 | VA3-017 alignment | Packed scalar-backed vector views; neural weight-tail bounds and three missed store offsets; compiler/footprint guards, odd-layout GPU tests | 1654/0/11 |
 | 17 | 09-07 | VA3-025 sparse TF-IDF bounds | Scalar vector tails; zero-K no-op; invalid K guard; eight bounds/API regression tests | 1662/0/11 |
+| 18 | 09-07 | VA3-026 PQ bounds | Byte-code guards, ADC-only 32 KB cap and aligned binding, invalid-code isolation; ten regression tests | 1672/0/11 |
 
 **Status:** every P1 fixed; groups A, B, D, F closed (B retains documented numeric limits);
 Group C's P1s, cap family, VA3-018 address width, and VA3-017 alignment closed; E/G and the C input/capacity remainder open (§6).
@@ -265,6 +277,7 @@ Group C's P1s, cap family, VA3-018 address width, and VA3-017 alignment closed; 
 | `IndexWidthTests` | Production-source GPU arithmetic probes at 2^32, batch/strided products, and downstream narrowing (VA3-018); no large-buffer allocation claim |
 | `VectorAlignmentTests` | Compiler alignment diagnostic including reinterpret-cast canary, odd-layout GPU checks, and instrumented neural weight-tail footprints (VA3-017) |
 | `SparseTFIDFBoundsTests` | Partial-tail footprints/canaries, exact allocations within vector ABI, zero-K shader/encoder/public behavior, invalid K, sentinels and over-dispatch (VA3-025) |
+| `PQBoundsTests` | Byte-code endpoints, invalid assignment/lookup isolation, ADC table cap/overflow, early host rejection, binding alignment, and retained larger-model train/encode (VA3-026) |
 
 The 11 remaining runtime skips are environment-gated (no-Metal CI, GPU-stress suite), not
 guard-gated fictions — the forever-skipping class was deleted in slice 8.
@@ -288,11 +301,10 @@ guard-gated fictions — the forever-skipping class was deleted in slice 8.
   limits. This includes limits on derived roots of squared scores and learned projection
   distances; see the distance range contract. No performance/full-range guarantee.
 
-**Group C remainder — input/capacity contracts (P1s, caps, VA3-018/-017/-025 closed):**
+**Group C remainder — input/capacity contracts (P1s, caps, VA3-018/-017/-025/-026 closed):**
 
-- **VA3-026/-028 (P3):** input-contract edges (PQ
-  `K ≤ 256` / 32 KB table caller contracts without asserts, Borůvka candidate-buffer bound
-  + INFINITY/no-edge sentinel conflation).
+- **VA3-028 (P3):** Borůvka candidate-buffer bound, unchecked writes, and
+  INFINITY/no-edge sentinel conflation.
 
 **Group E — determinism (needs OWNER POLICY):**
 - **VA3-019 (P2, LIVE):** `umap_negative_sample_kernel` reads `embedding[j]` while sibling
@@ -350,7 +362,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 ## 8. Reference map
 
-- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–17 + all findings),
+- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–18 + all findings),
   `docs/audits/AUDIT-2.md`, `docs/audits/REVIEW-PATTERNS.md`.
 - Plans: `docs/superpowers/plans/2026-08-16-hardening-audit-phase0-1.md` (epic origin).
 - Numerics backlog: `docs/stability/NUMERICAL_STABILITY_FINDINGS.md`.
@@ -362,7 +374,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
   derivation — beware rewriting cases), `Metal/Shaders/Metal4Common.h` (shared constants +
   cosine rescue; mirrored in the preamble).
 
-**Suggested next slices:** Group C now has VA3-026/-028 input/capacity contracts;
-VA3-026 (PQ K/table limits) is the next suggested item.
+**Suggested next slice:** VA3-028 (Borůvka candidate bounds and no-edge sentinel),
+the last Group C item.
 Then VA3-019 determinism policy (owner call), G hygiene, and the recorded-not-fixed
 residuals. Let the owner select the next slice; do not infer approval to broaden this one.

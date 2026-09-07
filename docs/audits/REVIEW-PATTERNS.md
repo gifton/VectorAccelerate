@@ -134,6 +134,12 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   regressions and both library compilation paths separately check integration. They do
   not establish that large buffers can be allocated or that count/ID limits were widened.
 
+
+- **Follow-up:** VA3-026 slice 18 — ADC's `M * K` table size could wrap to zero before
+  a shared-memory load bound was checked. Validate K first, then compare M to the
+  capacity divided by K before multiplying. The shader rejection must be uniform before
+  the cooperative load/barrier. Tests include the 2^32 product and ragged threadgroups.
+
 ## 14. Correct values do not prove legal memory accesses
 - **Mechanism:** hardware can tolerate a misaligned cast, and an optimizer can remove
   invalid loads in unused vector lanes. Value parity and clean validation output may
