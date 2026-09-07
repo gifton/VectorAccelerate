@@ -69,8 +69,8 @@ kernel void boruvka_find_min_edge_kernel(
         const uint simd_blocks = params.d / 4;
         const uint remainder = params.d % 4;
 
-        device const float4* vec_i = (device const float4*)(embeddings + tid * params.d);
-        device const float4* vec_j = (device const float4*)(embeddings + j * params.d);
+        device const packed_float4* vec_i = (device const packed_float4*)(embeddings + (ulong)tid * params.d);
+        device const packed_float4* vec_j = (device const packed_float4*)(embeddings + (ulong)j * params.d);
 
         float4 acc = float4(0.0f);
         for (uint k = 0; k < simd_blocks; k++) {
@@ -81,8 +81,8 @@ kernel void boruvka_find_min_edge_kernel(
 
         // Handle remainder
         if (remainder > 0) {
-            device const float* tail_i = embeddings + tid * params.d + (simd_blocks * 4);
-            device const float* tail_j = embeddings + j * params.d + (simd_blocks * 4);
+            device const float* tail_i = embeddings + (ulong)tid * params.d + (simd_blocks * 4);
+            device const float* tail_j = embeddings + (ulong)j * params.d + (simd_blocks * 4);
             for (uint k = 0; k < remainder; k++) {
                 float diff = tail_i[k] - tail_j[k];
                 distSq = fma(diff, diff, distSq);
@@ -227,12 +227,12 @@ kernel void boruvka_find_min_edge_384_kernel(
     uint bestTarget = tid;
 
     // Precompute base pointer for this point (384 = 96 float4)
-    device const float4* vec_i = (device const float4*)(embeddings + tid * 384);
+    device const packed_float4* vec_i = (device const packed_float4*)(embeddings + (ulong)tid * 384);
 
     for (uint j = 0; j < params.n; j++) {
         if (componentIds[j] == myComponent) continue;
 
-        device const float4* vec_j = (device const float4*)(embeddings + j * 384);
+        device const packed_float4* vec_j = (device const packed_float4*)(embeddings + (ulong)j * 384);
 
         // Unrolled 384-dim distance: 96 float4 iterations with 4x unrolling (24 iterations)
         float4 acc0 = float4(0.0f), acc1 = float4(0.0f);
@@ -287,12 +287,12 @@ kernel void boruvka_find_min_edge_512_kernel(
     uint bestTarget = tid;
 
     // Precompute base pointer for this point (512 = 128 float4)
-    device const float4* vec_i = (device const float4*)(embeddings + tid * 512);
+    device const packed_float4* vec_i = (device const packed_float4*)(embeddings + (ulong)tid * 512);
 
     for (uint j = 0; j < params.n; j++) {
         if (componentIds[j] == myComponent) continue;
 
-        device const float4* vec_j = (device const float4*)(embeddings + j * 512);
+        device const packed_float4* vec_j = (device const packed_float4*)(embeddings + (ulong)j * 512);
 
         // Unrolled 512-dim distance: 128 float4 iterations with 4x unrolling (32 iterations)
         float4 acc0 = float4(0.0f), acc1 = float4(0.0f);
@@ -347,12 +347,12 @@ kernel void boruvka_find_min_edge_768_kernel(
     uint bestTarget = tid;
 
     // Precompute base pointer for this point (768 = 192 float4)
-    device const float4* vec_i = (device const float4*)(embeddings + tid * 768);
+    device const packed_float4* vec_i = (device const packed_float4*)(embeddings + (ulong)tid * 768);
 
     for (uint j = 0; j < params.n; j++) {
         if (componentIds[j] == myComponent) continue;
 
-        device const float4* vec_j = (device const float4*)(embeddings + j * 768);
+        device const packed_float4* vec_j = (device const packed_float4*)(embeddings + (ulong)j * 768);
 
         // Unrolled 768-dim distance: 192 float4 iterations with 4x unrolling (48 iterations)
         float4 acc0 = float4(0.0f), acc1 = float4(0.0f);
@@ -407,12 +407,12 @@ kernel void boruvka_find_min_edge_1536_kernel(
     uint bestTarget = tid;
 
     // Precompute base pointer for this point (1536 = 384 float4)
-    device const float4* vec_i = (device const float4*)(embeddings + tid * 1536);
+    device const packed_float4* vec_i = (device const packed_float4*)(embeddings + (ulong)tid * 1536);
 
     for (uint j = 0; j < params.n; j++) {
         if (componentIds[j] == myComponent) continue;
 
-        device const float4* vec_j = (device const float4*)(embeddings + j * 1536);
+        device const packed_float4* vec_j = (device const packed_float4*)(embeddings + (ulong)j * 1536);
 
         // Unrolled 1536-dim distance: 384 float4 iterations with 4x unrolling (96 iterations)
         float4 acc0 = float4(0.0f), acc1 = float4(0.0f);

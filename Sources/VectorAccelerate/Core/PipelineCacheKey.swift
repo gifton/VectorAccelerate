@@ -128,21 +128,21 @@ public struct PipelineCacheKey: Hashable, Codable, Sendable {
         )
     }
 
-    /// Create key for cosine similarity
-    public static func cosineSimilarity(dimension: Int = 0) -> PipelineCacheKey {
-        PipelineCacheKey(
-            operation: "cosineSimilarity",
-            dimension: dimension,
-            dataType: .float32,
-            quantizationMode: nil,
-            features: []
-        )
-    }
+    // NOTE: the `.cosineSimilarity(dimension:)` constructor was removed with the
+    // CosineSimilarity.metal specialized family (AUDIT-3 Group F): no dispatch path ever used
+    // those kernels, so the constructor could only mint keys that resolve to nothing. Live
+    // cosine work goes through `cosineDistance` / `batchCosineDistance` / `cosine_similarity`
+    // (the pair kernel) / `soa_cosine_distance`.
 
-    /// Create key for dot product
+    /// Create key for the batch dot-product family (`dot_product{_384,_512,_768,_1536}_kernel`).
+    ///
+    /// The operation string is deliberately NOT "dotProduct": that exact spelling is the
+    /// single-pair kernel's literal function name, and `getPipeline(functionName:)` funnels
+    /// literal names through this same key type — sharing the string would (and did, AUDIT-3
+    /// VA3-031) reroute the engine's single-pair dispatch to the batch kernel.
     public static func dotProduct(dimension: Int = 0) -> PipelineCacheKey {
         PipelineCacheKey(
-            operation: "dotProduct",
+            operation: "dot_product",
             dimension: dimension,
             dataType: .float32,
             quantizationMode: nil,
@@ -213,29 +213,49 @@ public struct PipelineCacheKey: Hashable, Codable, Sendable {
             dimensionSuffix = ""
         }
 
-        // Operation mapping
+        // Operation mapping. Every branch must produce a function name that actually exists in
+        // the shader corpus — `ShaderLibraryCompletenessTests.testCommonPipelineKeysResolveToRealFunctions`
+        // enforces this for the pre-warm key sets. Before the 2026-08 audit four derivations
+        // produced phantom names that existed in no library (AUDIT-2 VA2-006): the generic
+        // cosine key ("cosine_similarity_kernel"), "topK" ("top_k_selection"), fused keys
+        // (underscore-stripping turned the real `fused_l2_topk` into "fusedl2topk"), and batch
+        // keys (Swift's `.capitalized` lowercases the rest of the word:
+        // "batchEuclideandistance").
+        //
+        // A second trap (AUDIT-3 VA3-031): `getPipeline(functionName:)` funnels *literal*
+        // kernel names through this switch via `PipelineCacheKey(operation: functionName)`,
+        // so any case that rewrites its operation string hijacks the identically-spelled
+        // function name. "dotProduct" → "dot_product_kernel" silently sent the engine's
+        // single-pair dot product to the batch kernel (whose params read zeros past the
+        // 4-byte dimension constant, so nothing was written and callers got whatever bytes
+        // the pooled result buffer already held). The keyed batch family therefore uses
+        // operation "dot_product", and the three literal single-pair kernel names are
+        // identity-mapped below. Do not add a rewriting case whose operation string equals
+        // an existing kernel name.
         let baseName: String
         switch operation {
         case "l2Distance":
-            baseName = "l2_distance\(dimensionSuffix)_kernel"
-        case "cosineSimilarity":
-            baseName = "cosine_similarity\(dimensionSuffix)_kernel"
-        case "dotProduct":
+            // The dimension-specialized l2_distance_{384,512,768,1536}_kernel variants were
+            // deleted in AUDIT-3 Group F (no dispatch path ever selected them); every
+            // l2Distance key resolves to the general kernel regardless of dimension.
+            baseName = "l2_distance_kernel"
+        case "dot_product":
             baseName = "dot_product\(dimensionSuffix)_kernel"
         case "topK":
-            baseName = "top_k_selection"
-        case "euclideanDistance":
-            baseName = "euclideanDistance"
-        case "cosineDistance":
-            baseName = "cosineDistance"
+            baseName = "topk_select_batch_kernel"
+        case "euclideanDistance", "cosineDistance", "dotProduct":
+            // Literal single-pair kernel names (BasicOperations.metal), dispatched by
+            // Metal4ComputeEngine through getPipeline(functionName:) — never rewritten.
+            baseName = operation
         default:
-            // Handle fused operations
             if operation.hasPrefix("fused_") {
-                baseName = operation.replacingOccurrences(of: "_", with: "")
+                // fused_* operations ARE literal kernel names (e.g. `fused_l2_topk`).
+                baseName = operation
             } else if operation.hasPrefix("batch_") && !operation.hasSuffix("_kernel") {
-                // Only transform abbreviated batch operation names (e.g., "batch_l2")
-                // Complete function names (e.g., "batch_projection_kernel") pass through unchanged
-                baseName = "batch" + operation.dropFirst(6).capitalized
+                // Abbreviated batch operation names (e.g. "batch_euclideanDistance" →
+                // "batchEuclideanDistance"): uppercase ONLY the first character of the tail.
+                let tail = operation.dropFirst(6)
+                baseName = "batch" + tail.prefix(1).uppercased() + tail.dropFirst()
             } else {
                 baseName = operation
             }
@@ -286,20 +306,16 @@ public extension PipelineCacheKey {
     /// Common keys for pre-warming cache
     static var commonKeys: [PipelineCacheKey] {
         [
-            // L2 Distance variants
-            .l2Distance(dimension: 384),
-            .l2Distance(dimension: 512),
-            .l2Distance(dimension: 768),
-            .l2Distance(dimension: 1536),
-            .l2Distance(dimension: 0),  // Generic
+            // L2 Distance (all dimensions resolve to the general kernel; the specialized
+            // variants were deleted in AUDIT-3 Group F)
+            .l2Distance(dimension: 0),
 
-            // Cosine similarity
-            .cosineSimilarity(dimension: 0),
-            .cosineSimilarity(dimension: 384),
-            .cosineSimilarity(dimension: 768),
-
-            // Dot product
+            // Dot product (generic + the live dimension-specialized variants)
             .dotProduct(dimension: 0),
+            .dotProduct(dimension: 384),
+            .dotProduct(dimension: 512),
+            .dotProduct(dimension: 768),
+            .dotProduct(dimension: 1536),
 
             // Top-K
             .topK(k: 0),
@@ -324,20 +340,14 @@ public extension PipelineCacheKey {
     /// Keys for embedding model dimensions (MiniLM, BERT, GPT)
     static var embeddingModelKeys: [PipelineCacheKey] {
         [
-            // MiniLM / Sentence-BERT (384)
-            .l2Distance(dimension: 384),
-            .cosineSimilarity(dimension: 384),
-
-            // BERT / DistilBERT (768)
-            .l2Distance(dimension: 768),
-            .cosineSimilarity(dimension: 768),
-
-            // OpenAI ada-002 (1536)
-            .l2Distance(dimension: 1536),
-            .cosineSimilarity(dimension: 1536),
-
-            // All-MPNet (768)
-            .l2Distance(dimension: 768),
+            // The dimension-specialized L2/cosine matrix kernels these keys used to warm were
+            // deleted in AUDIT-3 Group F (no dispatch path ever selected them). What remains
+            // dimension-specialized AND live is the dot-product family, plus the general
+            // L2 kernel that now backs every l2Distance key.
+            .l2Distance(dimension: 0),
+            .dotProduct(dimension: 384),   // MiniLM / Sentence-BERT
+            .dotProduct(dimension: 768),   // BERT / DistilBERT / MPNet
+            .dotProduct(dimension: 1536),  // OpenAI ada-002
         ]
     }
 }

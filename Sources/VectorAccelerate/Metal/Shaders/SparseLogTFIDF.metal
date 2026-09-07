@@ -121,8 +121,8 @@ kernel void ctfidf_topk_per_cluster_kernel(
     uint count = end - start;
 
     // Output pointers for this cluster
-    device uint* outIndices = topKIndices + cid * topK;
-    device float* outScores = topKScores + cid * topK;
+    device uint* outIndices = topKIndices + (ulong)cid * topK;
+    device float* outScores = topKScores + (ulong)cid * topK;
 
     // Initialize with -inf (invalid entries)
     for (uint k = 0; k < topK; k++) {

@@ -82,7 +82,7 @@ struct L2NormFactor {
 /// Maximum absolute component of a vector (pass 1 of the stable algorithm).
 inline float l2_max_abs(device const float* vector, uint dimension) {
     const uint simd_blocks = dimension / 4;
-    device const float4* vec4 = (device const float4*)vector;
+    device const packed_float4* vec4 = (device const packed_float4*)vector;
 
     float4 acc = 0.0f;
     for (uint i = 0; i < simd_blocks; ++i) {
@@ -105,7 +105,7 @@ inline float l2_scaled_norm_sq(device const float* vector, uint dimension, float
     float norm_sq = 0.0f;
     const uint simd_blocks = dimension / 4;
 
-    device const float4* vec4 = (device const float4*)vector;
+    device const packed_float4* vec4 = (device const packed_float4*)vector;
 
     // Process 4 elements at a time
     for (uint i = 0; i < simd_blocks; ++i) {
@@ -154,8 +154,8 @@ inline L2NormFactor l2_norm_factor(device const float* vector, uint dimension) {
 inline void l2_copy_bits(device const float* input, device float* output, uint dimension) {
     const uint simd_blocks = dimension / 4;
 
-    device const uint4* in4 = (device const uint4*)input;
-    device uint4* out4 = (device uint4*)output;
+    device const packed_uint4* in4 = (device const packed_uint4*)input;
+    device packed_uint4* out4 = (device packed_uint4*)output;
     for (uint i = 0; i < simd_blocks; ++i) {
         out4[i] = in4[i];
     }
@@ -187,8 +187,8 @@ void apply_normalization(
 
     const uint simd_blocks = dimension / 4;
 
-    device const float4* in4 = (device const float4*)input;
-    device float4* out4 = (device float4*)output;
+    device const packed_float4* in4 = (device const packed_float4*)input;
+    device packed_float4* out4 = (device packed_float4*)output;
 
     if (divisor == 0.0f) {
         for (uint i = 0; i < simd_blocks; ++i) { out4[i] = float4(0.0f); }
@@ -236,8 +236,8 @@ kernel void l2_normalize_general_kernel(
 ) {
     if (tid >= params.num_vectors) return;
 
-    const uint input_offset = tid * params.input_stride;
-    const uint output_offset = tid * params.output_stride;
+    const ulong input_offset = (ulong)tid * params.input_stride;
+    const ulong output_offset = (ulong)tid * params.output_stride;
 
     device const float* current_input = input + input_offset;
     device float* current_output = output + output_offset;
@@ -266,7 +266,7 @@ kernel void l2_normalize_inplace_kernel(
     if (tid >= params.num_vectors) return;
 
     // Uses input_stride (host code ensures input_stride == output_stride for in-place)
-    const uint offset = tid * params.input_stride;
+    const ulong offset = (ulong)tid * params.input_stride;
     device float* current_vector = vectors + offset;
 
     // Phase 1: Compute Norm (pre-scaled, overflow- and underflow-safe)
@@ -296,10 +296,10 @@ void l2_normalize_optimized_impl(
     if (tid >= params.num_vectors) return;
 
     // Optimized kernels assume stride equals dimension (dense packing, verified on host)
-    const uint offset = tid * DIMENSION;
+    const ulong offset = (ulong)tid * DIMENSION;
 
-    device const float4* in4 = (device const float4*)(input + offset);
-    device float4* out4 = (device float4*)(output + offset);
+    device const packed_float4* in4 = (device const packed_float4*)(input + offset);
+    device packed_float4* out4 = (device packed_float4*)(output + offset);
 
     constexpr uint NUM_BLOCKS = DIMENSION / 4;
     constexpr uint UNROLL_FACTOR = 4; // Unrolling 4 float4s (16 elements)

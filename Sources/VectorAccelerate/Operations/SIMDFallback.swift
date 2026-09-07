@@ -159,7 +159,7 @@ public final class SIMDFallback: @unchecked Sendable {
     private func accelerateEuclideanDistance(_ a: [Float], _ b: [Float]) -> Float {
         var distance: Float = 0
         vDSP_distancesq(a, 1, b, 1, &distance, vDSP_Length(a.count))
-        return sqrt(distance)
+        return AccelerateFallback.finalizeEuclidean(distance, a, b)
     }
     
     /// Manual SIMD Euclidean distance
@@ -195,7 +195,7 @@ public final class SIMDFallback: @unchecked Sendable {
             }
         }
 
-        return sqrt(sumSquared)
+        return AccelerateFallback.finalizeEuclidean(sumSquared, a, b)
     }
 
     // MARK: - Manhattan Distance (SIMD4-optimized)

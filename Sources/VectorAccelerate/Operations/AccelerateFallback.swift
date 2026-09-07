@@ -12,7 +12,8 @@ public struct AccelerateFallback {
     
     // MARK: - Distance Operations
     
-    /// Compute Euclidean distance using Accelerate
+    /// Compute Euclidean distance using Accelerate, with exceptional range rescue.
+    /// See EuclideanRangePolicyTests and docs/stability/DISTANCE-RANGE-CONTRACT.md.
     public static func euclideanDistance(_ a: [Float], _ b: [Float]) throws -> Float {
         guard a.count == b.count else {
             throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
@@ -20,7 +21,22 @@ public struct AccelerateFallback {
 
         var result: Float = 0
         vDSP_distancesq(a, 1, b, 1, &result, vDSP_Length(a.count))
-        return sqrt(result)
+        return finalizeEuclidean(result, a, b)
+    }
+
+    /// Shared range rescue for rooted L2; inputs must have matching dimensions.
+    /// EuclideanRangePolicyTests covers CPU callers and equivalent GPU results.
+    static func finalizeEuclidean(_ squaredSum: Float, _ a: [Float], _ b: [Float]) -> Float {
+        if squaredSum.isFinite && squaredSum >= Float.leastNormalMagnitude {
+            return sqrt(squaredSum)
+        }
+        // Convert BEFORE subtraction. Float input differences/products fit Double's range.
+        var sum: Double = 0
+        for i in a.indices {
+            let diff = Double(a[i]) - Double(b[i])
+            sum += diff * diff
+        }
+        return Float(sqrt(sum))
     }
 
     /// Compute cosine similarity using Accelerate
@@ -28,27 +44,78 @@ public struct AccelerateFallback {
         guard a.count == b.count else {
             throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
         }
-        
-        // Compute dot product
-        var dotProduct: Float = 0
-        vDSP_dotpr(a, 1, b, 1, &dotProduct, vDSP_Length(a.count))
-        
-        // Compute norms
-        var normA: Float = 0
-        var normB: Float = 0
-        vDSP_svesq(a, 1, &normA, vDSP_Length(a.count))
-        vDSP_svesq(b, 1, &normB, vDSP_Length(a.count))
-        
-        normA = sqrt(normA)
-        normB = sqrt(normB)
-        
-        if normA > 0 && normB > 0 {
-            return dotProduct / (normA * normB)
+        return cosineSimilarityCore(a, b)
+    }
+
+    /// Shared cosine-similarity core (AUDIT-2 VA2-008/VA2-009), matching the GPU cosine
+    /// kernels' semantics so the silent-fallback legs stay interchangeable:
+    /// * primary path — single-precision vDSP accumulation, taken whenever the dot product is
+    ///   finite and `√‖a‖²·√‖b‖²` is a *normal* float (finite, nonzero, not subnormal);
+    /// * rescue path — Double accumulation for everything else: overflowed accumulators
+    ///   (components ≳1e19), zero/subnormal norms, and non-finite inputs. Mirrors the GPU
+    ///   kernels' pre-scaled rescue (`va_cosine_rescaled_terms`); Double has the range to make
+    ///   the same cases exact here;
+    /// * NaN inputs propagate as NaN — the pre-audit `norm > 0` guard silently collapsed
+    ///   NaN-bearing pairs to similarity 0 while the GPU propagated NaN (VA2-009);
+    /// * zero vectors → similarity 0; result clamped to [-1, 1], NaN-preserving.
+    static func cosineSimilarityCore(_ a: [Float], _ b: [Float], queryNormSq: Float? = nil) -> Float {
+        guard a.count == b.count else { return .nan }   // ragged pair (previously an OOB vDSP read)
+        guard !a.isEmpty else { return 0 }              // degenerate-by-construction, matches GPU
+
+        var dot: Float = 0
+        vDSP_dotpr(a, 1, b, 1, &dot, vDSP_Length(a.count))
+        var aa: Float
+        if let precomputed = queryNormSq {
+            aa = precomputed
+        } else {
+            aa = 0
+            vDSP_svesq(a, 1, &aa, vDSP_Length(a.count))
         }
-        return 0
+        var bb: Float = 0
+        vDSP_svesq(b, 1, &bb, vDSP_Length(b.count))
+
+        let denominator = aa.squareRoot() * bb.squareRoot()
+        if dot.isFinite && aa.isNormal && bb.isNormal && denominator.isNormal {
+            // Primary path: every operand is well-scaled and full-precision; raw cannot be NaN.
+            // A *subnormal* accumulator (not just zero) also routes to the rescue: it carries as
+            // few as ~10 mantissa bits, which visibly degrades the similarity — and it mirrors
+            // the GPU, where flush-to-zero turns the same accumulator into the rescue trigger.
+            let raw = dot / denominator
+            return min(max(raw, -1), 1)
+        }
+
+        // Rescue: Double accumulation.
+        var dotD = 0.0
+        var aaD = 0.0
+        var bbD = 0.0
+        var aMaxAbs: Float = 0
+        var bMaxAbs: Float = 0
+        for i in 0..<a.count {
+            let x = Double(a[i])
+            let y = Double(b[i])
+            dotD += x * y
+            aaD += x * x
+            bbD += y * y
+            aMaxAbs = max(aMaxAbs, abs(a[i]))
+            bMaxAbs = max(bMaxAbs, abs(b[i]))
+        }
+        if dotD.isNaN || aaD.isNaN || bbD.isNaN { return .nan }
+        // Library-wide degenerate policy (matches the normalize family and the GPU kernels):
+        // a vector whose largest magnitude is subnormal is not a representable operand on the
+        // GPU — flush-to-zero erases it before any arithmetic — so BOTH legs classify it as
+        // degenerate (similarity 0) rather than diverging. Double could compute a value here;
+        // interchangeability of the silent-fallback legs wins (AUDIT-2 VA2-008).
+        guard aMaxAbs >= Float.leastNormalMagnitude, bMaxAbs >= Float.leastNormalMagnitude else {
+            return 0
+        }
+        let denominatorD = aaD.squareRoot() * bbD.squareRoot()
+        guard denominatorD > 0 else { return 0 }
+        let raw = dotD / denominatorD
+        return Float(min(max(raw, -1), 1))
     }
     
-    /// Compute dot product using Accelerate
+    /// Compute dot product using Accelerate. FP32 product/accumulation range and
+    /// cancellation limits apply; see docs/stability/DISTANCE-RANGE-CONTRACT.md.
     public static func dotProduct(_ a: [Float], _ b: [Float]) throws -> Float {
         guard a.count == b.count else {
             throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
@@ -203,35 +270,19 @@ public struct AccelerateFallback {
         candidates.map { (try? euclideanDistance(query, $0)) ?? .infinity }
     }
     
-    /// Batch cosine similarity using Accelerate
+    /// Batch cosine similarity using Accelerate.
+    ///
+    /// Delegates to ``cosineSimilarityCore(_:_:queryNormSq:)`` per candidate with the query's
+    /// squared norm precomputed once. The pre-audit implementation short-circuited on a "zero"
+    /// query norm — which was also true for NaN/overflowed query norms, silently returning 0
+    /// for every candidate (AUDIT-2 VA2-009) — and read out of bounds for ragged candidates.
     public static func batchCosineSimilarity(
         query: [Float],
         candidates: [[Float]]
     ) -> [Float] {
-        // Pre-compute query norm
-        var queryNorm: Float = 0
-        vDSP_svesq(query, 1, &queryNorm, vDSP_Length(query.count))
-        queryNorm = sqrt(queryNorm)
-        
-        guard queryNorm > 0 else {
-            return [Float](repeating: 0, count: candidates.count)
-        }
-        
-        return candidates.map { candidate in
-            // Compute dot product
-            var dotProduct: Float = 0
-            vDSP_dotpr(query, 1, candidate, 1, &dotProduct, vDSP_Length(query.count))
-            
-            // Compute candidate norm
-            var candidateNorm: Float = 0
-            vDSP_svesq(candidate, 1, &candidateNorm, vDSP_Length(candidate.count))
-            candidateNorm = sqrt(candidateNorm)
-            
-            if candidateNorm > 0 {
-                return dotProduct / (queryNorm * candidateNorm)
-            }
-            return 0
-        }
+        var queryNormSq: Float = 0
+        vDSP_svesq(query, 1, &queryNormSq, vDSP_Length(query.count))
+        return candidates.map { cosineSimilarityCore(query, $0, queryNormSq: queryNormSq) }
     }
     
     /// Batch dot product using Accelerate

@@ -647,7 +647,7 @@ public actor QuantizationEngine {
             let diff = a[i] - b[i]
             sum += diff * diff
         }
-        return sqrt(sum)
+        return AccelerateFallback.finalizeEuclidean(sum, a, b)
     }
     
     // MARK: - Performance Metrics

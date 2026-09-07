@@ -1,6 +1,8 @@
 // VectorAccelerate: Batch Distance Operations
 //
-// High-performance batch distance computations with Metal 4 GPU acceleration.
+// Batch distance computations with GPU/CPU routing. Euclidean and cosine run Metal 4
+// kernels when routing selects the GPU; dot product and Manhattan have no batch kernel
+// yet and run Accelerate paths on every routing outcome (AUDIT-3 VA3-032).
 //
 
 import Foundation
@@ -39,18 +41,37 @@ public actor BatchDistanceEngine {
         self.decisionEngine = decisionEngine
     }
 
+    // MARK: - Input Validation
+
+    /// Every public batch entry runs this guard before routing: each candidate must match
+    /// the query's dimension exactly. The pre-audit guard checked only `candidates[0]`, so
+    /// a ragged candidate at any later index reached the backends, where each answered with
+    /// a different policy — +inf (euclidean), NaN (cosine), a zip-truncated partial product
+    /// (dot), a VectorCore debug assert or release out-of-bounds read (manhattan). Pinned by
+    /// BatchDistanceEngineTests.test_raggedCandidateRejectedUniformlyAcrossOperations.
+    private func validateCandidateDimensions(query: [Float], candidates: [[Float]]) throws {
+        for candidate in candidates where candidate.count != query.count {
+            throw VectorError.dimensionMismatch(expected: query.count, actual: candidate.count)
+        }
+    }
+
     // MARK: - Batch Euclidean Distance
 
-    /// Compute Euclidean distances between a query and multiple candidates
+    /// Compute Euclidean distances between a query and multiple candidates.
+    ///
+    /// - Parameters:
+    ///   - query: The query vector.
+    ///   - candidates: Candidate vectors; every candidate must match the query's
+    ///     dimension (`dimensionMismatch` otherwise).
+    ///   - useGPU: `true` forces the Metal path and `false` forces CPU; `nil` (default)
+    ///     routes via the decision engine when present, else the batch-size threshold.
     public func batchEuclideanDistance(
         query: [Float],
         candidates: [[Float]],
         useGPU: Bool? = nil
     ) async throws -> [Float] {
         guard !candidates.isEmpty else { return [] }
-        guard query.count == candidates[0].count else {
-            throw VectorError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
-        }
+        try validateCandidateDimensions(query: query, candidates: candidates)
 
         let shouldUseGPU: Bool
         if let explicit = useGPU {
@@ -69,11 +90,8 @@ public actor BatchDistanceEngine {
 
         if shouldUseGPU {
             return try await batchEuclideanDistanceGPU(query: query, candidates: candidates)
-        } else if candidates.count >= simdThreshold {
-            return try await batchEuclideanDistanceSIMD(query: query, candidates: candidates)
-        } else {
-            return batchEuclideanDistanceCPU(query: query, candidates: candidates)
         }
+        return batchEuclideanDistanceCPU(query: query, candidates: candidates)
     }
 
     private func batchEuclideanDistanceGPU(
@@ -119,35 +137,35 @@ public actor BatchDistanceEngine {
         return resultToken.copyData(as: Float.self, count: candidateCount)
     }
 
-    private func batchEuclideanDistanceSIMD(
-        query: [Float],
-        candidates: [[Float]]
-    ) async throws -> [Float] {
-        AccelerateFallback.batchEuclideanDistance(query: query, candidates: candidates)
-    }
-
     private func batchEuclideanDistanceCPU(
         query: [Float],
         candidates: [[Float]]
     ) -> [Float] {
         // Route through Accelerate (vDSP) rather than a hand-rolled scalar loop. Swift can't
         // auto-vectorize the aliased float loop, so the previous version left NEON/AMX on the
-        // table even for the small batches that land on this path.
+        // table even for the small batches that land on this path. The former separate SIMD
+        // leg (n >= simdThreshold) made this identical call, so all non-GPU routing collapses
+        // here.
         AccelerateFallback.batchEuclideanDistance(query: query, candidates: candidates)
     }
 
     // MARK: - Batch Cosine Similarity
 
-    /// Compute cosine similarities between a query and multiple candidates
+    /// Compute cosine similarities between a query and multiple candidates.
+    ///
+    /// - Parameters:
+    ///   - query: The query vector.
+    ///   - candidates: Candidate vectors; every candidate must match the query's
+    ///     dimension (`dimensionMismatch` otherwise).
+    ///   - useGPU: `true` forces the Metal path and `false` forces CPU; `nil` (default)
+    ///     routes via the decision engine when present, else the batch-size threshold.
     public func batchCosineSimilarity(
         query: [Float],
         candidates: [[Float]],
         useGPU: Bool? = nil
     ) async throws -> [Float] {
         guard !candidates.isEmpty else { return [] }
-        guard query.count == candidates[0].count else {
-            throw VectorError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
-        }
+        try validateCandidateDimensions(query: query, candidates: candidates)
 
         let shouldUseGPU: Bool
         if let explicit = useGPU {
@@ -166,11 +184,8 @@ public actor BatchDistanceEngine {
 
         if shouldUseGPU {
             return try await batchCosineSimilarityGPU(query: query, candidates: candidates)
-        } else if candidates.count >= simdThreshold {
-            return try await batchCosineSimilaritySIMD(query: query, candidates: candidates)
-        } else {
-            return batchCosineSimilarityCPU(query: query, candidates: candidates)
         }
+        return batchCosineSimilarityCPU(query: query, candidates: candidates)
     }
 
     private func batchCosineSimilarityGPU(
@@ -215,43 +230,39 @@ public actor BatchDistanceEngine {
         return resultToken.copyData(as: Float.self, count: candidateCount)
     }
 
-    private func batchCosineSimilaritySIMD(
-        query: [Float],
-        candidates: [[Float]]
-    ) async throws -> [Float] {
-        AccelerateFallback.batchCosineSimilarity(query: query, candidates: candidates)
-    }
-
     private func batchCosineSimilarityCPU(
         query: [Float],
         candidates: [[Float]]
     ) -> [Float] {
-        let queryNorm = sqrt(query.reduce(0) { $0 + $1 * $1 })
-
-        return candidates.map { candidate in
-            let candidateNorm = sqrt(candidate.reduce(0) { $0 + $1 * $1 })
-            let dotProduct = zip(query, candidate).reduce(0) { $0 + $1.0 * $1.1 }
-
-            if queryNorm > 0 && candidateNorm > 0 {
-                return dotProduct / (queryNorm * candidateNorm)
-            } else {
-                return 0
-            }
-        }
+        // AUDIT-3 VA3-033: this leg carried the pre-VA2-008 naive formula (NaN swallowed to
+        // 0 by the `queryNorm > 0` gate, the `queryNorm * candidateNorm` product overflowing
+        // and collapsing the similarity to 0, no [-1, 1] clamp) while the SIMD and GPU legs
+        // run the shared rescue — one public API, different answers across the simdThreshold
+        // boundary. All CPU routings now share AccelerateFallback's rescued core; the former
+        // separate SIMD leg made this identical call and is collapsed here
+        // (BatchDistanceEngineTests.test_batchCosineSimilarity_cpuLegsAgreeAcrossSimdBoundary
+        // pins the across-the-boundary agreement).
+        AccelerateFallback.batchCosineSimilarity(query: query, candidates: candidates)
     }
 
     // MARK: - Batch Dot Product
 
-    /// Compute dot products between a query and multiple candidates
+    /// Compute dot products between a query and multiple candidates.
+    ///
+    /// - Parameters:
+    ///   - query: The query vector.
+    ///   - candidates: Candidate vectors; every candidate must match the query's
+    ///     dimension (`dimensionMismatch` otherwise).
+    ///   - useGPU: Accepted for API symmetry, but no batch dot-product kernel exists yet
+    ///     (AUDIT-3 VA3-032), so every routing outcome — including an explicit `true` —
+    ///     runs an Accelerate path.
     public func batchDotProduct(
         query: [Float],
         candidates: [[Float]],
         useGPU: Bool? = nil
     ) async throws -> [Float] {
         guard !candidates.isEmpty else { return [] }
-        guard query.count == candidates[0].count else {
-            throw VectorError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
-        }
+        try validateCandidateDimensions(query: query, candidates: candidates)
 
         let shouldUseGPU: Bool
         if let explicit = useGPU {
@@ -268,53 +279,16 @@ public actor BatchDistanceEngine {
             shouldUseGPU = candidates.count >= gpuThreshold
         }
 
-        if shouldUseGPU {
-            return try await batchDotProductGPU(query: query, candidates: candidates)
-        } else {
-            return batchDotProductCPU(query: query, candidates: candidates)
+        // AUDIT-3 VA3-032: the GPU branch dispatched "batchDotProduct" — a kernel that has
+        // never existed in any library — so a GPU-routed call threw shaderNotFound where
+        // callers expected values. The branch armed at gpuThreshold candidates with no
+        // decision engine, and through the VA2-003 k-gate exemption with one attached. Until
+        // a real batch kernel is wired up (`dot_product_kernel` is the natural candidate),
+        // GPU-routed requests run the vDSP path: same results, no throw.
+        if shouldUseGPU || candidates.count >= simdThreshold {
+            return AccelerateFallback.batchDotProduct(query: query, candidates: candidates)
         }
-    }
-
-    private func batchDotProductGPU(
-        query: [Float],
-        candidates: [[Float]]
-    ) async throws -> [Float] {
-        let dimension = query.count
-        let candidateCount = candidates.count
-
-        // Prepare data
-        let flatCandidates = candidates.flatMap { $0 }
-
-        // Allocate buffers (BufferTokens auto-release when they go out of scope)
-        let queryToken = try await bufferPool.getBuffer(with: query)
-        let candidatesToken = try await bufferPool.getBuffer(with: flatCandidates)
-        let resultToken = try await bufferPool.getBuffer(for: Float.self, count: candidateCount)
-
-        // Get pipeline using Metal 4 shader compiler
-        let pipeline = try await context.getPipeline(functionName: "batchDotProduct")
-
-        try await context.executeAndWait { commandBuffer, encoder in
-            encoder.setComputePipelineState(pipeline)
-            encoder.setBuffer(queryToken.buffer, offset: 0, index: 0)
-            encoder.setBuffer(candidatesToken.buffer, offset: 0, index: 1)
-            encoder.setBuffer(resultToken.buffer, offset: 0, index: 2)
-
-            var dim = UInt32(dimension)
-            var count = UInt32(candidateCount)
-            encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
-            encoder.setBytes(&count, length: MemoryLayout<UInt32>.size, index: 4)
-
-            let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
-            let threadgroups = MTLSize(
-                width: (candidateCount + 255) / 256,
-                height: 1,
-                depth: 1
-            )
-            encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
-        }
-
-        // Read results (token keeps buffer alive until we're done reading)
-        return resultToken.copyData(as: Float.self, count: candidateCount)
+        return batchDotProductCPU(query: query, candidates: candidates)
     }
 
     private func batchDotProductCPU(
@@ -328,16 +302,22 @@ public actor BatchDistanceEngine {
 
     // MARK: - Batch Manhattan Distance
 
-    /// Compute Manhattan (L1) distances between a query and multiple candidates
+    /// Compute Manhattan (L1) distances between a query and multiple candidates.
+    ///
+    /// - Parameters:
+    ///   - query: The query vector.
+    ///   - candidates: Candidate vectors; every candidate must match the query's
+    ///     dimension (`dimensionMismatch` otherwise).
+    ///   - useGPU: Accepted for API symmetry, but no batch Manhattan kernel exists yet
+    ///     (AUDIT-3 VA3-032), so every routing outcome — including an explicit `true` —
+    ///     runs an Accelerate path.
     public func batchManhattanDistance(
         query: [Float],
         candidates: [[Float]],
         useGPU: Bool? = nil
     ) async throws -> [Float] {
         guard !candidates.isEmpty else { return [] }
-        guard query.count == candidates[0].count else {
-            throw VectorError.dimensionMismatch(expected: query.count, actual: candidates[0].count)
-        }
+        try validateCandidateDimensions(query: query, candidates: candidates)
 
         let shouldUseGPU: Bool
         if let explicit = useGPU {
@@ -354,56 +334,14 @@ public actor BatchDistanceEngine {
             shouldUseGPU = candidates.count >= gpuThreshold
         }
 
-        if shouldUseGPU {
-            return try await batchManhattanDistanceGPU(query: query, candidates: candidates)
-        } else if candidates.count >= simdThreshold {
+        // AUDIT-3 VA3-032: like batchDotProduct, the GPU branch dispatched
+        // "batchManhattanDistance" — a kernel that exists in no library — and threw
+        // shaderNotFound whenever routing selected GPU. GPU-routed requests run the
+        // SIMD path until a real batch kernel exists.
+        if shouldUseGPU || candidates.count >= simdThreshold {
             return try await batchManhattanDistanceSIMD(query: query, candidates: candidates)
-        } else {
-            return batchManhattanDistanceCPU(query: query, candidates: candidates)
         }
-    }
-
-    private func batchManhattanDistanceGPU(
-        query: [Float],
-        candidates: [[Float]]
-    ) async throws -> [Float] {
-        let dimension = query.count
-        let candidateCount = candidates.count
-
-        // Flatten candidates array
-        let flatCandidates = candidates.flatMap { $0 }
-
-        // Allocate buffers (BufferTokens auto-release when they go out of scope)
-        let queryToken = try await bufferPool.getBuffer(with: query)
-        let candidatesToken = try await bufferPool.getBuffer(with: flatCandidates)
-        let resultToken = try await bufferPool.getBuffer(for: Float.self, count: candidateCount)
-
-        // Get pipeline using Metal 4 shader compiler
-        let pipeline = try await context.getPipeline(functionName: "batchManhattanDistance")
-
-        try await context.executeAndWait { commandBuffer, encoder in
-            encoder.setComputePipelineState(pipeline)
-            encoder.setBuffer(queryToken.buffer, offset: 0, index: 0)
-            encoder.setBuffer(candidatesToken.buffer, offset: 0, index: 1)
-            encoder.setBuffer(resultToken.buffer, offset: 0, index: 2)
-
-            var dim = UInt32(dimension)
-            var count = UInt32(candidateCount)
-            encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
-            encoder.setBytes(&count, length: MemoryLayout<UInt32>.size, index: 4)
-
-            // Dispatch threads
-            let threadsPerThreadgroup = MTLSize(width: 256, height: 1, depth: 1)
-            let threadgroups = MTLSize(
-                width: (candidateCount + 255) / 256,
-                height: 1,
-                depth: 1
-            )
-            encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadsPerThreadgroup)
-        }
-
-        // Read results (token keeps buffer alive until we're done reading)
-        return resultToken.copyData(as: Float.self, count: candidateCount)
+        return batchManhattanDistanceCPU(query: query, candidates: candidates)
     }
 
     private func batchManhattanDistanceSIMD(

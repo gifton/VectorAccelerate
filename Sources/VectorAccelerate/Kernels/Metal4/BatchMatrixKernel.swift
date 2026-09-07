@@ -30,6 +30,20 @@ public enum Metal4ActivationType: UInt8, Sendable {
 
 // MARK: - Configuration
 
+/// Memory layout of the optional fused-GEMM bias buffer (AUDIT-3 VA3-004).
+///
+/// The shader previously indexed the bias as an M×N matrix (`bias[row * N + col]`) — a
+/// layout the Swift API never produced, so any multi-row GEMM with the documented
+/// N-length bias read out of bounds. The layout is now explicit.
+public enum BatchBiasLayout: UInt32, Sendable {
+    /// No bias.
+    case none = 0
+    /// One bias per output column, length N, broadcast over rows and batches.
+    case sharedColumns = 1
+    /// Per-batch column bias, length batchSize × N (`bias[batch * N + col]`).
+    case perBatchColumns = 2
+}
+
 /// Configuration for fused batch operations.
 public struct Metal4BatchFusedConfig: Sendable {
     /// Scaling factor for A*B result
@@ -267,6 +281,7 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
         batchB: any MTLBuffer,
         output: any MTLBuffer,
         bias: (any MTLBuffer)?,
+        biasLayout: BatchBiasLayout = .sharedColumns,
         parameters: BatchFusedParameters
     ) -> Metal4EncodingResult {
         encoder.setComputePipelineState(fusedPipeline)
@@ -291,6 +306,9 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
 
         var activation = parameters.activation
         encoder.setBytes(&activation, length: MemoryLayout<UInt32>.size, index: 6)
+
+        var biasMode: UInt32 = bias == nil ? 0 : biasLayout.rawValue
+        encoder.setBytes(&biasMode, length: MemoryLayout<UInt32>.size, index: 7)
 
         // 3D dispatch for batch dimension
         let threadgroupSize = MTLSize(width: BLOCK_SIZE, height: BLOCK_SIZE, depth: 1)
@@ -401,11 +419,20 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
             }
         }
 
-        // Validate bias
-        if let bias = bias {
-            guard bias.count == batchSize * N || bias.count == N else {
-                throw VectorError.invalidInput("Bias dimensions don't match output")
-            }
+        // Validate bias and derive its layout (VA3-004: the layout must be explicit — the
+        // shader has no other way to distinguish an N-length column bias from a
+        // batchSize×N per-batch bias).
+        let biasLayout: BatchBiasLayout
+        switch bias?.count {
+        case nil:
+            biasLayout = .none
+        case N:
+            biasLayout = .sharedColumns
+        case batchSize * N:
+            biasLayout = .perBatchColumns
+        case let count?:
+            throw VectorError.invalidInput(
+                "Bias must have N (\(N)) or batchSize×N (\(batchSize * N)) elements; got \(count)")
         }
 
         let device = context.device.rawDevice
@@ -465,6 +492,7 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
                 batchB: bufferB,
                 output: outputBuffer,
                 bias: biasBuffer,
+                biasLayout: biasLayout,
                 parameters: parameters
             )
         }

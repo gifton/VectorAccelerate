@@ -41,6 +41,30 @@ public actor MetalComputeProvider: BatchKernelProvider {
         }
     }
 
+    /// Where provider calls were actually served (audit provenance; cheap, always on).
+    ///
+    /// Counters are per-path *events*, not per-API-call: `findNearest` served on CPU delegates to
+    /// `batchDistance`, so it contributes that inner call's event too; `distanceMatrix` contributes
+    /// one event per row. `resetRoutingTelemetry()` before a measured section for exact counts.
+    public struct RoutingTelemetry: Sendable, Equatable {
+        /// Results produced by a GPU kernel dispatch.
+        public var gpuKernel: Int = 0
+        /// Calls the decision engine (or `preferGPU == false`) routed to CPU up front.
+        public var cpuDecisionEngine: Int = 0
+        /// Calls served on CPU by policy: metrics with no GPU kernel, single-pair `distance`.
+        public var cpuPolicy: Int = 0
+        /// GPU kernel threw and `fallbackToCPU` silently rescued the call.
+        public var cpuFallbackAfterGPUError: Int = 0
+        /// GPU fused top-K returned an empty result and the call silently fell through to CPU.
+        public var cpuFallbackEmptyGPUResult: Int = 0
+        /// `String(describing:)` of the most recent GPU error swallowed by fallback.
+        public var lastGPUErrorDescription: String? = nil
+        public init() {}
+    }
+    var _telemetry = RoutingTelemetry()   // internal: the SoA extension (+SoA.swift) increments it
+    public func routingTelemetry() -> RoutingTelemetry { _telemetry }
+    public func resetRoutingTelemetry() { _telemetry = RoutingTelemetry() }
+
     // Composed collaborators.
     let context: Metal4Context          // internal: used by the SoA scoring extension (+SoA.swift)
     private let engine: Metal4ComputeEngine
@@ -131,24 +155,49 @@ public actor MetalComputeProvider: BatchKernelProvider {
         switch metric {
         case .euclidean:
             let cpu = { AccelerateFallback.batchEuclideanDistance(query: query.toArray(), candidates: candidates.map { $0.toArray() }) }
-            guard await routeToGPU(.l2Distance, candidateCount: candidates.count, k: 0, dimension: dim) else { return cpu() }
-            do { return try await l2Provider.batchDistance(from: query, to: candidates, metric: .euclidean) }
-            catch { if configuration.fallbackToCPU { return cpu() } else { throw error } }
+            guard await routeToGPU(.l2Distance, candidateCount: candidates.count, k: 0, dimension: dim) else {
+                _telemetry.cpuDecisionEngine += 1
+                return cpu()
+            }
+            do {
+                let result = try await l2Provider.batchDistance(from: query, to: candidates, metric: .euclidean)
+                _telemetry.gpuKernel += 1
+                return result
+            } catch {
+                guard configuration.fallbackToCPU else { throw error }
+                _telemetry.cpuFallbackAfterGPUError += 1
+                _telemetry.lastGPUErrorDescription = String(describing: error)
+                return cpu()
+            }
 
         case .cosine:
             let cpu = { AccelerateFallback.batchCosineSimilarity(query: query.toArray(), candidates: candidates.map { $0.toArray() }).map { 1.0 - $0 } }
-            guard await routeToGPU(.cosineSimilarity, candidateCount: candidates.count, k: 0, dimension: dim) else { return cpu() }
-            do { return try await cosineProvider.batchDistance(from: query, to: candidates, metric: .cosine) }
-            catch { if configuration.fallbackToCPU { return cpu() } else { throw error } }
+            guard await routeToGPU(.cosineSimilarity, candidateCount: candidates.count, k: 0, dimension: dim) else {
+                _telemetry.cpuDecisionEngine += 1
+                return cpu()
+            }
+            do {
+                let result = try await cosineProvider.batchDistance(from: query, to: candidates, metric: .cosine)
+                _telemetry.gpuKernel += 1
+                return result
+            } catch {
+                guard configuration.fallbackToCPU else { throw error }
+                _telemetry.cpuFallbackAfterGPUError += 1
+                _telemetry.lastGPUErrorDescription = String(describing: error)
+                return cpu()
+            }
 
         case .dotProduct:
+            _telemetry.cpuPolicy += 1
             return AccelerateFallback.batchDotProduct(query: query.toArray(), candidates: candidates.map { $0.toArray() })
 
         case .manhattan:
+            _telemetry.cpuPolicy += 1
             let q = query.toArray()
             return try candidates.map { try AccelerateFallback.manhattanDistance(q, $0.toArray()) }
 
         case .chebyshev:
+            _telemetry.cpuPolicy += 1
             let q = query.toArray()
             return candidates.map { Self.chebyshev(q, $0.toArray()) }
         }
@@ -191,17 +240,34 @@ public actor MetalComputeProvider: BatchKernelProvider {
         let effectiveK = min(k, candidates.count)
 
         // GPU fused path (euclidean/cosine only).
-        if metric == .euclidean || metric == .cosine,
-           await routeToGPU(.topKSelection, candidateCount: candidates.count, k: effectiveK, dimension: dim) {
-            let m: Metal4DistanceMetric = (metric == .euclidean) ? .euclidean : .cosine
-            do {
-                let result = try await engine.fusedDistanceTopK(
-                    query: query.toArray(), database: candidates.map { $0.toArray() },
-                    k: effectiveK, metric: m
-                )
-                if !result.isEmpty { return result }
-            } catch {
-                if !configuration.fallbackToCPU { throw error }
+        if metric == .euclidean || metric == .cosine {
+            if await routeToGPU(.topKSelection, candidateCount: candidates.count, k: effectiveK, dimension: dim) {
+                let m: Metal4DistanceMetric = (metric == .euclidean) ? .euclidean : .cosine
+                do {
+                    let result = try await engine.fusedDistanceTopK(
+                        query: query.toArray(), database: candidates.map { $0.toArray() },
+                        k: effectiveK, metric: m
+                    )
+                    if !result.isEmpty {
+                        _telemetry.gpuKernel += 1
+                        return result
+                    }
+                    // An empty result for a nonempty input is a kernel malfunction, not a
+                    // routing outcome — it must be as loud as a thrown GPU error (AUDIT-2
+                    // VA2-005; pre-audit it silently fell through to CPU even with
+                    // `fallbackToCPU == false`).
+                    let emptyError = VectorError.computeFailed(
+                        reason: "fused GPU top-K returned an empty result for \(candidates.count) candidates (k=\(effectiveK))")
+                    guard configuration.fallbackToCPU else { throw emptyError }
+                    _telemetry.cpuFallbackEmptyGPUResult += 1
+                    _telemetry.lastGPUErrorDescription = String(describing: emptyError)
+                } catch {
+                    if !configuration.fallbackToCPU { throw error }
+                    _telemetry.cpuFallbackAfterGPUError += 1
+                    _telemetry.lastGPUErrorDescription = String(describing: error)
+                }
+            } else {
+                _telemetry.cpuDecisionEngine += 1
             }
         }
 
@@ -224,16 +290,11 @@ public actor MetalComputeProvider: BatchKernelProvider {
     ///   are bit-identical to the originals. The result is indifferent to `-0.0` vs. `0.0`: ordering
     ///   only ever compares magnitudes via `<`/`>`, and IEEE 754 defines `-0.0 == 0.0` under those
     ///   operators.
-    /// - Ties are broken deterministically by `TieBreaker.smallerIndex` (ascending original index) —
-    ///   a strict improvement over the previous full-sort, whose tie order was an accident of
-    ///   `Array.sorted`'s introsort (not guaranteed stable, so equal-distance order was unspecified).
-    /// - NaN distances follow `TopKSelection`'s underlying `TopKBuffer` heap semantics observed by
-    ///   inspection (VectorCore internal, not part of its documented contract): a NaN admitted while
-    ///   the heap is still filling (`size < k`) can never afterwards be evicted or itself evict
-    ///   another entry, because every `<`/`>` comparison against a NaN operand is `false`. Distances
-    ///   are not expected to be NaN on any call path reaching this method today (both metric
-    ///   computation and the fused GPU path exclude it), so this is documentation of existing
-    ///   VectorCore behavior, not a guarantee this call site adds.
+    /// - VectorCore 0.3.3 orders NaNs after every numeric value in both directions. Equal numeric
+    ///   values (including signed zeros) and NaN ties use ascending original index through
+    ///   `TieBreaker.smallerIndex`. NaNs fill remaining slots when needed to return `min(k, count)`.
+    ///   `TopKSelectionAdoptionTests.testVectorCore033NaNContractThroughProviderInBothDirections`
+    ///   and `testVectorCore033HeapMembershipAndNaNTailThroughProvider` cover this contract.
     static func selectTopK(_ distances: [Float], k: Int, largerIsCloser: Bool) -> [(index: Int, distance: Float)] {
         guard k > 0, !distances.isEmpty else { return [] }
         guard largerIsCloser else {
@@ -317,6 +378,7 @@ public actor MetalComputeProvider: BatchKernelProvider {
         guard av.count == bv.count else {
             throw VectorError.dimensionMismatch(expected: av.count, actual: bv.count)
         }
+        _telemetry.cpuPolicy += 1
         switch metric {
         case .euclidean:  return try AccelerateFallback.euclideanDistance(av, bv)
         case .cosine:     return 1.0 - (try AccelerateFallback.cosineSimilarity(av, bv))

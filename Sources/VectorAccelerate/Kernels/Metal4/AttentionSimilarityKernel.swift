@@ -408,6 +408,18 @@ public final class AttentionSimilarityKernel: @unchecked Sendable, Metal4Kernel 
             throw VectorError.invalidOperation("Projection weights not loaded")
         }
 
+        // VA3-011: the kernels clamp the projection into fixed stack buffers
+        // (single-head 256, multi-head 64) and would otherwise silently truncate it —
+        // plausible-but-wrong similarities. Guarded here, the single dispatch choke point
+        // (CapabilityCapPolicyTests.testAttention*OverCapThrows).
+        let headCap: UInt32 = parameters.numHeads > 1 ? 64 : 256
+        guard parameters.headDimension <= headCap else {
+            throw VectorError.invalidInput(
+                "headDimension \(parameters.headDimension) exceeds the " +
+                (parameters.numHeads > 1 ? "multi-head (max 64)" : "single-head (max 256)") +
+                " attention kernel capability — the shader would silently truncate the projection")
+        }
+
         let pipeline = parameters.numHeads > 1 ? multiHeadPipeline : singleHeadPipeline
         let pipelineName = parameters.numHeads > 1 ? "multihead_attention_similarity_kernel" : "attention_similarity_kernel"
 

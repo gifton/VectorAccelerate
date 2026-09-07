@@ -40,12 +40,12 @@ inline void projectToLatent(
     uint outputDim
 ) {
     for (uint j = 0; j < outputDim; ++j) {
-        device const float* weightRow = weights + (j * inputDim);
+        device const float* weightRow = weights + ((ulong)j * inputDim);
 
         // SIMD-optimized dot product
         const uint simd_blocks = inputDim / 4;
-        device const float4* input4 = (device const float4*)input;
-        device const float4* weight4 = (device const float4*)weightRow;
+        device const packed_float4* input4 = (device const packed_float4*)input;
+        device const packed_float4* weight4 = (device const packed_float4*)weightRow;
 
         float4 acc = float4(0.0f);
         for (uint i = 0; i < simd_blocks; ++i) {
@@ -113,13 +113,13 @@ kernel void neural_encode_kernel(
         return;
     }
 
-    device const float* input = inputVectors + (vectorIdx * params.inputDimension);
-    device const float* weightRow = encoderWeights + (latentDimIdx * params.inputDimension);
+    device const float* input = inputVectors + ((ulong)vectorIdx * params.inputDimension);
+    device const float* weightRow = encoderWeights + ((ulong)latentDimIdx * params.inputDimension);
 
     // Optimized dot product
     const uint simd_blocks = params.inputDimension / 4;
-    device const float4* input4 = (device const float4*)input;
-    device const float4* weight4 = (device const float4*)weightRow;
+    device const packed_float4* input4 = (device const packed_float4*)input;
+    device const packed_float4* weight4 = (device const packed_float4*)weightRow;
 
     float4 acc = float4(0.0f);
     for (uint i = 0; i < simd_blocks; ++i) {
@@ -141,7 +141,7 @@ kernel void neural_encode_kernel(
         sum = max(sum, 0.0f);
     }
 
-    latentVectors[vectorIdx * params.latentDimension + latentDimIdx] = sum;
+    latentVectors[(ulong)vectorIdx * params.latentDimension + latentDimIdx] = sum;
 }
 
 // MARK: - Encode + Quantize Kernel (float -> INT8 latent)
@@ -159,8 +159,20 @@ kernel void neural_encode_quantize_kernel(
         return;
     }
 
-    device const float* input = inputVectors + (tid * params.inputDimension);
-    
+    device const float* input = inputVectors + ((ulong)tid * params.inputDimension);
+
+    // VA3-011: refuse over-cap latents visibly — the old truncation also used the clamped
+    // value as the codes row stride, scrambling the layout. NaN scale + zeroed codes read
+    // back as NaN on decode. Host guard (NeuralQuantizationKernel.validateCapability) is
+    // the primary defense; this covers direct params dispatch (defense-in-depth, verified
+    // by inspection — uniform per-thread path, no barriers in this kernel).
+    if (params.latentDimension > 128) {
+        scales[tid] = NAN;
+        device char* capOut = latentCodes + ((ulong)tid * params.latentDimension);
+        for (uint i = 0; i < params.latentDimension; ++i) { capOut[i] = 0; }
+        return;
+    }
+
     // We can't easily allocate dynamic latent on stack for large L
     // but Phase 4 optimization handles L=64, 128
     float latent[128]; // Max supported for now
@@ -186,7 +198,7 @@ kernel void neural_encode_quantize_kernel(
     scales[tid] = scale;
 
     float invScale = 1.0f / scale;
-    device char* output = latentCodes + (tid * latentDim);
+    device char* output = latentCodes + ((ulong)tid * latentDim);
     for (uint i = 0; i < latentDim; ++i) {
         output[i] = (char)clamp(round(latent[i] * invScale), -127.0f, 127.0f);
     }
@@ -209,13 +221,13 @@ kernel void neural_decode_kernel(
         return;
     }
 
-    device const float* latent = latentVectors + (vectorIdx * params.latentDimension);
-    device const float* weightRow = decoderWeights + (outputDimIdx * params.latentDimension);
+    device const float* latent = latentVectors + ((ulong)vectorIdx * params.latentDimension);
+    device const float* weightRow = decoderWeights + ((ulong)outputDimIdx * params.latentDimension);
 
     // Optimized dot product
     const uint simd_blocks = params.latentDimension / 4;
-    device const float4* latent4 = (device const float4*)latent;
-    device const float4* weight4 = (device const float4*)weightRow;
+    device const packed_float4* latent4 = (device const packed_float4*)latent;
+    device const packed_float4* weight4 = (device const packed_float4*)weightRow;
 
     float4 acc = float4(0.0f);
     for (uint i = 0; i < simd_blocks; ++i) {
@@ -232,7 +244,7 @@ kernel void neural_decode_kernel(
         sum += decoderBias[outputDimIdx];
     }
 
-    outputVectors[vectorIdx * params.inputDimension + outputDimIdx] = sum;
+    outputVectors[(ulong)vectorIdx * params.inputDimension + outputDimIdx] = sum;
 }
 
 // MARK: - Dequantize + Decode Kernel (INT8 latent -> float)
@@ -250,8 +262,17 @@ kernel void neural_dequantize_decode_kernel(
         return;
     }
 
-    device const char* codes = latentCodes + (tid * params.latentDimension);
+    device const char* codes = latentCodes + ((ulong)tid * params.latentDimension);
     float scale = scales[tid];
+
+    // VA3-011: refuse over-cap latents visibly instead of decoding from a truncated
+    // reconstruction (defense-in-depth behind the host config guard; verified by
+    // inspection — uniform per-thread path, no barriers in this kernel).
+    if (params.latentDimension > 128) {
+        device float* capOut = outputVectors + ((ulong)tid * params.inputDimension);
+        for (uint j = 0; j < params.inputDimension; ++j) { capOut[j] = NAN; }
+        return;
+    }
 
     // Reconstruction buffer
     float latent[128]; // Max supported
@@ -261,9 +282,9 @@ kernel void neural_dequantize_decode_kernel(
         latent[i] = float(codes[i]) * scale;
     }
 
-    device float* output = outputVectors + (tid * params.inputDimension);
+    device float* output = outputVectors + ((ulong)tid * params.inputDimension);
     for (uint j = 0; j < params.inputDimension; ++j) {
-        device const float* weightRow = decoderWeights + (j * latentDim);
+        device const float* weightRow = decoderWeights + ((ulong)j * latentDim);
         
         float sum = 0.0f;
         for (uint i = 0; i < latentDim; ++i) {
@@ -298,17 +319,17 @@ kernel void neural_encode_768_to_128_kernel(
     constexpr uint LATENT_DIM = 128;
     constexpr uint INPUT_BLOCKS = INPUT_DIM / 4;
 
-    device const float* input = inputVectors + (tid * INPUT_DIM);
-    device const float4* input4 = (device const float4*)input;
+    device const float* input = inputVectors + ((ulong)tid * INPUT_DIM);
+    device const packed_float4* input4 = (device const packed_float4*)input;
 
     float latent[LATENT_DIM];
 
     // Encode with loop unrolling for 128 outputs
     for (uint j = 0; j < LATENT_DIM; j += 4) {
-        device const float4* w0 = (device const float4*)(encoderWeights + (j+0) * INPUT_DIM);
-        device const float4* w1 = (device const float4*)(encoderWeights + (j+1) * INPUT_DIM);
-        device const float4* w2 = (device const float4*)(encoderWeights + (j+2) * INPUT_DIM);
-        device const float4* w3 = (device const float4*)(encoderWeights + (j+3) * INPUT_DIM);
+        device const packed_float4* w0 = (device const packed_float4*)(encoderWeights + (ulong)(j+0) * INPUT_DIM);
+        device const packed_float4* w1 = (device const packed_float4*)(encoderWeights + (ulong)(j+1) * INPUT_DIM);
+        device const packed_float4* w2 = (device const packed_float4*)(encoderWeights + (ulong)(j+2) * INPUT_DIM);
+        device const packed_float4* w3 = (device const packed_float4*)(encoderWeights + (ulong)(j+3) * INPUT_DIM);
 
         float4 acc0 = float4(0.0f);
         float4 acc1 = float4(0.0f);
@@ -352,7 +373,7 @@ kernel void neural_encode_768_to_128_kernel(
     scales[tid] = scale;
 
     float invScale = 1.0f / scale;
-    device char* output = latentCodes + (tid * LATENT_DIM);
+    device char* output = latentCodes + ((ulong)tid * LATENT_DIM);
     for (uint i = 0; i < LATENT_DIM; ++i) {
         output[i] = (char)clamp(round(latent[i] * invScale), -127.0f, 127.0f);
     }
@@ -376,17 +397,17 @@ kernel void neural_encode_768_to_64_kernel(
     constexpr uint LATENT_DIM = 64;
     constexpr uint INPUT_BLOCKS = INPUT_DIM / 4;
 
-    device const float* input = inputVectors + (tid * INPUT_DIM);
-    device const float4* input4 = (device const float4*)input;
+    device const float* input = inputVectors + ((ulong)tid * INPUT_DIM);
+    device const packed_float4* input4 = (device const packed_float4*)input;
 
     float latent[LATENT_DIM];
 
     // Encode with loop unrolling for 64 outputs
     for (uint j = 0; j < LATENT_DIM; j += 4) {
-        device const float4* w0 = (device const float4*)(encoderWeights + (j+0) * INPUT_DIM);
-        device const float4* w1 = (device const float4*)(encoderWeights + (j+1) * INPUT_DIM);
-        device const float4* w2 = (device const float4*)(encoderWeights + (j+2) * INPUT_DIM);
-        device const float4* w3 = (device const float4*)(encoderWeights + (j+3) * INPUT_DIM);
+        device const packed_float4* w0 = (device const packed_float4*)(encoderWeights + (ulong)(j+0) * INPUT_DIM);
+        device const packed_float4* w1 = (device const packed_float4*)(encoderWeights + (ulong)(j+1) * INPUT_DIM);
+        device const packed_float4* w2 = (device const packed_float4*)(encoderWeights + (ulong)(j+2) * INPUT_DIM);
+        device const packed_float4* w3 = (device const packed_float4*)(encoderWeights + (ulong)(j+3) * INPUT_DIM);
 
         float4 acc0 = float4(0.0f);
         float4 acc1 = float4(0.0f);
@@ -430,7 +451,7 @@ kernel void neural_encode_768_to_64_kernel(
     scales[tid] = scale;
 
     float invScale = 1.0f / scale;
-    device char* output = latentCodes + (tid * LATENT_DIM);
+    device char* output = latentCodes + ((ulong)tid * LATENT_DIM);
     for (uint i = 0; i < LATENT_DIM; ++i) {
         output[i] = (char)clamp(round(latent[i] * invScale), -127.0f, 127.0f);
     }
@@ -454,13 +475,13 @@ kernel void neural_encode_384_to_64_kernel(
     constexpr uint LATENT_DIM = 64;
     constexpr uint INPUT_BLOCKS = INPUT_DIM / 4;
 
-    device const float* input = inputVectors + (tid * INPUT_DIM);
-    device const float4* input4 = (device const float4*)input;
+    device const float* input = inputVectors + ((ulong)tid * INPUT_DIM);
+    device const packed_float4* input4 = (device const packed_float4*)input;
 
     float latent[LATENT_DIM];
 
     for (uint j = 0; j < LATENT_DIM; ++j) {
-        device const float4* weight4 = (device const float4*)(encoderWeights + j * INPUT_DIM);
+        device const packed_float4* weight4 = (device const packed_float4*)(encoderWeights + (ulong)j * INPUT_DIM);
 
         float4 acc = float4(0.0f);
         for (uint i = 0; i < INPUT_BLOCKS; ++i) {
@@ -484,7 +505,7 @@ kernel void neural_encode_384_to_64_kernel(
     scales[tid] = scale;
 
     float invScale = 1.0f / scale;
-    device char* output = latentCodes + (tid * LATENT_DIM);
+    device char* output = latentCodes + ((ulong)tid * LATENT_DIM);
     for (uint i = 0; i < LATENT_DIM; ++i) {
         output[i] = (char)clamp(round(latent[i] * invScale), -127.0f, 127.0f);
     }
@@ -537,9 +558,12 @@ kernel void neural_dequantize_decode_2d_tg_kernel(
     // Threadgroup cache for dequantized latent packed as float4 (max 128 dims → 32 float4s)
     threadgroup float4 tgLatent4[32];
 
-    // Load scale once per threadgroup (cooperative load, thread 0,0 writes)
-    // Initialize to 0 to silence uninitialized warning (barrier ensures correct value is read)
-    threadgroup float tgScale = 0.0f;
+    // Load scale once per threadgroup (thread (0,0) writes; the barrier below publishes it).
+    // Deliberately NO initializer: a `threadgroup` initializer is executed by EVERY thread,
+    // and those unordered zero-stores race thread 0's real store before the barrier — the
+    // scale could nondeterministically read back 0 and zero the whole decoded vector
+    // (AUDIT-3 VA3-009).
+    threadgroup float tgScale;
     if (tptg.x == 0 && tptg.y == 0) {
         tgScale = scales[vectorIdx];
     }
@@ -552,17 +576,25 @@ kernel void neural_dequantize_decode_2d_tg_kernel(
     // Requires latentDim % 4 == 0 (true for 64, 128).
     const uint latentDim4 = latentDim >> 2;
 
-    // Safety check for unsupported configurations (latentDim > 128)
     if (latentDim4 > 32) {
+        // VA3-011: NaN-fill this vector's output row instead of a silent return that
+        // leaves stale bytes. Uniform condition, before all barriers; Y-tiled groups
+        // redundantly write the same NaNs — idempotent. Host config guard is the primary
+        // defense (defense-in-depth, verified by inspection).
+        const uint va_flat = tptg.y * tgs.x + tptg.x;
+        const uint va_nthreads = tgs.x * tgs.y;
+        for (uint j = va_flat; j < params.inputDimension; j += va_nthreads) {
+            outputVectors[(ulong)vectorIdx * params.inputDimension + j] = NAN;
+        }
         return;
     }
 
     for (uint i4 = tptg.y; i4 < latentDim4; i4 += tgs.y) {
-        const uint codeOffset = vectorIdx * latentDim + i4 * 4;
+        const ulong codeOffset = (ulong)vectorIdx * latentDim + i4 * 4;
 
         // Load 4 INT8 codes and dequantize to float4
         // Safe because latentDim is multiple of 4
-        const char4 c = *((device const char4*)(latentCodes + codeOffset));
+        const char4 c = *((device const packed_char4*)(latentCodes + codeOffset));
         tgLatent4[i4] = float4(c) * scale;
     }
 
@@ -578,7 +610,7 @@ kernel void neural_dequantize_decode_2d_tg_kernel(
     }
 
     // Weight row for this output element: [latentDim] floats, cast to float4 for vectorized dot
-    device const float4* w4 = (device const float4*)(decoderWeights + outIdx * latentDim);
+    device const packed_float4* w4 = (device const packed_float4*)(decoderWeights + (ulong)outIdx * latentDim);
 
     // Initialize with bias if present
     float sum = decoderBias ? decoderBias[outIdx] : 0.0f;
@@ -601,7 +633,7 @@ kernel void neural_dequantize_decode_2d_tg_kernel(
         }
     }
 
-    outputVectors[vectorIdx * inputDim + outIdx] = sum;
+    outputVectors[(ulong)vectorIdx * inputDim + outIdx] = sum;
 }
 
 // MARK: - Threadgroup Size Variants
@@ -631,7 +663,7 @@ kernel void neural_dequantize_decode_2d_tg64_kernel(
     const uint latentDim = params.latentDimension;
 
     threadgroup float4 tgLatent4[32];
-    threadgroup float tgScale = 0.0f;
+    threadgroup float tgScale;  // no initializer — see VA3-009 note in neural_dequantize_decode_2d_tg_kernel
 
     if (tptg.x == 0 && tptg.y == 0) {
         tgScale = scales[vectorIdx];
@@ -642,14 +674,23 @@ kernel void neural_dequantize_decode_2d_tg64_kernel(
     const uint latentDim4 = latentDim >> 2;
 
     if (latentDim4 > 32) {
+        // VA3-011: NaN-fill this vector's output row instead of a silent return that
+        // leaves stale bytes. Uniform condition, before all barriers; Y-tiled groups
+        // redundantly write the same NaNs — idempotent. Host config guard is the primary
+        // defense (defense-in-depth, verified by inspection).
+        const uint va_flat = tptg.y * tgs.x + tptg.x;
+        const uint va_nthreads = tgs.x * tgs.y;
+        for (uint j = va_flat; j < params.inputDimension; j += va_nthreads) {
+            outputVectors[(ulong)vectorIdx * params.inputDimension + j] = NAN;
+        }
         return;
     }
 
     // With 64 threads, we can load the full 128-dim latent in 2 iterations (32 float4s / 64 threads)
     // or the 64-dim latent in 1 iteration
     for (uint i4 = tptg.y; i4 < latentDim4; i4 += 64) {
-        const uint codeOffset = vectorIdx * latentDim + i4 * 4;
-        const char4 c = *((device const char4*)(latentCodes + codeOffset));
+        const ulong codeOffset = (ulong)vectorIdx * latentDim + i4 * 4;
+        const char4 c = *((device const packed_char4*)(latentCodes + codeOffset));
         tgLatent4[i4] = float4(c) * scale;
     }
 
@@ -661,7 +702,7 @@ kernel void neural_dequantize_decode_2d_tg64_kernel(
         return;
     }
 
-    device const float4* w4 = (device const float4*)(decoderWeights + outIdx * latentDim);
+    device const packed_float4* w4 = (device const packed_float4*)(decoderWeights + (ulong)outIdx * latentDim);
     float sum = decoderBias ? decoderBias[outIdx] : 0.0f;
 
     if (latentDim == 128) {
@@ -680,7 +721,7 @@ kernel void neural_dequantize_decode_2d_tg64_kernel(
         }
     }
 
-    outputVectors[vectorIdx * inputDim + outIdx] = sum;
+    outputVectors[(ulong)vectorIdx * inputDim + outIdx] = sum;
 }
 
 /// 128-thread variant: processes 128 output dimensions per threadgroup.
@@ -708,7 +749,7 @@ kernel void neural_dequantize_decode_2d_tg128_kernel(
     const uint latentDim = params.latentDimension;
 
     threadgroup float4 tgLatent4[32];
-    threadgroup float tgScale = 0.0f;
+    threadgroup float tgScale;  // no initializer — see VA3-009 note in neural_dequantize_decode_2d_tg_kernel
 
     if (tptg.x == 0 && tptg.y == 0) {
         tgScale = scales[vectorIdx];
@@ -719,14 +760,23 @@ kernel void neural_dequantize_decode_2d_tg128_kernel(
     const uint latentDim4 = latentDim >> 2;
 
     if (latentDim4 > 32) {
+        // VA3-011: NaN-fill this vector's output row instead of a silent return that
+        // leaves stale bytes. Uniform condition, before all barriers; Y-tiled groups
+        // redundantly write the same NaNs — idempotent. Host config guard is the primary
+        // defense (defense-in-depth, verified by inspection).
+        const uint va_flat = tptg.y * tgs.x + tptg.x;
+        const uint va_nthreads = tgs.x * tgs.y;
+        for (uint j = va_flat; j < params.inputDimension; j += va_nthreads) {
+            outputVectors[(ulong)vectorIdx * params.inputDimension + j] = NAN;
+        }
         return;
     }
 
     // With 128 threads, we can load the full 128-dim latent (32 float4s) in one go
     // Each of first 32 threads loads one float4
     if (tptg.y < latentDim4) {
-        const uint codeOffset = vectorIdx * latentDim + tptg.y * 4;
-        const char4 c = *((device const char4*)(latentCodes + codeOffset));
+        const ulong codeOffset = (ulong)vectorIdx * latentDim + tptg.y * 4;
+        const char4 c = *((device const packed_char4*)(latentCodes + codeOffset));
         tgLatent4[tptg.y] = float4(c) * scale;
     }
 
@@ -738,7 +788,7 @@ kernel void neural_dequantize_decode_2d_tg128_kernel(
         return;
     }
 
-    device const float4* w4 = (device const float4*)(decoderWeights + outIdx * latentDim);
+    device const packed_float4* w4 = (device const packed_float4*)(decoderWeights + (ulong)outIdx * latentDim);
     float sum = decoderBias ? decoderBias[outIdx] : 0.0f;
 
     if (latentDim == 128) {
@@ -757,7 +807,7 @@ kernel void neural_dequantize_decode_2d_tg128_kernel(
         }
     }
 
-    outputVectors[vectorIdx * inputDim + outIdx] = sum;
+    outputVectors[(ulong)vectorIdx * inputDim + outIdx] = sum;
 }
 
 /// 256-thread variant: processes 256 output dimensions per threadgroup.
@@ -785,7 +835,7 @@ kernel void neural_dequantize_decode_2d_tg256_kernel(
     const uint latentDim = params.latentDimension;
 
     threadgroup float4 tgLatent4[32];
-    threadgroup float tgScale = 0.0f;
+    threadgroup float tgScale;  // no initializer — see VA3-009 note in neural_dequantize_decode_2d_tg_kernel
 
     if (tptg.x == 0 && tptg.y == 0) {
         tgScale = scales[vectorIdx];
@@ -796,13 +846,22 @@ kernel void neural_dequantize_decode_2d_tg256_kernel(
     const uint latentDim4 = latentDim >> 2;
 
     if (latentDim4 > 32) {
+        // VA3-011: NaN-fill this vector's output row instead of a silent return that
+        // leaves stale bytes. Uniform condition, before all barriers; Y-tiled groups
+        // redundantly write the same NaNs — idempotent. Host config guard is the primary
+        // defense (defense-in-depth, verified by inspection).
+        const uint va_flat = tptg.y * tgs.x + tptg.x;
+        const uint va_nthreads = tgs.x * tgs.y;
+        for (uint j = va_flat; j < params.inputDimension; j += va_nthreads) {
+            outputVectors[(ulong)vectorIdx * params.inputDimension + j] = NAN;
+        }
         return;
     }
 
     // With 256 threads, first 32 threads load the latent
     if (tptg.y < latentDim4) {
-        const uint codeOffset = vectorIdx * latentDim + tptg.y * 4;
-        const char4 c = *((device const char4*)(latentCodes + codeOffset));
+        const ulong codeOffset = (ulong)vectorIdx * latentDim + tptg.y * 4;
+        const char4 c = *((device const packed_char4*)(latentCodes + codeOffset));
         tgLatent4[tptg.y] = float4(c) * scale;
     }
 
@@ -814,7 +873,7 @@ kernel void neural_dequantize_decode_2d_tg256_kernel(
         return;
     }
 
-    device const float4* w4 = (device const float4*)(decoderWeights + outIdx * latentDim);
+    device const packed_float4* w4 = (device const packed_float4*)(decoderWeights + (ulong)outIdx * latentDim);
     float sum = decoderBias ? decoderBias[outIdx] : 0.0f;
 
     if (latentDim == 128) {
@@ -833,7 +892,7 @@ kernel void neural_dequantize_decode_2d_tg256_kernel(
         }
     }
 
-    outputVectors[vectorIdx * inputDim + outIdx] = sum;
+    outputVectors[(ulong)vectorIdx * inputDim + outIdx] = sum;
 }
 
 // MARK: - Vectorized Transposed Decode
@@ -878,7 +937,7 @@ kernel void neural_dequantize_decode_2d_transposed_v2_kernel(
     // Threadgroup cache for dequantized latent codes
     // Using float4 storage for efficient loading
     threadgroup float4 tgLatent4[32];  // Supports up to 128-dim latent
-    threadgroup float tgScale = 0.0f;
+    threadgroup float tgScale;  // no initializer — see VA3-009 note in neural_dequantize_decode_2d_tg_kernel
 
     // ========== Phase 1: Cooperative Latent Loading ==========
 
@@ -893,10 +952,10 @@ kernel void neural_dequantize_decode_2d_transposed_v2_kernel(
 
     // Each of first 32 threads loads one float4 of latent codes
     if (tptg.y < latentDim4) {
-        const uint codeOffset = vectorIdx * latentDim + tptg.y * 4;
+        const ulong codeOffset = (ulong)vectorIdx * latentDim + tptg.y * 4;
         // Handle potential out-of-bounds for non-multiple-of-4 latent dims
         if (tptg.y * 4 + 3 < latentDim) {
-            const char4 c = *((device const char4*)(latentCodes + codeOffset));
+            const char4 c = *((device const packed_char4*)(latentCodes + codeOffset));
             tgLatent4[tptg.y] = float4(c) * scale;
         } else {
             // Partial load for last chunk if latentDim not multiple of 4
@@ -936,6 +995,24 @@ kernel void neural_dequantize_decode_2d_transposed_v2_kernel(
         acc = float4(0.0f);
     }
 
+    // A packed vector relaxes alignment, not its four-element footprint. The
+    // final output tile may contain only 1-3 weights per latent row; reading a
+    // full vector there would pass the end of the final weight row. All shared
+    // loads/barriers are complete, so tail threads can finish independently.
+    if (numOutputs < 4) {
+        const ulong outputOffset = (ulong)vectorIdx * inputDim + outBase;
+        for (uint j = 0; j < numOutputs; ++j) {
+            float sum = acc[j];
+            for (uint i = 0; i < latentDim; ++i) {
+                const float latent = tgLatent4[i / 4][i % 4];
+                const float weight = decoderWeightsT[(ulong)i * inputDim + outBase + j];
+                sum = fma(latent, weight, sum);
+            }
+            outputVectors[outputOffset + j] = sum;
+        }
+        return;
+    }
+
     // ========== Phase 3: Vectorized Matrix-Vector Product ==========
     //
     // Process 8 latent dimensions per iteration using dual accumulators to hide 
@@ -952,17 +1029,17 @@ kernel void neural_dequantize_decode_2d_transposed_v2_kernel(
         for (uint i4 = 0; i4 < 32; i4 += 2) {
             // Group 0: latent[i..i+3]
             const float4 lat0 = tgLatent4[i4];
-            const float4 w00 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 0) * inputDim + outBase));
-            const float4 w01 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 1) * inputDim + outBase));
-            const float4 w02 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 2) * inputDim + outBase));
-            const float4 w03 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 3) * inputDim + outBase));
+            const float4 w00 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 0) * inputDim + outBase));
+            const float4 w01 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 1) * inputDim + outBase));
+            const float4 w02 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 2) * inputDim + outBase));
+            const float4 w03 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 3) * inputDim + outBase));
 
             // Group 1: latent[i+4..i+7]
             const float4 lat1 = tgLatent4[i4 + 1];
-            const float4 w10 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 0) * inputDim + outBase));
-            const float4 w11 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 1) * inputDim + outBase));
-            const float4 w12 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 2) * inputDim + outBase));
-            const float4 w13 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 3) * inputDim + outBase));
+            const float4 w10 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 0) * inputDim + outBase));
+            const float4 w11 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 1) * inputDim + outBase));
+            const float4 w12 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 2) * inputDim + outBase));
+            const float4 w13 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 3) * inputDim + outBase));
 
             // Interleaved FMA
             acc0 = fma(float4(lat0.x), w00, acc0);
@@ -980,16 +1057,16 @@ kernel void neural_dequantize_decode_2d_transposed_v2_kernel(
         #pragma unroll
         for (uint i4 = 0; i4 < 16; i4 += 2) {
             const float4 lat0 = tgLatent4[i4];
-            const float4 w00 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 0) * inputDim + outBase));
-            const float4 w01 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 1) * inputDim + outBase));
-            const float4 w02 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 2) * inputDim + outBase));
-            const float4 w03 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 3) * inputDim + outBase));
+            const float4 w00 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 0) * inputDim + outBase));
+            const float4 w01 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 1) * inputDim + outBase));
+            const float4 w02 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 2) * inputDim + outBase));
+            const float4 w03 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 3) * inputDim + outBase));
 
             const float4 lat1 = tgLatent4[i4 + 1];
-            const float4 w10 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 0) * inputDim + outBase));
-            const float4 w11 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 1) * inputDim + outBase));
-            const float4 w12 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 2) * inputDim + outBase));
-            const float4 w13 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 3) * inputDim + outBase));
+            const float4 w10 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 0) * inputDim + outBase));
+            const float4 w11 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 1) * inputDim + outBase));
+            const float4 w12 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 2) * inputDim + outBase));
+            const float4 w13 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 3) * inputDim + outBase));
 
             acc0 = fma(float4(lat0.x), w00, acc0);
             acc1 = fma(float4(lat1.x), w10, acc1);
@@ -1011,19 +1088,19 @@ kernel void neural_dequantize_decode_2d_transposed_v2_kernel(
             const uint validLatent = min(4u, latentDim - i);
 
             if (validLatent >= 1) {
-                const float4 w0 = *((device const float4*)(decoderWeightsT + (i + 0) * inputDim + outBase));
+                const float4 w0 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i + 0) * inputDim + outBase));
                 acc = fma(float4(lat.x), w0, acc);
             }
             if (validLatent >= 2) {
-                const float4 w1 = *((device const float4*)(decoderWeightsT + (i + 1) * inputDim + outBase));
+                const float4 w1 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i + 1) * inputDim + outBase));
                 acc = fma(float4(lat.y), w1, acc);
             }
             if (validLatent >= 3) {
-                const float4 w2 = *((device const float4*)(decoderWeightsT + (i + 2) * inputDim + outBase));
+                const float4 w2 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i + 2) * inputDim + outBase));
                 acc = fma(float4(lat.z), w2, acc);
             }
             if (validLatent >= 4) {
-                const float4 w3 = *((device const float4*)(decoderWeightsT + (i + 3) * inputDim + outBase));
+                const float4 w3 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i + 3) * inputDim + outBase));
                 acc = fma(float4(lat.w), w3, acc);
             }
         }
@@ -1031,17 +1108,9 @@ kernel void neural_dequantize_decode_2d_transposed_v2_kernel(
 
     // ========== Phase 4: Write Outputs ==========
 
-    // Write outputs (handle boundary for non-multiple-of-4 inputDim)
-    device float* outPtr = outputVectors + vectorIdx * inputDim + outBase;
-    if (numOutputs == 4) {
-        // Fast path: write all 4 as float4
-        *((device float4*)outPtr) = acc;
-    } else {
-        // Boundary: write individual floats
-        if (numOutputs > 0) outPtr[0] = acc.x;
-        if (numOutputs > 1) outPtr[1] = acc.y;
-        if (numOutputs > 2) outPtr[2] = acc.z;
-    }
+    // Tail outputs returned above; this block contains four valid elements.
+    device float* outPtr = outputVectors + (ulong)vectorIdx * inputDim + outBase;
+    *((device packed_float4*)outPtr) = acc;
 }
 
 // MARK: - Specialized Transposed Decode Variants
@@ -1063,14 +1132,14 @@ kernel void neural_dequantize_decode_768_128_transposed_kernel(
     if (vectorIdx >= params.numVectors) return;
 
     threadgroup float4 tgLatent4[32];
-    threadgroup float tgScale = 0.0f;
+    threadgroup float tgScale;  // no initializer — see VA3-009 note in neural_dequantize_decode_2d_tg_kernel
 
     if (tptg.y == 0) tgScale = scales[vectorIdx];
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     const float scale = tgScale;
     if (tptg.y < 32) {
-        const char4 c = *((device const char4*)(latentCodes + vectorIdx * LATENT_DIM + tptg.y * 4));
+        const char4 c = *((device const packed_char4*)(latentCodes + (ulong)vectorIdx * LATENT_DIM + tptg.y * 4));
         tgLatent4[tptg.y] = float4(c) * scale;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -1078,22 +1147,22 @@ kernel void neural_dequantize_decode_768_128_transposed_kernel(
     const uint outBase = tgp.y * 128 + tptg.y * 4;
     if (outBase >= INPUT_DIM) return;
 
-    float4 acc0 = decoderBias ? *((device const float4*)(decoderBias + outBase)) : float4(0.0f);
+    float4 acc0 = decoderBias ? *((device const packed_float4*)(decoderBias + outBase)) : float4(0.0f);
     float4 acc1 = float4(0.0f);
 
     #pragma unroll
     for (uint i4 = 0; i4 < 32; i4 += 2) {
         const float4 lat0 = tgLatent4[i4];
-        const float4 w00 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 0) * INPUT_DIM + outBase));
-        const float4 w01 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 1) * INPUT_DIM + outBase));
-        const float4 w02 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 2) * INPUT_DIM + outBase));
-        const float4 w03 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 3) * INPUT_DIM + outBase));
+        const float4 w00 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 0) * INPUT_DIM + outBase));
+        const float4 w01 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 1) * INPUT_DIM + outBase));
+        const float4 w02 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 2) * INPUT_DIM + outBase));
+        const float4 w03 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 3) * INPUT_DIM + outBase));
 
         const float4 lat1 = tgLatent4[i4 + 1];
-        const float4 w10 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 0) * INPUT_DIM + outBase));
-        const float4 w11 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 1) * INPUT_DIM + outBase));
-        const float4 w12 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 2) * INPUT_DIM + outBase));
-        const float4 w13 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 3) * INPUT_DIM + outBase));
+        const float4 w10 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 0) * INPUT_DIM + outBase));
+        const float4 w11 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 1) * INPUT_DIM + outBase));
+        const float4 w12 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 2) * INPUT_DIM + outBase));
+        const float4 w13 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 3) * INPUT_DIM + outBase));
 
         acc0 = fma(float4(lat0.x), w00, acc0);
         acc1 = fma(float4(lat1.x), w10, acc1);
@@ -1105,7 +1174,7 @@ kernel void neural_dequantize_decode_768_128_transposed_kernel(
         acc1 = fma(float4(lat1.w), w13, acc1);
     }
 
-    *((device float4*)(outputVectors + vectorIdx * INPUT_DIM + outBase)) = acc0 + acc1;
+    *((device packed_float4*)(outputVectors + (ulong)vectorIdx * INPUT_DIM + outBase)) = acc0 + acc1;
 }
 
 /// Specialized transposed decode for 768->64 (High compression)
@@ -1125,14 +1194,14 @@ kernel void neural_dequantize_decode_768_64_transposed_kernel(
     if (vectorIdx >= params.numVectors) return;
 
     threadgroup float4 tgLatent4[16];
-    threadgroup float tgScale = 0.0f;
+    threadgroup float tgScale;  // no initializer — see VA3-009 note in neural_dequantize_decode_2d_tg_kernel
 
     if (tptg.y == 0) tgScale = scales[vectorIdx];
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     const float scale = tgScale;
     if (tptg.y < 16) {
-        const char4 c = *((device const char4*)(latentCodes + vectorIdx * LATENT_DIM + tptg.y * 4));
+        const char4 c = *((device const packed_char4*)(latentCodes + (ulong)vectorIdx * LATENT_DIM + tptg.y * 4));
         tgLatent4[tptg.y] = float4(c) * scale;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -1140,22 +1209,22 @@ kernel void neural_dequantize_decode_768_64_transposed_kernel(
     const uint outBase = tgp.y * 128 + tptg.y * 4;
     if (outBase >= INPUT_DIM) return;
 
-    float4 acc0 = decoderBias ? *((device const float4*)(decoderBias + outBase)) : float4(0.0f);
+    float4 acc0 = decoderBias ? *((device const packed_float4*)(decoderBias + outBase)) : float4(0.0f);
     float4 acc1 = float4(0.0f);
 
     #pragma unroll
     for (uint i4 = 0; i4 < 16; i4 += 2) {
         const float4 lat0 = tgLatent4[i4];
-        const float4 w00 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 0) * INPUT_DIM + outBase));
-        const float4 w01 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 1) * INPUT_DIM + outBase));
-        const float4 w02 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 2) * INPUT_DIM + outBase));
-        const float4 w03 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 3) * INPUT_DIM + outBase));
+        const float4 w00 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 0) * INPUT_DIM + outBase));
+        const float4 w01 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 1) * INPUT_DIM + outBase));
+        const float4 w02 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 2) * INPUT_DIM + outBase));
+        const float4 w03 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 3) * INPUT_DIM + outBase));
 
         const float4 lat1 = tgLatent4[i4 + 1];
-        const float4 w10 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 0) * INPUT_DIM + outBase));
-        const float4 w11 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 1) * INPUT_DIM + outBase));
-        const float4 w12 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 2) * INPUT_DIM + outBase));
-        const float4 w13 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 3) * INPUT_DIM + outBase));
+        const float4 w10 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 0) * INPUT_DIM + outBase));
+        const float4 w11 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 1) * INPUT_DIM + outBase));
+        const float4 w12 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 2) * INPUT_DIM + outBase));
+        const float4 w13 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 3) * INPUT_DIM + outBase));
 
         acc0 = fma(float4(lat0.x), w00, acc0);
         acc1 = fma(float4(lat1.x), w10, acc1);
@@ -1167,7 +1236,7 @@ kernel void neural_dequantize_decode_768_64_transposed_kernel(
         acc1 = fma(float4(lat1.w), w13, acc1);
     }
 
-    *((device float4*)(outputVectors + vectorIdx * INPUT_DIM + outBase)) = acc0 + acc1;
+    *((device packed_float4*)(outputVectors + (ulong)vectorIdx * INPUT_DIM + outBase)) = acc0 + acc1;
 }
 
 /// Specialized transposed decode for 384->64 (MiniLM configuration)
@@ -1187,14 +1256,14 @@ kernel void neural_dequantize_decode_384_64_transposed_kernel(
     if (vectorIdx >= params.numVectors) return;
 
     threadgroup float4 tgLatent4[16];
-    threadgroup float tgScale = 0.0f;
+    threadgroup float tgScale;  // no initializer — see VA3-009 note in neural_dequantize_decode_2d_tg_kernel
 
     if (tptg.y == 0) tgScale = scales[vectorIdx];
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     const float scale = tgScale;
     if (tptg.y < 16) {
-        const char4 c = *((device const char4*)(latentCodes + vectorIdx * LATENT_DIM + tptg.y * 4));
+        const char4 c = *((device const packed_char4*)(latentCodes + (ulong)vectorIdx * LATENT_DIM + tptg.y * 4));
         tgLatent4[tptg.y] = float4(c) * scale;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -1202,22 +1271,22 @@ kernel void neural_dequantize_decode_384_64_transposed_kernel(
     const uint outBase = tgp.y * 128 + tptg.y * 4;
     if (outBase >= INPUT_DIM) return;
 
-    float4 acc0 = decoderBias ? *((device const float4*)(decoderBias + outBase)) : float4(0.0f);
+    float4 acc0 = decoderBias ? *((device const packed_float4*)(decoderBias + outBase)) : float4(0.0f);
     float4 acc1 = float4(0.0f);
 
     #pragma unroll
     for (uint i4 = 0; i4 < 16; i4 += 2) {
         const float4 lat0 = tgLatent4[i4];
-        const float4 w00 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 0) * INPUT_DIM + outBase));
-        const float4 w01 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 1) * INPUT_DIM + outBase));
-        const float4 w02 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 2) * INPUT_DIM + outBase));
-        const float4 w03 = *((device const float4*)(decoderWeightsT + (i4 * 4 + 3) * INPUT_DIM + outBase));
+        const float4 w00 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 0) * INPUT_DIM + outBase));
+        const float4 w01 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 1) * INPUT_DIM + outBase));
+        const float4 w02 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 2) * INPUT_DIM + outBase));
+        const float4 w03 = *((device const packed_float4*)(decoderWeightsT + (ulong)(i4 * 4 + 3) * INPUT_DIM + outBase));
 
         const float4 lat1 = tgLatent4[i4 + 1];
-        const float4 w10 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 0) * INPUT_DIM + outBase));
-        const float4 w11 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 1) * INPUT_DIM + outBase));
-        const float4 w12 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 2) * INPUT_DIM + outBase));
-        const float4 w13 = *((device const float4*)(decoderWeightsT + ((i4 + 1) * 4 + 3) * INPUT_DIM + outBase));
+        const float4 w10 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 0) * INPUT_DIM + outBase));
+        const float4 w11 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 1) * INPUT_DIM + outBase));
+        const float4 w12 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 2) * INPUT_DIM + outBase));
+        const float4 w13 = *((device const packed_float4*)(decoderWeightsT + (ulong)((i4 + 1) * 4 + 3) * INPUT_DIM + outBase));
 
         acc0 = fma(float4(lat0.x), w00, acc0);
         acc1 = fma(float4(lat1.x), w10, acc1);
@@ -1229,7 +1298,7 @@ kernel void neural_dequantize_decode_384_64_transposed_kernel(
         acc1 = fma(float4(lat1.w), w13, acc1);
     }
 
-    *((device float4*)(outputVectors + vectorIdx * INPUT_DIM + outBase)) = acc0 + acc1;
+    *((device packed_float4*)(outputVectors + (ulong)vectorIdx * INPUT_DIM + outBase)) = acc0 + acc1;
 }
 
 // MARK: - Phase 5: Tiled GEMM Encoder (Full-D Loop in Registers)
@@ -1275,14 +1344,14 @@ kernel void neural_encode_pass1(
         float4 in_val = 0.0;
         if (global_v < N) {
             if (is_aligned && load_offset_4 < D_float4) {
-                device const float4* in4 = (device const float4*)(inputs + global_v * D);
+                device const packed_float4* in4 = (device const packed_float4*)(inputs + (ulong)global_v * D);
                 in_val = in4[load_offset_4];
             } else if (!is_aligned) {
                 uint base_d = k + (lid.x % 8) * 4; 
-                if (base_d + 0 < D) in_val.x = inputs[global_v * D + base_d + 0];
-                if (base_d + 1 < D) in_val.y = inputs[global_v * D + base_d + 1];
-                if (base_d + 2 < D) in_val.z = inputs[global_v * D + base_d + 2];
-                if (base_d + 3 < D) in_val.w = inputs[global_v * D + base_d + 3];
+                if (base_d + 0 < D) in_val.x = inputs[(ulong)global_v * D + base_d + 0];
+                if (base_d + 1 < D) in_val.y = inputs[(ulong)global_v * D + base_d + 1];
+                if (base_d + 2 < D) in_val.z = inputs[(ulong)global_v * D + base_d + 2];
+                if (base_d + 3 < D) in_val.w = inputs[(ulong)global_v * D + base_d + 3];
             }
         }
         shared_input[lid.x / 8][lid.x % 8] = in_val;
@@ -1292,14 +1361,14 @@ kernel void neural_encode_pass1(
         float4 w_val = 0.0;
         if (global_l < L) {
             if (is_aligned && load_offset_4 < D_float4) {
-                device const float4* w4 = (device const float4*)(weights + global_l * D);
+                device const packed_float4* w4 = (device const packed_float4*)(weights + (ulong)global_l * D);
                 w_val = w4[load_offset_4];
             } else if (!is_aligned) {
                 uint base_d = k + (lid.x % 8) * 4; 
-                if (base_d + 0 < D) w_val.x = weights[global_l * D + base_d + 0];
-                if (base_d + 1 < D) w_val.y = weights[global_l * D + base_d + 1];
-                if (base_d + 2 < D) w_val.z = weights[global_l * D + base_d + 2];
-                if (base_d + 3 < D) w_val.w = weights[global_l * D + base_d + 3];
+                if (base_d + 0 < D) w_val.x = weights[(ulong)global_l * D + base_d + 0];
+                if (base_d + 1 < D) w_val.y = weights[(ulong)global_l * D + base_d + 1];
+                if (base_d + 2 < D) w_val.z = weights[(ulong)global_l * D + base_d + 2];
+                if (base_d + 3 < D) w_val.w = weights[(ulong)global_l * D + base_d + 3];
             }
         }
         shared_weight[lid.x / 8][lid.x % 8] = w_val;
@@ -1333,7 +1402,7 @@ kernel void neural_encode_pass1(
             if (my_l + 3 < L) acc.w += bias[my_l + 3];
         }
         acc = max(0.0f, acc); // ReLU
-        uint out_idx = my_v * L + my_l;
+        ulong out_idx = (ulong)my_v * L + my_l;
         if (my_l + 0 < L) intermediates[out_idx + 0] = acc.x;
         if (my_l + 1 < L) intermediates[out_idx + 1] = acc.y;
         if (my_l + 2 < L) intermediates[out_idx + 2] = acc.z;
@@ -1360,8 +1429,8 @@ kernel void neural_quantize_pass2(
     uint my_v = tgid;
     if (my_v >= N) return;
 
-    device const float* my_floats = intermediates + my_v * L;
-    device char* my_codes = latent_codes + my_v * L;
+    device const float* my_floats = intermediates + (ulong)my_v * L;
+    device char* my_codes = latent_codes + (ulong)my_v * L;
 
     float local_max = 0.0;
     for (uint i = lid; i < L; i += threads_per_tg) {
@@ -1370,7 +1439,7 @@ kernel void neural_quantize_pass2(
 
     float simd_max_val = simd_max(local_max);
     threadgroup float shared_maxes[32];
-    threadgroup float shared_scale = 0.0f;
+    threadgroup float shared_scale;  // no initializer — see VA3-009 note in neural_dequantize_decode_2d_tg_kernel
     
     if (simd_lane_id == 0) shared_maxes[simd_group_id] = simd_max_val;
     threadgroup_barrier(mem_flags::mem_threadgroup);

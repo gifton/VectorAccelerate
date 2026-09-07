@@ -226,6 +226,9 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
     ///   - numLists: Total number of IVF lists (nlist)
     ///   - maxCandidatesPerQuery: Optional hint for pre-allocation
     /// - Returns: GPU candidate result with indices, query IDs, and offsets
+    /// Probe-loop bound baked into all the builder kernels (`p < nprobe && p < 64`).
+    public static let maxNprobe = 64
+
     public func buildCandidates(
         nearestCentroids: any MTLBuffer,
         listOffsets: any MTLBuffer,
@@ -234,6 +237,14 @@ public final class IVFGPUCandidateBuilderKernel: @unchecked Sendable, Metal4Kern
         numLists: Int,
         maxCandidatesPerQuery: Int? = nil
     ) async throws -> IVFGPUCandidateResult {
+        // VA3-011: every builder kernel bounds its probe loop with `p < nprobe && p < 64`
+        // — probes >= 64 would be silently dropped and recall would silently degrade
+        // (CapabilityCapPolicyTests.testIVFNprobeOverCapThrows).
+        guard nprobe <= Self.maxNprobe else {
+            throw VectorError.invalidInput(
+                "nprobe \(nprobe) exceeds the IVF candidate builder kernel capability (max \(Self.maxNprobe)) — probes beyond the cap would be silently dropped")
+        }
+
         // Use fused kernel for small query batches (faster due to single pass)
         if numQueries <= Self.fusedMaxQueries, let _ = fusedPipeline {
             return try await buildCandidatesFused(

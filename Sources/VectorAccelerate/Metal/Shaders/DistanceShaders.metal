@@ -5,153 +5,142 @@
 // MSL Version: 4.0 (Metal 4 SDK)
 // Target: macOS 26.0+, iOS 26.0+, visionOS 3.0+
 
+#include "Metal4Common.h"
 #include <metal_stdlib>
 using namespace metal;
 
-#define VA_EPSILON 1e-8f
+// File-local floor for the jaccard union gate below. Deliberately NOT named VA_EPSILON:
+// in the combined runtime TU (KernelContext.makeLibraryFromBundleSources) a file-scope
+// redefinition of a shared macro changes the value for every file compiled after this one —
+// that was AUDIT-3 VA3-012, which silently ran the downstream normalize/scale/histogram
+// gates at 1e-8 in release builds vs 1e-7 in the debug metallib. The 1e-8 value is this
+// file's historical policy, preserved identically on both build paths.
+// EpsilonCompileParityTests.testSingleEpsilonAuthority enforces the naming rule corpus-wide.
+#define VA_JACCARD_UNION_EPSILON 1e-8f
 
 // MARK: - Manhattan Distance
 
+// Single-pair Manhattan distance: Σ |a_i − b_i|.
+//
+// Dispatch contract: exactly ONE threadgroup, any width — only the first min(tgSize, 256)
+// lanes carry reduction state, the same contract as `jaccardDistance` below (extra
+// threadgroups would each redundantly compute and publish the identical full result).
+// The pre-AUDIT-3 version derived its lane from `thread_position_in_grid % 256` with a
+// hardcoded 256 stride, returned before the barrier for out-of-range threads, and let every
+// threadgroup `atomic_store` its own partial total into result[0] — correct only under the
+// engine's exact `min(256, dimension)` × 1 dispatch, wrong or racy under any other geometry
+// (AUDIT-3 VA3-013, the VA3-001 defect family). All threads now reach the barrier
+// unconditionally and thread 0 alone publishes, so no atomics are needed.
 kernel void manhattanDistance(
     constant float* vectorA [[buffer(0)]],
     constant float* vectorB [[buffer(1)]],
     device float* result [[buffer(2)]],
     constant uint& dimension [[buffer(3)]],
-    uint id [[thread_position_in_grid]]
+    uint tid [[thread_position_in_threadgroup]],
+    uint tgSize [[threads_per_threadgroup]]
 ) {
-    if (id >= dimension) return;
-    
-    // Each thread computes partial sum
     threadgroup float partial_sums[256];
-    uint tid = id % 256;
-    
-    float local_sum = 0.0;
-    for (uint i = id; i < dimension; i += 256) {
-        local_sum += abs(vectorA[i] - vectorB[i]);
+    const uint lanes = min(tgSize, 256u);
+
+    if (tid < lanes) {
+        float local_sum = 0.0f;
+        for (uint i = tid; i < dimension; i += lanes) {
+            local_sum += abs(vectorA[i] - vectorB[i]);
+        }
+        partial_sums[tid] = local_sum;
     }
-    
-    partial_sums[tid] = local_sum;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    
-    // Reduction in shared memory
+
     if (tid == 0) {
-        float total = 0.0;
-        uint limit = min(256u, dimension);
-        for (uint i = 0; i < limit; i++) {
+        float total = 0.0f;
+        for (uint i = 0; i < lanes; i++) {
             total += partial_sums[i];
         }
-        atomic_store_explicit((device atomic_float*)result, total, memory_order_relaxed);
+        result[0] = total;
     }
 }
 
 // MARK: - Chebyshev Distance
 
+// Single-pair Chebyshev distance: max |a_i − b_i|. Same dispatch contract and history as
+// `manhattanDistance` above (AUDIT-3 VA3-013).
 kernel void chebyshevDistance(
     constant float* vectorA [[buffer(0)]],
     constant float* vectorB [[buffer(1)]],
     device float* result [[buffer(2)]],
     constant uint& dimension [[buffer(3)]],
-    uint id [[thread_position_in_grid]]
+    uint tid [[thread_position_in_threadgroup]],
+    uint tgSize [[threads_per_threadgroup]]
 ) {
-    if (id >= dimension) return;
-    
     threadgroup float partial_max[256];
-    uint tid = id % 256;
-    
-    float local_max = 0.0;
-    for (uint i = id; i < dimension; i += 256) {
-        local_max = max(local_max, abs(vectorA[i] - vectorB[i]));
+    const uint lanes = min(tgSize, 256u);
+
+    if (tid < lanes) {
+        float local_max = 0.0f;
+        for (uint i = tid; i < dimension; i += lanes) {
+            local_max = max(local_max, abs(vectorA[i] - vectorB[i]));
+        }
+        partial_max[tid] = local_max;
     }
-    
-    partial_max[tid] = local_max;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    
-    // Reduction to find maximum
+
     if (tid == 0) {
-        float maximum = 0.0;
-        uint limit = min(256u, dimension);
-        for (uint i = 0; i < limit; i++) {
+        float maximum = 0.0f;
+        for (uint i = 0; i < lanes; i++) {
             maximum = max(maximum, partial_max[i]);
         }
-        atomic_store_explicit((device atomic_float*)result, maximum, memory_order_relaxed);
-    }
-}
-
-// MARK: - Minkowski Distance
-
-kernel void minkowskiDistance(
-    constant float* vectorA [[buffer(0)]],
-    constant float* vectorB [[buffer(1)]],
-    device float* result [[buffer(2)]],
-    constant uint& dimension [[buffer(3)]],
-    constant float& p [[buffer(4)]],
-    uint id [[thread_position_in_grid]]
-) {
-    if (id >= dimension) return;
-    
-    threadgroup float partial_sums[256];
-    uint tid = id % 256;
-    
-    float local_sum = 0.0;
-    for (uint i = id; i < dimension; i += 256) {
-        float diff = abs(vectorA[i] - vectorB[i]);
-        local_sum += pow(diff, p);
-    }
-    
-    partial_sums[tid] = local_sum;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    
-    if (tid == 0) {
-        float total = 0.0;
-        uint limit = min(256u, dimension);
-        for (uint i = 0; i < limit; i++) {
-            total += partial_sums[i];
-        }
-        atomic_store_explicit((device atomic_float*)result, total, memory_order_relaxed);
+        result[0] = maximum;
     }
 }
 
 // MARK: - Jaccard Distance
 
+// Weighted Jaccard distance for one vector pair: 1 − Σ min(a_i, b_i) / Σ max(a_i, b_i).
+//
+// Dispatch contract: exactly ONE threadgroup (any size; only the first min(tgSize, 256)
+// lanes carry reduction state). The pre-AUDIT-3 version strided by a hardcoded 256 across
+// ceil(dimension/256) threadgroups: every group `atomic_store`d its own partial total into
+// result[0] — nondeterministically wrong for dimension > 256 — and out-of-range threads
+// returned before the barrier, which is barrier divergence (undefined behavior) for any
+// dimension not a multiple of the group size (AUDIT-3 VA3-001). All threads now reach the
+// barrier unconditionally and thread 0 alone publishes the result, so no atomics are needed.
 kernel void jaccardDistance(
     constant float* vectorA [[buffer(0)]],
     constant float* vectorB [[buffer(1)]],
     device float* result [[buffer(2)]],
     constant uint& dimension [[buffer(3)]],
-    uint id [[thread_position_in_grid]]
+    uint tid [[thread_position_in_threadgroup]],
+    uint tgSize [[threads_per_threadgroup]]
 ) {
-    if (id >= dimension) return;
-    
     threadgroup float partial_intersection[256];
     threadgroup float partial_union[256];
-    uint tid = id % 256;
-    
-    float local_intersection = 0.0;
-    float local_union = 0.0;
-    
-    for (uint i = id; i < dimension; i += 256) {
-        float a = vectorA[i];
-        float b = vectorB[i];
-        local_intersection += min(a, b);
-        local_union += max(a, b);
+    const uint lanes = min(tgSize, 256u);
+
+    if (tid < lanes) {
+        float local_intersection = 0.0f;
+        float local_union = 0.0f;
+        for (uint i = tid; i < dimension; i += lanes) {
+            float a = vectorA[i];
+            float b = vectorB[i];
+            local_intersection += min(a, b);
+            local_union += max(a, b);
+        }
+        partial_intersection[tid] = local_intersection;
+        partial_union[tid] = local_union;
     }
-    
-    partial_intersection[tid] = local_intersection;
-    partial_union[tid] = local_union;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    
+
     if (tid == 0) {
-        float total_intersection = 0.0;
-        float total_union = 0.0;
-        uint limit = min(256u, dimension);
-        for (uint i = 0; i < limit; i++) {
+        float total_intersection = 0.0f;
+        float total_union = 0.0f;
+        for (uint i = 0; i < lanes; i++) {
             total_intersection += partial_intersection[i];
             total_union += partial_union[i];
         }
-        
-        float jaccard = (total_union > VA_EPSILON) ? 
-            (1.0 - (total_intersection / total_union)) : 1.0;
-        atomic_store_explicit((device atomic_float*)result, jaccard, memory_order_relaxed);
+
+        float jaccard = (total_union > VA_JACCARD_UNION_EPSILON) ?
+            (1.0f - (total_intersection / total_union)) : 1.0f;
+        result[0] = jaccard;
     }
 }
 
@@ -184,8 +173,8 @@ kernel void l2_distance(
     device const float* t = targets + (ulong)query_idx * (ulong)dimension;
 
     uint vec_dim = dimension / 4;
-    device const float4* q4 = (device const float4*)q;
-    device const float4* t4 = (device const float4*)t;
+    device const packed_float4* q4 = (device const packed_float4*)q;
+    device const packed_float4* t4 = (device const packed_float4*)t;
 
     float sq_diff = 0.0;
 
@@ -221,7 +210,7 @@ kernel void l2_distance(
             final_sum += shared_sums[i];
         }
 
-        distances[query_idx] = (compute_sqrt != 0) ? sqrt(final_sum) : final_sum;
+        distances[query_idx] = (compute_sqrt != 0) ? va_euclidean_finalize(final_sum, q, t, dimension) : final_sum;
     }
 }
 
@@ -254,8 +243,8 @@ kernel void cosine_similarity(
     device const float* t = targets + (ulong)query_idx * (ulong)dimension;
 
     uint vec_dim = dimension / 4;
-    device const float4* q4 = (device const float4*)q;
-    device const float4* t4 = (device const float4*)t;
+    device const packed_float4* q4 = (device const packed_float4*)q;
+    device const packed_float4* t4 = (device const packed_float4*)t;
 
     // Accumulate A·B, A·A, B·B
     float3 local_sums = float3(0.0);
@@ -301,91 +290,27 @@ kernel void cosine_similarity(
         float dot_aa = total.y;
         float dot_bb = total.z;
 
-        // Use sqrt(a)*sqrt(b) instead of sqrt(a*b) to avoid intermediate underflow
-        float norm_a = sqrt(dot_aa);
-        float norm_b = sqrt(dot_bb);
-        float denom = norm_a * norm_b;
-        // Clamp to the valid cosine range so FP drift past ±1 can't produce a negative
-        // "1 - similarity" distance (which would break the nonnegativity invariant that
-        // downstream min-heap / top-k selection relies on). NaN inputs must still propagate,
-        // so only finite values are clamped: Metal's clamp() uses fmax and would otherwise
-        // turn a NaN into -1.
-        // Absolute-domain floor (FLT_MIN = leastNormalMagnitude) for the zero-vector test,
-        // matching VectorCore's BE3 fix: a precision-relative 1e-8 wrongly rejects valid dense
-        // micro-vectors (denom > 0 but < 1e-8) as "zero".
-        float raw = (denom < FLT_MIN) ? 0.0f : (dot_ab / denom);
-        float similarity = isnan(raw) ? raw : clamp(raw, -1.0f, 1.0f);
+        // Overflow/underflow rescue (AUDIT-2 VA2-008): finite inputs with components outside
+        // ~[1e-19, 1e19] overflow Σv² to +Inf or collapse it to 0 under flush-to-zero; the
+        // shared rescue (Metal4Common.h) recomputes the pair serially in the pre-scaled
+        // normalization domain. Cold path — thread 0 only, and only for accumulator states the
+        // cooperative fast path above cannot represent.
+        if (va_cosine_accumulators_unreliable(dot_ab, dot_aa, dot_bb)) {
+            float3 rescued = va_cosine_rescaled_terms(q, t, dimension);
+            dot_ab = rescued.x;
+            dot_aa = rescued.y;
+            dot_bb = rescued.z;
+        }
+
+        // Shared finalization (Metal4Common.h): two-stage precise::divide — the single
+        // sqrt(a)*sqrt(b) product is the measured-UNSAFE form fast math reassociates into
+        // sqrt(a·b) and overflows — FLT_MIN absolute floor for the zero-vector test (BE3 4.5
+        // — a precision-relative 1e-8 wrongly rejects valid dense micro-vectors), and the
+        // NaN-propagating clamp to [-1, 1] so FP drift past ±1 can't produce a negative
+        // "1 - similarity" distance.
+        float similarity = va_cosine_similarity_finalize(dot_ab, dot_aa, dot_bb);
 
         similarities[query_idx] = (output_distance != 0) ? (1.0f - similarity) : similarity;
     }
 }
 
-// MARK: - Legacy Tiled Distance Computation (Retained for Internal Dispatch Compatibility)
-
-kernel void batchCosineSimilaritySIMD(
-    constant float4* query [[buffer(0)]],
-    constant float4* candidates [[buffer(1)]],
-    device float* similarities [[buffer(2)]],
-    constant uint& dimension4 [[buffer(3)]],
-    constant uint& candidateCount [[buffer(4)]],
-    uint id [[thread_position_in_grid]])
-{
-    if (id >= candidateCount) return;
-    uint candidateOffset = id * dimension4;
-    float4 dot_accum = 0.0;
-    float4 query_norm_accum = 0.0;
-    float4 candidate_norm_accum = 0.0;
-    for (uint i = 0; i < dimension4; i++) {
-        float4 q = query[i];
-        float4 c = candidates[candidateOffset + i];
-        dot_accum += q * c;
-        query_norm_accum += q * q;
-        candidate_norm_accum += c * c;
-    }
-    float dot_product = dot_accum.x + dot_accum.y + dot_accum.z + dot_accum.w;
-    float query_norm = sqrt(query_norm_accum.x + query_norm_accum.y + query_norm_accum.z + query_norm_accum.w);
-    float candidate_norm = sqrt(candidate_norm_accum.x + candidate_norm_accum.y + candidate_norm_accum.z + candidate_norm_accum.w);
-    if (query_norm > 0.0 && candidate_norm > 0.0) {
-        similarities[id] = dot_product / (query_norm * candidate_norm);
-    } else {
-        similarities[id] = 0.0;
-    }
-}
-
-kernel void batchDotProductSIMD(
-    constant float4* query [[buffer(0)]],
-    constant float4* candidates [[buffer(1)]],
-    device float* dotProducts [[buffer(2)]],
-    constant uint& dimension4 [[buffer(3)]],
-    constant uint& candidateCount [[buffer(4)]],
-    uint id [[thread_position_in_grid]])
-{
-    if (id >= candidateCount) return;
-    uint candidateOffset = id * dimension4;
-    float4 dot_accum = 0.0;
-    for (uint i = 0; i < dimension4; i++) {
-        float4 q = query[i];
-        float4 c = candidates[candidateOffset + i];
-        dot_accum += q * c;
-    }
-    dotProducts[id] = dot_accum.x + dot_accum.y + dot_accum.z + dot_accum.w;
-}
-
-kernel void batchEuclideanDistanceSIMD(
-    constant float4* query [[buffer(0)]],
-    constant float4* candidates [[buffer(1)]],
-    device float* distances [[buffer(2)]],
-    constant uint& dimension4 [[buffer(3)]],
-    constant uint& candidateCount [[buffer(4)]],
-    uint id [[thread_position_in_grid]])
-{
-    if (id >= candidateCount) return;
-    uint candidateOffset = id * dimension4;
-    float4 sum_squared = 0.0;
-    for (uint i = 0; i < dimension4; i++) {
-        float4 diff = query[i] - candidates[candidateOffset + i];
-        sum_squared += diff * diff;
-    }
-    float squared_distance = sum_squared.x + sum_squared.y + sum_squared.z + sum_squared.w;
-    distances[id] = sqrt(squared_distance);
-}

@@ -42,8 +42,8 @@ kernel void dot_product_kernel(
     }
 
     // Calculate vector pointers using strides
-    device const float* query = queryVectors + (queryIdx * params.strideQuery);
-    device const float* database = databaseVectors + (dbIdx * params.strideDatabase);
+    device const float* query = queryVectors + ((ulong)queryIdx * params.strideQuery);
+    device const float* database = databaseVectors + ((ulong)dbIdx * params.strideDatabase);
 
     const uint dimension = params.dimension;
     float dotProduct = 0.0f;
@@ -60,8 +60,8 @@ kernel void dot_product_kernel(
         const uint simd_blocks = dimension / 4;
         const uint remainder = dimension % 4;
 
-        device const float4* query4 = (device const float4*)query;
-        device const float4* database4 = (device const float4*)database;
+        device const packed_float4* query4 = (device const packed_float4*)query;
+        device const packed_float4* database4 = (device const packed_float4*)database;
 
         // Use float4 accumulator to improve ILP and vectorize the accumulation
         float4 acc4 = float4(0.0f);
@@ -91,7 +91,7 @@ kernel void dot_product_kernel(
     }
 
     // Store result
-    const uint outputIdx = queryIdx * params.strideOutput + dbIdx;
+    const ulong outputIdx = (ulong)queryIdx * params.strideOutput + dbIdx;
     dotProducts[outputIdx] = dotProduct;
 }
 
@@ -115,8 +115,8 @@ kernel void dot_product_384_kernel(
     }
 
     // Hardcoding the stride allows the compiler to optimize address calculation
-    device const float4* query4 = (device const float4*)(queryVectors + queryIdx * 384);
-    device const float4* database4 = (device const float4*)(databaseVectors + dbIdx * 384);
+    device const packed_float4* query4 = (device const packed_float4*)(queryVectors + (ulong)queryIdx * 384);
+    device const packed_float4* database4 = (device const packed_float4*)(databaseVectors + (ulong)dbIdx * 384);
 
     // Unroll by 8. Use 2 accumulators and interleave instructions to maximize ILP.
     float4 acc0 = float4(0.0f);
@@ -142,7 +142,7 @@ kernel void dot_product_384_kernel(
     if (params.absoluteValue) {
         dotProduct = abs(dotProduct);
     }
-    dotProducts[queryIdx * params.strideOutput + dbIdx] = dotProduct;
+    dotProducts[(ulong)queryIdx * params.strideOutput + dbIdx] = dotProduct;
 }
 
 // Optimized for D=512 (128 float4 ops).
@@ -161,8 +161,8 @@ kernel void dot_product_512_kernel(
     }
 
     // Hardcoding the stride allows the compiler to optimize address calculation
-    device const float4* query4 = (device const float4*)(queryVectors + queryIdx * 512);
-    device const float4* database4 = (device const float4*)(databaseVectors + dbIdx * 512);
+    device const packed_float4* query4 = (device const packed_float4*)(queryVectors + (ulong)queryIdx * 512);
+    device const packed_float4* database4 = (device const packed_float4*)(databaseVectors + (ulong)dbIdx * 512);
 
     // Unroll by 16. Use 4 accumulators and interleave instructions to maximize ILP.
     float4 acc0 = float4(0.0f);
@@ -201,7 +201,7 @@ kernel void dot_product_512_kernel(
     if (params.absoluteValue) {
         dotProduct = abs(dotProduct);
     }
-    dotProducts[queryIdx * params.strideOutput + dbIdx] = dotProduct;
+    dotProducts[(ulong)queryIdx * params.strideOutput + dbIdx] = dotProduct;
 }
 
 // Optimized for D=768 (192 float4 ops). (Spec Section 3.2 Implementation)
@@ -219,8 +219,8 @@ kernel void dot_product_768_kernel(
         return;
     }
 
-    device const float4* query4 = (device const float4*)(queryVectors + queryIdx * 768);
-    device const float4* database4 = (device const float4*)(databaseVectors + dbIdx * 768);
+    device const packed_float4* query4 = (device const packed_float4*)(queryVectors + (ulong)queryIdx * 768);
+    device const packed_float4* database4 = (device const packed_float4*)(databaseVectors + (ulong)dbIdx * 768);
 
     // Unroll by 16. Use 4 accumulators for maximum ILP.
     float4 acc0 = float4(0.0f);
@@ -263,7 +263,7 @@ kernel void dot_product_768_kernel(
         dotProduct = abs(dotProduct);
     }
 
-    dotProducts[queryIdx * params.strideOutput + dbIdx] = dotProduct;
+    dotProducts[(ulong)queryIdx * params.strideOutput + dbIdx] = dotProduct;
 }
 
 // Optimized for D=1536 (384 float4 ops).
@@ -281,8 +281,8 @@ kernel void dot_product_1536_kernel(
         return;
     }
 
-    device const float4* query4 = (device const float4*)(queryVectors + queryIdx * 1536);
-    device const float4* database4 = (device const float4*)(databaseVectors + dbIdx * 1536);
+    device const packed_float4* query4 = (device const packed_float4*)(queryVectors + (ulong)queryIdx * 1536);
+    device const packed_float4* database4 = (device const packed_float4*)(databaseVectors + (ulong)dbIdx * 1536);
 
     // Unroll by 32. Use 8 accumulators for extreme ILP optimization on this large dimension.
     float4 acc0=0, acc1=0, acc2=0, acc3=0;
@@ -341,7 +341,7 @@ kernel void dot_product_1536_kernel(
         dotProduct = abs(dotProduct);
     }
 
-    dotProducts[queryIdx * params.strideOutput + dbIdx] = dotProduct;
+    dotProducts[(ulong)queryIdx * params.strideOutput + dbIdx] = dotProduct;
 }
 
 
@@ -363,14 +363,14 @@ kernel void dot_product_gemv_kernel(
     }
 
     const uint dimension = params.dimension;
-    device const float* matrixRow = matrix + (dbIdx * params.strideDatabase);
+    device const float* matrixRow = matrix + ((ulong)dbIdx * params.strideDatabase);
 
     // SIMD optimization
     const uint simd_blocks = dimension / 4;
     const uint remainder = dimension % 4;
 
-    device const float4* vector4 = (device const float4*)vector;
-    device const float4* row4 = (device const float4*)matrixRow;
+    device const packed_float4* vector4 = (device const packed_float4*)vector;
+    device const packed_float4* row4 = (device const packed_float4*)matrixRow;
 
     // Use 4 accumulators for ILP. Unroll by 16.
     float4 acc0 = float4(0.0f);

@@ -59,7 +59,7 @@ kernel void ivf_count_candidates(
     uint count = 0;
 
     for (uint p = 0; p < nprobe && p < 64; ++p) {
-        uint listIdx = nearestCentroids[q * nprobe + p];
+        uint listIdx = nearestCentroids[(ulong)q * nprobe + p];
 
         // Skip invalid/sentinel indices
         if (listIdx >= num_lists) continue;
@@ -86,81 +86,15 @@ kernel void ivf_count_candidates(
     candidateCounts[q] = count;
 }
 
-// MARK: - Prefix Sum Kernel (Parallel Scan)
+// MARK: - Prefix Sum Parameters
+// (The parallel Blelloch-scan kernel that lived here required a power-of-two threadgroup it
+// never asserted and had no Swift caller — deleted in AUDIT-3 Group F. The sequential kernel
+// below is the dispatched implementation.)
 
 struct PrefixSumParams {
     uint32_t num_elements;   // Number of elements to scan
     uint32_t padding[3];
 };
-
-/// Computes inclusive prefix sum on candidateCounts to produce candidateOffsets.
-///
-/// This is a simple single-threadgroup implementation for small arrays (Q < 1024).
-/// For larger arrays, a multi-pass Blelloch scan would be needed.
-///
-/// Input:
-///   - candidateCounts: [Q] - count per query
-///
-/// Output:
-///   - candidateOffsets: [Q + 1] - CSR offsets (first element is 0)
-kernel void ivf_prefix_sum_candidates(
-    device const uint* candidateCounts [[buffer(0)]],
-    device uint* candidateOffsets [[buffer(1)]],
-    constant PrefixSumParams& params [[buffer(2)]],
-    threadgroup uint* shared [[threadgroup(0)]],
-    uint tid [[thread_position_in_threadgroup]],
-    uint tg_size [[threads_per_threadgroup]]
-) {
-    const uint n = params.num_elements;
-
-    // Load to shared memory
-    if (tid < n) {
-        shared[tid] = candidateCounts[tid];
-    } else {
-        shared[tid] = 0;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // Up-sweep (reduce) phase
-    for (uint stride = 1; stride < tg_size; stride *= 2) {
-        uint index = (tid + 1) * stride * 2 - 1;
-        if (index < tg_size) {
-            shared[index] += shared[index - stride];
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-
-    // Set root to 0 for exclusive scan
-    if (tid == 0) {
-        shared[tg_size - 1] = 0;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // Down-sweep phase
-    for (uint stride = tg_size / 2; stride > 0; stride /= 2) {
-        uint index = (tid + 1) * stride * 2 - 1;
-        if (index < tg_size) {
-            uint temp = shared[index];
-            shared[index] += shared[index - stride];
-            shared[index - stride] = temp;
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-
-    // Write output (exclusive prefix sum)
-    // candidateOffsets[0] = 0
-    // candidateOffsets[i+1] = candidateOffsets[i] + candidateCounts[i]
-    if (tid == 0) {
-        candidateOffsets[0] = 0;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    if (tid < n) {
-        // For exclusive scan, shift by 1
-        candidateOffsets[tid + 1] = shared[tid] + candidateCounts[tid];
-    }
-}
-
 // MARK: - Simple CPU-style Prefix Sum (Sequential)
 
 /// Simple sequential prefix sum for small arrays.
@@ -222,7 +156,7 @@ kernel void ivf_build_candidates(
     uint numSeen = 0;
 
     for (uint p = 0; p < nprobe && p < 64 && writePos < writeEnd; ++p) {
-        uint listIdx = nearestCentroids[q * nprobe + p];
+        uint listIdx = nearestCentroids[(ulong)q * nprobe + p];
 
         // Skip invalid/sentinel indices
         if (listIdx >= num_lists) continue;
@@ -292,7 +226,7 @@ kernel void ivf_build_candidates_fused(
     uint count = 0;
 
     for (uint p = 0; p < nprobe && p < 64; ++p) {
-        uint listIdx = nearestCentroids[q * nprobe + p];
+        uint listIdx = nearestCentroids[(ulong)q * nprobe + p];
         if (listIdx >= num_lists) continue;
 
         bool duplicate = false;
@@ -318,7 +252,7 @@ kernel void ivf_build_candidates_fused(
     uint writePos = writeStart;
 
     for (uint p = 0; p < nprobe && p < 64; ++p) {
-        uint listIdx = nearestCentroids[q * nprobe + p];
+        uint listIdx = nearestCentroids[(ulong)q * nprobe + p];
         if (listIdx >= num_lists) continue;
 
         bool duplicate = false;

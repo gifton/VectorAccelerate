@@ -18,10 +18,65 @@
 //
 
 import XCTest
+import VectorCore
 @testable import VectorAccelerate
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 final class TopKSelectionAdoptionTests: XCTestCase {
+
+    /// Literal contract fixtures, independent of either package's comparator implementation.
+    func testVectorCore033NaNContractThroughProviderInBothDirections() {
+        let scores: [Float] = [.nan, 2, -.infinity, 2, .infinity, -0.0, 0.0, .nan, -3]
+        for maximize in [false, true] {
+            let expected = maximize ? [4, 1, 3, 5, 6, 8, 2, 0, 7] : [2, 8, 5, 6, 1, 3, 4, 0, 7]
+            for k in [1, 5, 9, 12] {
+                let result = MetalComputeProvider.selectTopK(scores, k: k, largerIsCloser: maximize)
+                XCTAssertEqual(result.map(\.index), Array(expected.prefix(k)), "maximize=\(maximize) k=\(k)")
+                for candidate in result {
+                    let original = scores[candidate.index]
+                    if original.isNaN {
+                        XCTAssertTrue(candidate.distance.isNaN)
+                    } else {
+                        XCTAssertEqual(candidate.distance.bitPattern, original.bitPattern)
+                    }
+                }
+            }
+        }
+    }
+
+    func testVectorCore033HeapMembershipAndNaNTailThroughProvider() {
+        for maximize in [false, true] {
+            var scores: [Float] = [.nan, .nan, .nan, 2, 1, 1, 1]
+            scores += [Float](repeating: 100, count: 93)
+            if maximize { scores = scores.map { -$0 } }
+            // k=3 < n/10 exercises the dependency's heap admission/eviction path.
+            let result = MetalComputeProvider.selectTopK(scores, k: 3, largerIsCloser: maximize)
+            XCTAssertEqual(result.map(\.index), [4, 5, 6])
+            XCTAssertTrue(result.allSatisfy { $0.distance == (maximize ? -1 : 1) })
+
+            var mostlyNaN = [Float](repeating: .nan, count: 100)
+            mostlyNaN[99] = 1
+            let tail = MetalComputeProvider.selectTopK(mostlyNaN, k: 3, largerIsCloser: maximize)
+            XCTAssertEqual(tail.map(\.index), [99, 0, 1])
+            XCTAssertEqual(tail.count, 3)
+            XCTAssertEqual(tail.first?.distance, 1)
+            XCTAssertTrue(tail.dropFirst().allSatisfy { $0.distance.isNaN })
+        }
+    }
+
+    /// The SoA provider consumes this pointer API; IDs remain labels rather than tie keys.
+    func testVectorCore033PointerContractPreservesOriginalPositionTies() {
+        let scores: [Float] = [.nan, 2, -.infinity, 2, .infinity, -0.0, 0.0, .nan, -3]
+        let ids: [Int32] = [90, 10, 50, 22, 7, -5, -7, 13, 17]
+        let result = scores.withUnsafeBufferPointer { data in
+            ids.withUnsafeBufferPointer { labels in
+                TopKSelection.select(k: scores.count, from: data.baseAddress!, count: data.count,
+                                     ids: labels.baseAddress!, tieBreaker: .smallerIndex)
+            }
+        }
+        XCTAssertEqual(result.indices, [50, 17, -5, -7, 10, 22, 7, 90, 13])
+        XCTAssertTrue(result.distances.suffix(2).allSatisfy(\.isNaN))
+    }
 
     // MARK: - Independent reference
 

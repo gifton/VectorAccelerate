@@ -123,7 +123,7 @@ let scalar = try await ScalarQuantKernel(context: context)
 - **Swift 6.0+**
 
 ### Dependencies
-- **VectorCore 0.3.2**: The foundational vector mathematics package
+- **VectorCore 0.3.3+**: The foundational vector mathematics package, including NaN-last CPU Top-K selection
 
 ### Products
 - **VectorAccelerate**: Core GPU acceleration library
@@ -308,7 +308,7 @@ Add VectorAccelerate to your `Package.swift`:
 ```swift
 dependencies: [
     .package(url: "https://github.com/gifton/VectorAccelerate.git", from: "0.6.0"),
-    .package(url: "https://github.com/gifton/VectorCore.git", from: "0.3.2")
+    .package(url: "https://github.com/gifton/VectorCore.git", from: "0.3.3")
 ],
 targets: [
     .target(

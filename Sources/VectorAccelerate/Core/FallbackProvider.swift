@@ -65,7 +65,7 @@ public struct FallbackProvider: Sendable {
 
         var result: Float = 0
         vDSP_distancesq(a, 1, b, 1, &result, vDSP_Length(a.count))
-        return sqrt(result)
+        return AccelerateFallback.finalizeEuclidean(result, a, b)
     }
 
     /// Compute squared L2 distance (avoids sqrt for comparison purposes).

@@ -99,6 +99,9 @@ public struct DotProductParameters: Sendable {
 
 /// Metal 4 Dot Product kernel.
 ///
+/// Products and accumulation retain FP32 range/precision limits; no cancellation rescue
+/// is performed. See docs/stability/DISTANCE-RANGE-CONTRACT.md and EuclideanRangePolicyTests.
+///
 /// Computes dot product between all pairs of query and database vectors:
 /// ```
 /// output[i,j] = query[i] · database[j] = Σ(query[i][k] × database[j][k])
@@ -188,18 +191,27 @@ public final class DotProductKernel: @unchecked Sendable, DimensionOptimizedKern
 
     // MARK: - Pipeline Selection
 
-    /// Select optimal pipeline based on dimension and query count.
+    /// Select optimal pipeline based on dimension, strides, and query count.
     private func selectPipeline(
-        for dimension: UInt32,
-        isGEMV: Bool
+        for parameters: DotProductParameters
     ) -> (pipeline: any MTLComputePipelineState, name: String) {
-        // GEMV path for single query
-        if isGEMV {
+        // GEMV path for single query (the kernel honors strideDatabase; the single query
+        // row is read densely from offset 0, which strideQuery cannot affect).
+        if parameters.isGEMV {
             return (pipelineGEMV, "dot_product_gemv_kernel")
         }
 
+        // The dimension-specialized kernels hardcode dense packing (row offset = dimension)
+        // for BOTH operands and ignore the stride fields entirely — selecting one for strided
+        // input silently reads the wrong elements (AUDIT-3 VA3-010). Same guard as
+        // `L2NormalizationKernel.selectPipeline`.
+        guard parameters.strideQuery == parameters.dimension,
+              parameters.strideDatabase == parameters.dimension else {
+            return (pipelineGeneric, "dot_product_kernel")
+        }
+
         // Dimension-specific for batch operations
-        switch dimension {
+        switch parameters.dimension {
         case 384:
             return (pipeline384, "dot_product_384_kernel")
         case 512:
@@ -230,10 +242,7 @@ public final class DotProductKernel: @unchecked Sendable, DimensionOptimizedKern
         output: any MTLBuffer,
         parameters: DotProductParameters
     ) -> Metal4EncodingResult {
-        let (pipeline, pipelineName) = selectPipeline(
-            for: parameters.dimension,
-            isGEMV: parameters.isGEMV
-        )
+        let (pipeline, pipelineName) = selectPipeline(for: parameters)
 
         encoder.setComputePipelineState(pipeline)
         encoder.label = "DotProduct.\(pipelineName)"

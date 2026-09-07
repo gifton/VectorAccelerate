@@ -427,7 +427,7 @@ public actor MemoryMapManager {
                 let diff = a[i] - b[i]
                 sum += diff * diff
             }
-            return sqrt(sum)
+            return AccelerateFallback.finalizeEuclidean(sum, a, b)
 
         case .cosine:
             var dot: Float = 0

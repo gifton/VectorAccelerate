@@ -261,6 +261,7 @@ public final class LogSumExpKernel: @unchecked Sendable, Metal4Kernel, FusibleKe
     // MARK: - Row-wise LogSumExp (Execute API)
 
     /// Compute logsumexp along each row of a matrix.
+    /// Any NaN in a row makes its result NaN, including rows containing positive infinity.
     ///
     /// - Parameters:
     ///   - input: Input buffer [N, D] (row-major).
@@ -387,6 +388,7 @@ public final class LogSumExpKernel: @unchecked Sendable, Metal4Kernel, FusibleKe
     // MARK: - Full Reduction (Execute API)
 
     /// Compute logsumexp of entire array.
+    /// Any input NaN makes the result NaN, taking precedence over positive infinity.
     ///
     /// - Parameters:
     ///   - input: Input buffer.

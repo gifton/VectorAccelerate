@@ -62,7 +62,7 @@ kernel void tiledMatrixMultiply(
             const uint aCol = tileIdx * TILE_K + tid.x;
 
             if (aRow < M && aCol < K) {
-                sharedA[tid.y * TILE_K + tid.x] = A[aRow * K + aCol];
+                sharedA[tid.y * TILE_K + tid.x] = A[(ulong)aRow * K + aCol];
             } else {
                 sharedA[tid.y * TILE_K + tid.x] = 0.0f;
             }
@@ -75,7 +75,7 @@ kernel void tiledMatrixMultiply(
             const uint bCol = globalCol;
 
             if (bRow < K && bCol < N) {
-                sharedB[tid.y * TILE_N + tid.x] = B[bRow * N + bCol];
+                sharedB[tid.y * TILE_N + tid.x] = B[(ulong)bRow * N + bCol];
             } else {
                 sharedB[tid.y * TILE_N + tid.x] = 0.0f;
             }
@@ -95,7 +95,7 @@ kernel void tiledMatrixMultiply(
     
     // Write result to global memory
     if (globalRow < M && globalCol < N) {
-        C[globalRow * N + globalCol] = acc;
+        C[(ulong)globalRow * N + globalCol] = acc;
     }
 }
 
@@ -124,7 +124,7 @@ kernel void simdgroupMatrixVector(
     
     // Process vector elements in chunks of SIMD width
     for (uint i = tid; i < cols; i += simdSize) {
-        sum += matrix[row * cols + i] * vector[i];
+        sum += matrix[(ulong)row * cols + i] * vector[i];
     }
     
     // Reduce across SIMD group using shuffle operations
@@ -156,7 +156,7 @@ kernel void tiledTranspose(
     
     // Load tile into shared memory (coalesced read)
     if (inRow < rows && inCol < cols) {
-        tile[tid.y * (TILE_SIZE + 1) + tid.x] = input[inRow * cols + inCol];
+        tile[tid.y * (TILE_SIZE + 1) + tid.x] = input[(ulong)inRow * cols + inCol];
     }
     
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -167,7 +167,7 @@ kernel void tiledTranspose(
     
     // Write transposed tile (coalesced write)
     if (outRow < cols && outCol < rows) {
-        output[outRow * rows + outCol] = tile[tid.x * (TILE_SIZE + 1) + tid.y];
+        output[(ulong)outRow * rows + outCol] = tile[tid.x * (TILE_SIZE + 1) + tid.y];
     }
 }
 
@@ -192,9 +192,10 @@ kernel void batchMatrixMultiplyFused(
     device const float* B [[buffer(1)]],
     device float* C [[buffer(2)]],
     constant uint4& params [[buffer(3)]],  // batchSize, M, K, N
-    device const float* bias [[buffer(4)]],  // Optional bias
+    device const float* bias [[buffer(4)]],  // Optional bias (layout selected by biasMode)
     constant float& alpha [[buffer(5)]],     // Scaling factor
     constant uint& activation [[buffer(6)]], // Metal4ActivationType raw value
+    constant uint& biasMode [[buffer(7)]],   // 0 = none, 1 = bias[col] (N), 2 = bias[batch*N + col] (batchSize×N)
     uint3 gid [[thread_position_in_grid]]
 ) {
     const uint batch = gid.z;
@@ -209,9 +210,9 @@ kernel void batchMatrixMultiplyFused(
     if (batch >= batchSize || row >= M || col >= N) return;
     
     // Compute offset for this batch
-    const uint aOffset = batch * M * K;
-    const uint bOffset = batch * K * N;
-    const uint cOffset = batch * M * N;
+    const ulong aOffset = (ulong)batch * M * K;
+    const ulong bOffset = (ulong)batch * K * N;
+    const ulong cOffset = (ulong)batch * M * N;
     
     // Compute dot product for C[row][col]
     float sum = 0.0f;
@@ -219,62 +220,33 @@ kernel void batchMatrixMultiplyFused(
     // Unrolled loop for better performance
     uint k = 0;
     for (; k + 3 < K; k += 4) {
-        sum += A[aOffset + row * K + k + 0] * B[bOffset + (k + 0) * N + col];
-        sum += A[aOffset + row * K + k + 1] * B[bOffset + (k + 1) * N + col];
-        sum += A[aOffset + row * K + k + 2] * B[bOffset + (k + 2) * N + col];
-        sum += A[aOffset + row * K + k + 3] * B[bOffset + (k + 3) * N + col];
+        sum += A[aOffset + (ulong)row * K + k + 0] * B[bOffset + (ulong)(k + 0) * N + col];
+        sum += A[aOffset + (ulong)row * K + k + 1] * B[bOffset + (ulong)(k + 1) * N + col];
+        sum += A[aOffset + (ulong)row * K + k + 2] * B[bOffset + (ulong)(k + 2) * N + col];
+        sum += A[aOffset + (ulong)row * K + k + 3] * B[bOffset + (ulong)(k + 3) * N + col];
     }
     
     // Handle remainder
     for (; k < K; ++k) {
-        sum += A[aOffset + row * K + k] * B[bOffset + k * N + col];
+        sum += A[aOffset + (ulong)row * K + k] * B[bOffset + (ulong)k * N + col];
     }
     
-    // Apply scaling and bias if provided
+    // Apply scaling and bias if provided.
+    // biasMode selects the layout the host validated: 1 = one bias per output column
+    // (length N, broadcast over rows and batches), 2 = per-batch column bias
+    // (length batchSize × N). The pre-AUDIT-3 indexing was `bias[row * N + col]` — an M×N
+    // layout no caller ever provided, so every multi-row GEMM with the documented N-length
+    // bias read past the end of the buffer (VA3-004).
     sum *= alpha;
-    if (bias) {
-        sum += bias[row * N + col];
+    if (bias != nullptr && biasMode != 0) {
+        sum += (biasMode == 2) ? bias[(ulong)batch * N + col] : bias[col];
     }
 
     // Apply fused activation (identity when activation == 0)
     sum = apply_fused_activation(sum, activation);
     
     // Write result
-    C[cOffset + row * N + col] = sum;
-}
-
-/// High-performance vector normalization with fast inverse sqrt
-///
-/// - Warning: Legacy/unused (no Swift caller). It accumulates `Σ v²` without the
-///   max-abs pre-scale and biases the reciprocal with `+1e-8`, so it does **not**
-///   follow the normalization policy documented in `BasicOperations.metal` /
-///   `L2Normalization.metal`: huge-magnitude vectors overflow to zeros and
-///   small-magnitude vectors come out far from unit length. Use `vectorNormalize`
-///   or the `l2_normalize_*` kernels, which are CPU-parity correct.
-kernel void fastNormalize(
-    device const float* input [[buffer(0)]],
-    device float* output [[buffer(1)]],
-    constant uint& dimension [[buffer(2)]],
-    uint2 gid [[thread_position_in_grid]]
-) {
-    const uint vectorIdx = gid.x;
-    const uint offset = vectorIdx * dimension;
-    
-    // First pass: compute squared norm
-    float sqNorm = 0.0f;
-    for (uint i = 0; i < dimension; ++i) {
-        float val = input[offset + i];
-        sqNorm += val * val;
-    }
-    
-    // Fast inverse square root approximation
-    // More accurate than rsqrt() on some hardware
-    float invNorm = rsqrt(sqNorm + 1e-8f);
-    
-    // Second pass: normalize
-    for (uint i = 0; i < dimension; ++i) {
-        output[offset + i] = input[offset + i] * invNorm;
-    }
+    C[cOffset + (ulong)row * N + col] = sum;
 }
 
 /// Strided batch GEMM for tensor operations
@@ -302,19 +274,19 @@ kernel void stridedBatchGEMM(
     if (row >= M || col >= N) return;
     
     // Calculate batch offsets using strides
-    const uint aOffset = batch * stridesA.z;
-    const uint bOffset = batch * stridesB.z;
-    const uint cOffset = batch * stridesC.z;
+    const ulong aOffset = (ulong)batch * stridesA.z;
+    const ulong bOffset = (ulong)batch * stridesB.z;
+    const ulong cOffset = (ulong)batch * stridesC.z;
     
     // Compute matrix multiplication with custom strides
     float sum = 0.0f;
     
     for (uint k = 0; k < K; ++k) {
-        uint aIdx = aOffset + row * stridesA.x + k * stridesA.y;
-        uint bIdx = bOffset + k * stridesB.x + col * stridesB.y;
+        ulong aIdx = aOffset + (ulong)row * stridesA.x + (ulong)k * stridesA.y;
+        ulong bIdx = bOffset + (ulong)k * stridesB.x + (ulong)col * stridesB.y;
         sum += A[aIdx] * B[bIdx];
     }
     
-    uint cIdx = cOffset + row * stridesC.x + col * stridesC.y;
+    ulong cIdx = cOffset + (ulong)row * stridesC.x + (ulong)col * stridesC.y;
     C[cIdx] = sum;
 }

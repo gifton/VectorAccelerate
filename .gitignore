@@ -328,3 +328,6 @@ $RECYCLE.BIN/
 .directory
 .Trash-*
 .nfs*
+
+# Local agent configuration links
+.antigravitycli/

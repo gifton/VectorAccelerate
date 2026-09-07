@@ -10,7 +10,7 @@
 // NOTE: This shader is self-contained with IVF-prefixed types to avoid conflicts
 // when combined with other shaders during runtime compilation.
 
-#include <metal_stdlib>
+#include "Metal4Common.h"
 using namespace metal;
 
 // MARK: - IVF Configuration Constants
@@ -49,14 +49,12 @@ struct IVFBestCand {
 // MARK: - Helper Functions
 
 inline bool ivf_is_better(IVFCandidate a, IVFCandidate b) {
-    if (a.distance < b.distance) return true;
-    if (a.distance > b.distance) return false;
-    return a.index < b.index;
+    return va_topk_is_better(a.distance, a.index, b.distance, b.index, true);
 }
 
 inline float4 ivf_safe_load_float4(device const float* base, uint offset, uint max) {
     if (offset + 3 < max) {
-        return reinterpret_cast<const device float4*>(base + offset)[0];
+        return reinterpret_cast<const device packed_float4*>(base + offset)[0];
     }
     float4 v = float4(0.0f);
     for (uint i = 0; i < 4 && offset + i < max; ++i) {
@@ -75,7 +73,7 @@ inline float ivf_calculate_l2_squared_cached(
 
     // Vectorized processing
     for (; d + 3 < D; d += 4) {
-        float4 q_data = reinterpret_cast<const threadgroup float4*>(query_cached + d)[0];
+        float4 q_data = reinterpret_cast<const threadgroup packed_float4*>(query_cached + d)[0];
         float4 v_data = ivf_safe_load_float4(vector_ptr, d, D);
         float4 diff = q_data - v_data;
         accumulator += dot(diff, diff);
@@ -114,7 +112,7 @@ inline float ivf_calculate_l2_squared_global(
 
 inline void ivf_update_private_heap_sorted(thread IVFCandidate* heap, float new_dist, uint new_id) {
     IVFCandidate worst = heap[IVF_K_PRIVATE - 1];
-    if (new_dist < worst.distance || (new_dist == worst.distance && new_id < worst.index)) {
+    if (va_topk_is_better(new_dist, new_id, worst.distance, worst.index, true)) {
         heap[IVF_K_PRIVATE - 1] = {new_dist, new_id};
 
         // Insertion sort to maintain order
@@ -156,10 +154,7 @@ inline void ivf_block_bitonic_sort(threadgroup IVFCandidate* data, const uint N_
 }
 
 inline IVFBestCand ivf_reduce_min(IVFBestCand a, IVFBestCand b) {
-    if (a.distance < b.distance) return a;
-    if (b.distance < a.distance) return b;
-    if (a.index < b.index) return a;
-    return b;
+    return va_topk_is_better(a.distance, a.index, b.distance, b.index, true) ? a : b;
 }
 
 inline IVFBestCand ivf_warp_reduce_min(IVFBestCand v) {

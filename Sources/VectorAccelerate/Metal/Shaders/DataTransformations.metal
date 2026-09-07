@@ -78,15 +78,15 @@ kernel void elementwise_operation_kernel(
     if (tid >= params.num_elements) return;
 
     // Calculate indices based on strides
-    const uint idx_a = tid * params.stride_a;
-    const uint idx_out = tid * params.stride_output;
+    const ulong idx_a = (ulong)tid * params.stride_a;
+    const ulong idx_out = (ulong)tid * params.stride_output;
 
     float a = input_a[idx_a];
     float b;
 
     // Determine 'b'. If input_b is provided (binary), use it; otherwise use scalar (scalar/unary).
     if (input_b != nullptr) {
-        const uint idx_b = tid * params.stride_b;
+        const ulong idx_b = (ulong)tid * params.stride_b;
         b = input_b[idx_b];
     } else {
         b = params.scalar_value;
@@ -103,12 +103,12 @@ kernel void elementwise_inplace_kernel(
 ) {
     if (tid >= params.num_elements) return;
 
-    const uint idx_a = tid * params.stride_a;
+    const ulong idx_a = (ulong)tid * params.stride_a;
     float a = data[idx_a];
     float b;
 
     if (operand != nullptr) {
-        const uint idx_b = tid * params.stride_b;
+        const ulong idx_b = (ulong)tid * params.stride_b;
         b = operand[idx_b];
     } else {
         b = params.scalar_value;

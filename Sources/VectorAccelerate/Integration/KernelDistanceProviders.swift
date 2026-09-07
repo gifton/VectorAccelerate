@@ -367,11 +367,13 @@ public actor MinkowskiKernelDistanceProvider: DistanceProvider {
         to vector2: T,
         metric: SupportedDistanceMetric
     ) async throws -> Float where T.Scalar == Float {
-        let p: Float
+        // .chebyshev must carry the explicit L∞ opt-in — a bare large p computes true Lp
+        // since VA3-007 (pinned by MinkowskiLargePPolicyTests).
+        let config: Metal4MinkowskiConfig
         switch metric {
-        case .manhattan: p = 1.0
-        case .euclidean: p = 2.0
-        case .chebyshev: p = 100.0
+        case .manhattan: config = .manhattan
+        case .euclidean: config = .euclidean
+        case .chebyshev: config = .chebyshev
         default:
             throw VectorError.invalidInput("MinkowskiKernelDistanceProvider supports manhattan, euclidean, chebyshev")
         }
@@ -379,7 +381,8 @@ public actor MinkowskiKernelDistanceProvider: DistanceProvider {
         let a = vector1.toArray()
         let b = vector2.toArray()
 
-        return try await kernel.distance(a, b, p: p)
+        let result = try await kernel.computeDistances(queries: [a], dataset: [b], config: config)
+        return result.distance(row: 0, col: 0)
     }
 
     public func batchDistance<T: VectorProtocol>(
@@ -387,11 +390,11 @@ public actor MinkowskiKernelDistanceProvider: DistanceProvider {
         to candidates: [T],
         metric: SupportedDistanceMetric
     ) async throws -> [Float] where T.Scalar == Float {
-        let p: Float
+        let config: Metal4MinkowskiConfig
         switch metric {
-        case .manhattan: p = 1.0
-        case .euclidean: p = 2.0
-        case .chebyshev: p = 100.0
+        case .manhattan: config = .manhattan
+        case .euclidean: config = .euclidean
+        case .chebyshev: config = .chebyshev
         default:
             throw VectorError.invalidInput("MinkowskiKernelDistanceProvider supports manhattan, euclidean, chebyshev")
         }
@@ -401,7 +404,6 @@ public actor MinkowskiKernelDistanceProvider: DistanceProvider {
         let queryArray = query.toArray()
         let candidateArrays = candidates.map { $0.toArray() }
 
-        let config = Metal4MinkowskiConfig(p: p)
         let result = try await kernel.computeDistances(
             queries: [queryArray],
             dataset: candidateArrays,
@@ -587,8 +589,10 @@ public actor UniversalKernelDistanceProvider: DistanceProvider {
             return try await kernel.distance(a, b, p: 1.0)
 
         case .chebyshev:
+            // Explicit L∞ opt-in (VA3-007) — `distance(_:_:p:)` with a large p computes true Lp.
             let kernel = try await getMinkowskiKernel()
-            return try await kernel.distance(a, b, p: 100.0)
+            let result = try await kernel.computeDistances(queries: [a], dataset: [b], config: .chebyshev)
+            return result.distance(row: 0, col: 0)
         }
     }
 
@@ -690,7 +694,7 @@ public actor UniversalKernelDistanceProvider: DistanceProvider {
 
         case .chebyshev:
             let kernel = try await getMinkowskiKernel()
-            let config = Metal4MinkowskiConfig(p: 100.0)
+            let config = Metal4MinkowskiConfig.chebyshev
             let result = try await kernel.computeDistances(
                 queries: [queryArray],
                 dataset: candidates.map { $0.toArray() },

@@ -482,7 +482,7 @@ public actor Metal4ComputeEngine {
                     let diff = query[i] - candidate[i]
                     sum += diff * diff
                 }
-                return sqrt(sum)
+                return AccelerateFallback.finalizeEuclidean(sum, query, candidate)
             }
         }
 
@@ -680,15 +680,19 @@ public actor Metal4ComputeEngine {
             encoder.memoryBarrier(scope: .buffers)
         }
 
-        // CPU-side top-k selection
+        // CPU-side top-k selection via VectorCore's TopKSelection — the same primitive the
+        // provider's CPU-vote path uses, so both findNearest paths share one selection semantic:
+        // deterministic smaller-index ties, and NaN-tolerant ordering. The previous
+        // `sorted { $0.1 < $1.1 }` violated strict weak ordering whenever any distance was NaN
+        // (one NaN-poisoned candidate scrambled the ENTIRE selection, returning non-minimal
+        // neighbors with plausible distances — AUDIT-2 VA2-010, caught by
+        // DifferentialKernelVsCPUTests) and left equal-distance order unspecified.
         let distances = distancesBuffer.copyData(as: Float.self, count: candidateCount)
-        let indexed = distances.enumerated().map { ($0.offset, $0.element) }
-        let sorted = indexed.sorted { $0.1 < $1.1 }
-        let topK = sorted.prefix(actualK)
+        let selected = TopKSelection.select(k: actualK, from: distances, tieBreaker: .smallerIndex)
 
         fusedPipelineCount += 1
 
-        return topK.map { (index: $0.0, distance: $0.1) }
+        return zip(selected.indices, selected.distances).map { (index: Int($0), distance: $1) }
     }
 
     // MARK: - Vector Operations

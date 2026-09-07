@@ -43,6 +43,7 @@ public extension MetalComputeProvider {
             outToken.keepAlive(until: cb)
             cb.addCompletedHandler { _ in _ = set }   // borrow mode: pin the SoA until the GPU completes
         }
+        _telemetry.gpuKernel += 1
         return outToken.copyData(as: Float.self, count: count)
     }
 
@@ -86,6 +87,7 @@ public extension MetalComputeProvider {
             distToken.keepAlive(until: cb)
             cb.addCompletedHandler { _ in _ = set }   // borrow mode: pin the SoA until the GPU completes
         }
+        _telemetry.gpuKernel += 1
 
         // ARC lifetime: `distToken`'s last syntactic use is `.contents(as:)`, so under -O the
         // optimizer is free to release it (→ `BufferToken.deinit` → `PendingBufferReturns.enqueue`,

@@ -12,120 +12,6 @@
 
 #include "Metal4Common.h"
 
-// MARK: - Scalar Quantization
-
-/// Quantize floating-point values to 8-bit unsigned integers
-kernel void scalarQuantize(
-    constant float* input [[buffer(0)]],
-    device uchar* output [[buffer(1)]],
-    constant float& scale [[buffer(2)]],
-    constant float& offset [[buffer(3)]],
-    uint id [[thread_position_in_grid]]
-) {
-    float value = input[id];
-    
-    // Apply affine transformation to map to quantization range
-    float quantized = round((value - offset) * scale);
-    
-    // Clamp to 8-bit range [0, 255]
-    quantized = clamp(quantized, 0.0f, 255.0f);
-    
-    // Cast to unsigned char for storage
-    output[id] = static_cast<uchar>(quantized);
-}
-
-/// Dequantize 8-bit values back to floating-point
-kernel void scalarDequantize(
-    constant uchar* input [[buffer(0)]],
-    device float* output [[buffer(1)]],
-    constant float& scale [[buffer(2)]],
-    constant float& offset [[buffer(3)]],
-    uint id [[thread_position_in_grid]]
-) {
-    // Convert 8-bit value to float
-    float value = static_cast<float>(input[id]);
-    
-    // Apply inverse transformation to reconstruct original scale
-    output[id] = (value / scale) + offset;
-}
-
-// MARK: - Product Quantization
-
-/// Product Quantization: Advanced vector compression technique
-kernel void productQuantize(
-    constant float* vectors [[buffer(0)]],
-    constant float* codebook [[buffer(1)]],
-    device uchar* codes [[buffer(2)]],
-    constant uint& vectorDimension [[buffer(3)]],
-    constant uint& numSubspaces [[buffer(4)]],
-    constant uint& subspaceDimension [[buffer(5)]],
-    constant uint& codebookSize [[buffer(6)]],
-    uint2 id [[thread_position_in_grid]]
-) {
-    uint vectorIdx = id.x;
-    uint subspaceIdx = id.y;
-    
-    if (subspaceIdx >= numSubspaces) return;
-    
-    // Calculate offsets for this vector's subspace
-    uint vectorOffset = vectorIdx * vectorDimension + subspaceIdx * subspaceDimension;
-    uint codebookOffset = subspaceIdx * codebookSize * subspaceDimension;
-    
-    float minDistance = INFINITY;
-    uint bestCode = 0;
-    
-    // Exhaustive search for nearest codebook entry
-    for (uint code = 0; code < codebookSize; ++code) {
-        float distance = 0.0;
-        
-        // Compute squared Euclidean distance to codebook entry
-        for (uint dim = 0; dim < subspaceDimension; ++dim) {
-            float diff = vectors[vectorOffset + dim] - 
-                        codebook[codebookOffset + code * subspaceDimension + dim];
-            distance += diff * diff;
-        }
-        
-        // Track nearest codebook entry
-        if (distance < minDistance) {
-            minDistance = distance;
-            bestCode = code;
-        }
-    }
-    
-    // Store index of nearest codebook entry
-    codes[vectorIdx * numSubspaces + subspaceIdx] = static_cast<uchar>(bestCode);
-}
-
-/// Reconstruct vectors from Product Quantization codes
-kernel void productDequantize(
-    constant uchar* codes [[buffer(0)]],
-    constant float* codebook [[buffer(1)]],
-    device float* vectors [[buffer(2)]],
-    constant uint& vectorDimension [[buffer(3)]],
-    constant uint& numSubspaces [[buffer(4)]],
-    constant uint& subspaceDimension [[buffer(5)]],
-    uint2 id [[thread_position_in_grid]]
-) {
-    uint vectorIdx = id.x;
-    uint dimIdx = id.y;
-    
-    if (dimIdx >= vectorDimension) return;
-    
-    // Determine which subspace this dimension belongs to
-    uint subspaceIdx = dimIdx / subspaceDimension;
-    uint subspaceDimIdx = dimIdx % subspaceDimension;
-    
-    // Look up the code for this subspace
-    uint code = codes[vectorIdx * numSubspaces + subspaceIdx];
-    
-    // Calculate offset into codebook (assumes 256 codes per subspace)
-    uint codebookOffset = subspaceIdx * 256 * subspaceDimension + 
-                         code * subspaceDimension + subspaceDimIdx;
-    
-    // Copy value from codebook
-    vectors[vectorIdx * vectorDimension + dimIdx] = codebook[codebookOffset];
-}
-
 // MARK: - Binary Quantization
 
 /// Binary quantization: Extreme compression to 1 bit per dimension
@@ -146,7 +32,7 @@ kernel void binaryQuantize(
         // Pack 32 dimensions into one word
         for (uint bit = 0; bit < 32 && wordIdx * 32 + bit < vectorDimension; ++bit) {
             uint dimIdx = wordIdx * 32 + bit;
-            float value = vectors[vectorIdx * vectorDimension + dimIdx];
+            float value = vectors[(ulong)vectorIdx * vectorDimension + dimIdx];
             
             // Set bit if value is positive
             if (value > 0.0) {
@@ -155,7 +41,7 @@ kernel void binaryQuantize(
         }
         
         // Store packed bits
-        binaryVectors[vectorIdx * numWords + wordIdx] = word;
+        binaryVectors[(ulong)vectorIdx * numWords + wordIdx] = word;
     }
 }
 
@@ -173,7 +59,7 @@ kernel void binaryHammingDistance(
     // Process each 32-bit word
     for (uint wordIdx = 0; wordIdx < numWords; ++wordIdx) {
         uint queryWord = queryBinary[wordIdx];
-        uint candidateWord = candidateBinary[candidateIdx * numWords + wordIdx];
+        uint candidateWord = candidateBinary[(ulong)candidateIdx * numWords + wordIdx];
         
         // XOR gives 1 where bits differ
         uint xor_result = queryWord ^ candidateWord;
@@ -189,16 +75,25 @@ kernel void binaryHammingDistance(
 // MARK: - Quantization Statistics
 
 /// Compute quantization quality metrics: MSE and PSNR
+///
+/// params = (dimension, numVectors). The Swift wrapper has always passed a SIMD2 here; the
+/// pre-AUDIT-3 kernel declared a bare `uint&` (reading only the dimension) and had NO grid
+/// guard, so the ceil-rounded dispatch wrote `mse`/`psnr` past the end of their buffers for
+/// any batch over 1024 vectors that wasn't a multiple of the threadgroup size (VA3-005).
 kernel void computeQuantizationStats(
     constant float* original [[buffer(0)]],
     constant float* quantized [[buffer(1)]],
     device float* mse [[buffer(2)]],
     device float* psnr [[buffer(3)]],
-    constant uint& vectorDimension [[buffer(4)]],
+    constant uint2& params [[buffer(4)]],
     uint id [[thread_position_in_grid]]
 ) {
+    const uint vectorDimension = params[0];
+    const uint numVectors = params[1];
+    if (id >= numVectors) return;
+
     uint vectorIdx = id;
-    uint offset = vectorIdx * vectorDimension;
+    ulong offset = (ulong)vectorIdx * vectorDimension;
     
     float sumSquaredError = 0.0;
     float maxValue = 0.0;

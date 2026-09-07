@@ -25,8 +25,8 @@ inline float mutual_reach_l2_squared(
     const uint simd_blocks = dimension / 4;
     const uint remainder = dimension % 4;
 
-    device const float4* a4 = reinterpret_cast<device const float4*>(vec_a);
-    device const float4* b4 = reinterpret_cast<device const float4*>(vec_b);
+    device const packed_float4* a4 = reinterpret_cast<device const packed_float4*>(vec_a);
+    device const packed_float4* b4 = reinterpret_cast<device const packed_float4*>(vec_b);
 
     for (uint i = 0; i < simd_blocks; ++i) {
         float4 diff = a4[i] - b4[i];
@@ -87,13 +87,13 @@ kernel void mutual_reachability_dense_kernel(
 
     // Diagonal is always 0 (distance from point to itself)
     if (i == j) {
-        output[i * params.n + j] = 0.0f;
+        output[(ulong)i * params.n + j] = 0.0f;
         return;
     }
 
     // Compute L2 squared distance using vectorized helper
-    device const float* vecI = embeddings + i * params.strideEmbed;
-    device const float* vecJ = embeddings + j * params.strideEmbed;
+    device const float* vecI = embeddings + (ulong)i * params.strideEmbed;
+    device const float* vecJ = embeddings + (ulong)j * params.strideEmbed;
 
     float distSq = mutual_reach_l2_squared(vecI, vecJ, params.d);
     float dist = sqrt(distSq);
@@ -103,7 +103,7 @@ kernel void mutual_reachability_dense_kernel(
     float coreJ = coreDistances[j];
     float mutualReach = max(max(coreI, coreJ), dist);
 
-    output[i * params.n + j] = mutualReach;
+    output[(ulong)i * params.n + j] = mutualReach;
 }
 
 // MARK: - Sparse Kernel
@@ -143,8 +143,8 @@ kernel void mutual_reachability_sparse_kernel(
     }
 
     // Compute L2 squared distance
-    device const float* vecI = embeddings + i * params.strideEmbed;
-    device const float* vecJ = embeddings + j * params.strideEmbed;
+    device const float* vecI = embeddings + (ulong)i * params.strideEmbed;
+    device const float* vecJ = embeddings + (ulong)j * params.strideEmbed;
 
     float distSq = mutual_reach_l2_squared(vecI, vecJ, params.d);
     float dist = sqrt(distSq);
@@ -173,13 +173,13 @@ kernel void mutual_reachability_384_kernel(
 
     if (i >= params.n || j >= params.n) return;
     if (i == j) {
-        output[i * params.n + j] = 0.0f;
+        output[(ulong)i * params.n + j] = 0.0f;
         return;
     }
 
     // Hardcoded stride for compiler optimization
-    device const float4* vecI = (device const float4*)(embeddings + i * 384);
-    device const float4* vecJ = (device const float4*)(embeddings + j * 384);
+    device const packed_float4* vecI = (device const packed_float4*)(embeddings + (ulong)i * 384);
+    device const packed_float4* vecJ = (device const packed_float4*)(embeddings + (ulong)j * 384);
 
     // 2 accumulators with 8x unrolling (96 float4s = 12 iterations)
     float4 acc0 = float4(0.0f);
@@ -211,7 +211,7 @@ kernel void mutual_reachability_384_kernel(
     float dist = sqrt(distSq);
 
     float mutualReach = max(max(coreDistances[i], coreDistances[j]), dist);
-    output[i * params.n + j] = mutualReach;
+    output[(ulong)i * params.n + j] = mutualReach;
 }
 
 /// Optimized for D=512 (small BERT variants).
@@ -228,13 +228,13 @@ kernel void mutual_reachability_512_kernel(
 
     if (i >= params.n || j >= params.n) return;
     if (i == j) {
-        output[i * params.n + j] = 0.0f;
+        output[(ulong)i * params.n + j] = 0.0f;
         return;
     }
 
     // Hardcoded stride for compiler optimization
-    device const float4* vecI = (device const float4*)(embeddings + i * 512);
-    device const float4* vecJ = (device const float4*)(embeddings + j * 512);
+    device const packed_float4* vecI = (device const packed_float4*)(embeddings + (ulong)i * 512);
+    device const packed_float4* vecJ = (device const packed_float4*)(embeddings + (ulong)j * 512);
 
     // 2 accumulators with 8x unrolling (128 float4s = 16 iterations)
     float4 acc0 = float4(0.0f);
@@ -266,7 +266,7 @@ kernel void mutual_reachability_512_kernel(
     float dist = sqrt(distSq);
 
     float mutualReach = max(max(coreDistances[i], coreDistances[j]), dist);
-    output[i * params.n + j] = mutualReach;
+    output[(ulong)i * params.n + j] = mutualReach;
 }
 
 /// Optimized for D=768 (BERT-base, DistilBERT, MPNet).
@@ -283,13 +283,13 @@ kernel void mutual_reachability_768_kernel(
 
     if (i >= params.n || j >= params.n) return;
     if (i == j) {
-        output[i * params.n + j] = 0.0f;
+        output[(ulong)i * params.n + j] = 0.0f;
         return;
     }
 
     // Hardcoded stride for compiler optimization
-    device const float4* vecI = (device const float4*)(embeddings + i * 768);
-    device const float4* vecJ = (device const float4*)(embeddings + j * 768);
+    device const packed_float4* vecI = (device const packed_float4*)(embeddings + (ulong)i * 768);
+    device const packed_float4* vecJ = (device const packed_float4*)(embeddings + (ulong)j * 768);
 
     // 3 accumulators with 12x unrolling (192 float4s = 16 iterations)
     float4 acc0 = float4(0.0f);
@@ -333,7 +333,7 @@ kernel void mutual_reachability_768_kernel(
     float dist = sqrt(distSq);
 
     float mutualReach = max(max(coreDistances[i], coreDistances[j]), dist);
-    output[i * params.n + j] = mutualReach;
+    output[(ulong)i * params.n + j] = mutualReach;
 }
 
 /// Optimized for D=1536 (OpenAI ada-002).
@@ -350,13 +350,13 @@ kernel void mutual_reachability_1536_kernel(
 
     if (i >= params.n || j >= params.n) return;
     if (i == j) {
-        output[i * params.n + j] = 0.0f;
+        output[(ulong)i * params.n + j] = 0.0f;
         return;
     }
 
     // Hardcoded stride for compiler optimization
-    device const float4* vecI = (device const float4*)(embeddings + i * 1536);
-    device const float4* vecJ = (device const float4*)(embeddings + j * 1536);
+    device const packed_float4* vecI = (device const packed_float4*)(embeddings + (ulong)i * 1536);
+    device const packed_float4* vecJ = (device const packed_float4*)(embeddings + (ulong)j * 1536);
 
     // 4 accumulators with 16x unrolling (384 float4s = 24 iterations)
     float4 acc0 = float4(0.0f);
@@ -409,5 +409,5 @@ kernel void mutual_reachability_1536_kernel(
     float dist = sqrt(distSq);
 
     float mutualReach = max(max(coreDistances[i], coreDistances[j]), dist);
-    output[i * params.n + j] = mutualReach;
+    output[(ulong)i * params.n + j] = mutualReach;
 }

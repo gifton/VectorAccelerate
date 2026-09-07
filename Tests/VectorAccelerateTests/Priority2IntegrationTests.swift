@@ -28,6 +28,13 @@ final class Priority2IntegrationTests: XCTestCase {
     func testBufferPoolAllocation() async throws {
         let pool = await metalContext.bufferPool
 
+        // Snapshot the shared pool's counters first: the meta-review pointed out that the
+        // cumulative `hitCount + missCount >= 3` assertion below was vacuously true in a
+        // full-suite run (earlier tests push the shared counters far past 3 before this
+        // test's acquisitions happen). Asserting the DELTA is order-independent and proves
+        // that THESE three calls registered.
+        let before = await pool.getStatistics()
+
         // Test acquiring buffers of various sizes
         let token1 = try await pool.getBuffer(size: 1024)
         XCTAssertNotNil(token1.buffer)
@@ -40,9 +47,15 @@ final class Priority2IntegrationTests: XCTestCase {
         let token3 = try await pool.getBuffer(with: testData)
         XCTAssertNotNil(token3.buffer)
 
-        // Check statistics
+        // Assert on request activity (hits + misses), NOT on `allocationCount`: the pool is
+        // shared with earlier tests in the process, so when they have already warmed the
+        // matching size buckets, all three acquisitions above are pure hits and zero fresh
+        // allocations occur — the old `allocationCount > 0` assertion was order-dependent
+        // and flaked ~40% of release runs (found while gating AUDIT-3 remediation slice 1).
         let stats = await pool.getStatistics()
-        XCTAssertGreaterThan(stats.allocationCount, 0)
+        let delta = (stats.hitCount + stats.missCount) - (before.hitCount + before.missCount)
+        XCTAssertGreaterThanOrEqual(delta, 3,
+                                    "three getBuffer calls should register as pool requests (delta = \(delta))")
         print("Buffer pool hit rate: \(stats.hitRate)")
     }
 

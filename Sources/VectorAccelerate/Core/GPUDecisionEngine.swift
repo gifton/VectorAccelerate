@@ -344,10 +344,20 @@ public actor GPUDecisionEngine {
         // Check basic thresholds
         guard vectorCount >= currentThresholds.minVectorsForGPU else { return false }
         guard candidateCount >= currentThresholds.minCandidatesForGPU else { return false }
-        guard k >= currentThresholds.minKForGPU && k <= currentThresholds.maxKForGPU else { return false }
 
-        // Calculate operation complexity
-        let operationCount = queryCount * candidateCount * k
+        // k-gates apply only to selection-shaped operations. Distance-shaped operations
+        // (batchDistance, distanceMatrix, normalization, …) have no k — they used to consult
+        // this engine with k = 0 and were unconditionally refused by `k >= minKForGPU` and by
+        // `q·n·k >= minOperationsForGPU` (always 0), making the provider's batch GPU paths
+        // unreachable under every configuration (AUDIT-2 VA2-003, pinned by
+        // RoutingProvenanceTests). Their complexity gate uses q·n·dimension instead — the
+        // actual per-candidate work.
+        let isSelectionOperation = operation == .topKSelection || operation == .bitonicSort
+        if isSelectionOperation {
+            guard k >= currentThresholds.minKForGPU && k <= currentThresholds.maxKForGPU else { return false }
+        }
+        let workloadPerCandidate = isSelectionOperation ? k : max(dimension, 1)
+        let operationCount = queryCount * candidateCount * workloadPerCandidate
         guard operationCount >= currentThresholds.minOperationsForGPU else { return false }
 
         // Check batch size for batch operations

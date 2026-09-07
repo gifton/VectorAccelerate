@@ -55,14 +55,14 @@ inline void projectVector(
 ) {
     for (uint j = 0; j < outputDim; ++j) {
         float sum = 0.0f;
-        device const float* weightRow = weights + (j * inputDim);
+        device const float* weightRow = weights + ((ulong)j * inputDim);
 
         // SIMD-friendly inner loop
         const uint simd_blocks = inputDim / 4;
 //        const uint remainder = inputDim % 4;
 
-        device const float4* input4 = (device const float4*)input;
-        device const float4* weight4 = (device const float4*)weightRow;
+        device const packed_float4* input4 = (device const packed_float4*)input;
+        device const packed_float4* weight4 = (device const packed_float4*)weightRow;
 
         float4 acc = float4(0.0f);
         for (uint i = 0; i < simd_blocks; ++i) {
@@ -146,8 +146,8 @@ kernel void learned_l2_distance_kernel(
     }
 
     // Get input vector pointers
-    device const float* query = queryVectors + (queryIdx * params.strideQuery);
-    device const float* database = databaseVectors + (dbIdx * params.strideDatabase);
+    device const float* query = queryVectors + ((ulong)queryIdx * params.strideQuery);
+    device const float* database = databaseVectors + ((ulong)dbIdx * params.strideDatabase);
 
     // Thread-local storage for projected vectors
     // Note: For dimensions > 256, consider using threadgroup memory
@@ -172,7 +172,7 @@ kernel void learned_l2_distance_kernel(
     float distance = params.computeSqrt ? sqrt(distSq) : distSq;
 
     // Store result
-    const uint outputIdx = queryIdx * params.strideOutput + dbIdx;
+    const ulong outputIdx = (ulong)queryIdx * params.strideOutput + dbIdx;
     distances[outputIdx] = distance;
 }
 
@@ -199,8 +199,8 @@ kernel void learned_cosine_similarity_kernel(
         return;
     }
 
-    device const float* query = queryVectors + (queryIdx * params.strideQuery);
-    device const float* database = databaseVectors + (dbIdx * params.strideDatabase);
+    device const float* query = queryVectors + ((ulong)queryIdx * params.strideQuery);
+    device const float* database = databaseVectors + ((ulong)dbIdx * params.strideDatabase);
 
     float projQuery[256];
     float projDb[256];
@@ -222,7 +222,7 @@ kernel void learned_cosine_similarity_kernel(
     // Clamp to [-1, 1] for numerical stability
     similarity = clamp(similarity, -1.0f, 1.0f);
 
-    const uint outputIdx = queryIdx * params.strideOutput + dbIdx;
+    const ulong outputIdx = (ulong)queryIdx * params.strideOutput + dbIdx;
     similarities[outputIdx] = similarity;
 }
 
@@ -250,16 +250,16 @@ kernel void batch_projection_kernel(
         return;
     }
 
-    device const float* input = inputVectors + (vectorIdx * params.stride);
-    device const float* weightRow = projectionWeights + (outputDimIdx * params.inputDimension);
+    device const float* input = inputVectors + ((ulong)vectorIdx * params.stride);
+    device const float* weightRow = projectionWeights + ((ulong)outputDimIdx * params.inputDimension);
 
     // Compute single output element: output[j] = dot(input, weights[j])
     const uint inputDim = params.inputDimension;
     const uint simd_blocks = inputDim / 4;
 //    const uint remainder = inputDim % 4;
 
-    device const float4* input4 = (device const float4*)input;
-    device const float4* weight4 = (device const float4*)weightRow;
+    device const packed_float4* input4 = (device const packed_float4*)input;
+    device const packed_float4* weight4 = (device const packed_float4*)weightRow;
 
     float4 acc = float4(0.0f);
     for (uint i = 0; i < simd_blocks; ++i) {
@@ -272,7 +272,7 @@ kernel void batch_projection_kernel(
     }
 
     // Store result
-    device float* output = outputVectors + (vectorIdx * params.outputDimension);
+    device float* output = outputVectors + ((ulong)vectorIdx * params.outputDimension);
     output[outputDimIdx] = sum;
 }
 
@@ -289,7 +289,7 @@ kernel void batch_normalize_kernel(
         return;
     }
 
-    device float* vec = vectors + (tid * params.outputDimension);
+    device float* vec = vectors + ((ulong)tid * params.outputDimension);
     const uint dim = params.outputDimension;
 
     // Compute L2 norm
@@ -297,7 +297,7 @@ kernel void batch_normalize_kernel(
     const uint simd_blocks = dim / 4;
 //    const uint remainder = dim % 4;
 
-    device float4* vec4 = (device float4*)vec;
+    device packed_float4* vec4 = (device packed_float4*)vec;
     for (uint i = 0; i < simd_blocks; ++i) {
         acc = fma(vec4[i], vec4[i], acc);
     }
@@ -342,17 +342,17 @@ kernel void learned_l2_768_to_128_kernel(
     constexpr uint OUTPUT_DIM = 128;
     constexpr uint INPUT_BLOCKS = INPUT_DIM / 4;  // 192
 
-    device const float* query = queryVectors + (queryIdx * INPUT_DIM);
-    device const float* database = databaseVectors + (dbIdx * INPUT_DIM);
+    device const float* query = queryVectors + ((ulong)queryIdx * INPUT_DIM);
+    device const float* database = databaseVectors + ((ulong)dbIdx * INPUT_DIM);
 
-    device const float4* query4 = (device const float4*)query;
-    device const float4* db4 = (device const float4*)database;
+    device const packed_float4* query4 = (device const packed_float4*)query;
+    device const packed_float4* db4 = (device const packed_float4*)database;
 
     // Project and compute distance simultaneously
     float distSq = 0.0f;
 
     for (uint j = 0; j < OUTPUT_DIM; ++j) {
-        device const float4* weight4 = (device const float4*)(projectionWeights + j * INPUT_DIM);
+        device const packed_float4* weight4 = (device const packed_float4*)(projectionWeights + (ulong)j * INPUT_DIM);
 
         // Dual accumulation for query and database projection
         float4 accQ = float4(0.0f);
@@ -371,7 +371,7 @@ kernel void learned_l2_768_to_128_kernel(
     }
 
     float distance = params.computeSqrt ? sqrt(distSq) : distSq;
-    distances[queryIdx * params.strideOutput + dbIdx] = distance;
+    distances[(ulong)queryIdx * params.strideOutput + dbIdx] = distance;
 }
 
 /// Optimized learned L2 for 384 -> 64 projection (MiniLM to compact)
@@ -394,20 +394,20 @@ kernel void learned_l2_384_to_64_kernel(
     constexpr uint OUTPUT_DIM = 64;
     constexpr uint INPUT_BLOCKS = INPUT_DIM / 4;  // 96
 
-    device const float* query = queryVectors + (queryIdx * INPUT_DIM);
-    device const float* database = databaseVectors + (dbIdx * INPUT_DIM);
+    device const float* query = queryVectors + ((ulong)queryIdx * INPUT_DIM);
+    device const float* database = databaseVectors + ((ulong)dbIdx * INPUT_DIM);
 
-    device const float4* query4 = (device const float4*)query;
-    device const float4* db4 = (device const float4*)database;
+    device const packed_float4* query4 = (device const packed_float4*)query;
+    device const packed_float4* db4 = (device const packed_float4*)database;
 
     float distSq = 0.0f;
 
     // Unroll outer loop by 4 for better instruction-level parallelism
     for (uint j = 0; j < OUTPUT_DIM; j += 4) {
-        device const float4* w0 = (device const float4*)(projectionWeights + (j+0) * INPUT_DIM);
-        device const float4* w1 = (device const float4*)(projectionWeights + (j+1) * INPUT_DIM);
-        device const float4* w2 = (device const float4*)(projectionWeights + (j+2) * INPUT_DIM);
-        device const float4* w3 = (device const float4*)(projectionWeights + (j+3) * INPUT_DIM);
+        device const packed_float4* w0 = (device const packed_float4*)(projectionWeights + (ulong)(j+0) * INPUT_DIM);
+        device const packed_float4* w1 = (device const packed_float4*)(projectionWeights + (ulong)(j+1) * INPUT_DIM);
+        device const packed_float4* w2 = (device const packed_float4*)(projectionWeights + (ulong)(j+2) * INPUT_DIM);
+        device const packed_float4* w3 = (device const packed_float4*)(projectionWeights + (ulong)(j+3) * INPUT_DIM);
 
         float4 accQ0 = float4(0.0f), accQ1 = float4(0.0f);
         float4 accQ2 = float4(0.0f), accQ3 = float4(0.0f);
@@ -451,5 +451,5 @@ kernel void learned_l2_384_to_64_kernel(
     }
 
     float distance = params.computeSqrt ? sqrt(distSq) : distSq;
-    distances[queryIdx * params.strideOutput + dbIdx] = distance;
+    distances[(ulong)queryIdx * params.strideOutput + dbIdx] = distance;
 }

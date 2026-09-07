@@ -53,8 +53,13 @@ using namespace metal;
 // MARK: - Common Constants
 // =============================================================================
 
-// Numerical stability constants
+// Numerical stability constants.
+// VA_EPSILON is mirrored as a #define in KernelContext.runtimeCompilePreamble (the combined
+// runtime build strips this header); the #ifndef lets that macro win if both are ever seen,
+// matching the VA_NORM_* pattern below. PreambleParityTests guards numeric identity.
+#ifndef VA_EPSILON
 constant float VA_EPSILON = 1e-7f;
+#endif
 constant float VA_EPSILON_HALF = 1e-4h;
 constant float VA_INFINITY = INFINITY;
 
@@ -201,7 +206,7 @@ struct VABatchDistanceParams {
 // Safe float4 load with bounds checking
 inline float4 va_safe_load_float4(device const float* base, uint offset, uint max_elements) {
     if (offset + 3 < max_elements) {
-        return reinterpret_cast<device const float4*>(base + offset)[0];
+        return reinterpret_cast<device const packed_float4*>(base + offset)[0];
     }
     float4 result = float4(0.0f);
     for (uint i = 0; i < 4 && offset + i < max_elements; ++i) {
@@ -213,13 +218,69 @@ inline float4 va_safe_load_float4(device const float* base, uint offset, uint ma
 // Safe threadgroup float4 load
 inline float4 va_safe_load_float4_tg(threadgroup const float* base, uint offset, uint max_elements) {
     if (offset + 3 < max_elements) {
-        return reinterpret_cast<threadgroup const float4*>(base + offset)[0];
+        return reinterpret_cast<threadgroup const packed_float4*>(base + offset)[0];
     }
     float4 result = float4(0.0f);
     for (uint i = 0; i < 4 && offset + i < max_elements; ++i) {
         result[i] = base[offset + i];
     }
     return result;
+}
+
+// VA3-030: rooted L2 keeps its fast accumulation, then rescues range failures.
+// Squared outputs intentionally bypass this helper. EuclideanRangePolicyTests covers
+// AoS/SoA layouts, both libraries, overflow, underflow, and nonfinite input controls.
+inline float va_euclidean_finalize(float sum, device const float* a, device const float* b,
+                                    uint dimension, ulong b_lane_stride = 4) {
+    const uint sum_bits = as_type<uint>(sum);
+    if (sum_bits >= 0x00800000u && sum_bits < 0x7F800000u) return sqrt(sum);
+
+    float max_diff = 0.0f;
+    bool has_nan = false;
+    for (uint i = 0; i < dimension; ++i) {
+        const ulong bi = (ulong)(i / 4) * b_lane_stride + (i & 3);
+        const float diff = fabs(a[i] - b[bi]);
+        const uint bits = as_type<uint>(diff) & 0x7FFFFFFFu;
+        has_nan |= bits > 0x7F800000u;
+        max_diff = max(max_diff, diff);
+    }
+    if (has_nan) return as_type<float>(0x7FC00000u);
+    if (max_diff > FLT_MAX) return INFINITY; // Even one difference exceeds the output range.
+    if (max_diff == 0.0f) return 0.0f;
+
+    float scaled_sum = 0.0f;
+    for (uint i = 0; i < dimension; ++i) {
+        const ulong bi = (ulong)(i / 4) * b_lane_stride + (i & 3);
+        const float normalized = precise::divide(a[i] - b[bi], max_diff);
+        scaled_sum = fma(normalized, normalized, scaled_sum);
+    }
+    // Keep the large/tiny scale out of the squared arithmetic, including under fast-math.
+    int exponent;
+    const float mantissa = frexp(max_diff, exponent);
+    return ldexp(mantissa * sqrt(scaled_sum), exponent);
+}
+
+// VA3-016: shared Top-K ordering. Integer NaN classification survives fast-math.
+// Numeric values precede NaNs in both directions; ties (including +/-0 and NaNs)
+// prefer the smaller original index. Invalid slots follow every real candidate.
+// TopKNaNPolicyTests exercises admission, sorting, merging, and padding in both libraries.
+inline bool va_topk_is_better(float a, uint ai, float b, uint bi, bool ascending) {
+    if (ai == 0xFFFFFFFFu) return false;
+    if (bi == 0xFFFFFFFFu) return true;
+    const bool a_nan = (as_type<uint>(a) & 0x7FFFFFFFu) > 0x7F800000u;
+    const bool b_nan = (as_type<uint>(b) & 0x7FFFFFFFu) > 0x7F800000u;
+    if (a_nan != b_nan) return !a_nan;
+    if (!a_nan) {
+        // Order FP32 bit patterns without arithmetic: fast-math may flush subnormals.
+        // Collapse signed zero, then reverse negatives and move positives above them.
+        uint ab = as_type<uint>(a), bb = as_type<uint>(b);
+        if ((ab & 0x7FFFFFFFu) == 0) ab = 0;
+        if ((bb & 0x7FFFFFFFu) == 0) bb = 0;
+        const uint ak = (ab & 0x80000000u) ? ~ab : (ab ^ 0x80000000u);
+        const uint bk = (bb & 0x80000000u) ? ~bb : (bb ^ 0x80000000u);
+        if (ak != bk) return ascending ? ak < bk : ak > bk;
+    }
+    return ai < bi;
 }
 
 // Candidate comparison (ascending by distance, then by index for stability)
@@ -241,6 +302,100 @@ inline bool va_index_distance_is_better_desc(VAIndexDistance a, VAIndexDistance 
     if (a.distance < b.distance) return false;
     return a.index < b.index;
 }
+
+// =============================================================================
+// MARK: - Cosine Similarity Overflow/Underflow Rescue (AUDIT-2 VA2-008/VA2-009)
+// =============================================================================
+//
+// Single-precision Σv² accumulation misclassifies finite vectors as degenerate outside roughly
+// [1e-19, 1e19] component magnitude: squares overflow to +Inf around 1.8e19, and collapse to 0
+// under the GPU's flush-to-zero handling of subnormal squares below ~1.1e-19. Every cosine
+// kernel therefore finishes through this trio: detect an unreliable accumulator state, recompute
+// in the pre-scaled domain of the normalization policy above (den = clamp(maxAbs,
+// VA_NORM_MIN_DENOM, VA_NORM_MAX_DENOM), scale = 1/den — the per-vector scales cancel exactly in
+// the similarity quotient), and finalize with a NaN-propagating, [-1, 1]-clamped division.
+//
+// NaN inputs do NOT trigger the rescue (isinf/== 0 are both false for NaN); they ride the
+// primary accumulators into va_cosine_similarity_finalize, which propagates them. isinf()/isnan()
+// under fast math are kept honest empirically by the huge/nanPoisoned classes of
+// DifferentialKernelVsCPUTests, which fail loudly if a toolchain ever folds them.
+//
+// !! DUPLICATED IN Sources/VectorAccelerate/Core/KernelContext.swift (runtimeCompilePreamble) !!
+// The runtime combined-source compile strips this header; the preamble carries a byte-identical
+// copy of this guarded block (PreambleParityTests.testCosineRescueBlockIdentical enforces it).
+
+#ifndef VA_COSINE_RESCUE_DEFINED
+#define VA_COSINE_RESCUE_DEFINED
+
+// True when the naive accumulators cannot represent the pair correctly: an overflowed (Inf)
+// term, or a squared norm that collapsed to exactly 0 (zero vector — cheap to re-confirm — or
+// flushed subnormal squares).
+//
+// Expressed as magnitude comparisons, NOT isinf(): under fast math a toolchain may fold
+// isinf() to false (measured in the plugin-built metallib during the 2026-08 audit, while the
+// same source runtime-compiled kept it), silently disabling the rescue. `x > FLT_MAX` is true
+// exactly for +Inf, compiles as a dynamic compare, and is false for NaN — NaN deliberately
+// rides the primary path into the NaN-propagating finalization.
+inline bool va_cosine_accumulators_unreliable(float dotAB, float normSqA, float normSqB) {
+    return fabs(dotAB) > FLT_MAX || normSqA > FLT_MAX || normSqB > FLT_MAX
+        || normSqA == 0.0f || normSqB == 0.0f;
+}
+
+// Recompute (A·B, ‖A‖², ‖B‖²) in the pre-scaled domain. |a·aScale| ≤ 4 (≤ 1 when maxAbs ≤
+// 2^126), so every accumulator is bounded by 16·dimension — no overflow, no subnormal collapse.
+// max() drops a NaN operand, so maxAbs stays finite for NaN-poisoned vectors; the NaN itself
+// still propagates through the scaled products. Cold path: serial, correctness over speed.
+inline float3 va_cosine_rescaled_terms(
+    device const float* a,
+    device const float* b,
+    uint dimension
+) {
+    float aMax = 0.0f;
+    float bMax = 0.0f;
+    for (uint i = 0; i < dimension; ++i) {
+        aMax = max(aMax, fabs(a[i]));
+        bMax = max(bMax, fabs(b[i]));
+    }
+    const float aScale = 1.0f / clamp(aMax, VA_NORM_MIN_DENOM, VA_NORM_MAX_DENOM);
+    const float bScale = 1.0f / clamp(bMax, VA_NORM_MIN_DENOM, VA_NORM_MAX_DENOM);
+    float dotAB = 0.0f;
+    float aa = 0.0f;
+    float bb = 0.0f;
+    for (uint i = 0; i < dimension; ++i) {
+        const float x = a[i] * aScale;
+        const float y = b[i] * bScale;
+        dotAB = fma(x, y, dotAB);
+        aa = fma(x, x, aa);
+        bb = fma(y, y, bb);
+    }
+    return float3(dotAB, aa, bb);
+}
+
+// Shared finalization: similarity = (dot/‖A‖)/‖B‖, NaN-propagating clamp to [-1, 1], FLT_MIN
+// degenerate floor per norm (BE3 4.5: absolute, not precision-relative), zero-vector policy
+// similarity = 0. Robust to fast-math comparison flips on NaN: both branches propagate NaN.
+//
+// The single-product denominator sqrt(aa)*sqrt(bb) is deliberately NOT formed: under fast math
+// (Metal's default) the compiler reassociates it into sqrt(aa*bb), whose argument overflows to
+// +Inf for |components| ≳ 1e18 and silently collapsed the similarity to 0 — measured on Apple
+// silicon during the 2026-08 audit (AUDIT-2 VA2-008). The divisions are precise::divide, also
+// measured necessary: plain `/` lets fast math rewrite (dot/normA)/normB into
+// dot·rcp(normA·normB), and that reciprocal is SUBNORMAL for norm products ≳ 8.5e37 — flushed
+// to zero, collapsing the similarity to 0 for |components| ≈ 1e19 even with every accumulator
+// finite. Same lesson as the normalize kernels (see VA_NORM_MIN_SCALED notes above). With the
+// two-stage precise divide every intermediate is exact-by-construction: |dotAB/normA| ≤ normB
+// by Cauchy-Schwarz, so the final quotient lands in [-1, 1] up to rounding.
+inline float va_cosine_similarity_finalize(float dotAB, float aa, float bb) {
+    const float normA = sqrt(aa);
+    const float normB = sqrt(bb);
+    if (normA > FLT_MIN && normB > FLT_MIN) {
+        const float raw = precise::divide(precise::divide(dotAB, normA), normB);
+        return isnan(raw) ? raw : clamp(raw, -1.0f, 1.0f);
+    }
+    return (isnan(dotAB) || isnan(aa) || isnan(bb)) ? NAN : 0.0f;
+}
+
+#endif // VA_COSINE_RESCUE_DEFINED
 
 // =============================================================================
 // MARK: - Reduction Utilities
@@ -267,6 +422,9 @@ inline float va_simd_prefix_sum(float value) {
 }
 
 // =============================================================================
+// Scalar-backed storage uses packed vector pointers (scalar alignment). Keep
+// vector arithmetic in registers; never assume a row/stride is 16-byte aligned.
+
 // MARK: - Vectorized Distance Helpers
 // =============================================================================
 
@@ -281,8 +439,8 @@ inline float va_l2_squared_vectorized(
     const uint simd_blocks = dimension / 4;
     const uint remainder = dimension % 4;
 
-    device const float4* a4 = reinterpret_cast<device const float4*>(vec_a);
-    device const float4* b4 = reinterpret_cast<device const float4*>(vec_b);
+    device const packed_float4* a4 = reinterpret_cast<device const packed_float4*>(vec_a);
+    device const packed_float4* b4 = reinterpret_cast<device const packed_float4*>(vec_b);
 
     for (uint i = 0; i < simd_blocks; ++i) {
         float4 diff = a4[i] - b4[i];
@@ -315,8 +473,8 @@ inline float va_dot_product_vectorized(
     const uint simd_blocks = dimension / 4;
     const uint remainder = dimension % 4;
 
-    device const float4* a4 = reinterpret_cast<device const float4*>(vec_a);
-    device const float4* b4 = reinterpret_cast<device const float4*>(vec_b);
+    device const packed_float4* a4 = reinterpret_cast<device const packed_float4*>(vec_a);
+    device const packed_float4* b4 = reinterpret_cast<device const packed_float4*>(vec_b);
 
     for (uint i = 0; i < simd_blocks; ++i) {
         acc = fma(a4[i], b4[i], acc);

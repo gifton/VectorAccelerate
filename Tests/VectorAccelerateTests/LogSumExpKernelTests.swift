@@ -157,6 +157,28 @@ final class LogSumExpKernelTests: XCTestCase {
         XCTAssertEqual(Double(result.value), Double(expected), accuracy: 1e-5)
     }
 
+    /// AUDIT-3 meta-review (Critical coverage gap): every prior value-asserting reduce test
+    /// used ≤ 5 elements — one threadgroup — so the multi-group grid-stride that slice 3
+    /// rewrote in pass 1 had NO value coverage at any count producing more than one group
+    /// (the 1M performance leg asserts only timing). A one-token regression of the pass-1
+    /// gridSize would double-count most of the array on this live path and stay green.
+    /// These counts force 2-group, 4-group, and 256-group-capped topologies.
+    func testReduceLargeCountsMatchCPU() async throws {
+        var rng = TestRNG(seed: 0x3A14_0003)
+        for count in [257, 1000, 100_000] {
+            let input = (0..<count).map { _ in rng.nextFloat(in: -12...12) }
+
+            let result = try await kernel.reduce(input: input)
+
+            let maxV = input.max()!
+            var sum = 0.0
+            for x in input { sum += exp(Double(x) - Double(maxV)) }
+            let expected = log(sum) + Double(maxV)
+            XCTAssertEqual(Double(result.value), expected, accuracy: 1e-2,
+                           "count=\(count): a coverage or double-count defect in the two-pass reduction")
+        }
+    }
+
     // MARK: - Numerical Stability Tests
 
     func testNumericalStabilityLargeValues() async throws {

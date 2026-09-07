@@ -40,8 +40,8 @@ kernel void hamming_distance_batch(
     threadgroup uint shared_N[HAMM_TILE_N * HAMM_TILE_D_WORDS];
     
     // Vectorized access pointers for 128-bit operations
-    threadgroup uint4* shared_Q_u4 = reinterpret_cast<threadgroup uint4*>(shared_Q);
-    threadgroup uint4* shared_N_u4 = reinterpret_cast<threadgroup uint4*>(shared_N);
+    threadgroup packed_uint4* shared_Q_u4 = reinterpret_cast<threadgroup packed_uint4*>(shared_Q);
+    threadgroup packed_uint4* shared_N_u4 = reinterpret_cast<threadgroup packed_uint4*>(shared_N);
     
     // Calculate tile boundaries
     const uint start_q = gid.y - tid.y;
@@ -68,7 +68,7 @@ kernel void hamming_distance_batch(
             if (global_d_start + HAMM_VEC_WIDTH <= D_words) {
                 // Fast path: aligned uint4 load (128 bits)
                 device const uint* q_ptr = queries + (uint64_t)global_q_idx * D_words + global_d_start;
-                q_data = *(reinterpret_cast<device const uint4*>(q_ptr));
+                q_data = *(reinterpret_cast<device const packed_uint4*>(q_ptr));
             } else if (global_d_start < D_words) {
                 // Slow path: partial load for remainder
                 for (uint i = 0; i < HAMM_VEC_WIDTH && global_d_start + i < D_words; ++i) {
@@ -86,7 +86,7 @@ kernel void hamming_distance_batch(
             if (global_d_start + HAMM_VEC_WIDTH <= D_words) {
                 // Fast path: aligned uint4 load
                 device const uint* n_ptr = dataset + (uint64_t)global_n_idx * D_words + global_d_start;
-                n_data = *(reinterpret_cast<device const uint4*>(n_ptr));
+                n_data = *(reinterpret_cast<device const packed_uint4*>(n_ptr));
             } else if (global_d_start < D_words) {
                 // Slow path: partial load
                 for (uint i = 0; i < HAMM_VEC_WIDTH && global_d_start + i < D_words; ++i) {
@@ -255,8 +255,8 @@ kernel void hamming_distance_normalized(
     
     threadgroup uint shared_Q[HAMM_TILE_Q * HAMM_TILE_D_WORDS];
     threadgroup uint shared_N[HAMM_TILE_N * HAMM_TILE_D_WORDS];
-    threadgroup uint4* shared_Q_u4 = reinterpret_cast<threadgroup uint4*>(shared_Q);
-    threadgroup uint4* shared_N_u4 = reinterpret_cast<threadgroup uint4*>(shared_N);
+    threadgroup packed_uint4* shared_Q_u4 = reinterpret_cast<threadgroup packed_uint4*>(shared_Q);
+    threadgroup packed_uint4* shared_N_u4 = reinterpret_cast<threadgroup packed_uint4*>(shared_N);
     
     const uint start_q = gid.y - tid.y;
     const uint start_n = gid.x - tid.x;
@@ -275,7 +275,7 @@ kernel void hamming_distance_normalized(
         if (global_q_idx < Q && global_d_start < D_words) {
             if (global_d_start + HAMM_VEC_WIDTH <= D_words) {
                 device const uint* q_ptr = queries + (uint64_t)global_q_idx * D_words + global_d_start;
-                q_data = *(reinterpret_cast<device const uint4*>(q_ptr));
+                q_data = *(reinterpret_cast<device const packed_uint4*>(q_ptr));
             } else {
                 for (uint i = 0; i < HAMM_VEC_WIDTH && global_d_start + i < D_words; ++i) {
                     q_data[i] = queries[(uint64_t)global_q_idx * D_words + global_d_start + i];
@@ -290,7 +290,7 @@ kernel void hamming_distance_normalized(
         if (global_n_idx < N && global_d_start < D_words) {
             if (global_d_start + HAMM_VEC_WIDTH <= D_words) {
                 device const uint* n_ptr = dataset + (uint64_t)global_n_idx * D_words + global_d_start;
-                n_data = *(reinterpret_cast<device const uint4*>(n_ptr));
+                n_data = *(reinterpret_cast<device const packed_uint4*>(n_ptr));
             } else {
                 for (uint i = 0; i < HAMM_VEC_WIDTH && global_d_start + i < D_words; ++i) {
                     n_data[i] = dataset[(uint64_t)global_n_idx * D_words + global_d_start + i];

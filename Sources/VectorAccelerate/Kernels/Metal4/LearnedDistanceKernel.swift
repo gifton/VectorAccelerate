@@ -261,6 +261,13 @@ public final class LearnedDistanceKernel: @unchecked Sendable, Metal4Kernel {
         parameters: Parameters,
         commandBuffer: any MTLCommandBuffer
     ) throws {
+        // VA3-011: the learned kernels hold projected vectors in float[256] stack arrays
+        // and would silently truncate larger projections
+        // (CapabilityCapPolicyTests.testLearnedProjectedDimOverCapThrows).
+        guard parameters.projectedDimension <= 256 else {
+            throw VectorError.invalidInput(
+                "projectedDimension \(parameters.projectedDimension) exceeds the learned-distance kernel capability (max 256)")
+        }
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
             throw VectorError.encoderCreationFailed()
         }
@@ -317,6 +324,13 @@ public final class LearnedDistanceKernel: @unchecked Sendable, Metal4Kernel {
         parameters: Parameters,
         commandBuffer: any MTLCommandBuffer
     ) throws {
+        // VA3-011: the learned kernels hold projected vectors in float[256] stack arrays
+        // and would silently truncate larger projections
+        // (CapabilityCapPolicyTests.testLearnedProjectedDimOverCapThrows).
+        guard parameters.projectedDimension <= 256 else {
+            throw VectorError.invalidInput(
+                "projectedDimension \(parameters.projectedDimension) exceeds the learned-distance kernel capability (max 256)")
+        }
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
             throw VectorError.encoderCreationFailed()
         }

@@ -70,7 +70,7 @@ kernel void umap_edge_gradient_kernel(
     // Compute squared distance in low-dim space
     float distSq = 0.0f;
     for (uint k = 0; k < params.d; k++) {
-        float diff = embedding[i * params.d + k] - embedding[j * params.d + k];
+        float diff = embedding[(ulong)i * params.d + k] - embedding[(ulong)j * params.d + k];
         distSq = fma(diff, diff, distSq);
     }
 
@@ -90,10 +90,10 @@ kernel void umap_edge_gradient_kernel(
 
     // Compute and store gradient for this edge
     for (uint k = 0; k < params.d; k++) {
-        float diff = embedding[i * params.d + k] - embedding[j * params.d + k];
+        float diff = embedding[(ulong)i * params.d + k] - embedding[(ulong)j * params.d + k];
         float grad = gradCoeff * diff;
-        edgeGradients[tid * params.d + k] = grad;
-        targetGradients[tid * params.d + k] = -grad;  // Newton's third law
+        edgeGradients[(ulong)tid * params.d + k] = grad;
+        targetGradients[(ulong)tid * params.d + k] = -grad;  // Newton's third law
     }
 }
 
@@ -118,14 +118,14 @@ kernel void umap_segment_reduce_kernel(
 
     // Initialize gradient to zero
     for (uint k = 0; k < params.d; k++) {
-        pointGradients[tid * params.d + k] = 0.0f;
+        pointGradients[(ulong)tid * params.d + k] = 0.0f;
     }
 
     // Sum all edge gradients in this segment
     for (uint e = 0; e < count; e++) {
         uint edgeIdx = start + e;
         for (uint k = 0; k < params.d; k++) {
-            pointGradients[tid * params.d + k] += edgeGradients[edgeIdx * params.d + k];
+            pointGradients[(ulong)tid * params.d + k] += edgeGradients[(ulong)edgeIdx * params.d + k];
         }
     }
 }
@@ -141,7 +141,7 @@ kernel void umap_apply_gradient_kernel(
     constant UMAPParams& params         [[buffer(2)]],
     uint tid [[thread_position_in_grid]]
 ) {
-    if (tid >= params.n * params.d) return;
+    if (tid >= (ulong)params.n * params.d) return;
 
     embedding[tid] += gradients[tid];
 }
@@ -162,13 +162,13 @@ kernel void umap_negative_sample_kernel(
     if (tid >= params.n) return;
 
     for (uint s = 0; s < params.negSampleRate; s++) {
-        uint j = randomTargets[tid * params.negSampleRate + s];
+        uint j = randomTargets[(ulong)tid * params.negSampleRate + s];
         if (j == tid) continue;  // Skip self
 
         // Compute squared distance
         float distSq = 0.0f;
         for (uint k = 0; k < params.d; k++) {
-            float diff = embedding[tid * params.d + k] - embedding[j * params.d + k];
+            float diff = embedding[(ulong)tid * params.d + k] - embedding[(ulong)j * params.d + k];
             distSq = fma(diff, diff, distSq);
         }
 
@@ -183,8 +183,8 @@ kernel void umap_negative_sample_kernel(
 
         // Apply repulsive gradient directly
         for (uint k = 0; k < params.d; k++) {
-            float diff = embedding[tid * params.d + k] - embedding[j * params.d + k];
-            embedding[tid * params.d + k] += gradCoeff * diff;
+            float diff = embedding[(ulong)tid * params.d + k] - embedding[(ulong)j * params.d + k];
+            embedding[(ulong)tid * params.d + k] += gradCoeff * diff;
         }
     }
 }
@@ -213,9 +213,9 @@ kernel void umap_accumulate_target_gradients_kernel(
 
     // Atomically accumulate gradient for target point
     for (uint k = 0; k < params.d; k++) {
-        float grad = targetGradients[tid * params.d + k];
+        float grad = targetGradients[(ulong)tid * params.d + k];
         atomic_fetch_add_explicit(
-            &pointGradients[j * params.d + k],
+            &pointGradients[(ulong)j * params.d + k],
             grad,
             memory_order_relaxed
         );

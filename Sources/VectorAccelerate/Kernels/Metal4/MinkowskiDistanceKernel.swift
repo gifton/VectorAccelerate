@@ -20,13 +20,26 @@ import VectorCore
 // MARK: - Configuration
 
 /// Configuration for Minkowski distance computation.
+///
+/// Every configuration targets the requested Lp formula unless `chebyshevApproximation` is
+/// explicitly set — the GPU kernel used to silently substitute the L∞ max-norm for any
+/// p > 10 (error up to D^(1/p); AUDIT-3 VA3-007, pinned by MinkowskiLargePPolicyTests).
 public struct Metal4MinkowskiConfig: Sendable {
-    /// Minkowski parameter (p value)
+    /// Minkowski parameter: finite p > 0, including fractional p (not a metric for p < 1).
     public let p: Float
     /// Computation mode
     public let mode: Mode
-    /// Use numerically stable computation for large p
+    /// Use two-pass normalization (automatic for p > 10 unless explicitly overridden).
+    /// Explicit false retains FP32 intermediate limits: subtraction, powers, accumulation,
+    /// and rooting may overflow/underflow even when the final distance is representable.
+    /// No saturation or automatic rescue is applied. Stable mode avoids normalization
+    /// reciprocal and fractional-root range failures; ordinary FP32 rounding and
+    /// flush-to-zero limits still apply. See MinkowskiRangePolicyTests.
     public let useStableComputation: Bool
+    /// Explicit opt-in: compute the exact Chebyshev (L∞) max-norm instead of true Lp.
+    /// `p` is ignored for path selection when set. This is the only way to reach the
+    /// max-norm path — it is never inferred from p.
+    public let chebyshevApproximation: Bool
 
     public enum Mode: UInt32, Sendable {
         case pairwise = 0  // Compute full M×N distance matrix
@@ -36,35 +49,41 @@ public struct Metal4MinkowskiConfig: Sendable {
     public init(
         p: Float,
         mode: Mode = .pairwise,
-        useStableComputation: Bool? = nil
+        useStableComputation: Bool? = nil,
+        chebyshevApproximation: Bool = false
     ) {
         self.p = p
         self.mode = mode
-        // Auto-determine stable computation if not specified
-        self.useStableComputation = useStableComputation ?? (p > 10.0 && p <= 30.0)
+        self.chebyshevApproximation = chebyshevApproximation
+        // Auto-route all large p to the stable kernel unless the caller decided.
+        // The max-norm path lives in the batch kernel, so it takes precedence over an
+        // (inconsistent) explicit useStableComputation: true.
+        self.useStableComputation = chebyshevApproximation
+            ? false
+            : (useStableComputation ?? (p > 10.0))
     }
 
     /// Returns true if this is effectively Manhattan distance (L1)
-    public var isManhattan: Bool { abs(p - 1.0) < 0.001 }
+    public var isManhattan: Bool { !chebyshevApproximation && p == 1.0 }
 
     /// Returns true if this is effectively Euclidean distance (L2)
-    public var isEuclidean: Bool { abs(p - 2.0) < 0.001 }
+    public var isEuclidean: Bool { !chebyshevApproximation && p == 2.0 }
 
-    /// Returns true if this approximates Chebyshev distance (L∞)
-    public var isChebyshev: Bool { p > 30.0 }
+    /// Returns true if this computes Chebyshev distance (L∞) — explicit opt-in only
+    public var isChebyshev: Bool { chebyshevApproximation }
 
     /// Get a descriptive name for the metric
     public var metricName: String {
+        if isChebyshev { return "Chebyshev (L∞)" }
         if isManhattan { return "Manhattan (L1)" }
         if isEuclidean { return "Euclidean (L2)" }
-        if isChebyshev { return "Chebyshev (L∞)" }
         return "Minkowski (L\(p))"
     }
 
     // Common presets
     public static let manhattan = Metal4MinkowskiConfig(p: 1.0)
     public static let euclidean = Metal4MinkowskiConfig(p: 2.0)
-    public static let chebyshev = Metal4MinkowskiConfig(p: 100.0)  // Approximates L∞
+    public static let chebyshev = Metal4MinkowskiConfig(p: 100.0, chebyshevApproximation: true)  // Exact L∞
 }
 
 // MARK: - Parameters
@@ -164,7 +183,8 @@ public struct Metal4MinkowskiResult: Sendable {
 ///
 /// - **p = 1**: Manhattan distance (L1 norm)
 /// - **p = 2**: Euclidean distance (L2 norm)
-/// - **p → ∞**: Chebyshev distance (L∞ norm / max absolute difference)
+/// - **Chebyshev (L∞)**: explicit opt-in via `Metal4MinkowskiConfig.chebyshev` (or
+///   `chebyshevApproximation: true`) — never inferred from a large p (VA3-007)
 ///
 /// ## Usage
 ///
@@ -230,6 +250,7 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable, Metal4Kernel, F
     // MARK: - Encode API
 
     /// Encode Minkowski distance computation into an existing encoder.
+    /// Caller must supply finite p > 0; execute() validates this precondition.
     @discardableResult
     public func encode(
         into encoder: any MTLComputeCommandEncoder,
@@ -257,10 +278,14 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable, Metal4Kernel, F
         var numQueries = UInt32(M)
         var numDataset = UInt32(N)
         var dimension = UInt32(D)
+        // Explicit L∞ opt-in (VA3-007): only the config flag reaches the kernel's max-norm
+        // path; the stable kernel has no buffer(7) and ignores this binding.
+        var chebyshevFlag: UInt32 = config.chebyshevApproximation ? 1 : 0
         encoder.setBytes(&p, length: MemoryLayout<Float>.size, index: 3)
         encoder.setBytes(&numQueries, length: MemoryLayout<UInt32>.size, index: 4)
         encoder.setBytes(&numDataset, length: MemoryLayout<UInt32>.size, index: 5)
         encoder.setBytes(&dimension, length: MemoryLayout<UInt32>.size, index: 6)
+        encoder.setBytes(&chebyshevFlag, length: MemoryLayout<UInt32>.size, index: 7)
 
         // Dispatch with 16×16 threadgroups (matching TILE_M × TILE_N)
         let threadgroupSize = MTLSize(width: 16, height: 16, depth: 1)
@@ -294,8 +319,8 @@ public final class MinkowskiDistanceKernel: @unchecked Sendable, Metal4Kernel, F
             throw VectorError.invalidInput("Dimensions must be positive")
         }
 
-        guard config.p > 0 else {
-            throw VectorError.invalidInput("Minkowski parameter p must be positive")
+        guard config.p.isFinite && config.p > 0 else {
+            throw VectorError.invalidInput("Minkowski parameter p must be finite and positive")
         }
 
         let device = context.device.rawDevice
