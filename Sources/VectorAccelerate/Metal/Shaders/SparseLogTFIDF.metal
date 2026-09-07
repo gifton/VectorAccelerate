@@ -61,7 +61,9 @@ kernel void sparse_ctfidf_kernel(
 /// Vectorized c-TF-IDF for aligned data.
 ///
 /// Processes 4 elements per thread using float4.
-/// Requires nnz to be divisible by 4.
+/// Complete groups use vector loads; a final 1–3 entries use scalar accesses.
+/// Buffers retain their vector ABI: 16-byte-aligned bases and at least 16 bound
+/// bytes, even when nnz < 4. Longer tails do not need padding to a multiple of 4.
 kernel void sparse_ctfidf_vectorized_kernel(
     device const uint4* termIndices     [[buffer(0)]],
     device const float4* termFreqs      [[buffer(1)]],
@@ -70,8 +72,23 @@ kernel void sparse_ctfidf_vectorized_kernel(
     constant CTFIDFParams& params       [[buffer(4)]],
     uint tid [[thread_position_in_grid]]
 ) {
-    uint baseIdx = tid * 4;
+    ulong baseIdx = (ulong)tid * 4;
     if (baseIdx >= params.nnz) return;
+
+    // Do not load unused term IDs: even a masked score cannot make an invalid
+    // corpus-frequency gather safe. No full-vector access is made for this tail.
+    if ((ulong)params.nnz - baseIdx < 4) {
+        device const uint* scalarIndices = reinterpret_cast<device const uint*>(termIndices);
+        device const float* scalarFreqs = reinterpret_cast<device const float*>(termFreqs);
+        device float* scalarScores = reinterpret_cast<device float*>(scores);
+        for (ulong i = baseIdx; i < params.nnz; ++i) {
+            uint termIdx = scalarIndices[i];
+            float corpusTf = corpusFreqs[termIdx];
+            float idf = log(1.0f + params.avgClusterSize / max(corpusTf, 1.0f));
+            scalarScores[i] = scalarFreqs[i] * idf;
+        }
+        return;
+    }
 
     uint4 indices = termIndices[tid];
     float4 tf = termFreqs[tid];
@@ -103,7 +120,7 @@ kernel void sparse_ctfidf_vectorized_kernel(
 ///   - topKIndices: [numClusters, topK] output term indices
 ///   - topKScores: [numClusters, topK] output scores
 ///   - numClusters: total number of clusters
-///   - topK: number of top terms to extract per cluster
+///   - topK: number of top terms to extract per cluster; zero is a no-op
 kernel void ctfidf_topk_per_cluster_kernel(
     device const float* scores          [[buffer(0)]],
     device const uint* termIndices      [[buffer(1)]],
@@ -114,7 +131,7 @@ kernel void ctfidf_topk_per_cluster_kernel(
     constant uint& topK                 [[buffer(6)]],
     uint cid [[thread_position_in_grid]]
 ) {
-    if (cid >= numClusters) return;
+    if (cid >= numClusters || topK == 0) return;
 
     uint start = clusterOffsets[cid];
     uint end = clusterOffsets[cid + 1];

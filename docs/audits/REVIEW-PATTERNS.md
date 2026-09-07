@@ -149,3 +149,9 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   and shader-validation tests passed. Bounded scalar tail reads close that hole.
   The sweep also found three VA3-018 specialized vector-store offsets missed by the
   previous inventory: address scans must include expressions inside vector pointer casts.
+
+- **Follow-up:** VA3-025 slice 17 — sparse c-TF-IDF's final vector group gathered unused
+  term IDs and overwrote tail padding. Checked gathers and output canaries reproduce
+  both failures. Keep API validity separate from shader footprints: vector-typed buffer
+  arguments require at least 16 bound bytes even when scalar tail code accesses less.
+  Exact-size fixtures below that minimum fail API validation before the shader runs.

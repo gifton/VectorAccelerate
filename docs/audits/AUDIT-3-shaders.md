@@ -861,6 +861,51 @@ in `/private/tmp/va3-017/`. Group C still has VA3-025/-026/-028 input/capacity c
 All work remains uncommitted.
 
 
+
+## Remediation slice 17 (2026-09-07, owner-approved: VA3-025 sparse TF-IDF bounds) — EXECUTED
+
+**Scope and implementation:** the vectorized c-TF-IDF shader retains its buffer ABI
+and complete-group arithmetic. A final 1–3-entry group uses scalar reads, gathers, and
+writes bounded by `nnz`; the base multiplication promotes to `ulong` first. Host routing
+still selects vectorization only for `nnz >= 16 && nnz % 4 == 0`.
+
+K=0 now returns before any buffer access in the Top-K shader. The nonthrowing encoder
+requires UInt32-representable nonnegative counts and encodes no work for K=0 or zero
+clusters. The standalone throwing API rejects invalid K before checking emptiness and
+returns an empty list per cluster with zero timing/throughput for K=0. Positive-K ranking,
+sentinels, and score arithmetic are unchanged.
+
+**Reproduction:** the first five `SparseTFIDFBoundsTests` failed with **50 assertions**:
+unused-ID gathers, overwritten tail output guards through both compile paths, a zero-K
+shader reaching its first cluster read, the encoder reporting a nonzero dispatch, and
+negative K accepted for empty input. Test-only gather instrumentation records violations
+before dereferencing poisoned IDs. The zero-K probe intercepts the first cluster read
+before the original underflow can fault. Those five tests then passed after the fix.
+Three further integration tests cover exact allocations, real K=0/1/oversized-K dispatches,
+empty clusters, output sentinels, extra threads, and public empty-result shape/metadata.
+
+**Validation detail:** initial API+shader validation caught an invalid *test binding*:
+`uint4*`/`float4*` arguments require at least 16 bound bytes, including nnz=1–3. The exact
+allocation test now uses nnz=5/6/7/17/18/19; smaller tails retain ABI-valid backing storage
+and poisoned unused lanes/output canaries. No shader logic change was needed. This ABI
+minimum is explicit in source and the contract. Final validation: **8 tests / 0 failures**
+(1.234 seconds), with both `MTL_DEBUG_LAYER=1` and `MTL_SHADER_VALIDATION=1`; exit 0,
+no reported validation errors. The earlier targeted gate passed **42 / 0** (2.928 seconds).
+
+Full debug: **1662 tests / 0 failures / 11 skipped** (261.782 seconds), exit 0.
+Full release: **1662 / 0 / 11** (59.614 seconds), exit 0. Eight added tests over
+slice 16. Final production and test sources were used for both full gates. VA3-025 is
+**FIXED**; Group C still has VA3-026/-028 capacity contracts.
+Independent read-only review found no production blockers. The encoder test checks its
+reported dispatch count; the early return before encoder mutation is also source-reviewed.
+These tests do not validate arbitrary malformed sparse inputs, broaden count/ID or
+allocation limits, change nonfinite ranking policy, or establish a performance improvement.
+See [the sparse TF-IDF bounds contract](../stability/SPARSE-TFIDF-BOUNDS-CONTRACT.md).
+Logs and exact slice-start copies are in `/private/tmp/va3-025/`. The owner authorized
+checkpointing slice 17 on `gifton/metal-hardening-checkpoint`, the ongoing branch for
+all work before and after the handoff. Slices 1–16 are backed up in `d39eee0`.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).
@@ -895,7 +940,7 @@ Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live be
 | VA3-022 | P2 | **FIXED** (slices 1, 13) | Removed power cutoffs/clamps and approximate p substitution; stable normalization/rescaling hardened; explicit fast-path FP32 limits retained |
 | VA3-023 | P3 | LIVE | `use_fast_math=0` in DataTransformations doesn't disable fast math (whole library compiles `.fast`) — dishonest API flag |
 | VA3-024 | P3 | LIVE | Perf pathologies: single-pair euclidean dispatches **one thread**; `batch_select_k_nearest` uses 1/256 threads; hamming-single 256× overdispatch; per-element softmax O(D²/row) |
-| VA3-025 | P3 | LATENT | Input-cap edge cases: c-TF-IDF vectorized tail OOB gather (host gates nnz%4 today), `ctfidf_topk` topK=0 underflow OOB (no host guard found) |
+| VA3-025 | P3 | **FIXED** | Slice 17: scalar-bounded c-TF-IDF vector tails; zero-K shader/host no-op; invalid K rejected; vector ABI and host routing retained |
 | VA3-026 | P3 | LIVE-cond | PQ contracts unenforced in-kernel: K ≤ 256 uint8 cast, ADC threadgroup memory M·K·4 ≤ 32 KB |
 | VA3-027 | P2 | LIVE-cond | Silently dropped flags: `neural_encode_pass1` hardcodes ReLU (ignores useActivation); specialized learned kernels ignore `normalizeProjected` |
 | VA3-028 | P3 | LIVE | Borůvka candidate-edge buffer bound (2n) is exactly tight only via the components-halve invariant; kernel writes unchecked; comment says "usually enough" |
@@ -1048,8 +1093,13 @@ conversion remain separate limitations; see the slice-15 verification and width 
 slice 15. They now promote `vectorIdx * INPUT_DIM` before multiplication, with a red-first
 boundary probe; the new generic neural scalar-tail output offset is also tested.
 
-### VA3-025 / VA3-026 / VA3-028 (P3): input-contract edges
-- `sparse_ctfidf_vectorized_kernel` partial-tail thread gathers `corpusFreqs[garbage]` when nnz ≢ 0 mod 4 (SparseLogTFIDF.metal:73-89) — host gates `nnz % 4 == 0` today (SparseLogTFIDFKernel.swift:230); `ctfidf_topk_per_cluster_kernel` with topK=0 underflows `topK-1` → OOB (:139) — no host guard found.
+### VA3-025 (FIXED, slice 17) / VA3-026 / VA3-028 (P3): input-contract edges
+
+- **VA3-025 FIXED — slice 17:** vectorized c-TF-IDF previously loaded/gathered/stored
+  unused partial-tail lanes (shielded by host `nnz % 4 == 0` routing); raw and standalone
+  Top-K lacked a K=0 guard. Scalar tail accesses and zero-K shader/host returns now close
+  both defects. Invalid K is rejected; the vector ABI minimum remains 16 bound bytes.
+  See slice 17 and [the bounds contract](../stability/SPARSE-TFIDF-BOUNDS-CONTRACT.md).
 - PQ: `(uint8_t)k` cast assumes K ≤ 256; ADC shared table needs M·K·4 ≤ 32 KB — both caller contracts with no assert (ProductQuantization.metal:91, 221).
 - Borůvka: candidate buffer `max(2n, n-1)` (BoruvkaMSTKernel.swift:363-370) is safe *only* by the components-halve-per-round invariant (Σ Cᵣ < 2n); the kernel's `atomic_fetch_add` write is unclamped (BoruvkaMST.metal:200-203) and the comment says "N*2 is usually enough". Add a kernel-side clamp and rewrite the comment with the actual bound. Also `INFINITY` edge weight is conflated with the no-edge sentinel (:186).
 
