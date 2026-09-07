@@ -161,3 +161,15 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   both failures. Keep API validity separate from shader footprints: vector-typed buffer
   arguments require at least 16 bound bytes even when scalar tail code accesses less.
   Exact-size fixtures below that minimum fail API validation before the shader runs.
+
+
+## 15. A bounded write needs a bounded consumer count
+- **Mechanism:** clamping `buffer[index]` writes alone leaves an atomic append counter
+  free to exceed capacity or wrap. A later CPU/GPU consumer can still read beyond the
+  buffer, or interpret the valid prefix as a complete result. An algorithmic capacity
+  proof also fails when a fusion caller skips the state transition it assumes.
+- **Incident:** VA3-028 slice 19 — Borůvka keeps the proven 2N allocation for completely
+  merged rounds, but repeated unmerged rounds saturate a bounded reservation counter
+  at capacity+1. Checked readback throws before consuming an incomplete round. Tests
+  cover logical output guards, already-overflowed counters, UInt32.max saturation,
+  repeated fusion calls, and the actual geometric bound with CPU merging.

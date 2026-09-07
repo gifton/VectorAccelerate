@@ -21,7 +21,7 @@ import VectorCore
 /// Result of MST computation using Boruvka's algorithm.
 public struct MSTResult: Sendable {
     /// Edges in the MST as (source, target, weight) tuples.
-    /// Always contains exactly n-1 edges for n points (n > 1).
+    /// Contains n-1 edges when valid outgoing edges connect all n points (n > 1).
     public let edges: [(source: Int, target: Int, weight: Float)]
 
     /// Total weight of the MST (sum of all edge weights).
@@ -55,12 +55,13 @@ struct BoruvkaParams: Sendable {
     var n: UInt32
     var d: UInt32
     var iteration: UInt32
-    var _padding: UInt32 = 0
+    var candidateCapacity: UInt32
 
-    init(n: Int, d: Int, iteration: Int) {
+    init(n: Int, d: Int, iteration: Int, candidateCapacity: Int) {
         self.n = UInt32(n)
         self.d = UInt32(d)
         self.iteration = UInt32(iteration)
+        self.candidateCapacity = UInt32(candidateCapacity)
     }
 }
 
@@ -71,6 +72,19 @@ struct MSTEdgeGPU {
     var source: UInt32
     var target: UInt32
     var weight: Float
+}
+
+// Reserve UInt32.max as an overflow marker, not a candidate count/address.
+private func boruvkaCandidateCapacity(_ edges: any MTLBuffer) -> Int {
+    min(edges.length / MemoryLayout<MSTEdgeGPU>.stride, Int(UInt32.max) - 1)
+}
+
+private func boruvkaReadCandidateCount(_ countBuffer: any MTLBuffer, capacity: Int) throws -> Int {
+    let count = Int(countBuffer.contents().load(as: UInt32.self))
+    guard count <= capacity else {
+        throw VectorError.computeFailed(reason: "Boruvka candidate capacity exceeded (capacity \(capacity))")
+    }
+    return count
 }
 
 // MARK: - Kernel Implementation
@@ -145,11 +159,20 @@ public struct BoruvkaWorkBuffers: Sendable {
     /// Candidate edges collected during iteration
     public let candidateEdges: any MTLBuffer
 
-    /// Count of candidate edges
+    /// Candidate count; values greater than candidateCapacity signal overflow.
     public let edgeCount: any MTLBuffer
 
     /// Component IDs for union-find
     public let componentIds: any MTLBuffer
+
+    /// Number of complete candidate records that can be stored.
+    public var candidateCapacity: Int { boruvkaCandidateCapacity(candidateEdges) }
+
+    /// Read the candidate count after GPU completion. Throws on capacity overflow;
+    /// an overflowed prefix must not be treated as a complete iteration.
+    public func readCandidateCount() throws -> Int {
+        try boruvkaReadCandidateCount(edgeCount, capacity: candidateCapacity)
+    }
 }
 
 // MARK: - Kernel Implementation
@@ -275,6 +298,18 @@ public final class BoruvkaMSTKernel: @unchecked Sendable, Metal4Kernel, Dimensio
         // Pipelines are created in init, this is a no-op
     }
 
+    private func candidateAllocationCapacity(n: Int) throws -> Int {
+        guard n > 0 && n <= Int(UInt32.max) / 2 else {
+            throw VectorError.invalidInput("Boruvka N must be positive and 2N must fit below UInt32.max")
+        }
+        let capacity = n * 2
+        let bytes = capacity * MemoryLayout<MSTEdgeGPU>.stride
+        guard bytes <= context.device.rawDevice.maxBufferLength else {
+            throw VectorError.bufferAllocationFailed(size: bytes)
+        }
+        return capacity
+    }
+
     // MARK: - Public API (MTLBuffer)
 
     /// Computes MST from embeddings and core distances.
@@ -307,6 +342,7 @@ public final class BoruvkaMSTKernel: @unchecked Sendable, Metal4Kernel, Dimensio
         }
 
         let device = context.device.rawDevice
+        let candidateBufferSize = try candidateAllocationCapacity(n: n)
 
         // Allocate intermediate buffers
         guard let componentIds = device.makeBuffer(
@@ -357,10 +393,10 @@ public final class BoruvkaMSTKernel: @unchecked Sendable, Metal4Kernel, Dimensio
         }
         componentMinTarget.label = "Boruvka.componentMinTarget"
 
-        // Allocate buffer for candidate edges - may be larger than N-1 due to duplicates
-        // Worst case: each component adds one edge per iteration = N edges per iteration
-        // With ~log(N) iterations, max ~N*log(N) edges total, but N*2 is usually enough
-        let candidateBufferSize = max(n * 2, n - 1)
+        // Each active component emits one edge. After complete CPU merging, each
+        // remaining active component contains at least two prior active components.
+        // Thus total candidates <= N + N/2 + N/4 + ... < 2N (duplicates included).
+        // Isolated components emit nothing. The collector still enforces capacity.
         guard let candidateEdges = device.makeBuffer(
             length: candidateBufferSize * MemoryLayout<MSTEdgeGPU>.size,
             options: .storageModeShared
@@ -490,8 +526,9 @@ public final class BoruvkaMSTKernel: @unchecked Sendable, Metal4Kernel, Dimensio
     ///
     /// - Parameter n: Number of points in the dataset
     /// - Returns: Pre-allocated work buffers
-    /// - Throws: `VectorError.bufferAllocationFailed` if allocation fails
+    /// - Throws: `VectorError` for invalid counts, device size limits, or allocation failure.
     public func createWorkBuffers(n: Int) throws -> BoruvkaWorkBuffers {
+        let candidateBufferSize = try candidateAllocationCapacity(n: n)
         let device = context.device.rawDevice
 
         guard let pointMinWeight = device.makeBuffer(
@@ -534,8 +571,9 @@ public final class BoruvkaMSTKernel: @unchecked Sendable, Metal4Kernel, Dimensio
         }
         componentMinTarget.label = "Boruvka.workBuffers.componentMinTarget"
 
-        // Candidate edges buffer - worst case N edges per iteration
-        let candidateBufferSize = max(n * 2, n - 1)
+        // Fewer than 2N total candidates when complete CPU merging occurs between
+        // rounds. Repeated unmerged fusion rounds can exceed this bound; the shader
+        // saturates its counter and readCandidateCount() then throws.
         guard let candidateEdges = device.makeBuffer(
             length: candidateBufferSize * MemoryLayout<MSTEdgeGPU>.size,
             options: .storageModeShared
@@ -578,7 +616,10 @@ public final class BoruvkaMSTKernel: @unchecked Sendable, Metal4Kernel, Dimensio
     /// for managing the command buffer lifecycle and memory barriers.
     ///
     /// - Note: This encodes ONE iteration only. For full MST, use `computeMST`.
-    ///         The caller must handle CPU-side union-find merging between iterations.
+    ///         Initialize component IDs and reset edgeCount before a computation.
+    ///         After GPU completion, call workBuffers.readCandidateCount() to detect
+    ///         overflow, then merge all new candidates with CPU union-find before
+    ///         the next iteration. Do not consume a truncated/overflowed iteration.
     ///
     /// - Parameters:
     ///   - encoder: The compute command encoder
@@ -599,7 +640,8 @@ public final class BoruvkaMSTKernel: @unchecked Sendable, Metal4Kernel, Dimensio
         d: Int,
         iteration: Int
     ) -> Metal4EncodingResult {
-        var params = BoruvkaParams(n: n, d: d, iteration: iteration)
+        var params = BoruvkaParams(n: n, d: d, iteration: iteration,
+                                   candidateCapacity: workBuffers.candidateCapacity)
         let pipeline = getFindMinPipeline(for: d)
 
         // Step 1: Find minimum outgoing edge per point
@@ -799,14 +841,14 @@ public final class BoruvkaMSTKernel: @unchecked Sendable, Metal4Kernel, Dimensio
         iteration: Int
     ) async throws -> Int {
         // Read candidate count before this iteration
-        let candidateCountPtr = candidateCount.contents().bindMemory(to: UInt32.self, capacity: 1)
-        let candidatesBefore = Int(candidateCountPtr.pointee)
+        let capacity = boruvkaCandidateCapacity(candidateEdges)
+        let candidatesBefore = try boruvkaReadCandidateCount(candidateCount, capacity: capacity)
 
         // Select dimension-optimized pipeline
         let selectedFindMinPipeline = getFindMinPipeline(for: d)
 
         try await context.executeAndWait { [self] _, encoder in
-            var params = BoruvkaParams(n: n, d: d, iteration: iteration)
+            var params = BoruvkaParams(n: n, d: d, iteration: iteration, candidateCapacity: capacity)
 
             // Step 1: Find minimum outgoing edge per point (using dimension-optimized kernel)
             encoder.setComputePipelineState(selectedFindMinPipeline)
@@ -849,7 +891,10 @@ public final class BoruvkaMSTKernel: @unchecked Sendable, Metal4Kernel, Dimensio
         }
 
         // Read candidate count after GPU execution
-        let candidatesAfter = Int(candidateCountPtr.pointee)
+        let candidatesAfter = try boruvkaReadCandidateCount(candidateCount, capacity: capacity)
+        guard candidatesAfter >= candidatesBefore else {
+            throw VectorError.computeFailed(reason: "Boruvka candidate count moved backwards")
+        }
         let newCandidatesCount = candidatesAfter - candidatesBefore
 
         // Step 4: Merge components on CPU and collect actual MST edges

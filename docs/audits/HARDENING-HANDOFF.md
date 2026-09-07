@@ -11,7 +11,7 @@ release `swift test -c release` → **1590 / 0 / 11**. Both must stay that way (
 
 This document is self-contained, but the authoritative per-finding record is
 `docs/audits/AUDIT-3-shaders.md` (findings VA3-001…034, groups A–G, remediation
-slices 1–18) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
+slices 1–19) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
 `docs/audits/REVIEW-PATTERNS.md` holds the project's adversarial-review pattern library.
 
 ---
@@ -32,7 +32,7 @@ NaN-containing input, including mixed NaN/Inf. Empty input and infinity without 
 throw; higher-moment, quantile, and correlation requests retain finite-only validation.
 Histograms and softmax are unchanged. Nine further tests cover both shader paths and public APIs.
 
-Current full gates: **debug 1672 / 0 failures / 11 skipped; release 1672 / 0 / 11**.
+Current full gates: **debug 1682 / 0 failures / 11 skipped; release 1682 / 0 / 11**.
 The original state stamp above is historical. On 2026-09-07, the owner authorized
 checkpointing all project work through slice 16 on `gifton/metal-hardening-checkpoint`
 and pushing that branch to `origin`. This checkpoint includes the hardening tests, audit
@@ -110,6 +110,18 @@ API+shader validation 10 / 0, full debug/release 1672 / 0 / 11. See
 caller requirements. All work continues on `gifton/metal-hardening-checkpoint`.
 **Group C remainder: VA3-028 only.**
 
+
+**Slice 19 completed: VA3-028 is FIXED.** Borůvka keeps the proven 2N candidate allocation,
+with bounded shader reservations and checked host readback. Overflow marks capacity+1;
+fusion callers can use `readCandidateCount()` after GPU completion. Invalid endpoints
+represent missing edges, so genuine infinite weights remain usable in every find/reduce/
+collect path. Ten new tests: initial red 292 assertions, targeted 54 / 0, API+shader
+validation 10 / 0, full debug/release 1682 / 0 / 11. Read-only review found no blockers;
+capacity is now mandatory in the internal parameter initializer. See
+[the Borůvka contract](../stability/BORUVKA-BOUNDS-CONTRACT.md) for raw ABI, initialization,
+range and nondeterminism limits. **Group C is closed under its documented contracts.**
+All work continues on the single `gifton/metal-hardening-checkpoint` branch.
+
 ## 1. What this project is
 
 VectorAccelerate (VA) is the GPU-acceleration package of the VSK suite: Metal 4 compute
@@ -126,7 +138,7 @@ numerics policy are the parity reference), VectorIndex (pins VA 0.3.1 — not in
 - Swift: `Core/` (Metal4Context, Metal4ComputeEngine, KernelContext, PipelineCache/Key,
   PipelineRegistry, GPUDecisionEngine), `Kernels/Metal4/` (per-kernel wrappers),
   `Integration/` (MetalComputeProvider, KernelDistanceProviders), `Index/` (IVF pipeline).
-- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **20 permanent guard
+- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **21 permanent guard
   suites** created by this epic (§5).
 
 ## 2. Architecture facts you must internalize first
@@ -198,7 +210,7 @@ to the VA3-015 stragglers was completed in slice 9, including smaller-norm-first
    that discriminate (e.g. data where the honest and the buggy answer differ in FP32).
 3. **Gates.** After the fix: targeted suites, then FULL debug suite, then FULL release
    suite (`swift test -c release`) — release exercises the runtime-compiled library
-   (§2.1). Record exact counts. Current expectation: 1672/0/11 both configs.
+   (§2.1). Record exact counts. Current expectation: 1682/0/11 both configs.
 4. **Ledger + memory.** Append a "Remediation slice N" section to
    `docs/audits/AUDIT-3-shaders.md`, flip the finding's summary-table row and detail
    heading to **FIXED**, and append a dated paragraph to the session memory file
@@ -228,7 +240,7 @@ tie-break policy standardized on the CPU side to VectorCore `TopKSelection` `.sm
 **AUDIT-3 (2026-08-16, VA3-001…034).** Independent end-to-end read of all shader files with
 per-finding Swift dispatch/liveness verification, organized into groups: A reduction/barrier,
 B numerics/fast-math policy, C memory-safety/dispatch contracts, D phantom surface,
-E determinism, F deletion inventory, G hygiene. Then sixteen remediation slices:
+E determinism, F deletion inventory, G hygiene. Then nineteen remediation slices:
 
 | Slice | Date | Scope | Highlights | Gate |
 |---|---|---|---|---|
@@ -250,9 +262,10 @@ E determinism, F deletion inventory, G hygiene. Then sixteen remediation slices:
 | 16 | 09-07 | VA3-017 alignment | Packed scalar-backed vector views; neural weight-tail bounds and three missed store offsets; compiler/footprint guards, odd-layout GPU tests | 1654/0/11 |
 | 17 | 09-07 | VA3-025 sparse TF-IDF bounds | Scalar vector tails; zero-K no-op; invalid K guard; eight bounds/API regression tests | 1662/0/11 |
 | 18 | 09-07 | VA3-026 PQ bounds | Byte-code guards, ADC-only 32 KB cap and aligned binding, invalid-code isolation; ten regression tests | 1672/0/11 |
+| 19 | 09-07 | VA3-028 Borůvka bounds | Bounded reservations/readback; endpoint validity preserves infinite edges; geometric-bound and fusion regressions | 1682/0/11 |
 
-**Status:** every P1 fixed; groups A, B, D, F closed (B retains documented numeric limits);
-Group C's P1s, cap family, VA3-018 address width, and VA3-017 alignment closed; E/G and the C input/capacity remainder open (§6).
+**Status:** every P1 fixed; groups A, B, C, D, F closed (B/C retain documented contracts
+and limits). Groups E/G and the recorded residuals remain open (§6).
 
 ## 5. The permanent guard suites (`Tests/VectorAccelerateTests/Hardening/`)
 
@@ -278,6 +291,7 @@ Group C's P1s, cap family, VA3-018 address width, and VA3-017 alignment closed; 
 | `VectorAlignmentTests` | Compiler alignment diagnostic including reinterpret-cast canary, odd-layout GPU checks, and instrumented neural weight-tail footprints (VA3-017) |
 | `SparseTFIDFBoundsTests` | Partial-tail footprints/canaries, exact allocations within vector ABI, zero-K shader/encoder/public behavior, invalid K, sentinels and over-dispatch (VA3-025) |
 | `PQBoundsTests` | Byte-code endpoints, invalid assignment/lookup isolation, ADC table cap/overflow, early host rejection, binding alignment, and retained larger-model train/encode (VA3-026) |
+| `BoruvkaBoundsTests` | Capacity/overflow/wrap guards, endpoint validity and infinity across all variants, fusion count safety, geometric bound with complete merging (VA3-028) |
 
 The 11 remaining runtime skips are environment-gated (no-Metal CI, GPU-stress suite), not
 guard-gated fictions — the forever-skipping class was deleted in slice 8.
@@ -301,10 +315,10 @@ guard-gated fictions — the forever-skipping class was deleted in slice 8.
   limits. This includes limits on derived roots of squared scores and learned projection
   distances; see the distance range contract. No performance/full-range guarantee.
 
-**Group C remainder — input/capacity contracts (P1s, caps, VA3-018/-017/-025/-026 closed):**
-
-- **VA3-028 (P3):** Borůvka candidate-buffer bound, unchecked writes, and
-  INFINITY/no-edge sentinel conflation.
+**Group C — closed under documented contracts.** P1 memory-safety fixes, capability
+caps, VA3-018 address width, VA3-017 alignment, VA3-025 sparse TF-IDF, VA3-026 PQ bounds,
+and VA3-028 Borůvka bounds are complete. Raw caller storage/layout, numerical-range,
+count/ID, and synchronization requirements remain as documented in the contracts.
 
 **Group E — determinism (needs OWNER POLICY):**
 - **VA3-019 (P2, LIVE):** `umap_negative_sample_kernel` reads `embedding[j]` while sibling
@@ -312,9 +326,12 @@ guard-gated fictions — the forever-skipping class was deleted in slice 8.
   accumulation orders in UMAP target gradients, PQ training, k-means update →
   run-to-run nondeterminism by design. The "no atomics" contract claimed in older docs is
   false in ~10 files. Needs a stated determinism policy (accept + document, or rework).
-- The ledger also notes `ivf_build_candidates_fused` (part of VA3-027): atomic offset
+- The ledger also notes `ivf_build_candidates_fused` (part of VA3-019): atomic offset
   allocation → nondeterministic candidate layout and a missing `writePos` capacity clamp
   its non-fused sibling has.
+- **VA3-027 (P2, LIVE-cond):** `neural_encode_pass1` ignores `useActivation` and
+  specialized learned-distance kernels ignore `normalizeProjected`. This is the
+  ignored-flags finding, separate from the fused IVF builder above.
 
 **Group G — hygiene/perf:** VA3-023, VA3-029 (see ledger), and **VA3-024**: engine batch
 dispatch uses 16×16 threadgroups for 1-D work (16× redundant compute in some batch paths)
@@ -362,7 +379,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 ## 8. Reference map
 
-- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–18 + all findings),
+- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–19 + all findings),
   `docs/audits/AUDIT-2.md`, `docs/audits/REVIEW-PATTERNS.md`.
 - Plans: `docs/superpowers/plans/2026-08-16-hardening-audit-phase0-1.md` (epic origin).
 - Numerics backlog: `docs/stability/NUMERICAL_STABILITY_FINDINGS.md`.
@@ -374,7 +391,6 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
   derivation — beware rewriting cases), `Metal/Shaders/Metal4Common.h` (shared constants +
   cosine rescue; mirrored in the preamble).
 
-**Suggested next slice:** VA3-028 (Borůvka candidate bounds and no-edge sentinel),
-the last Group C item.
-Then VA3-019 determinism policy (owner call), G hygiene, and the recorded-not-fixed
-residuals. Let the owner select the next slice; do not infer approval to broaden this one.
+**Suggested next slices:** VA3-019 race/determinism and fused IVF bounds (determinism
+policy needs an owner call), VA3-027 ignored flags, then G hygiene/performance and the
+recorded-not-fixed residuals. Group C has no remaining numbered findings. Let the owner select the next slice; do not infer approval to broaden this one.

@@ -954,6 +954,54 @@ Logs and exact slice-start sources are in `/private/tmp/va3-026/`. Work remains 
 single `gifton/metal-hardening-checkpoint` branch.
 
 
+
+## Remediation slice 19 (2026-09-07, owner-approved: VA3-028 Borůvka bounds) — EXECUTED
+
+**Implementation:** retain the 2N candidate allocation with the finite geometric bound:
+for a valid undirected graph, complete merging halves the number of active components;
+isolated components emit nothing. Repeated unmerged fusion rounds violate this premise,
+so the collector now enforces capacity independently. The fourth/padding UInt32 parameter
+word carries actual record capacity; total struct size and buffer binding indices stay
+unchanged. CAS reserves unique in-range slots; full-buffer attempts monotonically mark
+`capacity + 1` without writing, and capacity is limited to UInt32.max-1 so the counter
+cannot wrap. Standalone count reads throw before dispatch/readback if overflowed.
+Fusion exposes `candidateCapacity` and `readCandidateCount()` for safe post-completion
+readback; its documentation explicitly requires initialization/reset and complete merging.
+Allocation validates 2N representability and the device maximum buffer size first.
+
+**Edge validity:** all five find-min variants use UInt32.max as no-target, and component
+reduction propagates/clears endpoint sentinels for missing/non-representative edges.
+Genuine +infinity weights are selected when no smaller usable edge exists; finite edges
+can replace an initial infinite winner. Collector bounds-checks both endpoints before
+component lookup and no longer filters edges by infinity weight. NaN candidate weights
+retain comparison-style rejection via a fast-math-safe bit test. Input `max`/distance
+arithmetic, FP32 squared range, and nondeterministic atomic candidate order are unchanged.
+
+**Evidence so far:** five initial `BoruvkaBoundsTests` failed with **292 assertions**:
+capacity over-writes/counter overflow, omitted infinite edges, stale non-representative
+endpoints, and disconnected public MST output. Physical guard storage keeps the baseline
+collector writes inside the allocation while testing the declared logical bound. Those
+five tests passed after the fix. Five additional tests cover a saturated UInt32.max
+counter, invalid endpoints, repeated unmerged fusion rounds (including 257 concurrent
+candidates), geometric-bound rounds on a hierarchical 32-point fixture, and huge/invalid
+allocation counts. The fixture independently checks the known 1-D MST weight.
+
+Targeted **54 tests / 0 failures** (22.426 seconds). Independent review found no blockers;
+removed the optional/default capacity argument as suggested so omitted future wiring is
+a compile error. Expanded the existing selection/public tests with finite-after-infinite
+and squared-overflow fixtures. Final API+shader validation **10 / 0** (0.324 seconds),
+exit 0, no reported validation errors. Full debug: **1682 / 0 failures / 11 skipped**
+(259.798 seconds), exit 0. Full release: **1682 / 0 / 11** (55.297 seconds), exit 0.
+Both full gates use the final production and test sources. VA3-028 is **FIXED** and
+**Group C is closed under its documented contracts**.
+
+See [the Borůvka bounds contract](../stability/BORUVKA-BOUNDS-CONTRACT.md) for raw ABI,
+count, initialization, overflow recovery, numerical-range, and determinism boundaries.
+No throughput or arbitrary malformed-buffer claim. Logs, initial sources, slice diff,
+and final production/test hashes are in `/private/tmp/va3-028/`. Work remains on the
+single `gifton/metal-hardening-checkpoint` branch.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).
@@ -991,7 +1039,7 @@ Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live be
 | VA3-025 | P3 | **FIXED** | Slice 17: scalar-bounded c-TF-IDF vector tails; zero-K shader/host no-op; invalid K rejected; vector ABI and host routing retained |
 | VA3-026 | P3 | **FIXED** | Slice 18: byte-code and ADC 32 KB bounds enforced; host throws before encoding, raw ADC NaN-fills; invalid assignments cannot cross subspaces; larger-model training/encoding retained |
 | VA3-027 | P2 | LIVE-cond | Silently dropped flags: `neural_encode_pass1` hardcodes ReLU (ignores useActivation); specialized learned kernels ignore `normalizeProjected` |
-| VA3-028 | P3 | LIVE | Borůvka candidate-edge buffer bound (2n) is exactly tight only via the components-halve invariant; kernel writes unchecked; comment says "usually enough" |
+| VA3-028 | P3 | **FIXED** | Slice 19: bounded reservations and checked readback; explicit 2N proof; invalid endpoints distinguish missing edges from genuine infinity across all find/reduce/collect paths |
 | VA3-029 | P3 | — | Header/hygiene: triplicated helper families (va_/ivf_/bare), `VA_EPSILON_HALF` type mismatch, misnamed prefix-sum, non-hygienic debug macro |
 | VA3-030 | P3 | FIXED (slice 14) | Approved split policy: direct rooted-L2 exceptional-range rescue; squared L2/dot retain documented FP32 limits; derived squared-score roots and learned projections retain their limits |
 | VA3-031 | P1 | **FIXED** (was LIVE — discovered by slice 2's red run) | `getPipeline(functionName: "dotProduct")` rewrote the literal kernel name to the batch `dot_product_kernel`: the engine's single-pair dot product never dispatched its kernel and returned stale pool bytes for every dim > 16 |
@@ -1141,7 +1189,7 @@ conversion remain separate limitations; see the slice-15 verification and width 
 slice 15. They now promote `vectorIdx * INPUT_DIM` before multiplication, with a red-first
 boundary probe; the new generic neural scalar-tail output offset is also tested.
 
-### VA3-025 (FIXED, slice 17) / VA3-026 (FIXED, slice 18) / VA3-028 (P3): input-contract edges
+### VA3-025 (FIXED, slice 17) / VA3-026 (FIXED, slice 18) / VA3-028 (FIXED, slice 19): input-contract edges
 
 - **VA3-025 FIXED — slice 17:** vectorized c-TF-IDF previously loaded/gathered/stored
   unused partial-tail lanes (shielded by host `nnz % 4 == 0` routing); raw and standalone
@@ -1154,7 +1202,12 @@ boundary probe; the new generic neural scalar-tail output offset is also tested.
   static pipeline memory. Training/encoding remain available above the ADC-only cap.
   The host initializer's existing K<=256 precondition is retained; execution also rejects
   nonpositive K. See [the PQ bounds contract](../stability/PQ-BOUNDS-CONTRACT.md).
-- Borůvka: candidate buffer `max(2n, n-1)` (BoruvkaMSTKernel.swift:363-370) is safe *only* by the components-halve-per-round invariant (Σ Cᵣ < 2n); the kernel's `atomic_fetch_add` write is unclamped (BoruvkaMST.metal:200-203) and the comment says "N*2 is usually enough". Add a kernel-side clamp and rewrite the comment with the actual bound. Also `INFINITY` edge weight is conflated with the no-edge sentinel (:186).
+- **VA3-028 FIXED — slice 19:** 2N allocation now has an explicit active-component
+  halving proof, backed by independently bounded shader reservations and checked host
+  counts. Overflow marks capacity+1 without an out-of-bounds write; fusion callers have
+  a checked count reader. All find-min variants, reduction, and collection use endpoint
+  validity rather than +infinity as the no-edge signal. See
+  [the Borůvka contract](../stability/BORUVKA-BOUNDS-CONTRACT.md).
 
 ---
 

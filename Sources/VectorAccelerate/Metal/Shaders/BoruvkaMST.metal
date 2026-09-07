@@ -26,7 +26,7 @@ struct BoruvkaParams {
     uint n;              // Number of points
     uint d;              // Embedding dimension
     uint iteration;      // Current iteration (for debugging)
-    uint _padding;       // Alignment padding
+    uint candidateCapacity; // Candidate records available to the collector
 };
 
 struct MSTEdge {
@@ -34,6 +34,13 @@ struct MSTEdge {
     uint target;
     float weight;
 };
+
+// Endpoint validity is independent of weight: +infinity can be a real edge.
+constant uint VA_BORUVKA_NO_VERTEX = 0xffffffffu;
+
+inline bool boruvka_weight_is_nan(float weight) {
+    return (as_type<uint>(weight) & 0x7fffffffu) > 0x7f800000u;
+}
 
 // MARK: - Kernel 1: Find Minimum Outgoing Edge
 
@@ -56,7 +63,7 @@ kernel void boruvka_find_min_edge_kernel(
     float myCore = coreDistances[tid];
 
     float bestWeight = INFINITY;
-    uint bestTarget = tid;  // Self means no valid edge found
+    uint bestTarget = VA_BORUVKA_NO_VERTEX;
 
     // Check all other points for minimum edge to different component
     for (uint j = 0; j < params.n; j++) {
@@ -94,7 +101,8 @@ kernel void boruvka_find_min_edge_kernel(
         // Mutual reachability = max(core_i, core_j, dist)
         float mutualReach = max(max(myCore, coreDistances[j]), dist);
 
-        if (mutualReach < bestWeight) {
+        if (!boruvka_weight_is_nan(mutualReach) &&
+            (bestTarget == VA_BORUVKA_NO_VERTEX || mutualReach < bestWeight)) {
             bestWeight = mutualReach;
             bestTarget = j;
         }
@@ -136,20 +144,26 @@ kernel void boruvka_component_reduce_kernel(
 
     if (!isRepresentative) {
         componentMinWeight[tid] = INFINITY;
+        componentMinSource[tid] = VA_BORUVKA_NO_VERTEX;
+        componentMinTarget[tid] = VA_BORUVKA_NO_VERTEX;
         return;
     }
 
     // Find minimum across all points in this component
     float bestWeight = INFINITY;
-    uint bestSource = tid;
-    uint bestTarget = tid;
+    uint bestSource = VA_BORUVKA_NO_VERTEX;
+    uint bestTarget = VA_BORUVKA_NO_VERTEX;
 
     for (uint i = 0; i < params.n; i++) {
         if (componentIds[i] != myComponent) continue;
-        if (pointMinWeight[i] < bestWeight) {
-            bestWeight = pointMinWeight[i];
+        uint target = pointMinTarget[i];
+        if (target >= params.n || componentIds[target] == myComponent) continue;
+        float weight = pointMinWeight[i];
+        if (!boruvka_weight_is_nan(weight) &&
+            (bestTarget == VA_BORUVKA_NO_VERTEX || weight < bestWeight)) {
+            bestWeight = weight;
             bestSource = i;
-            bestTarget = pointMinTarget[i];
+            bestTarget = target;
         }
     }
 
@@ -162,32 +176,33 @@ kernel void boruvka_component_reduce_kernel(
 
 /// Collect candidate edges from component representatives.
 ///
-/// This kernel adds ALL candidate edges to the output buffer. Duplicate edges
+/// This kernel appends candidate edges up to the declared capacity. Duplicate edges
 /// are handled by the CPU merge step using Union-Find, which naturally skips
 /// edges between already-connected components.
 ///
 /// Key invariants:
 /// - Only component representatives add edges
-/// - Atomic edge count increment for thread-safe insertion
+/// - Bounded atomic reservations; capacity + 1 signals overflow without an OOB write
 /// - Duplicates handled by CPU Union-Find merge
 kernel void boruvka_merge_kernel(
     device const uint* componentIds         [[buffer(0)]],  // [N] read-only
     device const float* componentMinWeight  [[buffer(1)]],  // [N]
     device const uint* componentMinSource   [[buffer(2)]],  // [N]
     device const uint* componentMinTarget   [[buffer(3)]],  // [N]
-    device MSTEdge* mstEdges                [[buffer(4)]],  // [N-1] output edges
-    device atomic_uint* edgeCount           [[buffer(5)]],  // [1] current edge count
+    device MSTEdge* mstEdges                [[buffer(4)]],  // [candidateCapacity] candidate records
+    device atomic_uint* edgeCount           [[buffer(5)]],  // [1] count; > capacity signals overflow
     constant BoruvkaParams& params          [[buffer(6)]],
     uint tid [[thread_position_in_grid]]
 ) {
     if (tid >= params.n) return;
 
-    // Only representatives add edges (non-representatives have INFINITY weight)
-    if (componentMinWeight[tid] == INFINITY) return;
-
     uint source = componentMinSource[tid];
     uint target = componentMinTarget[tid];
     float weight = componentMinWeight[tid];
+
+    // Non-representatives/no-edge entries have invalid endpoints, not a magic
+    // weight. Validate before indexing componentIds; retain real infinite edges.
+    if (source >= params.n || target >= params.n) return;
 
     // Verify this edge connects different components
     uint sourceComp = componentIds[source];
@@ -197,7 +212,19 @@ kernel void boruvka_merge_kernel(
     // Add edge to candidate buffer atomically
     // Note: This may add duplicate edges (A→B and B→A), which are
     // deduplicated by the CPU Union-Find merge step
-    uint idx = atomic_fetch_add_explicit(edgeCount, 1, memory_order_relaxed);
+    // Reserve one record, leaving a representable overflow marker even for a
+    // raw caller passing UINT_MAX capacity. A corrupted/overflowed counter never
+    // wraps back to zero or becomes an address. Completion/barriers publish writes.
+    const uint capacity = min(params.candidateCapacity, 0xfffffffeu);
+    uint idx = atomic_load_explicit(edgeCount, memory_order_relaxed);
+    while (true) {
+        if (idx >= capacity) {
+            atomic_fetch_max_explicit(edgeCount, capacity + 1, memory_order_relaxed);
+            return;
+        }
+        if (atomic_compare_exchange_weak_explicit(edgeCount, &idx, idx + 1,
+                                                 memory_order_relaxed, memory_order_relaxed)) break;
+    }
     mstEdges[idx].source = source;
     mstEdges[idx].target = target;
     mstEdges[idx].weight = weight;
@@ -224,7 +251,7 @@ kernel void boruvka_find_min_edge_384_kernel(
     float myCore = coreDistances[tid];
 
     float bestWeight = INFINITY;
-    uint bestTarget = tid;
+    uint bestTarget = VA_BORUVKA_NO_VERTEX;
 
     // Precompute base pointer for this point (384 = 96 float4)
     device const packed_float4* vec_i = (device const packed_float4*)(embeddings + (ulong)tid * 384);
@@ -257,7 +284,8 @@ kernel void boruvka_find_min_edge_384_kernel(
 
         float mutualReach = max(max(myCore, coreDistances[j]), dist);
 
-        if (mutualReach < bestWeight) {
+        if (!boruvka_weight_is_nan(mutualReach) &&
+            (bestTarget == VA_BORUVKA_NO_VERTEX || mutualReach < bestWeight)) {
             bestWeight = mutualReach;
             bestTarget = j;
         }
@@ -284,7 +312,7 @@ kernel void boruvka_find_min_edge_512_kernel(
     float myCore = coreDistances[tid];
 
     float bestWeight = INFINITY;
-    uint bestTarget = tid;
+    uint bestTarget = VA_BORUVKA_NO_VERTEX;
 
     // Precompute base pointer for this point (512 = 128 float4)
     device const packed_float4* vec_i = (device const packed_float4*)(embeddings + (ulong)tid * 512);
@@ -317,7 +345,8 @@ kernel void boruvka_find_min_edge_512_kernel(
 
         float mutualReach = max(max(myCore, coreDistances[j]), dist);
 
-        if (mutualReach < bestWeight) {
+        if (!boruvka_weight_is_nan(mutualReach) &&
+            (bestTarget == VA_BORUVKA_NO_VERTEX || mutualReach < bestWeight)) {
             bestWeight = mutualReach;
             bestTarget = j;
         }
@@ -344,7 +373,7 @@ kernel void boruvka_find_min_edge_768_kernel(
     float myCore = coreDistances[tid];
 
     float bestWeight = INFINITY;
-    uint bestTarget = tid;
+    uint bestTarget = VA_BORUVKA_NO_VERTEX;
 
     // Precompute base pointer for this point (768 = 192 float4)
     device const packed_float4* vec_i = (device const packed_float4*)(embeddings + (ulong)tid * 768);
@@ -377,7 +406,8 @@ kernel void boruvka_find_min_edge_768_kernel(
 
         float mutualReach = max(max(myCore, coreDistances[j]), dist);
 
-        if (mutualReach < bestWeight) {
+        if (!boruvka_weight_is_nan(mutualReach) &&
+            (bestTarget == VA_BORUVKA_NO_VERTEX || mutualReach < bestWeight)) {
             bestWeight = mutualReach;
             bestTarget = j;
         }
@@ -404,7 +434,7 @@ kernel void boruvka_find_min_edge_1536_kernel(
     float myCore = coreDistances[tid];
 
     float bestWeight = INFINITY;
-    uint bestTarget = tid;
+    uint bestTarget = VA_BORUVKA_NO_VERTEX;
 
     // Precompute base pointer for this point (1536 = 384 float4)
     device const packed_float4* vec_i = (device const packed_float4*)(embeddings + (ulong)tid * 1536);
@@ -437,7 +467,8 @@ kernel void boruvka_find_min_edge_1536_kernel(
 
         float mutualReach = max(max(myCore, coreDistances[j]), dist);
 
-        if (mutualReach < bestWeight) {
+        if (!boruvka_weight_is_nan(mutualReach) &&
+            (bestTarget == VA_BORUVKA_NO_VERTEX || mutualReach < bestWeight)) {
             bestWeight = mutualReach;
             bestTarget = j;
         }
