@@ -198,3 +198,15 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   also exercise preceding producers, subsequent consumers and scratch reuse in a
   concurrent encoder. Allocation convenience requires retained command-buffer references;
   unretained command buffers need caller-owned scratch retained through completion.
+
+
+## 18. Optimized dispatch must preserve configuration semantics
+- **Mechanism:** a specialized path can silently drop a flag supported by the general
+  implementation. Defaults and tests that only inspect configuration objects hide it;
+  quantization can also mask intermediate errors unless signed codes/scales are checked.
+- **Incident:** VA3-027 slice 22 — tiled neural pass 1 always applied ReLU, while two
+  learned L2 specializations skipped requested projection normalization. Tests switch
+  flags on real raw/public GPU calls, use negative affine outputs and unequal-norm
+  projections, and assert independent values plus guards. Check dispatch parameters,
+  not just the configuration used to load weights. This review also exposed adjacent
+  `normalizeLatent` omissions recorded for follow-up rather than declaring all flags fixed.

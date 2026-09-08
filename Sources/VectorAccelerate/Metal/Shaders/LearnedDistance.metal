@@ -345,6 +345,20 @@ kernel void learned_l2_768_to_128_kernel(
     device const float* query = queryVectors + ((ulong)queryIdx * INPUT_DIM);
     device const float* database = databaseVectors + ((ulong)dbIdx * INPUT_DIM);
 
+    // Normalization needs complete projections. Use the general path's helpers
+    // and epsilon policy; keep the fused unnormalized loop below unchanged.
+    if (params.normalizeProjected) {
+        float projQuery[OUTPUT_DIM];
+        float projDb[OUTPUT_DIM];
+        projectVector(query, projectionWeights, projQuery, INPUT_DIM, OUTPUT_DIM);
+        projectVector(database, projectionWeights, projDb, INPUT_DIM, OUTPUT_DIM);
+        normalizeInPlace(projQuery, OUTPUT_DIM);
+        normalizeInPlace(projDb, OUTPUT_DIM);
+        float distSq = computeL2Squared(projQuery, projDb, OUTPUT_DIM);
+        distances[(ulong)queryIdx * params.strideOutput + dbIdx] = params.computeSqrt ? sqrt(distSq) : distSq;
+        return;
+    }
+
     device const packed_float4* query4 = (device const packed_float4*)query;
     device const packed_float4* db4 = (device const packed_float4*)database;
 
@@ -396,6 +410,20 @@ kernel void learned_l2_384_to_64_kernel(
 
     device const float* query = queryVectors + ((ulong)queryIdx * INPUT_DIM);
     device const float* database = databaseVectors + ((ulong)dbIdx * INPUT_DIM);
+
+    // Normalization needs complete projections. Use the general path's helpers
+    // and epsilon policy; keep the fused unnormalized loop below unchanged.
+    if (params.normalizeProjected) {
+        float projQuery[OUTPUT_DIM];
+        float projDb[OUTPUT_DIM];
+        projectVector(query, projectionWeights, projQuery, INPUT_DIM, OUTPUT_DIM);
+        projectVector(database, projectionWeights, projDb, INPUT_DIM, OUTPUT_DIM);
+        normalizeInPlace(projQuery, OUTPUT_DIM);
+        normalizeInPlace(projDb, OUTPUT_DIM);
+        float distSq = computeL2Squared(projQuery, projDb, OUTPUT_DIM);
+        distances[(ulong)queryIdx * params.strideOutput + dbIdx] = params.computeSqrt ? sqrt(distSq) : distSq;
+        return;
+    }
 
     device const packed_float4* query4 = (device const packed_float4*)query;
     device const packed_float4* db4 = (device const packed_float4*)database;

@@ -11,7 +11,7 @@ release `swift test -c release` → **1590 / 0 / 11**. Both must stay that way (
 
 This document is self-contained, but the authoritative per-finding record is
 `docs/audits/AUDIT-3-shaders.md` (findings VA3-001…034, groups A–G, remediation
-slices 1–21) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
+slices 1–22) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
 `docs/audits/REVIEW-PATTERNS.md` holds the project's adversarial-review pattern library.
 
 ---
@@ -145,6 +145,18 @@ for the `try` migration, new raw output binding, scratch lifetime and synchroniz
 **VA3-019 remains open for the atomic accumulation policy.**
 Numerical/input-clamping backlog remains separate. Same single checkpoint branch.
 
+**Slice 22 completed: VA3-027's two audited ignored flags fixed.** Tiled neural
+encoding forwards `useActivation` and conditionally applies ReLU after bias. Specialized
+learned L2 paths honor `normalizeProjected` using the general path's normalization
+helpers and retain independent square-root selection. Four new tests; original red
+5129 assertions, targeted 42/0, API+shader validation 4/0, full debug/release 1703/0/11;
+review approved. See [the flag contract](../stability/IGNORED-FLAGS-CONTRACT.md) for the
+new raw neural pass-1 buffer(8) UInt32 flag and retained numerical/layout limits.
+Dedicated `encodeTiledV3` coverage is now present. Source inspection found adjacent
+`normalizeLatent` omissions in specialized/tiled neural quantized encoders; recorded
+below as follow-up, not silently included in this slice. VA3-019 atomic policy remains
+open. Same single checkpoint branch.
+
 ## 1. What this project is
 
 VectorAccelerate (VA) is the GPU-acceleration package of the VSK suite: Metal 4 compute
@@ -161,7 +173,7 @@ numerics policy are the parity reference), VectorIndex (pins VA 0.3.1 — not in
 - Swift: `Core/` (Metal4Context, Metal4ComputeEngine, KernelContext, PipelineCache/Key,
   PipelineRegistry, GPUDecisionEngine), `Kernels/Metal4/` (per-kernel wrappers),
   `Integration/` (MetalComputeProvider, KernelDistanceProviders), `Index/` (IVF pipeline).
-- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **23 permanent guard
+- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **24 permanent guard
   suites** created by this epic (§5).
 
 ## 2. Architecture facts you must internalize first
@@ -263,7 +275,7 @@ tie-break policy standardized on the CPU side to VectorCore `TopKSelection` `.sm
 **AUDIT-3 (2026-08-16, VA3-001…034).** Independent end-to-end read of all shader files with
 per-finding Swift dispatch/liveness verification, organized into groups: A reduction/barrier,
 B numerics/fast-math policy, C memory-safety/dispatch contracts, D phantom surface,
-E determinism, F deletion inventory, G hygiene. Then twenty-one remediation slices:
+E determinism, F deletion inventory, G hygiene. Then twenty-two remediation slices:
 
 | Slice | Date | Scope | Highlights | Gate |
 |---|---|---|---|---|
@@ -288,6 +300,7 @@ E determinism, F deletion inventory, G hygiene. Then twenty-one remediation slic
 | 19 | 09-07 | VA3-028 Borůvka bounds | Bounded reservations/readback; endpoint validity preserves infinite edges; geometric-bound and fusion regressions | 1682/0/11 |
 | 20 | 09-07 | VA3-019 IVF portion | Physical capacity guards, overflow recovery, valid CSR ordering, prefix saturation and empty handling; UMAP/policy remain open | 1690/0/11 |
 | 21 | 09-07 | VA3-019 UMAP race | Immutable targets, sequential source updates, separate output/copy-back, throwing fusion and reusable scratch; atomic policy remains open | 1699/0/11 |
+| 22 | 09-07 | VA3-027 audited flags | Tiled activation and specialized learned normalization honored; raw/public regression coverage; adjacent normalizeLatent debt recorded | 1703/0/11 |
 
 **Status:** every P1 fixed; groups A, B, C, D, F closed (B/C retain documented contracts
 and limits). Groups E/G and the recorded residuals remain open (§6).
@@ -319,6 +332,7 @@ and limits). Groups E/G and the recorded residuals remain open (§6).
 | `BoruvkaBoundsTests` | Capacity/overflow/wrap guards, endpoint validity and infinity across all variants, fusion count safety, geometric bound with complete merging (VA3-028) |
 | `IVFCandidateBoundsTests` | Bounded whole-query reservations, skewed-list recovery, physical storage guards, prefix saturation and scheduling-independent CSR reordering (VA3-019 IVF portion) |
 | `UMAPNegativeSamplingTests` | Frozen target reads, sequential source updates, raw output guards, concurrent fusion, scratch reuse/lifetime, epoch ordering, and invalid input rejection (VA3-019 UMAP race) |
+| `IgnoredFlagTests` | Tiled ReLU on/off after bias, signed quantized outputs, specialized learned normalization/root flags, guards and both compilation paths (VA3-027) |
 
 The 11 skips in the current Apple Silicon gates are explicit unimplemented
 `IVFValidationTests` placeholders (including the missing retrieval API), not environment
@@ -359,9 +373,10 @@ count/ID, and synchronization requirements remain as documented in the contracts
 - **Fused IVF portion fixed in slice 20:** bounded physical capacity, exact-path
   overflow recovery, and valid query-ordered CSR conversion. Raw atomic segment order
   stays unspecified; see [the contract](../stability/IVF-CANDIDATE-BOUNDS-CONTRACT.md).
-- **VA3-027 (P2, LIVE-cond):** `neural_encode_pass1` ignores `useActivation` and
-  specialized learned-distance kernels ignore `normalizeProjected`. This is the
-  ignored-flags finding, separate from the fused IVF builder above.
+- **VA3-027 (P2, FIXED — slice 22):** the two audited flags are honored: tiled neural
+  `useActivation` and specialized learned-distance `normalizeProjected`. See
+  [the contract](../stability/IGNORED-FLAGS-CONTRACT.md). The adjacent neural
+  `normalizeLatent` omissions are recorded separately below.
 
 **Group G — hygiene/perf:** VA3-023, VA3-029 (see ledger), and **VA3-024**: engine batch
 dispatch uses 16×16 threadgroups for 1-D work (16× redundant compute in some batch paths)
@@ -375,7 +390,10 @@ ragged-pair asymmetry (euclidean→+Inf vs cosine→NaN, provider-unreachable).
 
 **Coverage gaps / debt:** global buffer-pool requests above 64 MiB may receive undersized
 storage (IVF now checks/rejects this locally; broader pool correction remains open);
-11 unimplemented `IVFValidationTests` placeholders; `encodeTiledV3` (the real tiled encoder) has NO dedicated test;
+11 unimplemented `IVFValidationTests` placeholders; neural `normalizeLatent` is read only
+by the generic `neural_encode_quantize_kernel`, with specialized/tiled quantized encoders
+ignoring it (source-confirmed in slice 22; behavioral regression/fix pending). The
+previous `encodeTiledV3` dedicated-test gap was closed in slice 22.
 VA2-013 plugin header-dep gap (workaround in §2.1); the CI leg for the release gate was
 deferred by the owner (AUDIT-2 decision 5); UMAP GPU benchmark underperforms expectation
 (0.6–1.6× vs 2–5×); `docs/stability/NUMERICAL_STABILITY_FINDINGS.md` backlog (UMAPGradient
@@ -411,7 +429,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 ## 8. Reference map
 
-- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–21 + all findings),
+- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–22 + all findings),
   `docs/audits/AUDIT-2.md`, `docs/audits/REVIEW-PATTERNS.md`.
 - Plans: `docs/superpowers/plans/2026-08-16-hardening-audit-phase0-1.md` (epic origin).
 - Numerics backlog: `docs/stability/NUMERICAL_STABILITY_FINDINGS.md`.
@@ -424,6 +442,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
   cosine rescue; mirrored in the preamble).
 
 **Suggested next slice:** VA3-019 atomic accumulation policy (owner decision). The IVF
-bounds/CSR and UMAP negative-sampling race portions are complete. Then VA3-027 ignored
-flags, G hygiene/performance, and the recorded residuals. Group C has no remaining
+bounds/CSR and UMAP negative-sampling race portions are complete; VA3-027's two audited
+flags are also fixed. Remaining concrete work includes neural `normalizeLatent` parity,
+G hygiene/performance and the recorded residuals. Group C has no remaining
 numbered findings. Let the owner select the next slice; do not infer approval to broaden this one.

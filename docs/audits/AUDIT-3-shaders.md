@@ -1074,6 +1074,36 @@ sample generation remain. Numerical/input-clamping backlog is separate. Scratch 
 4ND bytes and publication adds a GPU copy dispatch; no performance improvement claimed.
 
 
+## Remediation slice 22 (2026-09-07, owner-authorized continuation: VA3-027 flags) — EXECUTED
+
+**Scope:** the two audited ignored flags. `encodeTiledV3` forwards the dispatch's
+`useActivation` byte as a UInt32 at new raw pass-1 buffer(8). The tiled affine projection
+applies ReLU after bias only when requested; disabled activation preserves negative
+intermediates and signed INT8 codes. Swift signatures and the neural parameter struct
+layout are unchanged. Raw pass-1 callers must now bind the activation constant.
+
+Both specialized learned L2 kernels honor `normalizeProjected` by materializing complete
+projections and reusing the general projection, normalization and squared-difference
+helpers. `computeSqrt` remains independent; unnormalized fused loops stay unchanged.
+Existing FP32/epsilon and dense-layout limits remain; no performance improvement claimed.
+
+Four new tests initially failed **5129 assertions** on the original code. Final coverage
+includes both shader compilation paths, activation/bias combinations, partial tiles,
+over-dispatch and canaries, signed public tiled codes/scales, per-dispatch flag forwarding,
+both specialized learned dimensions and general reference, normalization/root combinations,
+zero/tiny/parallel/opposite projections, padded output rows and public selection paths.
+Targeted **42/0** (13.118s), API+shader validation **4/0** (5.406s), full debug
+**1703/0/11** (258.458s), release **1703/0/11** (56.740s), all exit 0 on identical
+production/test sources. Read-only review approved, no findings. Logs: `/private/tmp/va3-027/`.
+See [the flag contract](../stability/IGNORED-FLAGS-CONTRACT.md).
+
+This closes the original VA3-027 scope and the dedicated `encodeTiledV3` coverage gap.
+**Adjacent residual:** source inspection shows `normalizeLatent` is read only in generic
+`neural_encode_quantize_kernel`; specialized and tiled quantized neural encoders ignore
+it. Its behavioral regression and normalization/scale parity fix remain a separate slice.
+VA3-019 atomic accumulation policy remains open; no new determinism guarantee.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).
@@ -1110,7 +1140,7 @@ Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live be
 | VA3-024 | P3 | LIVE | Perf pathologies: single-pair euclidean dispatches **one thread**; `batch_select_k_nearest` uses 1/256 threads; hamming-single 256× overdispatch; per-element softmax O(D²/row) |
 | VA3-025 | P3 | **FIXED** | Slice 17: scalar-bounded c-TF-IDF vector tails; zero-K shader/host no-op; invalid K rejected; vector ABI and host routing retained |
 | VA3-026 | P3 | **FIXED** | Slice 18: byte-code and ADC 32 KB bounds enforced; host throws before encoding, raw ADC NaN-fills; invalid assignments cannot cross subspaces; larger-model training/encoding retained |
-| VA3-027 | P2 | LIVE-cond | Silently dropped flags: `neural_encode_pass1` hardcodes ReLU (ignores useActivation); specialized learned kernels ignore `normalizeProjected` |
+| VA3-027 | P2 | FIXED (slice 22) | Tiled activation and specialized learned normalization flags honored; adjacent neural normalizeLatent omission recorded separately |
 | VA3-028 | P3 | **FIXED** | Slice 19: bounded reservations and checked readback; explicit 2N proof; invalid endpoints distinguish missing edges from genuine infinity across all find/reduce/collect paths |
 | VA3-029 | P3 | — | Header/hygiene: triplicated helper families (va_/ivf_/bare), `VA_EPSILON_HALF` type mismatch, misnamed prefix-sum, non-hygienic debug macro |
 | VA3-030 | P3 | FIXED (slice 14) | Approved split policy: direct rooted-L2 exceptional-range rescue; squared L2/dot retain documented FP32 limits; derived squared-score roots and learned projections retain their limits |
@@ -1311,8 +1341,14 @@ comment, and the VA3-021 note's proposal (resolve every Swift `makeFunction(name
 - **Fused IVF FIXED — slice 20:** bounded whole-query reservations, physical capacity checks, exact-path overflow recovery, and query-ordered CSR conversion. Atomic segment starts were also incorrectly returned as CSR boundaries; this is now covered by scheduling-independent permutation tests. Raw segment order remains unspecified; see [the contract](../stability/IVF-CANDIDATE-BOUNDS-CONTRACT.md).
 - UMAP kernel-1 gradient-clip point differs from reference UMAP (clips coefficient *after* lr/weight multiply, not the per-dim gradient) — the never-completed input-clamping backlog item from NUMERICAL_STABILITY_FINDINGS.
 
-### VA3-027 (P2, LIVE-cond): silently dropped flags
-`neural_encode_pass1` hardcodes ReLU (NeuralQuantization.metal:1335) with no `useActivation` input — configs without activation silently get one on the pass1/pass2 path while `neural_encode_kernel` honors the flag. Specialized `learned_l2_768_to_128`/`384_to_64` ignore `normalizeProjected` that the general kernel honors (LearnedDistance.metal:325-455).
+### VA3-027 (P2, FIXED — slice 22): silently dropped flags
+`neural_encode_pass1` now receives the dispatch activation flag at buffer(8) and applies
+ReLU conditionally after bias. Specialized `learned_l2_768_to_128`/`384_to_64` now honor
+`normalizeProjected` with the general helper policy. Raw and public regressions cover
+both flags and compilation paths; see [the contract](../stability/IGNORED-FLAGS-CONTRACT.md).
+Adjacent neural `normalizeLatent` omissions remain a separately recorded follow-up:
+only the generic quantizing shader reads that flag; specialized/tiled quantized encoders
+do not. Slice 22 does not claim universal neural flag compliance.
 
 ---
 

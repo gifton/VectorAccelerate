@@ -1316,6 +1316,7 @@ kernel void neural_encode_pass1(
     constant uint& D [[buffer(5)]],
     constant uint& L [[buffer(6)]],
     constant uint& has_bias [[buffer(7)]],
+    constant uint& use_activation [[buffer(8)]],
     uint2 tgid [[threadgroup_position_in_grid]],
     uint2 lid [[thread_position_in_threadgroup]]
 ) {
@@ -1401,7 +1402,7 @@ kernel void neural_encode_pass1(
             if (my_l + 2 < L) acc.z += bias[my_l + 2];
             if (my_l + 3 < L) acc.w += bias[my_l + 3];
         }
-        acc = max(0.0f, acc); // ReLU
+        if (use_activation != 0) acc = max(0.0f, acc); // Optional ReLU after bias
         ulong out_idx = (ulong)my_v * L + my_l;
         if (my_l + 0 < L) intermediates[out_idx + 0] = acc.x;
         if (my_l + 1 < L) intermediates[out_idx + 1] = acc.y;

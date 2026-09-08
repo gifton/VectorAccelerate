@@ -723,6 +723,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         var d = UInt32(inputDim)
         var l = UInt32(latentDim)
         var hasBias: UInt32 = encoderBias != nil ? 1 : 0
+        var useActivation = UInt32(parameters.useActivation)
 
         // 2. PASS 1: Tiled GEMM
         guard let encoder1 = commandBuffer.makeComputeCommandEncoder() else {
@@ -739,6 +740,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         encoder1.setBytes(&d, length: MemoryLayout<UInt32>.size, index: 5)
         encoder1.setBytes(&l, length: MemoryLayout<UInt32>.size, index: 6)
         encoder1.setBytes(&hasBias, length: MemoryLayout<UInt32>.size, index: 7)
+        encoder1.setBytes(&useActivation, length: MemoryLayout<UInt32>.size, index: 8)
 
         // Topology: Exactly 256 threads perfectly map to the 32x32 Blocked Logic
         let threads1 = MTLSizeMake(256, 1, 1)
