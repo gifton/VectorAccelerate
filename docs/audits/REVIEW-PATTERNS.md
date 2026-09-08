@@ -210,3 +210,12 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   projections, and assert independent values plus guards. Check dispatch parameters,
   not just the configuration used to load weights. This review also exposed adjacent
   `normalizeLatent` omissions recorded for follow-up rather than declaring all flags fixed.
+
+
+- **Follow-up, slice 23:** quantized codes alone can be unchanged by normalization,
+  because the scale changes by the same factor. Assert both codes and per-row scales,
+  including zero/tiny vectors where epsilon rules matter. Public tests with Metal
+  validation also exposed an unbound optional bias that ordinary execution accepted;
+  the generic quantizing wrapper now binds zeros. Trace output metadata through the
+  consumer: the high-level result still collapses the scale array to its average,
+  recorded as a separate reconstruction defect rather than hidden by buffer-level parity.

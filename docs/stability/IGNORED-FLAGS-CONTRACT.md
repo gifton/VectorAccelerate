@@ -12,8 +12,8 @@ The configuration used to load weights does not override the dispatch flag.
 **Raw shader migration:** `neural_encode_pass1` requires a new UInt32 constant at
 **buffer(8)**: zero disables activation, nonzero enables ReLU. Buffers 0–7 retain their
 meanings, and `NeuralQuantizationParameters` keeps its existing layout. Raw callers must
-supply the new binding even when requesting the previous always-ReLU behavior. Pass 2's
-ABI, scaling and quantization rules are unchanged. The pass-1 threadgroup remains exactly
+supply the new binding even when requesting the previous always-ReLU behavior. Pass 2 additionally requires the normalization flag at buffer(5), added in slice 23;
+see [the normalization contract](NEURAL-LATENT-NORMALIZATION-CONTRACT.md). The pass-1 threadgroup remains exactly
 256 threads; dense layouts, valid dimensions, sufficient buffers and synchronization
 remain caller requirements.
 
@@ -42,9 +42,8 @@ vectors, parallel/opposite directions, and padded output rows. Public compute ca
 exercise the specialized selection paths. This adds the previously missing dedicated
 `encodeTiledV3` test coverage.
 
-The separate `normalizeLatent` neural-quantization flag is only read by the generic
-`neural_encode_quantize_kernel`; source inspection confirms it is ignored by the
-specialized and tiled quantized encoder variants. That adjacent finding remains a
-recorded follow-up, including deciding consistent normalization/scale behavior across
-those variants. This document does not claim that every neural configuration flag is
-now honored. VA3-019's atomic accumulation policy also remains separate and open.
+The adjacent `normalizeLatent` neural-quantization omission was fixed in slice 23 for
+specialized and tiled quantized encoders. See the normalization contract for the new
+raw pass-2 flag, enabled-path code/scale semantics and retained disabled behavior.
+High-level preservation of per-vector scales remains separate reconstruction debt.
+VA3-019's atomic accumulation policy also remains open.

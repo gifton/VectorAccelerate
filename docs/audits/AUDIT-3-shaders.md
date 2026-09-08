@@ -1104,6 +1104,43 @@ it. Its behavioral regression and normalization/scale parity fix remain a separa
 VA3-019 atomic accumulation policy remains open; no new determinism guarantee.
 
 
+## Remediation slice 23 (2026-09-07, owner-authorized continuation: neural latent normalization) — EXECUTED
+
+**Scope:** the adjacent `normalizeLatent` omission identified in slice 22. Three exported
+specialized INT8 quantizers now call the generic normalization helper after affine/ReLU.
+Tiled pass 2 receives the dispatch flag at new UInt32 buffer(5). One lane computes the
+norm in sequential FMA order and publishes a reciprocal via a uniform barrier; all lanes
+reduce normalized magnitudes and quantize normalized values. Input intermediates stay
+immutable. Enabled paths match the generic computed-norm epsilon cutoff and minimum
+scale. Disabled paths retain their prior behavior, including tiled zero/tiny scale rules.
+Swift signatures, parameter struct layout and public latent cap remain unchanged.
+
+Three tests initially failed **510 assertions**. Tests cover all raw specializations and
+the generic reference, bias/ReLU/norm combinations, code and scale expectations, zero and
+tiny rows, tiled L=1/3/33/128/257, widths 32/96/256, input immutability, over-dispatch guards,
+and public tiled/generic parity with per-dispatch flags at four shapes. Raw larger-L
+coverage does not widen public limits. Current public quantize dispatch uses the generic
+shader; exported specializations are exercised directly.
+
+Metal validation exposed a second local issue: the public generic quantizer left its
+optional bias at buffer(4) unbound, causing an assertion despite the shader's null check.
+It now binds a persistent 128-float zero fallback; real bias takes precedence. Allocation
+failure uses the existing throwing initializer. The first full-debug attempt was stopped
+after that validation failure; all final gates were rerun on the corrected sources.
+Final targeted **61/0** (16.893s), API+shader validation **7/0** (4.508s, includes slice-22
+tests), full debug **1706/0/11** (258.714s), release **1706/0/11** (56.135s), all exit 0.
+Read-only review approved both the normalization change and bias correction. Final source
+hashes unchanged across gates. Logs: `/private/tmp/va3-normalize-latent/` (including
+`validation-red.log`). See [the contract](../stability/NEURAL-LATENT-NORMALIZATION-CONTRACT.md).
+
+No robust full-range norm, bitwise parity, performance improvement or broader optional-
+bias validation claim. **New source-confirmed residual:** high-level `encode()` averages
+per-vector scales into its result; `decode()` fills every scale slot with that average.
+Different row scales are lost. A result/API preservation fix and regression are next
+concrete reconstruction work. Other optional-bias entry points remain candidates for
+validation. VA3-019 atomic policy stays open.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).
@@ -1140,7 +1177,7 @@ Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live be
 | VA3-024 | P3 | LIVE | Perf pathologies: single-pair euclidean dispatches **one thread**; `batch_select_k_nearest` uses 1/256 threads; hamming-single 256× overdispatch; per-element softmax O(D²/row) |
 | VA3-025 | P3 | **FIXED** | Slice 17: scalar-bounded c-TF-IDF vector tails; zero-K shader/host no-op; invalid K rejected; vector ABI and host routing retained |
 | VA3-026 | P3 | **FIXED** | Slice 18: byte-code and ADC 32 KB bounds enforced; host throws before encoding, raw ADC NaN-fills; invalid assignments cannot cross subspaces; larger-model training/encoding retained |
-| VA3-027 | P2 | FIXED (slice 22) | Tiled activation and specialized learned normalization flags honored; adjacent neural normalizeLatent omission recorded separately |
+| VA3-027 | P2 | FIXED (slice 22) | Tiled activation and specialized learned normalization flags honored; adjacent neural normalizeLatent omission fixed in slice 23 |
 | VA3-028 | P3 | **FIXED** | Slice 19: bounded reservations and checked readback; explicit 2N proof; invalid endpoints distinguish missing edges from genuine infinity across all find/reduce/collect paths |
 | VA3-029 | P3 | — | Header/hygiene: triplicated helper families (va_/ivf_/bare), `VA_EPSILON_HALF` type mismatch, misnamed prefix-sum, non-hygienic debug macro |
 | VA3-030 | P3 | FIXED (slice 14) | Approved split policy: direct rooted-L2 exceptional-range rescue; squared L2/dot retain documented FP32 limits; derived squared-score roots and learned projections retain their limits |
@@ -1346,9 +1383,10 @@ comment, and the VA3-021 note's proposal (resolve every Swift `makeFunction(name
 ReLU conditionally after bias. Specialized `learned_l2_768_to_128`/`384_to_64` now honor
 `normalizeProjected` with the general helper policy. Raw and public regressions cover
 both flags and compilation paths; see [the contract](../stability/IGNORED-FLAGS-CONTRACT.md).
-Adjacent neural `normalizeLatent` omissions remain a separately recorded follow-up:
-only the generic quantizing shader reads that flag; specialized/tiled quantized encoders
-do not. Slice 22 does not claim universal neural flag compliance.
+The adjacent neural `normalizeLatent` omissions were fixed in slice 23 across specialized
+and tiled quantized encoders; see the normalization contract. High-level per-vector scale
+preservation remains separate reconstruction debt. Slice 22 itself covered the original
+two audited flags.
 
 ---
 

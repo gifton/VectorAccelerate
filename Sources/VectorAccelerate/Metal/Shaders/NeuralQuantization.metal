@@ -364,6 +364,9 @@ kernel void neural_encode_768_to_128_kernel(
         }
     }
 
+    // Match the generic encoder: bias and optional ReLU precede normalization.
+    if (params.normalizeLatent) normalizeVector(latent, LATENT_DIM);
+
     // Compute scale and quantize
     float maxAbs = 0.0f;
     for (uint i = 0; i < LATENT_DIM; ++i) {
@@ -442,6 +445,9 @@ kernel void neural_encode_768_to_64_kernel(
         }
     }
 
+    // Match the generic encoder: bias and optional ReLU precede normalization.
+    if (params.normalizeLatent) normalizeVector(latent, LATENT_DIM);
+
     // Compute scale and quantize
     float maxAbs = 0.0f;
     for (uint i = 0; i < LATENT_DIM; ++i) {
@@ -495,6 +501,9 @@ kernel void neural_encode_384_to_64_kernel(
 
         latent[j] = params.useActivation ? max(sum, 0.0f) : sum;
     }
+
+    // Match the generic encoder: bias and optional ReLU precede normalization.
+    if (params.normalizeLatent) normalizeVector(latent, LATENT_DIM);
 
     // Compute scale and quantize
     float maxAbs = 0.0f;
@@ -1421,6 +1430,7 @@ kernel void neural_quantize_pass2(
     device float* scales [[buffer(2)]],
     constant uint& N [[buffer(3)]],
     constant uint& L [[buffer(4)]],
+    constant uint& normalize_latent [[buffer(5)]],
     uint tgid [[threadgroup_position_in_grid]],
     uint lid [[thread_position_in_threadgroup]],
     uint threads_per_tg [[threads_per_threadgroup]],
@@ -1433,9 +1443,25 @@ kernel void neural_quantize_pass2(
     device const float* my_floats = intermediates + (ulong)my_v * L;
     device char* my_codes = latent_codes + (ulong)my_v * L;
 
+    // A single lane uses the generic encoder's sequential FMA norm order.
+    // Only the enabled path pays for normalization or this extra barrier.
+    float normalization = 1.0f;
+    threadgroup float shared_inv_norm[1]; // Cross-lane value published by the barrier below.
+    if (normalize_latent != 0) {
+        if (lid == 0) {
+            float sum = 0.0f;
+            for (uint i = 0; i < L; ++i) sum = fma(my_floats[i], my_floats[i], sum);
+            float norm = sqrt(sum);
+            shared_inv_norm[0] = norm > VA_EPSILON ? 1.0f / norm : 0.0f;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        normalization = shared_inv_norm[0];
+    }
+
     float local_max = 0.0;
     for (uint i = lid; i < L; i += threads_per_tg) {
-        local_max = max(local_max, abs(my_floats[i]));
+        float value = normalize_latent != 0 ? my_floats[i] * normalization : my_floats[i];
+        local_max = max(local_max, abs(value));
     }
 
     float simd_max_val = simd_max(local_max);
@@ -1450,16 +1476,19 @@ kernel void neural_quantize_pass2(
         float final_max = 0.0;
         for(uint i=0; i<active_simds; i++) final_max = max(final_max, shared_maxes[i]);
         float scale = final_max / 127.0f;
+        if (normalize_latent != 0) scale = max(scale, VA_EPSILON);
         scales[my_v] = scale; 
         shared_scale = scale;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     float scale = shared_scale;
-    float scale_mult = (scale > 1e-8f) ? (1.0f / scale) : 0.0f;
+    // Normalized output follows generic quantization; disabled retains legacy scaling.
+    float scale_mult = normalize_latent != 0 ? (1.0f / scale) : ((scale > 1e-8f) ? (1.0f / scale) : 0.0f);
 
     for (uint i = lid; i < L; i += threads_per_tg) {
-        float val = my_floats[i] * scale_mult;
+        float value = normalize_latent != 0 ? my_floats[i] * normalization : my_floats[i];
+        float val = value * scale_mult;
         my_codes[i] = (char)clamp(round(val), -127.0f, 127.0f);
     }
 }

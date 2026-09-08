@@ -253,6 +253,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     private var encoderWeights: TensorBuffer?
     private var decoderWeights: TensorBuffer?
     private var decoderWeightsTransposed: TensorBuffer?
+    private let zeroEncoderBias: any MTLBuffer
     private var encoderBias: TensorBuffer?
     private var decoderBias: TensorBuffer?
 
@@ -278,6 +279,15 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         }
 
         let device = context.device.rawDevice
+        // Metal validation requires a bound buffer even though the shader permits
+        // a null bias pointer. A zero bias preserves the no-bias quantizing result.
+        let zeroBias = [Float](repeating: 0, count: Self.maxLatentDimension)
+        guard let zeroEncoderBias = device.makeBuffer(bytes: zeroBias,
+            length: zeroBias.count * MemoryLayout<Float>.stride, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: zeroBias.count * MemoryLayout<Float>.stride)
+        }
+        zeroEncoderBias.label = "NeuralQuantize.zeroEncoderBias"
+        self.zeroEncoderBias = zeroEncoderBias
         self.encodePipeline = try await device.makeComputePipelineState(function: encodeFunc)
         self.decodePipeline = try await device.makeComputePipelineState(function: decodeFunc)
         self.encodeQuantizePipeline = try await device.makeComputePipelineState(function: encodeQuantizeFunc)
@@ -661,7 +671,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         encoder.setBuffer(encoderWeights.buffer, offset: 0, index: 1)
         encoder.setBuffer(output, offset: 0, index: 2)
         encoder.setBuffer(scale, offset: 0, index: 3)
-        encoder.setBuffer(encoderBias?.buffer, offset: 0, index: 4)
+        encoder.setBuffer(encoderBias?.buffer ?? zeroEncoderBias, offset: 0, index: 4)
 
         var params = parameters
         encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
@@ -724,6 +734,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         var l = UInt32(latentDim)
         var hasBias: UInt32 = encoderBias != nil ? 1 : 0
         var useActivation = UInt32(parameters.useActivation)
+        var normalizeLatent = UInt32(parameters.normalizeLatent)
 
         // 2. PASS 1: Tiled GEMM
         guard let encoder1 = commandBuffer.makeComputeCommandEncoder() else {
@@ -760,6 +771,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         encoder2.setBuffer(scale, offset: 0, index: 2)
         encoder2.setBytes(&n, length: MemoryLayout<UInt32>.size, index: 3)
         encoder2.setBytes(&l, length: MemoryLayout<UInt32>.size, index: 4)
+        encoder2.setBytes(&normalizeLatent, length: MemoryLayout<UInt32>.size, index: 5)
 
         let wQ = p2.threadExecutionWidth
         let qThreadsX = min(256, ((latentDim + wQ - 1) / wQ) * wQ)
