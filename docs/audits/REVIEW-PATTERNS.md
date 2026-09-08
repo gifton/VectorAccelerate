@@ -185,3 +185,16 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   of scheduler behavior, exercise underestimated hints, and request outputs above the
   pool's largest bucket. Validate actual storage and completed segment coverage before
   publishing CSR; do not infer either property from allocation intent.
+
+
+## 17. Unique writers do not imply race-free reads
+- **Mechanism:** assigning each point one writer is insufficient when those writers read
+  other points' mutable coordinates. Even apparently stable output can depend on GPU
+  scheduling. A threadgroup barrier cannot order all threadgroups in a dispatch.
+- **Incident:** VA3-019 slice 21 — UMAP negative sampling now reads frozen target
+  coordinates and writes distinct output, preserving sequential updates of each source.
+  Publication waits for the complete sampling dispatch. Analytic fixtures distinguish
+  both the original race and an accidental change to frozen-source accumulation; tests
+  also exercise preceding producers, subsequent consumers and scratch reuse in a
+  concurrent encoder. Allocation convenience requires retained command-buffer references;
+  unretained command buffers need caller-owned scratch retained through completion.

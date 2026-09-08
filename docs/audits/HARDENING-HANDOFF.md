@@ -11,7 +11,7 @@ release `swift test -c release` → **1590 / 0 / 11**. Both must stay that way (
 
 This document is self-contained, but the authoritative per-finding record is
 `docs/audits/AUDIT-3-shaders.md` (findings VA3-001…034, groups A–G, remediation
-slices 1–20) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
+slices 1–21) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
 `docs/audits/REVIEW-PATTERNS.md` holds the project's adversarial-review pattern library.
 
 ---
@@ -132,6 +132,19 @@ See [the IVF candidate contract](../stability/IVF-CANDIDATE-BOUNDS-CONTRACT.md).
 **VA3-019 remains open for the UMAP race and atomic accumulation policy.** Same single
 `gifton/metal-hardening-checkpoint` branch.
 
+
+**Slice 21 completed: VA3-019 UMAP negative-sampling race fixed.** Targets are immutable
+for each pass; source points still evolve in sample order. Separate output and a GPU
+copy-back eliminate cross-thread embedding reads/writes. The owner approved making
+`encodeNegativeSampling` throwing, with a reusable-scratch overload. Input counts,
+physical lengths and GPU-address overlap are checked before encoding; invalid target
+IDs are skipped. Nine new tests; original two-test red 1262 assertions, targeted 40/0,
+API+shader validation 9/0, full debug/release 1699/0/11; review approved.
+See [the UMAP negative-sampling contract](../stability/UMAP-NEGATIVE-SAMPLING-CONTRACT.md)
+for the `try` migration, new raw output binding, scratch lifetime and synchronization.
+**VA3-019 remains open for the atomic accumulation policy.**
+Numerical/input-clamping backlog remains separate. Same single checkpoint branch.
+
 ## 1. What this project is
 
 VectorAccelerate (VA) is the GPU-acceleration package of the VSK suite: Metal 4 compute
@@ -148,7 +161,7 @@ numerics policy are the parity reference), VectorIndex (pins VA 0.3.1 — not in
 - Swift: `Core/` (Metal4Context, Metal4ComputeEngine, KernelContext, PipelineCache/Key,
   PipelineRegistry, GPUDecisionEngine), `Kernels/Metal4/` (per-kernel wrappers),
   `Integration/` (MetalComputeProvider, KernelDistanceProviders), `Index/` (IVF pipeline).
-- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **22 permanent guard
+- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **23 permanent guard
   suites** created by this epic (§5).
 
 ## 2. Architecture facts you must internalize first
@@ -250,7 +263,7 @@ tie-break policy standardized on the CPU side to VectorCore `TopKSelection` `.sm
 **AUDIT-3 (2026-08-16, VA3-001…034).** Independent end-to-end read of all shader files with
 per-finding Swift dispatch/liveness verification, organized into groups: A reduction/barrier,
 B numerics/fast-math policy, C memory-safety/dispatch contracts, D phantom surface,
-E determinism, F deletion inventory, G hygiene. Then twenty remediation slices:
+E determinism, F deletion inventory, G hygiene. Then twenty-one remediation slices:
 
 | Slice | Date | Scope | Highlights | Gate |
 |---|---|---|---|---|
@@ -274,6 +287,7 @@ E determinism, F deletion inventory, G hygiene. Then twenty remediation slices:
 | 18 | 09-07 | VA3-026 PQ bounds | Byte-code guards, ADC-only 32 KB cap and aligned binding, invalid-code isolation; ten regression tests | 1672/0/11 |
 | 19 | 09-07 | VA3-028 Borůvka bounds | Bounded reservations/readback; endpoint validity preserves infinite edges; geometric-bound and fusion regressions | 1682/0/11 |
 | 20 | 09-07 | VA3-019 IVF portion | Physical capacity guards, overflow recovery, valid CSR ordering, prefix saturation and empty handling; UMAP/policy remain open | 1690/0/11 |
+| 21 | 09-07 | VA3-019 UMAP race | Immutable targets, sequential source updates, separate output/copy-back, throwing fusion and reusable scratch; atomic policy remains open | 1699/0/11 |
 
 **Status:** every P1 fixed; groups A, B, C, D, F closed (B/C retain documented contracts
 and limits). Groups E/G and the recorded residuals remain open (§6).
@@ -304,6 +318,7 @@ and limits). Groups E/G and the recorded residuals remain open (§6).
 | `PQBoundsTests` | Byte-code endpoints, invalid assignment/lookup isolation, ADC table cap/overflow, early host rejection, binding alignment, and retained larger-model train/encode (VA3-026) |
 | `BoruvkaBoundsTests` | Capacity/overflow/wrap guards, endpoint validity and infinity across all variants, fusion count safety, geometric bound with complete merging (VA3-028) |
 | `IVFCandidateBoundsTests` | Bounded whole-query reservations, skewed-list recovery, physical storage guards, prefix saturation and scheduling-independent CSR reordering (VA3-019 IVF portion) |
+| `UMAPNegativeSamplingTests` | Frozen target reads, sequential source updates, raw output guards, concurrent fusion, scratch reuse/lifetime, epoch ordering, and invalid input rejection (VA3-019 UMAP race) |
 
 The 11 skips in the current Apple Silicon gates are explicit unimplemented
 `IVFValidationTests` placeholders (including the missing retrieval API), not environment
@@ -335,11 +350,12 @@ and VA3-028 Borůvka bounds are complete. Raw caller storage/layout, numerical-r
 count/ID, and synchronization requirements remain as documented in the contracts.
 
 **Group E — determinism (needs OWNER POLICY):**
-- **VA3-019 (P2, LIVE):** `umap_negative_sample_kernel` reads `embedding[j]` while sibling
-  threads write `embedding[tid]` — a true data race; plus relaxed `atomic_float`
-  accumulation orders in UMAP target gradients, PQ training, k-means update →
-  run-to-run nondeterminism by design. The "no atomics" contract claimed in older docs is
-  false in ~10 files. Needs a stated determinism policy (accept + document, or rework).
+- **VA3-019 (P2, LIVE):** the remaining part is relaxed `atomic_float` accumulation
+  order in UMAP target gradients, PQ training and k-means update. Run-to-run numerical
+  variation needs a stated policy (accept + document, or rework); older broad "no atomics"
+  claims are false. **The UMAP negative-sampling race is fixed in slice 21** through
+  immutable targets, separate output and synchronized publication. See
+  [the UMAP contract](../stability/UMAP-NEGATIVE-SAMPLING-CONTRACT.md).
 - **Fused IVF portion fixed in slice 20:** bounded physical capacity, exact-path
   overflow recovery, and valid query-ordered CSR conversion. Raw atomic segment order
   stays unspecified; see [the contract](../stability/IVF-CANDIDATE-BOUNDS-CONTRACT.md).
@@ -395,7 +411,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 ## 8. Reference map
 
-- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–20 + all findings),
+- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–21 + all findings),
   `docs/audits/AUDIT-2.md`, `docs/audits/REVIEW-PATTERNS.md`.
 - Plans: `docs/superpowers/plans/2026-08-16-hardening-audit-phase0-1.md` (epic origin).
 - Numerics backlog: `docs/stability/NUMERICAL_STABILITY_FINDINGS.md`.
@@ -407,7 +423,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
   derivation — beware rewriting cases), `Metal/Shaders/Metal4Common.h` (shared constants +
   cosine rescue; mirrored in the preamble).
 
-**Suggested next slice:** VA3-019 UMAP negative-sampling race, followed by the atomic
-accumulation policy (owner decision). The IVF portion is complete. Then VA3-027 ignored
+**Suggested next slice:** VA3-019 atomic accumulation policy (owner decision). The IVF
+bounds/CSR and UMAP negative-sampling race portions are complete. Then VA3-027 ignored
 flags, G hygiene/performance, and the recorded residuals. Group C has no remaining
 numbered findings. Let the owner select the next slice; do not infer approval to broaden this one.

@@ -12,7 +12,8 @@
 //  - umap_edge_gradient_kernel: Compute per-edge gradients (attractive force)
 //  - umap_segment_reduce_kernel: Reduce edge gradients to point gradients
 //  - umap_apply_gradient_kernel: Apply gradients to embedding
-//  - umap_negative_sample_kernel: Compute repulsive gradients from negative samples
+//  - umap_negative_sample_kernel: Compute repulsive updates from immutable targets
+//  - umap_copy_embedding_kernel: Publish completed negative-sampling updates
 //  - umap_accumulate_target_gradients_kernel: Atomically accumulate target gradients
 
 #include <metal_stdlib>
@@ -151,24 +152,29 @@ kernel void umap_apply_gradient_kernel(
 /// Computes repulsive gradients from random negative samples.
 ///
 /// Each point is pushed away from randomly selected non-neighbor points.
-/// Updates are applied directly to embedding (no accumulation needed since
-/// each point has its own unique set of negative samples).
+/// Targets are read from immutable embedding. Each thread initializes and updates
+/// only its own output row, in sample order. Input and output must not alias.
+/// Publish output to embedding only after this entire dispatch has completed.
 kernel void umap_negative_sample_kernel(
-    device float* embedding             [[buffer(0)]],  // [N, D]
+    device const float* embedding       [[buffer(0)]],  // [N, D], immutable targets
     device const uint* randomTargets    [[buffer(1)]],  // [N × negRate] random indices
     constant UMAPParams& params         [[buffer(2)]],
+    device float* output               [[buffer(3)]],  // [N, D], distinct storage
     uint tid [[thread_position_in_grid]]
 ) {
     if (tid >= params.n) return;
 
+    const ulong row = (ulong)tid * params.d;
+    for (uint k = 0; k < params.d; k++) output[row + k] = embedding[row + k];
+
     for (uint s = 0; s < params.negSampleRate; s++) {
         uint j = randomTargets[(ulong)tid * params.negSampleRate + s];
-        if (j == tid) continue;  // Skip self
+        if (j == tid || j >= params.n) continue;  // Skip self and invalid targets
 
         // Compute squared distance
         float distSq = 0.0f;
         for (uint k = 0; k < params.d; k++) {
-            float diff = embedding[(ulong)tid * params.d + k] - embedding[(ulong)j * params.d + k];
+            float diff = output[row + k] - embedding[(ulong)j * params.d + k];
             distSq = fma(diff, diff, distSq);
         }
 
@@ -181,12 +187,25 @@ kernel void umap_negative_sample_kernel(
         // Clamp gradient coefficient
         gradCoeff = clamp(gradCoeff, -4.0f, 4.0f);
 
-        // Apply repulsive gradient directly
+        // Preserve sequential updates of this point; other rows remain read-only targets
         for (uint k = 0; k < params.d; k++) {
-            float diff = embedding[(ulong)tid * params.d + k] - embedding[(ulong)j * params.d + k];
-            embedding[(ulong)tid * params.d + k] += gradCoeff * diff;
+            float diff = output[row + k] - embedding[(ulong)j * params.d + k];
+            output[row + k] += gradCoeff * diff;
         }
     }
+}
+
+/// Copies completed rows back after a dispatch-level buffer barrier.
+/// Input and output must not alias; each point owns one complete row.
+kernel void umap_copy_embedding_kernel(
+    device const float* source         [[buffer(0)]],
+    device float* destination          [[buffer(1)]],
+    constant UMAPParams& params        [[buffer(2)]],
+    uint tid [[thread_position_in_grid]]
+) {
+    if (tid >= params.n) return;
+    const ulong row = (ulong)tid * params.d;
+    for (uint k = 0; k < params.d; k++) destination[row + k] = source[row + k];
 }
 
 // MARK: - Kernel 5: Target Gradient Accumulation

@@ -1038,6 +1038,42 @@ Logs and initial production sources are in `/private/tmp/va3-019/`. No performan
 **VA3-019 remains open for UMAP's embedding race and atomic accumulation policy.**
 
 
+## Remediation slice 21 (2026-09-07, owner-approved: VA3-019 UMAP negative sampling) — EXECUTED
+
+**Scope:** remove the true cross-thread embedding race. The shader reads all targets
+from immutable pass-start coordinates, initializes a distinct output row per point,
+and preserves sequential updates across that point's samples. A second GPU dispatch
+publishes completed rows back to the embedding. Three buffer barriers cover prior
+producers, sampling-to-publication, and later consumers/reuse on concurrent encoders.
+Self and out-of-range IDs are skipped; addresses remain wide, with no fixed-D scratch cap.
+The formula, clipping placement and FP32 math policy are unchanged.
+
+The owner explicitly approved a source compatibility change: `encodeNegativeSampling`
+now throws and has a caller-owned scratch overload. Convenience encoding allocates
+private output (retained command buffers required); reusable scratch supports unretained
+command buffers with explicit resource lifetime through completion. Negative sampling
+validates UInt32 counts, device-limit products, physical lengths, device identity and
+GPU-address overlap before encoding. Zero N/D/rate is a no-op; no pooled allocation is
+used. High-level async signatures are unchanged. Raw shader callers must add distinct
+output at buffer(3); UMAPParams stays 32 bytes. See
+[the contract](../stability/UMAP-NEGATIVE-SAMPLING-CONTRACT.md) for migration and limits.
+
+Two initial regression tests failed **1262 assertions** on the original implementation.
+Nine final tests cover both compilation paths, analytic sequential-source expectations,
+a Double reference with default curve parameters, output/input guards, ragged D,
+self/invalid IDs, empty/invalid shapes, scratch overlap/length, concurrent encoder
+ordering, explicit lifetime with unretained references, scratch reuse, and epoch order.
+Targeted **40/0** (0.680s), API+shader validation **9/0** (1.090s), both exit 0.
+Full debug **1699/0/11** (258.028s), release **1699/0/11** (55.735s), both exit 0,
+on identical production/test sources.
+Read-only review approved with no findings. Logs: `/private/tmp/va3-019-umap/`.
+
+**VA3-019 remains open for atomic accumulation policy.** Fixing the embedding race does
+not make whole epochs bitwise deterministic: floating target-gradient atomics and random
+sample generation remain. Numerical/input-clamping backlog is separate. Scratch costs
+4ND bytes and publication adds a GPU copy dispatch; no performance improvement claimed.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).
@@ -1066,7 +1102,7 @@ Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live be
 | VA3-016 | P2 | **FIXED** (slices 10–12) | LSE/basic-statistics NaN propagation; VectorCore 0.3.3 CPU contract; shared GPU NaN-last/index-tie ordering and CPU chunk merge alignment |
 | VA3-017 | P2 | FIXED (slice 16) | Scalar-backed device/threadgroup vector accesses use packed views; compiler alignment guard and odd-layout GPU tests; neural tail overread also fixed |
 | VA3-018 | P2 | FIXED (slice 15) | Row/address products and downstream indices use `ulong` across 21 shader files; existing count/grid/ID limits retained |
-| VA3-019 | P2 | LIVE | UMAP negative-sample race and float accumulation policy remain open; fused IVF bounds and CSR conversion fixed in slice 20 |
+| VA3-019 | P2 | LIVE | Float accumulation policy remains open; IVF bounds/CSR fixed in slice 20 and UMAP negative-sample race fixed in slice 21 |
 | VA3-020 | P3 | **EXECUTED** (minus warp/batch/streaming select — live, see slice-1 notes) | Dead/broken kernel inventory for deletion — including `minkowski_distance_fractional` (tile load is a stub comment; reads uninitialized shared memory) and `tiled_kmeans_distance` (incoherent tile load) |
 | VA3-021 | P2 | **FIXED** (slice 8: all 8 phantom makeFunction literals deleted, class test closes the family) | `tiledTransposeInPlace` — 6th phantom function name; in-place requests silently downgrade and write to the *output* buffer |
 | VA3-022 | P2 | **FIXED** (slices 1, 13) | Removed power cutoffs/clamps and approximate p substitution; stable normalization/rescaling hardened; explicit fast-path FP32 limits retained |
@@ -1270,7 +1306,7 @@ comment, and the VA3-021 note's proposal (resolve every Swift `makeFunction(name
 ## Group E — Determinism & races (VA3-019, part of -027)
 
 ### VA3-019 (P2, LIVE)
-- `umap_negative_sample_kernel` (UMAPGradient.metal:156-190): reads `embedding[j]` while sibling threads write `embedding[tid]` in the same dispatch — true data race, nondeterministic gradients (known anchor, confirmed in tree).
+- **UMAP negative-sampling race FIXED — slice 21:** immutable pass-start targets, sequential per-source updates in distinct output, then synchronized GPU copy-back. Throwing fusion API and reusable scratch overload; raw callers now bind output at buffer(3). See [the contract](../stability/UMAP-NEGATIVE-SAMPLING-CONTRACT.md).
 - Relaxed `atomic_float` accumulation orders: UMAP target gradients (:202-223), PQ training (ProductQuantization.metal:103-138), k-means update (ClusteringShaders.metal:492-580) — run-to-run nondeterminism by design; needs a stated determinism policy (the "no atomics" contract in the handoffs is currently false in 10 files).
 - **Fused IVF FIXED — slice 20:** bounded whole-query reservations, physical capacity checks, exact-path overflow recovery, and query-ordered CSR conversion. Atomic segment starts were also incorrectly returned as CSR boundaries; this is now covered by scheduling-independent permutation tests. Raw segment order remains unspecified; see [the contract](../stability/IVF-CANDIDATE-BOUNDS-CONTRACT.md).
 - UMAP kernel-1 gradient-clip point differs from reference UMAP (clips coefficient *after* lr/weight multiply, not the per-dim gradient) — the never-completed input-clamping backlog item from NUMERICAL_STABILITY_FINDINGS.
