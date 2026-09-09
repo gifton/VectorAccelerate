@@ -233,3 +233,14 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   before selecting them. Exercise optimized eligibility boundaries explicitly, since
   the default transposed path hid the defect. API validation also exposed missing
   decoder-bias bindings; wrappers now supply persistent zero storage when bias is absent.
+
+
+## 20. Runtime math flags do not override library compilation
+- **Mechanism:** selecting ordinary versus `fast::` intrinsics within one shader does
+  not change the options used to compile its library. A separate compiler configuration
+  can also apply only to custom-source compilation, bypassed by default-library loading.
+- **Incident:** VA3-023 slice 25 documents elementwise `useFastMath` as intrinsic
+  selection only. Trace the wrapper's actual library acquisition and inspect compiler
+  options in both debug and release before assigning precision semantics to a flag.
+  Equal output on a finite fixture establishes neither distinct precision tiers nor
+  strict floating-point behavior.

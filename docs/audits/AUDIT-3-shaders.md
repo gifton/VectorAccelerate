@@ -1180,6 +1180,36 @@ remain validation candidates; the global buffer pool remains separate debt. VA3-
 atomic accumulation policy remains open alongside Group G and recorded residuals.
 
 
+## Remediation slice 25 (2026-09-08, owner-authorized continuation: VA3-023 math flag) — EXECUTED
+
+**Scope:** resolves VA3-023 using the audit's documentation option. Elementwise
+`useFastMath` remains an intrinsic-selection flag within the existing pipeline.
+Swift property/class/overload documentation, shader comments and the new
+[contract](../stability/ELEMENTWISE-MATH-CONTRACT.md) specify the affected operations
+and state that false does not disable the stock library's fast math. Public names,
+defaults, layout, arithmetic and pipeline selection are unchanged. No precise pipeline
+or relative accuracy/performance guarantee is added.
+
+Source tracing confirms both elementwise entry points share the operation helper.
+Debug's configured Metal driver invocation expands to fast-math flags; the release
+bundle-source compiler explicitly sets `.fast`. The contract distinguishes these stock
+paths from explicit custom-source compilation and default-library overrides. Existing
+kernel objects retain the pipelines created at initialization.
+
+This slice changes only comments and documentation, verified by comparing source files
+with HEAD after excluding comment lines. No new behavioral test or red/green claim is
+appropriate. Existing targeted `ElementwiseKernelTests`: **16/0** (0.208s). Full debug
+**1712/0/11** (262.861s), release **1712/0/11** (56.283s), all exit 0: **1701 passed,
+11 existing placeholder skips** in each full gate. Source hashes stayed unchanged across
+the gates. Read-only review found one stock-library qualification, corrected after
+checking the override methods; final review reports no discrepancies.
+Logs and compiler-driver evidence: `/private/tmp/va3-023/`.
+
+VA3-024 performance work and VA3-029 hygiene remain open. VA3-019 atomic accumulation
+policy still needs an owner decision; its IVF bounds and UMAP negative-sampling race
+fixes remain complete. Recorded residuals and the 11 IVF placeholders are unchanged.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).
@@ -1212,7 +1242,7 @@ Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live be
 | VA3-020 | P3 | **EXECUTED** (minus warp/batch/streaming select — live, see slice-1 notes) | Dead/broken kernel inventory for deletion — including `minkowski_distance_fractional` (tile load is a stub comment; reads uninitialized shared memory) and `tiled_kmeans_distance` (incoherent tile load) |
 | VA3-021 | P2 | **FIXED** (slice 8: all 8 phantom makeFunction literals deleted, class test closes the family) | `tiledTransposeInPlace` — 6th phantom function name; in-place requests silently downgrade and write to the *output* buffer |
 | VA3-022 | P2 | **FIXED** (slices 1, 13) | Removed power cutoffs/clamps and approximate p substitution; stable normalization/rescaling hardened; explicit fast-path FP32 limits retained |
-| VA3-023 | P3 | LIVE | `use_fast_math=0` in DataTransformations doesn't disable fast math (whole library compiles `.fast`) — dishonest API flag |
+| VA3-023 | P3 | FIXED (documented, slice 25) | `use_fast_math` explicitly documented as intrinsic selection within a fast-math library; false does not request strict precision |
 | VA3-024 | P3 | LIVE | Perf pathologies: single-pair euclidean dispatches **one thread**; `batch_select_k_nearest` uses 1/256 threads; hamming-single 256× overdispatch; per-element softmax O(D²/row) |
 | VA3-025 | P3 | **FIXED** | Slice 17: scalar-bounded c-TF-IDF vector tails; zero-K shader/host no-op; invalid K rejected; vector ABI and host routing retained |
 | VA3-026 | P3 | **FIXED** | Slice 18: byte-code and ADC 32 KB bounds enforced; host throws before encoding, raw ADC NaN-fills; invalid assignments cannot cross subspaces; larger-model training/encoding retained |
@@ -1451,7 +1481,13 @@ Deleting this inventory removes ~2,500 lines and the majority of this ledger's l
 
 ## Group G — Hygiene & performance (VA3-023, -024, -029)
 
-- **VA3-023:** `ElementwiseParams.use_fast_math` selects `fast::` vs plain intrinsics, but the whole library compiles `mathMode = .fast` — the "precise" branch is fast-math too. Document or actually build a precise pipeline variant.
+- **VA3-023 — FIXED by documentation (slice 25):** `ElementwiseParams.use_fast_math`
+  selects `fast::` vs ordinary operators/intrinsics in the same fast-math library.
+  Public parameter/overload/class docs and shader comments now explicitly deny a strict
+  precision guarantee for false; names, defaults, layout and arithmetic are unchanged.
+  The [contract](../stability/ELEMENTWISE-MATH-CONTRACT.md) lists affected operations,
+  both compile paths and the distinction from custom-source compiler configuration.
+  This takes the audit's documentation option; no precise pipeline is implemented.
 - **VA3-024:** engine single-pair `euclideanDistance` dispatches **one thread total** (Metal4ComputeEngine.swift:225-227) — the "parallel reduction" kernel runs serially on one GPU lane, slower than vDSP by orders of magnitude while telemetry reports a GPU hit. `batch_select_k_nearest_*` do all work on `tid == 0` of a full threadgroup. `hamming_distance_single` dispatches 256× the needed threads (HammingDistanceKernel.swift:477-481; harmless atomic adds of 0). `softmax_row_kernel` recomputes the row max+sum per *element*. `boruvka_component_reduce_kernel` is O(N²) serial scans. These are prime suspects for the known UMAP/overall GPU-underperformance observations.
 - **VA3-029:** `VA_EPSILON_HALF` is a `float` initialized from a half literal; `va_simd_prefix_sum` returns the *exclusive* sum; `VA_DEBUG_ASSERT` is a non-hygienic `if` macro; helper triplication (`va_*` in Metal4Common vs `ivf_*` in IVFListSearch vs bare in AdvancedTopK — three copies of safe-load/bitonic/heap/is-better) is a drift machine: consolidate behind include-guards once the combined-TU strategy allows.
 

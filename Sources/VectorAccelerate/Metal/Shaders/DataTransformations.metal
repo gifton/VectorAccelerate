@@ -31,11 +31,15 @@ struct ElementwiseParams {
     float scalar_value2;     // clamp (min)
     float scalar_value3;     // clamp (max)
     uint8_t operation;
+    // Intrinsic selection only: zero uses ordinary operators/intrinsics, nonzero
+    // uses fast:: for the cases below. Zero does not disable library fast math.
     uint8_t use_fast_math;
     uint8_t padding[2];
 };
 
 // Helper function to execute the operation
+// Both entry points share this helper. The library is compiled with fast math;
+// neither branch promises strict IEEE semantics or a distinct accuracy/speed tier.
 float perform_elementwise_operation(float a, float b, constant ElementwiseParams& params) {
     // 'b' is pre-loaded with either the second vector element or the scalar value.
     const bool use_fast = params.use_fast_math;

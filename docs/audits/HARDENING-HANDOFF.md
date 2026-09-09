@@ -11,7 +11,7 @@ release `swift test -c release` → **1590 / 0 / 11**. Both must stay that way (
 
 This document is self-contained, but the authoritative per-finding record is
 `docs/audits/AUDIT-3-shaders.md` (findings VA3-001…034, groups A–G, remediation
-slices 1–24) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
+slices 1–25) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
 `docs/audits/REVIEW-PATTERNS.md` holds the project's adversarial-review pattern library.
 
 ---
@@ -32,7 +32,8 @@ NaN-containing input, including mixed NaN/Inf. Empty input and infinity without 
 throw; higher-moment, quantile, and correlation requests retain finite-only validation.
 Histograms and softmax are unchanged. Nine further tests cover both shader paths and public APIs.
 
-Current full gates: **debug 1690 / 0 failures / 11 skipped; release 1690 / 0 / 11**.
+Current full gates: **debug 1712 / 0 failures / 11 skipped; release 1712 / 0 / 11**.
+This is 1701 passed and 11 skipped in each configuration; see slice 25 for current evidence.
 The original state stamp above is historical. On 2026-09-07, the owner authorized
 checkpointing all project work through slice 16 on `gifton/metal-hardening-checkpoint`
 and pushing that branch to `origin`. This checkpoint includes the hardening tests, audit
@@ -181,6 +182,16 @@ gates. See [the result contract](../stability/NEURAL-ENCODING-SCALES-CONTRACT.md
 latent cap and FP32 limits retained; VA3-019 atomic policy and broader pool/bias debt
 remain open. Same single checkpoint branch.
 
+
+**Slice 25 completed: VA3-023 resolved by documenting intrinsic selection.** API and
+shader comments plus the [math contract](../stability/ELEMENTWISE-MATH-CONTRACT.md)
+clarify that `useFastMath: false` does not disable fast math in the stock library.
+The flag, ABI and numerical behavior are retained; no precise pipeline is added.
+Custom-source compilation and explicit default-library overrides are distinguished.
+Targeted 16/0; full debug/release 1712/0/11 (1701 passed, 11 placeholder skips each),
+all exit 0. Comment-only source diff and unchanged gate hashes verified; review approved.
+VA3-024/029 and VA3-019 atomic policy remain open. Same checkpoint branch.
+
 ## 1. What this project is
 
 VectorAccelerate (VA) is the GPU-acceleration package of the VSK suite: Metal 4 compute
@@ -249,7 +260,12 @@ NEVER add a rewriting case whose operation string equals a kernel name); (2)
 EIGHT phantoms here). `ShaderLibraryCompletenessTests` closes all three routes with no
 makeFunction allowlist and a shrinking getPipeline allowlist (currently: `vectorMultiply`).
 
-**2.5 Fast-math is on everywhere** (`mathMode = .fast`, including the runtime compile).
+**2.5 The default shader library uses fast math** (debug compiler defaults and runtime
+`mathMode = .fast`). Elementwise `useFastMath: false` selects ordinary intrinsics in
+that library, not a precise pipeline; see the [contract](../stability/ELEMENTWISE-MATH-CONTRACT.md).
+The separate `Metal4CompilerConfiguration.fastMathEnabled` controls explicit
+`makeLibrary(source:)` calls; configuration alone does not rebuild the packaged
+library. Explicit default-library overrides are possible; see the contract.
 Measured consequences already found: `sqrt(a)*sqrt(b)` reassociated to `sqrt(ab)` (overflow
 → silent 0); `(d/nA)/nB` rewritten to `d·rcp(nA·nB)` (subnormal reciprocal flush — fix is
 `precise::divide`); `isinf()` folded to false in the plugin metallib but not runtime
@@ -299,7 +315,7 @@ tie-break policy standardized on the CPU side to VectorCore `TopKSelection` `.sm
 **AUDIT-3 (2026-08-16, VA3-001…034).** Independent end-to-end read of all shader files with
 per-finding Swift dispatch/liveness verification, organized into groups: A reduction/barrier,
 B numerics/fast-math policy, C memory-safety/dispatch contracts, D phantom surface,
-E determinism, F deletion inventory, G hygiene. Then twenty-three remediation slices:
+E determinism, F deletion inventory, G hygiene. Then twenty-five remediation slices:
 
 | Slice | Date | Scope | Highlights | Gate |
 |---|---|---|---|---|
@@ -327,6 +343,7 @@ E determinism, F deletion inventory, G hygiene. Then twenty-three remediation sl
 | 22 | 09-07 | VA3-027 audited flags | Tiled activation and specialized learned normalization honored; raw/public regression coverage; adjacent normalizeLatent debt recorded | 1703/0/11 |
 | 23 | 09-07 | Neural latent normalization | Specialized/tiled normalizeLatent honored; normalized scale parity; no-bias generic binding fixed; average-scale reconstruction debt recorded | 1706/0/11 |
 | 24 | 09-08 | Neural reconstruction scales | Owned per-row scales, both decoders/consumers, shape/storage guards, zero decoder bias and ragged fallback routing | 1712/0/11 |
+| 25 | 09-08 | VA3-023 math flag contract | Document intrinsic selection and stock fast-math compile paths; retain API/ABI/behavior, no precise pipeline | 1712/0/11 |
 
 **Status:** every P1 fixed; groups A, B, C, D, F closed (B/C retain documented contracts
 and limits). Groups E/G and the recorded residuals remain open (§6).
@@ -406,7 +423,10 @@ count/ID, and synchronization requirements remain as documented in the contracts
   [the contract](../stability/IGNORED-FLAGS-CONTRACT.md). The adjacent neural
   `normalizeLatent` omissions were fixed in slice 23; see the normalization contract.
 
-**Group G — hygiene/perf:** VA3-023, VA3-029 (see ledger), and **VA3-024**: engine batch
+**Group G — hygiene/perf:** **VA3-023 resolved by documentation in slice 25:** elementwise
+`useFastMath` selects intrinsics within the same fast-math library; false does not
+promise strict precision. API/layout/behavior are retained; see the math contract.
+**VA3-029** remains open (see ledger), and **VA3-024**: engine batch
 dispatch uses 16×16 threadgroups for 1-D work (16× redundant compute in some batch paths)
 + the engine width-1 euclidean dispatch oddity. Perf-only; benchmark before/after.
 
@@ -470,8 +490,10 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
   derivation — beware rewriting cases), `Metal/Shaders/Metal4Common.h` (shared constants +
   cosine rescue; mirrored in the preamble).
 
-**Suggested next slice:** VA3-019 atomic accumulation policy (owner decision). The IVF
-bounds/CSR and UMAP negative-sampling race portions are complete; VA3-027's two audited
+**Suggested next implementation slice:** VA3-024 engine batch dispatch geometry, with
+before/after benchmarks and correctness checks. VA3-019 atomic accumulation policy still
+needs an owner decision. The IVF bounds/CSR and UMAP negative-sampling race portions are complete; VA3-027's two audited
 flags, neural `normalizeLatent` parity and per-vector scale preservation are also fixed.
-Remaining concrete work includes G hygiene/performance and the recorded residuals. Group C has no remaining
+VA3-023 is resolved by documenting its existing intrinsic-selection semantics.
+Remaining concrete work includes VA3-024/029 and the recorded residuals. Group C has no remaining
 numbered findings. Let the owner select the next slice; do not infer approval to broaden this one.
