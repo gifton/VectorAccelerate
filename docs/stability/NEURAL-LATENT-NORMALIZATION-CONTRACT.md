@@ -20,10 +20,9 @@ is zero. Quantization uses `max(maxAbs(normalizedLatent) / 127, VA_EPSILON)` and
 scaled values before clamping to [-127, 127]. Finite zero or below-cutoff vectors therefore
 produce zero codes and the epsilon scale. Normalization may change the scale without
 changing codes, so consumers must preserve each vector's scale when reconstructing it.
-The existing high-level `encode()` result stores only their average, and `decode()`
-reuses it for all rows. That source-confirmed loss of per-vector scale is a separate
-reconstruction defect awaiting a result/API fix; the buffer APIs preserve the full
-scale array.
+Slice 24 fixes high-level metadata loss: `encode()` now returns the owned scale array,
+and both decoders consume each row's scale. See [the result contract](NEURAL-ENCODING-SCALES-CONTRACT.md)
+for migration from the deprecated average `.scale` property.
 
 The three specialized quantizers call the generic normalization helper after their
 existing affine/ReLU calculations. Tiled pass 2 keeps its input intermediates immutable:

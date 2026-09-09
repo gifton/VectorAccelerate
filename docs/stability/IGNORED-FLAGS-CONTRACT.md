@@ -45,5 +45,6 @@ exercise the specialized selection paths. This adds the previously missing dedic
 The adjacent `normalizeLatent` neural-quantization omission was fixed in slice 23 for
 specialized and tiled quantized encoders. See the normalization contract for the new
 raw pass-2 flag, enabled-path code/scale semantics and retained disabled behavior.
-High-level preservation of per-vector scales remains separate reconstruction debt.
+High-level per-vector scale preservation was fixed in slice 24; see
+[the result contract](NEURAL-ENCODING-SCALES-CONTRACT.md).
 VA3-019's atomic accumulation policy also remains open.

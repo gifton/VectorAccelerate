@@ -1141,6 +1141,45 @@ concrete reconstruction work. Other optional-bias entry points remain candidates
 validation. VA3-019 atomic policy stays open.
 
 
+## Remediation slice 24 (2026-09-08, owner-authorized continuation: neural result scales) — EXECUTED
+
+**Scope:** the reconstruction defect found in slice 23. `Metal4NeuralEncodingResult`
+now owns one scale per vector; both high-level decoders and two direct benchmark
+consumers use that array. The previous `.scale` remains a deprecated diagnostic average.
+Code-payload metrics retain their values and now explicitly exclude scale metadata.
+GPU results are copied before pool leases end. Decoders validate dimensions, exact code
+and scale counts, and output products; encoding rejects ragged rows. All high-level
+neural pooled allocations check actual capacity before copying or dispatching, locally
+containing the known oversized-request pool defect without changing the global pool.
+
+The first three regression tests failed **64 assertions** on the original implementation.
+Six final tests cover unequal row magnitudes through both decoders, all transposed
+specializations, normalized/zero rows, scale ownership through pool reuse and reload,
+malformed results, ragged input rejection and direct non-transposed decoder variants.
+Exact INT8 coordinates isolate scale loss from quantization error.
+
+Two adjacent failures were reproduced while validating the decoder surface:
+- Metal API validation aborted on unbound decoderBias buffer(4) in transposed v2.
+  Weight loading now prepares an output-sized zero-bias buffer; all decoder wrappers
+  bind it when no real bias exists. Unloading releases it; real bias takes precedence.
+- Direct L=3 tests failed **16 assertions** because optimized non-transposed float4
+  kernels discarded the incomplete latent block. Swift selects those variants only
+  for L divisible by four; other shapes use the existing scalar fallback. L=4 controls
+  cover all four optimized widths, and a trailing output guard remains intact.
+
+Final targeted **55/0** (24.566s), API+shader validation **6/0** (0.198s), full debug
+**1712/0/11** (260.265s), release **1712/0/11** (56.602s), all exit 0. Final source
+hashes were unchanged across full gates. Read-only review approved the implementation,
+routing correction and contract. Logs: `/private/tmp/va3-neural-scales/`
+(including original red, validation abort and ragged fallback red). See
+[the result contract](../stability/NEURAL-ENCODING-SCALES-CONTRACT.md).
+
+No raw ABI, public latent-cap, FP32 range, model-identity, concurrent weight-loading,
+lossless reconstruction or performance guarantee is added. Other optional-bias APIs
+remain validation candidates; the global buffer pool remains separate debt. VA3-019
+atomic accumulation policy remains open alongside Group G and recorded residuals.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).
@@ -1385,7 +1424,7 @@ ReLU conditionally after bias. Specialized `learned_l2_768_to_128`/`384_to_64` n
 both flags and compilation paths; see [the contract](../stability/IGNORED-FLAGS-CONTRACT.md).
 The adjacent neural `normalizeLatent` omissions were fixed in slice 23 across specialized
 and tiled quantized encoders; see the normalization contract. High-level per-vector scale
-preservation remains separate reconstruction debt. Slice 22 itself covered the original
+preservation was subsequently fixed in slice 24. Slice 22 itself covered the original
 two audited flags.
 
 ---

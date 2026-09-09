@@ -11,12 +11,12 @@ release `swift test -c release` → **1590 / 0 / 11**. Both must stay that way (
 
 This document is self-contained, but the authoritative per-finding record is
 `docs/audits/AUDIT-3-shaders.md` (findings VA3-001…034, groups A–G, remediation
-slices 1–23) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
+slices 1–24) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
 `docs/audits/REVIEW-PATTERNS.md` holds the project's adversarial-review pattern library.
 
 ---
 
-## Current addendum — 2026-09-07
+## Current addendum — 2026-09-08
 
 **Slice 9 completed: VA3-015 is FIXED.** Correlation finalization now avoids fast-math
 variance-product overflow/underflow and divides by the smaller finite norm first so tiny
@@ -165,9 +165,21 @@ unchanged. Raw pass 2 requires UInt32 buffer(5); see
 Three new tests; initial red 510 assertions, final targeted 61/0, API+shader validation
 7/0 including prior flag tests, full debug/release 1706/0/11; review approved. Validation
 also exposed an unbound optional bias in the generic quantizing wrapper, now fixed
-locally with a zero-bias buffer. A separate source-confirmed defect remains: high-level
-encode stores only the average scale and decode repeats it for all vectors. Recorded as
-reconstruction follow-up below. VA3-019 atomic policy remains open; same checkpoint branch.
+locally with a zero-bias buffer. This slice also identified average-scale metadata loss
+in high-level reconstruction, subsequently fixed in slice 24 below. VA3-019 atomic
+policy remains open; same checkpoint branch.
+
+**Slice 24 completed: neural result scales preserved.** High-level results own one scale
+per row; both decoders and direct benchmark consumers use it. `.scale` remains a deprecated
+diagnostic average. Exact metadata/shape checks and actual pooled-buffer capacity guards
+precede copies and dispatches. Validation exposed an unbound decoder bias, fixed with
+persistent zero storage, and direct ragged-latent tests exposed truncated non-transposed
+float4 decoding, now routed to the existing scalar fallback. Six new tests: original red
+64 assertions, ragged fallback red 16; targeted 55/0, API+shader validation 6/0, full
+debug/release 1712/0/11, all exit 0. Review approved; source hashes unchanged across full
+gates. See [the result contract](../stability/NEURAL-ENCODING-SCALES-CONTRACT.md). Public
+latent cap and FP32 limits retained; VA3-019 atomic policy and broader pool/bias debt
+remain open. Same single checkpoint branch.
 
 ## 1. What this project is
 
@@ -185,7 +197,7 @@ numerics policy are the parity reference), VectorIndex (pins VA 0.3.1 — not in
 - Swift: `Core/` (Metal4Context, Metal4ComputeEngine, KernelContext, PipelineCache/Key,
   PipelineRegistry, GPUDecisionEngine), `Kernels/Metal4/` (per-kernel wrappers),
   `Integration/` (MetalComputeProvider, KernelDistanceProviders), `Index/` (IVF pipeline).
-- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **25 permanent guard
+- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **26 permanent guard
   suites** created by this epic (§5).
 
 ## 2. Architecture facts you must internalize first
@@ -257,7 +269,7 @@ to the VA3-015 stragglers was completed in slice 9, including smaller-norm-first
    that discriminate (e.g. data where the honest and the buggy answer differ in FP32).
 3. **Gates.** After the fix: targeted suites, then FULL debug suite, then FULL release
    suite (`swift test -c release`) — release exercises the runtime-compiled library
-   (§2.1). Record exact counts. Current expectation: 1690/0/11 both configs.
+   (§2.1). Record exact counts. Current expectation: 1712/0/11 both configs.
 4. **Ledger + memory.** Append a "Remediation slice N" section to
    `docs/audits/AUDIT-3-shaders.md`, flip the finding's summary-table row and detail
    heading to **FIXED**, and append a dated paragraph to the session memory file
@@ -314,6 +326,7 @@ E determinism, F deletion inventory, G hygiene. Then twenty-three remediation sl
 | 21 | 09-07 | VA3-019 UMAP race | Immutable targets, sequential source updates, separate output/copy-back, throwing fusion and reusable scratch; atomic policy remains open | 1699/0/11 |
 | 22 | 09-07 | VA3-027 audited flags | Tiled activation and specialized learned normalization honored; raw/public regression coverage; adjacent normalizeLatent debt recorded | 1703/0/11 |
 | 23 | 09-07 | Neural latent normalization | Specialized/tiled normalizeLatent honored; normalized scale parity; no-bias generic binding fixed; average-scale reconstruction debt recorded | 1706/0/11 |
+| 24 | 09-08 | Neural reconstruction scales | Owned per-row scales, both decoders/consumers, shape/storage guards, zero decoder bias and ragged fallback routing | 1712/0/11 |
 
 **Status:** every P1 fixed; groups A, B, C, D, F closed (B/C retain documented contracts
 and limits). Groups E/G and the recorded residuals remain open (§6).
@@ -347,6 +360,7 @@ and limits). Groups E/G and the recorded residuals remain open (§6).
 | `UMAPNegativeSamplingTests` | Frozen target reads, sequential source updates, raw output guards, concurrent fusion, scratch reuse/lifetime, epoch ordering, and invalid input rejection (VA3-019 UMAP race) |
 | `IgnoredFlagTests` | Tiled ReLU on/off after bias, signed quantized outputs, specialized learned normalization/root flags, guards and both compilation paths (VA3-027) |
 | `NeuralLatentNormalizationTests` | Quantized codes/scales, bias/ReLU/norm ordering, zero/tiny cutoff, raw specialized/tiled/public generic paths, ragged rows and input/output guards |
+| `NeuralEncodingScaleTests` | Per-vector scales through both high-level decoders, normalized/zero rows, metadata ownership, malformed shapes, no-bias validation and ragged scalar fallback routing |
 
 The 11 skips in the current Apple Silicon gates are explicit unimplemented
 `IVFValidationTests` placeholders (including the missing retrieval API), not environment
@@ -403,13 +417,12 @@ blind spot for custom metrics; `PipelineCacheKey.quantized` derives only phantom
 ragged-pair asymmetry (euclidean→+Inf vs cosine→NaN, provider-unreachable).
 
 **Coverage gaps / debt:** global buffer-pool requests above 64 MiB may receive undersized
-storage (IVF now checks/rejects this locally; broader pool correction remains open);
-11 unimplemented `IVFValidationTests` placeholders; high-level neural `encode()` stores
-only the average of per-vector quantization scales and `decode()` repeats that average,
-losing row-specific reconstruction scale (source-confirmed in slice 23; regression/API
-fix pending). Other optional-bias entry points need broader Metal validation; slice 23
-fixed the generic quantizing binding locally. The previous `encodeTiledV3` dedicated-test
-gap and `normalizeLatent` omissions were closed in slices 22 and 23.
+storage (IVF and high-level neural wrappers now check/reject this locally; broader pool
+correction remains open); 11 unimplemented `IVFValidationTests` placeholders. Broader
+optional-bias validation remains debt: slices 23/24 fixed generic quantizing and decoder
+bindings locally; float-only encoding remains a candidate. Per-vector scale loss and
+ragged non-transposed decoder routing were fixed in slice 24. The previous `encodeTiledV3`
+dedicated-test gap and `normalizeLatent` omissions were closed in slices 22 and 23.
 VA2-013 plugin header-dep gap (workaround in §2.1); the CI leg for the release gate was
 deferred by the owner (AUDIT-2 decision 5); UMAP GPU benchmark underperforms expectation
 (0.6–1.6× vs 2–5×); `docs/stability/NUMERICAL_STABILITY_FINDINGS.md` backlog (UMAPGradient
@@ -445,7 +458,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 ## 8. Reference map
 
-- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–23 + all findings),
+- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–24 + all findings),
   `docs/audits/AUDIT-2.md`, `docs/audits/REVIEW-PATTERNS.md`.
 - Plans: `docs/superpowers/plans/2026-08-16-hardening-audit-phase0-1.md` (epic origin).
 - Numerics backlog: `docs/stability/NUMERICAL_STABILITY_FINDINGS.md`.
@@ -459,6 +472,6 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 **Suggested next slice:** VA3-019 atomic accumulation policy (owner decision). The IVF
 bounds/CSR and UMAP negative-sampling race portions are complete; VA3-027's two audited
-flags and neural `normalizeLatent` parity are also fixed. Remaining concrete work includes
-neural per-vector scale preservation, G hygiene/performance and the recorded residuals. Group C has no remaining
+flags, neural `normalizeLatent` parity and per-vector scale preservation are also fixed.
+Remaining concrete work includes G hygiene/performance and the recorded residuals. Group C has no remaining
 numbered findings. Let the owner select the next slice; do not infer approval to broaden this one.

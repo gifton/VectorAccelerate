@@ -219,3 +219,17 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   the generic quantizing wrapper now binds zeros. Trace output metadata through the
   consumer: the high-level result still collapses the scale array to its average,
   recorded as a separate reconstruction defect rather than hidden by buffer-level parity.
+
+
+## 19. Correct kernel metadata must survive the result boundary
+- **Mechanism:** correct per-row GPU metadata can be reduced to a single summary in a
+  result object and then broadcast by every consumer. Buffer-level parity tests miss
+  this; use unequal row magnitudes and trace codes plus scales through public decoding.
+- **Incident:** slice 24 — neural results now own the full scale array; both decoders
+  and direct benchmark consumers preserve it. Pool reuse/reload tests protect ownership,
+  and exact INT8 coordinates distinguish metadata loss from quantization error.
+- **Adjacent routing check:** forcing non-transposed fallback widths with L=3 exposed
+  float4 kernels that discarded the latent tail. Host routing now enforces L % 4 == 0
+  before selecting them. Exercise optimized eligibility boundaries explicitly, since
+  the default transposed path hid the defect. API validation also exposed missing
+  decoder-bias bindings; wrappers now supply persistent zero storage when bias is absent.

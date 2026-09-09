@@ -79,7 +79,7 @@ public struct Metal4NeuralQuantizationConfig: Sendable {
         )
     }
 
-    /// Compression ratio achieved
+    /// Code-payload compression ratio, excluding per-vector scale metadata.
     public var compressionRatio: Float {
         Float(inputDimension * MemoryLayout<Float>.size) /
         Float(latentDimension * MemoryLayout<Int8>.size)
@@ -126,15 +126,22 @@ public struct Metal4NeuralEncodingResult: Sendable {
     public let numVectors: Int
     /// Latent dimension per vector
     public let latentDimension: Int
-    /// Scale factor used for quantization
-    public let scale: Float
+    /// Quantization scale for each vector, in the same row order as `latentCodes`.
+    public let scales: [Float]
+
+    /// Average scale for diagnostics only. Reconstruction requires `scales`.
+    @available(*, deprecated, message: "Use scales for reconstruction; scale is only their average.")
+    public var scale: Float {
+        guard !scales.isEmpty else { return 0 }
+        return Float(scales.reduce(0.0) { $0 + Double($1) } / Double(scales.count))
+    }
     /// Encoding time
     public let encodingTime: TimeInterval
 
-    /// Bytes per vector in encoded form
+    /// INT8 code bytes per vector, excluding the separate Float32 scale.
     public var bytesPerVector: Int { latentDimension }
 
-    /// Total compressed size
+    /// INT8 code payload size, excluding the separate scale array.
     public var compressedSize: Int { latentCodes.count }
 }
 
@@ -255,6 +262,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
     private var decoderWeightsTransposed: TensorBuffer?
     private let zeroEncoderBias: any MTLBuffer
     private var encoderBias: TensorBuffer?
+    private var zeroDecoderBias: (any MTLBuffer)?
     private var decoderBias: TensorBuffer?
 
     // MARK: - Initialization
@@ -461,7 +469,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         )
 
         // Create transposed decoder weights for coalesced memory access
-        try await createTransposedDecoderWeights()
+        try await prepareDecoderResources()
 
         currentConfig = config
     }
@@ -497,7 +505,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         )
 
         // Create transposed decoder weights for coalesced memory access
-        try await createTransposedDecoderWeights()
+        try await prepareDecoderResources()
 
         currentConfig = config
     }
@@ -536,7 +544,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         )
 
         // Create transposed decoder weights for coalesced memory access
-        try await createTransposedDecoderWeights()
+        try await prepareDecoderResources()
 
         currentConfig = config
     }
@@ -561,17 +569,30 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         )
 
         // Create transposed decoder weights for coalesced memory access
-        try await createTransposedDecoderWeights()
+        try await prepareDecoderResources()
 
         currentConfig = config
     }
 
-    /// Create transposed decoder weights for coalesced memory access.
+    /// Prepare zero-bias storage and transposed decoder weights.
     ///
     /// The transposed layout [latentDim, inputDim] enables adjacent threads
     /// to read adjacent memory locations during decode, improving memory bandwidth.
-    private func createTransposedDecoderWeights() async throws {
+    private func prepareDecoderResources() async throws {
         guard let decoderWeights = decoderWeights else { return }
+        let outputDim = decoderWeights.shape.dimensions[0]
+        let device = context.device.rawDevice
+        guard outputDim > 0, outputDim <= device.maxBufferLength / MemoryLayout<Float>.stride else {
+            throw VectorError.invalidInput("Neural decoder bias dimensions exceed the device limit")
+        }
+        let bytes = outputDim * MemoryLayout<Float>.stride
+        guard let zeroBias = device.makeBuffer(length: bytes, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: bytes)
+        }
+        memset(zeroBias.contents(), 0, bytes)
+        zeroBias.label = "NeuralDecode.zeroDecoderBias"
+        zeroDecoderBias = zeroBias
+
         guard hasTransposedDecode else {
             VectorLogDebug("Transposed decode kernel not available, skipping transpose", category: "NeuralQuantization")
             return
@@ -605,6 +626,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         decoderWeightsTransposed = nil
         encoderBias = nil
         decoderBias = nil
+        zeroDecoderBias = nil
         currentConfig = nil
     }
 
@@ -803,7 +825,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         encoder.setBuffer(input, offset: 0, index: 0)
         encoder.setBuffer(decoderWeights.buffer, offset: 0, index: 1)
         encoder.setBuffer(output, offset: 0, index: 2)
-        encoder.setBuffer(decoderBias?.buffer, offset: 0, index: 3)
+        encoder.setBuffer(decoderBias?.buffer ?? zeroDecoderBias, offset: 0, index: 3)
 
         var params = parameters
         encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 4)
@@ -900,7 +922,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         encoder.setBuffer(scale, offset: 0, index: 1)
         encoder.setBuffer(transposedWeights.buffer, offset: 0, index: 2)
         encoder.setBuffer(output, offset: 0, index: 3)
-        encoder.setBuffer(decoderBias?.buffer, offset: 0, index: 4)
+        encoder.setBuffer(decoderBias?.buffer ?? zeroDecoderBias, offset: 0, index: 4)
 
         var params = parameters
         encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
@@ -965,8 +987,9 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             kernelName = "neural_dequantize_decode_kernel"
         }
 
-        // Use optimized 2D kernel if available
-        if let optimizedPipeline = pipeline {
+        // Non-transposed float4 kernels require complete four-element latent blocks.
+        // The original scalar kernel handles ragged latent rows without truncation.
+        if parameters.latentDimension.isMultiple(of: 4), let optimizedPipeline = pipeline {
             encoder.setComputePipelineState(optimizedPipeline)
             encoder.label = "NeuralDequantizeDecode2D_\(threadgroupSize)"
 
@@ -974,7 +997,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             encoder.setBuffer(scale, offset: 0, index: 1)
             encoder.setBuffer(decoderWeights.buffer, offset: 0, index: 2)
             encoder.setBuffer(output, offset: 0, index: 3)
-            encoder.setBuffer(decoderBias?.buffer, offset: 0, index: 4)
+            encoder.setBuffer(decoderBias?.buffer ?? zeroDecoderBias, offset: 0, index: 4)
 
             var params = parameters
             encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
@@ -1006,7 +1029,7 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         encoder.setBuffer(scale, offset: 0, index: 1)
         encoder.setBuffer(decoderWeights.buffer, offset: 0, index: 2)
         encoder.setBuffer(output, offset: 0, index: 3)
-        encoder.setBuffer(decoderBias?.buffer, offset: 0, index: 4)
+        encoder.setBuffer(decoderBias?.buffer ?? zeroDecoderBias, offset: 0, index: 4)
 
         var params = parameters
         encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 5)
@@ -1041,21 +1064,30 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             throw VectorError.countMismatch(expected: config.inputDimension, actual: inputDim)
         }
 
+        guard vectors.allSatisfy({ $0.count == inputDim }), inputDim > 0,
+              config.latentDimension > 0, inputDim <= Int(UInt32.max), vectors.count <= Int(UInt32.max),
+              vectors.count <= context.device.rawDevice.maxBufferLength / MemoryLayout<Float>.stride / inputDim else {
+            throw VectorError.invalidInput("Neural encoding requires rectangular, supported input dimensions")
+        }
+
         let numVectors = vectors.count
         let latentDim = config.latentDimension
 
         // Use pooled buffers for temporary allocations (RAII auto-return)
         let flatInput = vectors.flatMap { $0 }
-        let inputToken = try await context.getBuffer(for: flatInput)
+        let inputToken = try await checkedEncodingBuffer(size: flatInput.count * MemoryLayout<Float>.stride)
+        flatInput.withUnsafeBytes { bytes in
+            inputToken.buffer.contents().copyMemory(from: bytes.baseAddress!, byteCount: bytes.count)
+        }
         inputToken.buffer.label = "NeuralQuantize.input"
 
         // Output buffer (INT8)
         let outputSize = numVectors * latentDim
-        let outputToken = try await context.getBuffer(size: outputSize)
+        let outputToken = try await checkedEncodingBuffer(size: outputSize)
         outputToken.buffer.label = "NeuralQuantize.output"
 
         // Scale buffer (one scale per vector)
-        let scaleToken = try await context.getBuffer(size: numVectors * MemoryLayout<Float>.size)
+        let scaleToken = try await checkedEncodingBuffer(size: numVectors * MemoryLayout<Float>.size)
         scaleToken.buffer.label = "NeuralQuantize.scale"
 
         let parameters = NeuralQuantizationParameters(
@@ -1080,14 +1112,14 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         // Extract results
         let latentCodes = Data(bytes: outputToken.buffer.contents(), count: outputSize)
         let scalePtr = scaleToken.buffer.contents().bindMemory(to: Float.self, capacity: numVectors)
-        let avgScale = (0..<numVectors).reduce(0.0) { $0 + scalePtr[$1] } / Float(numVectors)
+        let scales = Array(UnsafeBufferPointer(start: scalePtr, count: numVectors))
 
         // Tokens auto-return to pool when scope exits
         return Metal4NeuralEncodingResult(
             latentCodes: latentCodes,
             numVectors: numVectors,
             latentDimension: latentDim,
-            scale: avgScale,
+            scales: scales,
             encodingTime: encodingTime
         )
     }
@@ -1101,23 +1133,27 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             throw VectorError.invalidOperation("Weights not loaded. Call loadWeights first.")
         }
 
+        try validateEncodedResult(encoded, config: config)
+
         let numVectors = encoded.numVectors
         let inputDim = config.inputDimension
 
         // Use pooled buffers for temporary allocations (RAII auto-return)
-        let inputToken = try await context.getBuffer(for: [UInt8](encoded.latentCodes))
+        let inputToken = try await checkedEncodingBuffer(size: encoded.latentCodes.count)
+        encoded.latentCodes.withUnsafeBytes { bytes in
+            inputToken.buffer.contents().copyMemory(from: bytes.baseAddress!, byteCount: bytes.count)
+        }
         inputToken.buffer.label = "NeuralDequantize.input"
 
-        let scaleToken = try await context.getBuffer(size: numVectors * MemoryLayout<Float>.size)
+        let scaleToken = try await checkedEncodingBuffer(size: numVectors * MemoryLayout<Float>.size)
         scaleToken.buffer.label = "NeuralDequantize.scale"
 
-        // Initialize scales using vectorized fill (use stored average for now)
-        let scalePtr = scaleToken.buffer.contents().bindMemory(to: Float.self, capacity: numVectors)
-        var scaleValue = encoded.scale
-        vDSP_vfill(&scaleValue, scalePtr, 1, vDSP_Length(numVectors))
+        encoded.scales.withUnsafeBytes { bytes in
+            scaleToken.buffer.contents().copyMemory(from: bytes.baseAddress!, byteCount: bytes.count)
+        }
 
         let outputSize = numVectors * inputDim * MemoryLayout<Float>.size
-        let outputToken = try await context.getBuffer(size: outputSize)
+        let outputToken = try await checkedEncodingBuffer(size: outputSize)
         outputToken.buffer.label = "NeuralDequantize.output"
 
         let parameters = NeuralQuantizationParameters(
@@ -1162,23 +1198,27 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             throw VectorError.invalidOperation("Weights not loaded. Call loadWeights first.")
         }
 
+        try validateEncodedResult(encoded, config: config)
+
         let numVectors = encoded.numVectors
         let inputDim = config.inputDimension
 
         // Use pooled buffers for temporary allocations (RAII auto-return)
-        let inputToken = try await context.getBuffer(for: [UInt8](encoded.latentCodes))
+        let inputToken = try await checkedEncodingBuffer(size: encoded.latentCodes.count)
+        encoded.latentCodes.withUnsafeBytes { bytes in
+            inputToken.buffer.contents().copyMemory(from: bytes.baseAddress!, byteCount: bytes.count)
+        }
         inputToken.buffer.label = "NeuralDequantizeFlat.input"
 
-        let scaleToken = try await context.getBuffer(size: numVectors * MemoryLayout<Float>.size)
+        let scaleToken = try await checkedEncodingBuffer(size: numVectors * MemoryLayout<Float>.size)
         scaleToken.buffer.label = "NeuralDequantizeFlat.scale"
 
-        // Initialize scales using vectorized fill
-        let scalePtr = scaleToken.buffer.contents().bindMemory(to: Float.self, capacity: numVectors)
-        var scaleValue = encoded.scale
-        vDSP_vfill(&scaleValue, scalePtr, 1, vDSP_Length(numVectors))
+        encoded.scales.withUnsafeBytes { bytes in
+            scaleToken.buffer.contents().copyMemory(from: bytes.baseAddress!, byteCount: bytes.count)
+        }
 
         let outputSize = numVectors * inputDim * MemoryLayout<Float>.size
-        let outputToken = try await context.getBuffer(size: outputSize)
+        let outputToken = try await checkedEncodingBuffer(size: outputSize)
         outputToken.buffer.label = "NeuralDequantizeFlat.output"
 
         let parameters = NeuralQuantizationParameters(
@@ -1200,6 +1240,31 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
         let outputPtr = outputToken.buffer.contents().bindMemory(to: Float.self, capacity: numVectors * inputDim)
         // Tokens auto-return to pool when scope exits
         return Array(UnsafeBufferPointer(start: outputPtr, count: numVectors * inputDim))
+    }
+
+    private func validateEncodedResult(_ encoded: Metal4NeuralEncodingResult,
+                                       config: Metal4NeuralQuantizationConfig) throws {
+        let n = encoded.numVectors, l = encoded.latentDimension, d = config.inputDimension
+        let maxElements = context.device.rawDevice.maxBufferLength / MemoryLayout<Float>.stride
+        guard n > 0, n <= Int(UInt32.max), l > 0, l == config.latentDimension,
+              l <= Self.maxLatentDimension, d > 0, d <= Int(UInt32.max),
+              n <= maxElements / d, n <= Int.max / l,
+              encoded.scales.count == n, encoded.latentCodes.count == n * l else {
+            throw VectorError.invalidInput("Neural result dimensions, codes, and per-vector scales must match the loaded model")
+        }
+    }
+
+    /// Pool requests can exceed the largest bucket. Validate actual storage before
+    /// any high-level encode/decode copy or dispatch, not just the requested size.
+    private func checkedEncodingBuffer(size: Int) async throws -> BufferToken {
+        guard size > 0, size <= context.device.rawDevice.maxBufferLength else {
+            throw VectorError.invalidInput("Neural encoding buffer size exceeds the device limit")
+        }
+        let token = try await context.getBuffer(size: size)
+        guard token.buffer.length >= size else {
+            throw VectorError.bufferAllocationFailed(size: size)
+        }
+        return token
     }
 
     /// Encode and decode with quality metrics.

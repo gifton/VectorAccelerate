@@ -707,7 +707,7 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
         }
         let scalePtr = scaleBuffer.contents().bindMemory(to: Float.self, capacity: numVectors)
         for i in 0..<numVectors {
-            scalePtr[i] = encoded.scale
+            scalePtr[i] = encoded.scales[i]
         }
 
         guard let outputBuffer = device.makeBuffer(
@@ -819,7 +819,7 @@ final class NeuralQuantizationBenchmarkTests: XCTestCase {
         }
         let scalePtr = scaleBuffer.contents().bindMemory(to: Float.self, capacity: numVectors)
         for i in 0..<numVectors {
-            scalePtr[i] = encoded.scale
+            scalePtr[i] = encoded.scales[i]
         }
 
         guard let outputBuffer = device.makeBuffer(
