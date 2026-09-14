@@ -1231,6 +1231,50 @@ expectation that must migrate with early cap rejection.
 No numbered finding or residual is closed by drafting these plans.
 
 
+## Remediation slice 26 (2026-09-13, owner-selected factory upload bounds) — EXECUTED
+
+**Problem and scope.** Direct aligned-array and single-vector factory uploads passed
+rounded destination capacity as the source byte length. A three-Float source could copy
+a fourth Float outside its exposed payload. Batch uploads accepted ragged rows, and
+alignment/size arithmetic could accept invalid alignment or overflow. This is an adjacent
+factory residual discovered during allocation planning, not a newly closed numbered
+shader finding. The pool's oversized-bucket policy and optional-bias plan remain pending.
+
+**Implementation.** Allocate destination capacity independently, copy exact payload bytes,
+and zero the tail. Checked count/stride products and power-of-two rounding reject invalid,
+empty, overflowing or device-oversize requests with nil. Vector exposed counts must match
+declared counts; batches must be rectangular. Initialized uploads accept CPU-accessible
+storage, reject private/memoryless modes before copying, preserve other resource flags,
+and notify managed writes on macOS. Uninitialized private allocations remain supported.
+Existing public signatures and inlinable methods remain intact. Managed behavior was
+source-reviewed; hardware coverage here exercises shared uploads. Full boundaries and
+consumer rebuild guidance are in [the factory contract](../stability/FACTORY-UPLOAD-BOUNDS-CONTRACT.md).
+
+**Regression evidence.** Ten `FactoryUploadBoundsTests` cover exact payloads and zero tails,
+controlled hidden suffixes for both arrays and vectors, ragged batches, malformed exposed
+counts, invalid sizes/alignment, overflow, options/storage modes, independent pair shapes,
+and GPU blit readback after source lifetime ends. Against the original factory, the first
+three tests failed five assertions (including an uploaded hidden value of 12345); invalid
+alignment failed four assertions; Int.max rounding terminated the test process with
+signal 5. The strengthened array suffix regression separately failed one assertion against
+the original source. The fixed source was restored before final verification.
+
+**Compiler fixture adjustment.** The first release build hit a Swift 6.3.3
+MandatorySILLinker assertion (`cannot deserialize shared function`) before tests ran.
+Standalone probes reproduced it with the private VectorProtocol fixture alone, without
+factory calls. Supplying an equivalent bounds-checked subscript in that test fixture
+compiled successfully; changing visibility or other index witnesses did not. Production
+code and compiler flags were unchanged. Review approved the fixture and retained assertions;
+all final gates below ran after this adjustment.
+
+**Final verification.** Targeted factory/pool/kernel-consumer tests **48/0** (0.264s).
+`MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1` factory tests: debug **10/0** (0.035s),
+release **10/0** (0.046s). Full debug **1722/0/11** (264.361s), release **1722/0/11**
+(58.550s), all exit 0: **1711 passed and 11 existing placeholder skips** in each full
+configuration. SHA-256 hashes of the final factory and test source matched across the
+full gates. Read-only review approved implementation, regressions and contract. Local
+logs and compiler probes: `/private/tmp/va-factory-upload/`. No performance claim.
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).

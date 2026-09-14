@@ -68,14 +68,13 @@ size details without weakening its physical-capacity assertions.
 
 ### Scope boundaries
 
-The factory portion covers `createBucketedBuffer` only. Direct `createAlignedBuffer`
-and VectorProtocol upload conveniences are excluded from this bounded plan. Source review
-found separate unchecked arithmetic in those methods and a padded-source read in
-`createAlignedBuffer(from:)` and `createBuffer(fromVector:)`: they pass the rounded
-allocation length to `makeBuffer(bytes:)` even when the source contains fewer bytes.
-Record a separate high-priority reproduction/fix for allocating destination capacity
-independently of the exact source copy length. Do not claim the full factory is hardened.
-The factory's multi-vector path also needs a separate shape/storage-mode review.
+The factory portion of plan A covers `createBucketedBuffer` only. The owner separately
+selected the direct aligned/vector upload issue on 2026-09-13. Slice 26 separates padded
+destination capacity from exact source-copy length, checks aligned size arithmetic,
+rejects ragged/mismatched vector rows and CPU-inaccessible initialized storage, and zeroes
+padding. See the [factory upload contract](../../stability/FACTORY-UPLOAD-BOUNDS-CONTRACT.md).
+These completed changes do not resolve decision A or harden every factory utility.
+Pool arithmetic and oversized bucket behavior remain within the proposed plan above.
 
 No new large-buffer cache, custom bucket configuration, eviction redesign, general
 BufferToken API redesign, residency rewrite or concurrency-policy change. Existing

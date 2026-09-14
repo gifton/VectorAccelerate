@@ -23,8 +23,9 @@ standard buckets, zero-size leases and existing valid reuse behavior.
 - Preserve Metal 4/platform requirements and VectorCore 0.3.3.
 - Preserve zero-byte requests as minimum-bucket leases; reject negative sizes/counts.
 - Keep successful requests at/below 67,108,864 bytes compatible, subject to device/budget limits.
-- Factory scope is `createBucketedBuffer` only. Direct aligned/vector upload arithmetic
-  and padded-source reads are separate recorded work, not covered by this plan's acceptance.
+- Factory scope is `createBucketedBuffer` only. Direct aligned/vector upload bounds were
+  addressed separately in slice 26; retain that shared copy/rounding logic and its tests.
+  Pool-cap and pool-derived-size work in this plan remain unimplemented.
 - No production changes have been made by the planning session.
 - Do not remove IVF/neural actual-capacity checks after fixing the shared pool.
 - Run GPU tests serially; record current results instead of copying historical counts.

@@ -244,3 +244,17 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   options in both debug and release before assigning precision semantics to a flag.
   Equal output on a finite fixture establishes neither distinct precision tiers nor
   strict floating-point behavior.
+
+
+## 21. Destination capacity is not source payload length
+- **Mechanism:** rounding a GPU allocation to a multiple of 16 does not enlarge the
+  source array/vector. Passing the rounded size to `makeBuffer(bytes:length:)` reads
+  outside the declared payload and may copy unrelated values into padding.
+- **Incident:** slice 26 reproduced a three-Float upload copying a controlled fourth
+  value, 12345, for both a bounded vector view and an array with a removed final element.
+  The factory now allocates capacity separately, copies exact payload bytes and zeroes
+  destination padding. Checked size arithmetic rejects overflow before allocation;
+  ragged batches and declared/exposed count mismatches return nil.
+- **Review extension:** direct CPU upload requires CPU-accessible storage. Preserve
+  resource-option flags, notify managed writes where supported, and test GPU readback
+  after source lifetime ends. Rounded length alone does not guarantee base alignment.
