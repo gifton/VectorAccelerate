@@ -11,7 +11,7 @@ release `swift test -c release` → **1590 / 0 / 11**. Both must stay that way (
 
 This document is self-contained, but the authoritative per-finding record is
 `docs/audits/AUDIT-3-shaders.md` (findings VA3-001…034, groups A–G, remediation
-slices 1–30) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
+slices 1–31) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
 `docs/audits/REVIEW-PATTERNS.md` holds the project's adversarial-review pattern library.
 
 ---
@@ -32,8 +32,8 @@ NaN-containing input, including mixed NaN/Inf. Empty input and infinity without 
 throw; higher-moment, quantile, and correlation requests retain finite-only validation.
 Histograms and softmax are unchanged. Nine further tests cover both shader paths and public APIs.
 
-Current full gates: **debug 1758 / 0 failures / 11 skipped; release 1758 / 0 / 11**.
-This is 1747 passed and 11 skipped in each configuration; see slice 30 for current evidence.
+Current full gates: **debug 1764 / 0 failures / 11 skipped; release 1764 / 0 / 11**.
+This is 1753 passed and 11 skipped in each configuration; see slice 31 for current evidence.
 The original state stamp above is historical. On 2026-09-07, the owner authorized
 checkpointing all project work through slice 16 on `gifton/metal-hardening-checkpoint`
 and pushing that branch to `origin`. This checkpoint includes the hardening tests, audit
@@ -274,7 +274,17 @@ targeted 69/0, scoped table/engine API+shader validation 26/0 in debug and relea
 validation reproduced a separate unary elementwise missing input_b binding on unchanged
 baseline; that finding remains open. See the
 [table contract](../stability/ARGUMENT-TABLE-LIFECYCLE-CONTRACT.md). BufferPool clearCache
-accounting is the next authorized item. Same checkpoint branch; no shader/public API changes.
+accounting was subsequently fixed in slice 31. Same checkpoint branch; no shader/public API changes.
+
+**Slice 31 completed: BufferPool cache accounting fixed.** Clearing drains already-queued
+returns once and subtracts removed available-buffer bytes, restoring the allocation budget.
+Live leases/handles, their return queue and cumulative statistics remain intact; returns
+enqueued after the drain may be cached later. Six new tests; baseline 24 failures,
+targeted 86/0, scoped API+shader validation debug/release 35/0; full 1764/0/11 each
+(1753 passed), all exit 0. Review approved and hashes matched. Both authorized pool
+follow-ups are complete. See the
+[cache-clearing contract](../stability/BUFFER-CACHE-CLEARING-CONTRACT.md). Same checkpoint
+branch; no public signatures, shaders, allocation limits or reset policy changes.
 
 ## 1. What this project is
 
@@ -292,7 +302,7 @@ numerics policy are the parity reference), VectorIndex (pins VA 0.3.1 — not in
 - Swift: `Core/` (Metal4Context, Metal4ComputeEngine, KernelContext, PipelineCache/Key,
   PipelineRegistry, GPUDecisionEngine), `Kernels/Metal4/` (per-kernel wrappers),
   `Integration/` (MetalComputeProvider, KernelDistanceProviders), `Index/` (IVF pipeline).
-- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **32 permanent guard
+- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **33 permanent guard
   suites** created by this epic (§5).
 
 ## 2. Architecture facts you must internalize first
@@ -369,7 +379,7 @@ to the VA3-015 stragglers was completed in slice 9, including smaller-norm-first
    that discriminate (e.g. data where the honest and the buggy answer differ in FP32).
 3. **Gates.** After the fix: targeted suites, then FULL debug suite, then FULL release
    suite (`swift test -c release`) — release exercises the runtime-compiled library
-   (§2.1). Record exact counts. Current expectation: 1732/0/11 both configs.
+   (§2.1). Record exact counts. Current expectation: 1764/0/11 both configs.
 4. **Ledger + memory.** Append a "Remediation slice N" section to
    `docs/audits/AUDIT-3-shaders.md`, flip the finding's summary-table row and detail
    heading to **FIXED**, and append a dated paragraph to the session memory file
@@ -399,7 +409,7 @@ tie-break policy standardized on the CPU side to VectorCore `TopKSelection` `.sm
 **AUDIT-3 (2026-08-16, VA3-001…034).** Independent end-to-end read of all shader files with
 per-finding Swift dispatch/liveness verification, organized into groups: A reduction/barrier,
 B numerics/fast-math policy, C memory-safety/dispatch contracts, D phantom surface,
-E determinism, F deletion inventory, G hygiene. Then twenty-seven remediation slices:
+E determinism, F deletion inventory, G hygiene. Then thirty-one remediation slices:
 
 | Slice | Date | Scope | Highlights | Gate |
 |---|---|---|---|---|
@@ -433,6 +443,7 @@ E determinism, F deletion inventory, G hygiene. Then twenty-seven remediation sl
 | 28 | 09-13 | Central pool allocation bounds | Recoverable 64 MiB cap, checked typed/aligned/preallocation sizes, actual capacity, empty uploads and consumer error contracts | 1743/0/11 |
 | 29 | 09-13 | BufferPool return lifecycle | Per-pool queues, weak token destinations, reset retirement, cycle removal and tracked-return accounting | 1752/0/11 |
 | 30 | 09-14 | ArgumentTablePool ownership | Pool-owned return queue, weak token destinations, binding lifetime and twelve engine migrations | 1758/0/11 |
+| 31 | 09-14 | BufferPool cache accounting | Drain queued returns once, restore cleared-cache budget, preserve live leases/handles and cumulative statistics | 1764/0/11 |
 
 **Status:** every P1 fixed; groups A, B, C, D, F closed (B/C retain documented contracts
 and limits). Groups E/G and the recorded residuals remain open (§6).
@@ -473,6 +484,7 @@ and limits). Groups E/G and the recorded residuals remain open (§6).
 | `BufferAllocationBoundsTests` | All bucket boundaries, malformed/oversized requests, checked typed/aligned/preallocation sizes, empty uploads, compatibility paths, deterministic budget cleanup and reuse |
 | `BufferPoolLifecycleTests` | Queued-buffer/pool destruction, token ownership, compatibility cycles/pointer lifetime, reset retirement, duplicate/foreign returns, concurrent returns/reset and GPU completion |
 | `ArgumentTableLifecycleTests` | Queued table/binding destruction, independent token ownership, immediate reuse, concurrent releases and pool isolation |
+| `BufferPoolCacheAccountingTests` | Cache budget recovery, queued returns, live leases/handles, repeated multi-bucket clearing, reset isolation and drain-time discards |
 
 The 11 skips in the current Apple Silicon gates are explicit unimplemented
 `IVFValidationTests` placeholders (including the missing retrieval API), not environment
@@ -535,8 +547,10 @@ ragged-pair asymmetry (euclidean→+Inf vs cosine→NaN, provider-unreachable).
 IVF/neural physical-capacity guards remain. Slice 29 fixes BufferPool's global pending-return
 ownership/address reuse and stale post-reset returns; its previous fresh-pool reset
 workarounds are removed. Slice 30 fixes ArgumentTablePool's analogous queue and migrates
-its twelve direct engine return sites. BufferPool `clearCache()` still removes cached
-buffers without reducing retained-memory accounting; this is the next authorized fix.
+its twelve direct engine return sites. Slice 31 fixes BufferPool `clearCache()` accounting:
+already-queued returns are drained and removed cache bytes restore the allocation budget,
+while live leases and cumulative counters remain intact. See the
+[cache-clearing contract](../stability/BUFFER-CACHE-CLEARING-CONTRACT.md).
 Broader Metal validation also reproduced a pre-existing unary ElementwiseKernel.scale
 missing input_b binding at index 1 on unchanged baseline; record this separately from the
 passing scoped ownership gates. Reset budgets still exclude
@@ -587,7 +601,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 ## 8. Reference map
 
-- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–30 + all findings),
+- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–31 + all findings),
   `docs/audits/AUDIT-2.md`, `docs/audits/REVIEW-PATTERNS.md`.
 - Plans: `docs/superpowers/plans/2026-08-16-hardening-audit-phase0-1.md` (epic origin).
 - Numerics backlog: `docs/stability/NUMERICAL_STABILITY_FINDINGS.md`.
@@ -601,8 +615,8 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 **Next work:** central pool allocation bounds retain the 64 MiB cap (slice 28), following
 optional-bias validation (slice 27) and the factory upload fix. BufferPool return/reset
-lifecycle is fixed in slice 29 and ArgumentTablePool ownership in slice 30. BufferPool
-clearCache accounting is next. The baseline-reproduced unary elementwise missing-binding
+lifecycle is fixed in slice 29, ArgumentTablePool ownership in slice 30, and BufferPool
+clearCache accounting in slice 31. The baseline-reproduced unary elementwise missing-binding
 validation failure also remains open. VA3-024 performance requires before/after
 benchmarks; VA3-029 and recorded residuals remain.
 VA3-019 atomic accumulation policy still needs an owner decision. Group C has no remaining

@@ -71,7 +71,8 @@ This contract does not redesign cache eviction, reset with outstanding leases, r
 concurrent access or general pool accounting. The subsequent
 [return/reset lifecycle fix](BUFFER-POOL-LIFECYCLE-CONTRACT.md) removes global actor-address
 routing and retires old queues on reset. Reset budgets exclude outstanding retired leases.
-No large-buffer cache is added, and these changes make no
+The subsequent [cache-clearing contract](BUFFER-CACHE-CLEARING-CONTRACT.md) specifies budget
+restoration for cleared available buffers. No large-buffer cache is added, and these changes make no
 performance or universal allocation-success guarantee.
 
 Regression coverage: `BufferAllocationBoundsTests`, updated `BufferPoolEnhancedTests`,

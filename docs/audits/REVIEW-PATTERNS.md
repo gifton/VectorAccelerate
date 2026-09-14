@@ -311,3 +311,19 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   well as token constructors: twelve engine defer sites used the old singleton directly
   and needed migration to token leases. Existing membership checks already protect raw
   releases; preserve them and the distinct clearAvailable semantics.
+
+
+## 25. Dropping cached objects must restore their charged allocation budget
+- **Mechanism:** removing available buffers without subtracting their charged bytes leaves
+  an empty cache that can still reject fresh allocations for exceeding its memory budget.
+  A deferred return queue can also repopulate the cache on the first statistics read after
+  clearing, hiding which storage was actually cleared.
+- **Incident:** slice 31 drains pending returns once before clearing, then subtracts only
+  the available bucket bytes. Draining can independently discard excess returns, so those
+  already-subtracted allocations must not be charged again in the clearing calculation.
+- **Review extension:** test a full-budget cache followed by successful fresh allocation,
+  queued explicit/deinit returns without an intervening read, multiple bucket sizes,
+  repeated clearing, live handles/leases and their later reuse, and retired generations.
+  Preserve cumulative counters and distinguish pool-accounted storage from Metal objects
+  retained externally. State the concurrent enqueue boundary rather than promising a
+  globally empty cache while returns continue.

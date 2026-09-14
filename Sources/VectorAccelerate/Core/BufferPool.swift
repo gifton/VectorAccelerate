@@ -458,10 +458,18 @@ public actor BufferPool: BufferProvider {
         currentMemoryUsage -= freedMemory
     }
     
-    /// Clear all cached buffers
+    /// Drain returns already queued, then release cached buffers and their accounted bytes.
+    /// Outstanding leases, their return queue and cumulative statistics remain intact.
+    /// Returns enqueued after the drain may become available on a later pool operation.
     public func clearCache() {
-        for size in buckets.keys {
-            buckets[size]?.available.removeAll()
+        drainPendingReturns()
+        for size in bucketSizes {
+            guard var bucket = buckets[size] else { continue }
+            // Every cached buffer was already charged to currentMemoryUsage. Returns
+            // discarded while draining have already been subtracted by returnBuffer.
+            currentMemoryUsage -= size * bucket.available.count
+            bucket.available.removeAll()
+            buckets[size] = bucket
         }
     }
     

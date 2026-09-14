@@ -1496,6 +1496,42 @@ test file retained their reviewed SHA-256 hashes across the gates. No performanc
 
 
 
+## Remediation slice 31 (2026-09-14, owner-authorized cache accounting) — EXECUTED
+
+**Scope:** `BufferPool.clearCache()` drains the current pending-return queue once, then
+subtracts each available bucket's charged bytes before removing its cached buffers.
+Returns discarded during draining have already reduced accounting and are not subtracted
+again. Outstanding leases, compatibility handles, their queue and cumulative statistics
+remain intact. `BufferProvider.clear()` already forwards to this implementation.
+
+Clearing now restores allocation budget: a fully cached 1 KiB allocation in a 1 KiB pool
+can be cleared and replaced successfully. Concurrent returns enqueued after the drain may
+be cached later; no globally quiescent flush is promised. Reset-generation policy is
+unchanged, and accounting excludes physically live retired leases and externally retained
+returned objects. No public signature, shader, allocation-limit, general eviction or
+ArgumentTablePool clear/descriptor/batch behavior changes. See the
+[cache-clearing contract](../stability/BUFFER-CACHE-CLEARING-CONTRACT.md).
+
+**Evidence:** six new `BufferPoolCacheAccountingTests` reproduced 24 baseline failures
+(one unexpected thrown budget error), exit 1. They cover exact-budget recovery, queued
+explicit/deinit returns, preserved live canaries and later reuse, repeated multi-bucket
+clearing, compatibility pointer lifetime, reset-retired returns and drain-time cache-limit
+discards. Final targeted allocation/lifecycle/engine/consumer tests **86/0** (0.918s),
+exit 0. Independent implementation/test/contract review approved without findings.
+
+Local evidence: `/private/tmp/va-pool-followups/2026-09-14/` (`cache-*`). The separate
+baseline-reproduced unary elementwise missing-binding validation failure recorded in
+slice 30 remains open; scoped pool/engine validation excludes that unrelated consumer,
+while normal full gates include it. No performance claim.
+
+**Final gates:** scoped pool/engine API+shader validation **35/0** in debug (0.314s) and
+release (0.345s); full debug **1764/0/11** (258.031s), release **1764/0/11** (55.134s),
+all exit 0. Each full configuration has **1753 passed and 11 existing placeholder skips**.
+Swift 6.3.3 on Apple M3 Max; release exercises runtime compilation. The production and
+new test files retained their reviewed SHA-256 hashes across the gates. Existing single
+checkpoint branch retained; both pool follow-ups are complete.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).

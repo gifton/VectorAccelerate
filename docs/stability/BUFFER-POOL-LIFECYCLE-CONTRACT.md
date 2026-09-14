@@ -61,6 +61,8 @@ Metal command buffers also retain resources, so this is not proof that anchoring
 is necessary for that particular blit. Previous bounds tests no longer reset fresh pools
 to avoid stale global returns. See AUDIT-3 slice 29 for execution evidence.
 
-This fix does not redesign `clearCache()` accounting, eviction, raw token data-access
-synchronization or `ArgumentTablePool`. Its analogous return ownership was subsequently
+The subsequent [cache-clearing fix](BUFFER-CACHE-CLEARING-CONTRACT.md) drains pending
+returns and restores the budget charged to cleared cached storage while preserving live
+leases and this generation policy. General eviction and raw token data-access synchronization
+remain separate. ArgumentTablePool's analogous return ownership was subsequently
 fixed separately; see the [argument table lifecycle contract](ARGUMENT-TABLE-LIFECYCLE-CONTRACT.md).
