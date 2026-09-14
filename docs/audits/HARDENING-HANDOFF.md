@@ -192,6 +192,21 @@ Targeted 16/0; full debug/release 1712/0/11 (1701 passed, 11 placeholder skips e
 all exit 0. Comment-only source diff and unchanged gate hashes verified; review approved.
 VA3-024/029 and VA3-019 atomic policy remain open. Same checkpoint branch.
 
+## Documentation reconciliation and planning — 2026-09-13
+
+The [numerical backlog](../stability/NUMERICAL_STABILITY_FINDINGS.md) has been reconciled
+with slices 1–25. Obsolete Minkowski clamps, hard sigmoid cutoffs and incorrect Float32
+examples are withdrawn. Existing tests and retained limits are linked; remaining UMAP,
+attention and LSE items are scoped investigations. The two older Minkowski planning docs
+are explicitly historical. This is documentation work, not a new numerical fix or test run.
+
+The owner requested full planning for central oversized-allocation handling and optional-
+bias validation. The [design discussion](../superpowers/specs/2026-09-13-allocation-and-bias-hardening-design.md)
+and its two linked implementation plans are **provisional**: pool cap versus larger-buffer
+support and raw batch throwing-API compatibility still need owner decisions. Production
+changes have not begun. VA3-024 remains subsequent performance work; the existing open
+findings below are not closed by these plans.
+
 ## 1. What this project is
 
 VectorAccelerate (VA) is the GPU-acceleration package of the VSK suite: Metal 4 compute
@@ -438,15 +453,19 @@ ragged-pair asymmetry (euclidean→+Inf vs cosine→NaN, provider-unreachable).
 
 **Coverage gaps / debt:** global buffer-pool requests above 64 MiB may receive undersized
 storage (IVF and high-level neural wrappers now check/reject this locally; broader pool
-correction remains open); 11 unimplemented `IVFValidationTests` placeholders. Broader
+correction remains open). Planning on 2026-09-13 also found direct factory aligned/vector
+uploads using padded allocation lengths as source-copy lengths, plus unchecked rounding;
+recorded separately from the bounded pool/bucketed-allocation plan, not yet reproduced on
+hardware. 11 unimplemented `IVFValidationTests` placeholders. Broader
 optional-bias validation remains debt: slices 23/24 fixed generic quantizing and decoder
 bindings locally; float-only encoding remains a candidate. Per-vector scale loss and
 ragged non-transposed decoder routing were fixed in slice 24. The previous `encodeTiledV3`
 dedicated-test gap and `normalizeLatent` omissions were closed in slices 22 and 23.
 VA2-013 plugin header-dep gap (workaround in §2.1); the CI leg for the release gate was
 deferred by the owner (AUDIT-2 decision 5); UMAP GPU benchmark underperforms expectation
-(0.6–1.6× vs 2–5×); `docs/stability/NUMERICAL_STABILITY_FINDINGS.md` backlog (UMAPGradient
-input clamping, AttentionSimilarity stable sigmoid, LSE partialMax≤globalMax invariant);
+(0.6–1.6× vs 2–5×); `docs/stability/NUMERICAL_STABILITY_FINDINGS.md` reconciled backlog (UMAPGradient
+range/parameter investigation, AttentionSimilarity sign-split sigmoid evaluation,
+LSE partialMax≤globalMax invariant verification; old arbitrary clamps are withdrawn);
 deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` index to
 `uint`); README "Known Limitations" doc drift.
 
@@ -478,7 +497,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 ## 8. Reference map
 
-- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–24 + all findings),
+- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–25 + all findings),
   `docs/audits/AUDIT-2.md`, `docs/audits/REVIEW-PATTERNS.md`.
 - Plans: `docs/superpowers/plans/2026-08-16-hardening-audit-phase0-1.md` (epic origin).
 - Numerics backlog: `docs/stability/NUMERICAL_STABILITY_FINDINGS.md`.

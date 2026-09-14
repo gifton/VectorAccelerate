@@ -1,5 +1,11 @@
 # MinkowskiDistance Kernel Stability Fix - Agent Kickoff
 
+> **Historical guidance — superseded 2026-09-13.** Preserve this document as a record
+> of earlier work. Its clamping, approximate integer-p handling and completion claims
+> do not describe the current policy. Follow the [reconciled numerical backlog](NUMERICAL_STABILITY_FINDINGS.md),
+> [distance range contract](DISTANCE-RANGE-CONTRACT.md) and audit VA3-022 instead.
+
+
 ## Context
 
 VectorAccelerate is a GPU-accelerated vector operations library for Swift using Metal. During a numerical stability audit, the MinkowskiDistance kernel was identified as having **CRITICAL** overflow and precision issues that need to be fixed before the 1.0 release.

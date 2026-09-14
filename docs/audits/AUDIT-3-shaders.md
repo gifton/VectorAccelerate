@@ -1210,6 +1210,27 @@ policy still needs an owner decision; its IVF bounds and UMAP negative-sampling 
 fixes remain complete. Recorded residuals and the 11 IVF placeholders are unchanged.
 
 
+## Documentation reconciliation (2026-09-13) — DOCUMENTATION ONLY
+
+The owner authorized numerical-backlog reconciliation while requesting planning, not
+implementation, for central allocation bounds and optional-bias validation. Rewrote
+`NUMERICAL_STABILITY_FINDINGS.md` against the current contracts and test inventory;
+marked the two older Minkowski handoffs as historical. Removed obsolete arbitrary clamps,
+corrected range/rounding examples and scoped open investigations. Existing
+full-suite counts remain historical; no new GPU validation or arithmetic fix is claimed.
+Read-only review corrected one sigmoid subnormal classification during drafting and
+reported no remaining material inaccuracies in the numerical documentation.
+
+The allocation/bias design and two task plans under `docs/superpowers/` are proposed,
+with owner decisions pending. Existing capped-success pool tests, float-encoder nil bias,
+raw batch bias bounds and high-level bias allocation-failure handling are recorded as
+implementation targets. Planning review also identified separate direct-factory aligned/vector upload source-length
+and arithmetic concerns, recorded in the design/handoff for reproduction. Plan review
+clarified that factory alignment is outside the pool slice and identified the IVF error-kind
+expectation that must migrate with early cap rejection.
+No numbered finding or residual is closed by drafting these plans.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).
