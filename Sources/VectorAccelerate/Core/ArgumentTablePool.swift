@@ -352,7 +352,7 @@ public actor ArgumentTablePool {
 // MARK: - Pending Argument Table Returns
 
 /// Lock-protected pending-return queue for argument table tokens.
-/// Same pattern as `PendingBufferReturns` -- see its documentation.
+/// Bridges synchronous token destruction to actor-isolated table reuse.
 internal final class PendingTableReturns: @unchecked Sendable {
     static let shared = PendingTableReturns()
 

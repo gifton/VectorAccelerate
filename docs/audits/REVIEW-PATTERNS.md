@@ -288,3 +288,19 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   Overflow tests use scalar sizes; prove direct rejection before testing bounded real
   over-cap uploads. Check budget rejection and reuse separately, and retain consumer
   physical-capacity guards even after repairing the shared allocator.
+
+
+## 24. A reusable actor address is not a return destination's lifetime
+- **Mechanism:** a global return queue keyed only by `ObjectIdentifier(pool)` outlives
+  the pool, retains orphaned storage, and can route a stale entry to a newly allocated
+  actor at the same address. A strong token-to-pool reference also cycles through a
+  pool-owned compatibility-token registry.
+- **Incident:** slice 29 gives each buffer pool its own queue and tokens weak queue
+  references. Reset retires the queue as a generation boundary. Weak ownership tests
+  reproduce retained storage/pools without waiting for allocator address reuse; ordered
+  late-return tests establish reset semantics before adding concurrent schedules.
+- **Review extension:** trace both explicit return and deinit, already-enqueued entries,
+  provider-owned compatibility tokens and GPU completion ownership. Preserve raw pointer
+  lifetime across reset while the provider lives, and distinguish current-generation
+  accounting from all physically live storage. Internal returns must prove tracked
+  membership before modifying cache/accounting. Audit analogous registries separately.

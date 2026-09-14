@@ -68,9 +68,10 @@ checks. High-level GPU APIs backed by the pool can therefore reject outputs abov
 the existence of a larger direct-allocation API does not automatically reroute them.
 
 This contract does not redesign cache eviction, reset with outstanding leases, residency,
-concurrent access or general pool accounting. In particular, the pending-return queue
-identifies pools by actor address; stale returns after address reuse remain a separate
-lifecycle concern. It adds no large-buffer cache and makes no
+concurrent access or general pool accounting. The subsequent
+[return/reset lifecycle fix](BUFFER-POOL-LIFECYCLE-CONTRACT.md) removes global actor-address
+routing and retires old queues on reset. Reset budgets exclude outstanding retired leases.
+No large-buffer cache is added, and these changes make no
 performance or universal allocation-success guarantee.
 
 Regression coverage: `BufferAllocationBoundsTests`, updated `BufferPoolEnhancedTests`,

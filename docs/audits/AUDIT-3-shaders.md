@@ -1397,6 +1397,62 @@ shader changes or performance claim. Work continues on `gifton/metal-hardening-c
 
 
 
+## Remediation slice 29 (2026-09-13, owner-authorized buffer return lifecycle) — EXECUTED
+
+**Scope:** the slice-28 pending-return follow-up. The global buffer-return queue retained
+Metal buffers after their destination pool died and routed entries using reusable actor
+addresses. Strong token-to-pool ownership also formed cycles through compatibility handles.
+Reset discarded existing queued returns but allowed outstanding old leases to return later
+into the fresh cache without matching accounting.
+
+**Implementation:** each pool owns a lock-protected return queue. Tokens own their Metal
+buffer and weakly reference the queue current at acquisition; explicit return/deinit
+captures that weak destination strongly once and preserves exactly-once token locking.
+Draining transfers entries under the queue lock and updates buckets on the pool actor.
+Reset replaces the queue, retiring both queued and subsequent old returns. Compatibility
+handles remain retained/releasable across reset, but their tokens no longer retain the pool.
+`returnBuffer` accepts only successfully removed in-use membership before changing cache or
+accounting. Both fresh and reused tokens bind to the current queue after any suspension.
+
+No public signatures, shader code, 64 MiB cap or allocation guards changed. The two
+fresh-pool reset workarounds from slice 28 are removed. `ArgumentTablePool` received only
+a comment correction because its old "same pattern" claim no longer describes the buffer
+pool; its analogous global actor-address queue remains separate work. See the
+[lifecycle contract](../stability/BUFFER-POOL-LIFECYCLE-CONTRACT.md).
+
+**Red evidence:** initial seven tests produced 14 assertions; expanded nine-test baseline
+produced 31 assertions, exit 1. Failures cover orphaned queued storage, retained abandoned
+pools, compatibility cycles, late returns after reset and unknown/duplicate returns;
+concurrent schedules are supplemental and the count is specific to the preserved run.
+Weak lifetime probes exercise real pool/buffer ownership without requiring actor-address
+reuse. A test-compilation diagnostic for synchronous `waitUntilCompleted` was corrected
+to the existing async `completed()` API before the expanded red; it is not red evidence.
+Logs are preserved under `/private/tmp/va-pool-lifecycle/2026-09-13/`.
+
+**Coverage and review:** nine new `BufferPoolLifecycleTests`, including explicit and deinit
+late returns, raw compatibility-pointer canary across reset, exactly-once concurrent returns,
+reset races and a GPU blit after pool destruction. Metal command buffers also retain resources;
+the blit does not independently prove completion anchoring is necessary. Initial focused
+pool suites **40/0**; final expanded target **72/0** (0.670s), exit 0. Independent ownership/race design
+review and final implementation/test/contract review approved. Final source hashes and full gate results are recorded below.
+
+**Retained requirements:** explicit return ends a lease; callers must not return storage
+before GPU completion. Raw `BufferHandle` pointers require retaining their pool provider.
+Tokens and MetalBuffer wrappers independently own storage after pool destruction. Reset
+budgets/statistics cover the new generation, excluding physically live retired leases and
+compatibility handles. No global memory-cap-across-reset, eviction/clearCache accounting,
+raw-token data-access race safety or ArgumentTable lifecycle correction is claimed.
+
+**Final verification:** `MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1` lifecycle tests:
+debug **9/0** (0.042s), release **9/0** (0.048s), both exit 0. Full `swift test`
+**1752/0/11** (259.905s), release `swift test -c release` **1752/0/11** (56.122s), both
+exit 0: **1741 passed and 11 existing placeholder skips** in each configuration.
+Swift 6.3.3 on Apple M3 Max; release consumer gates exercise runtime shader compilation.
+SHA-256 hashes of the two touched source files and two changed/new test files matched
+through the full gates. No performance claim. Existing checkpoint branch retained.
+
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).

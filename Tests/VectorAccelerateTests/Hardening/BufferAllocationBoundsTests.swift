@@ -209,7 +209,6 @@ final class BufferAllocationBoundsTests: XCTestCase {
     func testSmallBudgetRejectsThenReusesReturnedBuffer() async throws {
         guard MetalDevice.isAvailable else { throw XCTSkip("Metal unavailable") }
         let pool = BufferPool(device: try MetalDevice(), maxTotalMemory: 1024)
-        await pool.reset() // Discard pending returns whose prior pool address was reused.
         let first = try await pool.getBuffer(size: 1000)
         let firstBuffer = first.buffer
         let allocatedStats = await pool.getStatistics()
@@ -234,7 +233,6 @@ final class BufferAllocationBoundsTests: XCTestCase {
     func testBudgetCleanupFreesCachedBucketBeforeLargerAllocation() async throws {
         guard MetalDevice.isAvailable else { throw XCTSkip("Metal unavailable") }
         let pool = BufferPool(device: try MetalDevice(), maxTotalMemory: 4096)
-        await pool.reset() // Establish isolated accounting before the cleanup sequence.
         let small = try await pool.getBuffer(size: 1024)
         small.returnToPool()
         _ = await pool.getStatistics()
