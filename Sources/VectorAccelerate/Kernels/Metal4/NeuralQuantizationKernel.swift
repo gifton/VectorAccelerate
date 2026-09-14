@@ -634,7 +634,9 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
 
     /// Encode vectors to latent codes (float, not quantized).
     ///
-    /// Useful for inspecting latent space before quantization.
+    /// Useful for inspecting latent space before quantization. Missing model bias uses
+    /// persistent zero storage. Latent widths above 128 or insufficient bias storage
+    /// throw before encoder mutation; other raw tensor layouts remain caller-owned.
     @discardableResult
     public func encodeEncode(
         into encoder: any MTLComputeCommandEncoder,
@@ -646,13 +648,25 @@ public final class NeuralQuantizationKernel: @unchecked Sendable, Metal4Kernel {
             throw VectorError.invalidOperation("Encoder weights not loaded")
         }
 
+        // Raw parameters can differ from the loaded model config. Bound the finite
+        // fallback before changing the encoder; other raw tensor layouts remain caller-owned.
+        let latentDimension = Int(parameters.latentDimension)
+        guard latentDimension <= Self.maxLatentDimension else {
+            throw VectorError.invalidInput(
+                "latentDimension \(latentDimension) exceeds the neural quantization kernel capability (max \(Self.maxLatentDimension))")
+        }
+        let bias = encoderBias?.buffer ?? zeroEncoderBias
+        guard bias.length >= latentDimension * MemoryLayout<Float>.stride else {
+            throw VectorError.invalidInput("Encoder bias buffer is shorter than the latent dimension")
+        }
+
         encoder.setComputePipelineState(encodePipeline)
         encoder.label = "NeuralEncode"
 
         encoder.setBuffer(input, offset: 0, index: 0)
         encoder.setBuffer(encoderWeights.buffer, offset: 0, index: 1)
         encoder.setBuffer(output, offset: 0, index: 2)
-        encoder.setBuffer(encoderBias?.buffer, offset: 0, index: 3)
+        encoder.setBuffer(bias, offset: 0, index: 3)
 
         var params = parameters
         encoder.setBytes(&params, length: MemoryLayout<NeuralQuantizationParameters>.size, index: 4)

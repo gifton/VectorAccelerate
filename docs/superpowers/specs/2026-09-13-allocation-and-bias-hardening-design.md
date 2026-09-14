@@ -1,7 +1,7 @@
 # Allocation and optional-bias hardening: design discussion
 
-**Status:** proposed, awaiting owner decisions. Planning was requested on 2026-09-13;
-production implementation has not been authorized in this planning session.
+**Status:** decision B approved and completed as slice 27 on 2026-09-13, including the
+existing raw `encodeFused` becoming throwing. Decision A remains proposed and unresolved.
 **Baseline:** `1d2928f`, branch `gifton/metal-hardening-checkpoint`.
 
 These are two independently deliverable changes. Numerical-backlog reconciliation is
@@ -15,8 +15,8 @@ implementation. Maintain separate checkpoints on the existing branch.
 | A: Requests larger than 64 MiB | Enforce the existing pool limit with a recoverable error. Preserve direct non-bucketed allocation APIs for explicitly larger workloads. | Support larger buffers within device and configured memory limits. Requires a design for their accounting, return and reuse; expands this slice. |
 | B: Raw batch `encodeFused` compatibility | Make the existing method throwing; validate before mutating the encoder. Migrate internal callers with `try`. | Add a separate checked API. Existing callers remain unchecked, so this does not close safety on the original public entry point. |
 
-Neither recommendation is an owner decision yet. The linked plans are provisional for
-the recommended choices; revise them before execution if alternatives are selected.
+The owner approved recommendation B and its plan. Recommendation A remains provisional;
+optional-bias work does not settle the pool policy.
 
 ## A. Allocation contract
 
@@ -128,7 +128,7 @@ raw bounds path and that high-level allocation-failure path belong in this local
 - Preserve real-bias precedence if present. Current neural loading APIs do not expose
   encoder-bias loading; do not add a model/bias-loading API merely to construct a test.
   Raw shader fixtures can exercise explicit real bias independently.
-- Make `encodeFused` throwing if approved. Derive active bias mode from the existing
+- Make `encodeFused` throwing (owner approved). Derive active bias mode from the existing
   buffer/layout rules: nil means no bias regardless of the default layout; `.none`
   means no bias even if a buffer was supplied. Preserve the existing behavior in which
   supplied bias and layout, not the legacy `config.hasBias`, control addition.
@@ -153,9 +153,9 @@ raw bounds path and that high-level allocation-failure path belong in this local
 ### Compatibility and alternatives
 
 In-repository search found one production `encodeFused` call, inside `multiplyFused`.
-External callers are unknown. The source-breaking change therefore needs a migration
-note and owner decision even though the internal migration is small. A separate checked
-method preserves source compatibility but leaves the old unsafe surface until migrated;
+External callers are unknown. The source-breaking change needs a migration
+note even though the internal migration is small; the owner approved it on 2026-09-13.
+A separate checked method preserves source compatibility but leaves the old unsafe surface until migrated;
 a precondition or silent no-op is not an acceptable substitute for recoverable failure.
 No strict signed-zero/bitwise guarantee is added by the neural zero-bias addition.
 
@@ -171,8 +171,9 @@ using the finite zero buffer. No private test setter or unrelated public API is 
 
 ## Execution and validation
 
-Implement A and B as separate checkpoints on the same existing branch, preferably A
-first. Neither needs a new dependency or a VectorCore update. Preserve Metal 4/platform
+Implement A and B as separate checkpoints on the same existing branch. The owner
+selected the separate factory fix first, then B; decision A remains open. Neither needs
+a new dependency or a VectorCore update. Preserve Metal 4/platform
 requirements and VectorCore 0.3.3. Use mechanism-specific failing tests before each fix,
 then targeted tests, Metal validation for bias work, and full debug and release gates.
 Run GPU workloads serially; release must execute runtime shader compilation.
@@ -181,6 +182,6 @@ Documentation-only reconciliation gets source/reference/math checks, not new run
 coverage claims. Latest historical full gates remain 1701 passed + 11 skips in each
 configuration. Implementation counts are recorded only after fresh runs.
 
-Provisional task plans:
+Task plans (A provisional; B complete):
 - [Allocation plan](../plans/2026-09-13-buffer-allocation-bounds.md)
 - [Optional-bias plan](../plans/2026-09-13-optional-bias-validation.md)

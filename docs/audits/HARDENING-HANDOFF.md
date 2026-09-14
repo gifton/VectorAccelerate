@@ -11,7 +11,7 @@ release `swift test -c release` → **1590 / 0 / 11**. Both must stay that way (
 
 This document is self-contained, but the authoritative per-finding record is
 `docs/audits/AUDIT-3-shaders.md` (findings VA3-001…034, groups A–G, remediation
-slices 1–26) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
+slices 1–27) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
 `docs/audits/REVIEW-PATTERNS.md` holds the project's adversarial-review pattern library.
 
 ---
@@ -32,8 +32,8 @@ NaN-containing input, including mixed NaN/Inf. Empty input and infinity without 
 throw; higher-moment, quantile, and correlation requests retain finite-only validation.
 Histograms and softmax are unchanged. Nine further tests cover both shader paths and public APIs.
 
-Current full gates: **debug 1722 / 0 failures / 11 skipped; release 1722 / 0 / 11**.
-This is 1711 passed and 11 skipped in each configuration; see slice 26 for current evidence.
+Current full gates: **debug 1732 / 0 failures / 11 skipped; release 1732 / 0 / 11**.
+This is 1721 passed and 11 skipped in each configuration; see slice 27 for current evidence.
 The original state stamp above is historical. On 2026-09-07, the owner authorized
 checkpointing all project work through slice 16 on `gifton/metal-hardening-checkpoint`
 and pushing that branch to `origin`. This checkpoint includes the hardening tests, audit
@@ -202,11 +202,11 @@ are explicitly historical. This is documentation work, not a new numerical fix o
 
 The owner requested full planning for central oversized-allocation handling and optional-
 bias validation. The [design discussion](../superpowers/specs/2026-09-13-allocation-and-bias-hardening-design.md)
-and its two linked implementation plans are **provisional**: pool cap versus larger-buffer
-support and raw batch throwing-API compatibility still need owner decisions. Production
-changes for those two proposed plans have not begun. The owner separately selected the
-factory upload issue, addressed in slice 26 below. VA3-024 remains subsequent performance
-work; the existing open findings below are not closed by the proposed plans.
+and its two linked implementation plans separate the decisions. Pool cap versus larger-
+buffer support remains provisional. The owner approved optional-bias implementation and
+the existing raw batch method becoming throwing; slice 27 records that work. The owner
+separately selected the factory upload issue, addressed in slice 26 below. VA3-024 remains
+subsequent performance work; the remaining open findings are not closed by these plans.
 
 **Slice 26 completed: direct factory upload bounds fixed.** Aligned-array and vector
 uploads allocate padded destination capacity separately from the exact source copy and
@@ -219,8 +219,22 @@ Final source hashes matched; review approved. A release compiler assertion was i
 to a test fixture's inherited collection subscript and avoided with an equivalent explicit
 bounds-checked subscript; final gates reran on that fixture. See
 [the factory contract](../stability/FACTORY-UPLOAD-BOUNDS-CONTRACT.md).
-The global pool policy and optional-bias API decisions remain pending. No numbered shader
+At the slice 26 checkpoint, global pool policy and optional-bias API decisions remained
+pending; decision B was subsequently approved for slice 27. No numbered shader
 finding is newly closed by this adjacent fix. Same checkpoint branch.
+
+**Slice 27 completed: optional-bias validation fixed.** The owner approved the existing
+raw batch `encodeFused` becoming throwing; external callers add `try`. Active bias gets
+checked byte counts, minimum capacity and device validation before encoder mutation;
+disabled bias uses a persistent one-Float binding. Empty batch grids return without
+invalid zero-sized dispatches. Requested high-level bias allocation failure throws.
+Float-only neural encoding reuses its persistent zero bias and guards raw latent widths
+before binding. Ten new tests; targeted 55/0, API+shader validation debug/release 10/0,
+full debug/release 1732/0/11 (1721 passed, 11 existing skips), all exit 0. Review approved
+and source hashes matched. Allocation failure and wrong-device branches are source-reviewed
+on this host; see the [optional-bias contract](../stability/OPTIONAL-BIAS-CONTRACT.md).
+The raw batch residual and float-only binding gap are closed; global pool policy remains
+pending. Same single checkpoint branch, no shader ABI or public dimension-cap changes.
 
 ## 1. What this project is
 
@@ -238,7 +252,7 @@ numerics policy are the parity reference), VectorIndex (pins VA 0.3.1 — not in
 - Swift: `Core/` (Metal4Context, Metal4ComputeEngine, KernelContext, PipelineCache/Key,
   PipelineRegistry, GPUDecisionEngine), `Kernels/Metal4/` (per-kernel wrappers),
   `Integration/` (MetalComputeProvider, KernelDistanceProviders), `Index/` (IVF pipeline).
-- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **27 permanent guard
+- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **29 permanent guard
   suites** created by this epic (§5).
 
 ## 2. Architecture facts you must internalize first
@@ -315,7 +329,7 @@ to the VA3-015 stragglers was completed in slice 9, including smaller-norm-first
    that discriminate (e.g. data where the honest and the buggy answer differ in FP32).
 3. **Gates.** After the fix: targeted suites, then FULL debug suite, then FULL release
    suite (`swift test -c release`) — release exercises the runtime-compiled library
-   (§2.1). Record exact counts. Current expectation: 1722/0/11 both configs.
+   (§2.1). Record exact counts. Current expectation: 1732/0/11 both configs.
 4. **Ledger + memory.** Append a "Remediation slice N" section to
    `docs/audits/AUDIT-3-shaders.md`, flip the finding's summary-table row and detail
    heading to **FIXED**, and append a dated paragraph to the session memory file
@@ -345,7 +359,7 @@ tie-break policy standardized on the CPU side to VectorCore `TopKSelection` `.sm
 **AUDIT-3 (2026-08-16, VA3-001…034).** Independent end-to-end read of all shader files with
 per-finding Swift dispatch/liveness verification, organized into groups: A reduction/barrier,
 B numerics/fast-math policy, C memory-safety/dispatch contracts, D phantom surface,
-E determinism, F deletion inventory, G hygiene. Then twenty-six remediation slices:
+E determinism, F deletion inventory, G hygiene. Then twenty-seven remediation slices:
 
 | Slice | Date | Scope | Highlights | Gate |
 |---|---|---|---|---|
@@ -375,6 +389,7 @@ E determinism, F deletion inventory, G hygiene. Then twenty-six remediation slic
 | 24 | 09-08 | Neural reconstruction scales | Owned per-row scales, both decoders/consumers, shape/storage guards, zero decoder bias and ragged fallback routing | 1712/0/11 |
 | 25 | 09-08 | VA3-023 math flag contract | Document intrinsic selection and stock fast-math compile paths; retain API/ABI/behavior, no precise pipeline | 1712/0/11 |
 | 26 | 09-13 | Factory upload bounds | Exact source copies, zero padding, checked sizes/rounding, rectangular batches and initialized storage guards | 1722/0/11 |
+| 27 | 09-13 | Optional bias validation | Throwing raw batch bounds, disabled bindings, empty-grid no-op, requested allocation failure and neural float fallback | 1732/0/11 |
 
 **Status:** every P1 fixed; groups A, B, C, D, F closed (B/C retain documented contracts
 and limits). Groups E/G and the recorded residuals remain open (§6).
@@ -410,6 +425,8 @@ and limits). Groups E/G and the recorded residuals remain open (§6).
 | `NeuralLatentNormalizationTests` | Quantized codes/scales, bias/ReLU/norm ordering, zero/tiny cutoff, raw specialized/tiled/public generic paths, ragged rows and input/output guards |
 | `NeuralEncodingScaleTests` | Per-vector scales through both high-level decoders, normalized/zero rows, metadata ownership, malformed shapes, no-bias validation and ragged scalar fallback routing |
 | `FactoryUploadBoundsTests` | Exact array/vector source reads, zero padding, checked aligned sizes/counts, ragged/mismatched rows, storage modes/options and GPU readback after source lifetime |
+| `OptionalBiasValidationTests` | Float neural no-bias binding, signed projections/activation, ragged/cap shapes, canaries, reload, raw explicit-bias ordering |
+| `BatchOptionalBiasValidationTests` | Active bias layouts/capacity/overflow, disabled modes, legacy flags, encoder recovery, zero work and high-level results; conditional device coverage |
 
 The 11 skips in the current Apple Silicon gates are explicit unimplemented
 `IVFValidationTests` placeholders (including the missing retrieval API), not environment
@@ -463,7 +480,7 @@ dispatch uses 16×16 threadgroups for 1-D work (16× redundant compute in some b
 + the engine width-1 euclidean dispatch oddity. Perf-only; benchmark before/after.
 
 **Recorded-not-fixed (slice-4 residuals, in the ledger):** `getPipelineState` residual
-slot; `BatchMatrixKernel.encode` bias-length validation on the raw encode path; telemetry
+slot; telemetry
 blind spot for custom metrics; `PipelineCacheKey.quantized` derives only phantom names
 (zero callers — DELETE on next touch, plus its derivation-test assertion); AccelerateFallback
 ragged-pair asymmetry (euclidean→+Inf vs cosine→NaN, provider-unreachable).
@@ -473,9 +490,11 @@ storage (IVF and high-level neural wrappers now check/reject this locally; broad
 correction remains open). Direct factory aligned/vector uploads are fixed in slice 26:
 exact payload copies, zero padding, checked size/rounding, rectangular/count checks and
 CPU-accessible initialized storage; see the [factory contract](../stability/FACTORY-UPLOAD-BOUNDS-CONTRACT.md).
-Other direct factory utilities retain their documented caller requirements. 11 unimplemented `IVFValidationTests` placeholders. Broader
-optional-bias validation remains debt: slices 23/24 fixed generic quantizing and decoder
-bindings locally; float-only encoding remains a candidate. Per-vector scale loss and
+Other direct factory utilities retain their documented caller requirements. 11 unimplemented
+`IVFValidationTests` placeholders remain. Slices 23/24 fixed generic quantizing and decoder
+bias bindings; slice 27 fixes float-only binding, raw batch bias capacity and requested
+bias allocation failure. See the [optional-bias contract](../stability/OPTIONAL-BIAS-CONTRACT.md)
+for the throwing raw API migration and retained caller responsibilities. Per-vector scale loss and
 ragged non-transposed decoder routing were fixed in slice 24. The previous `encodeTiledV3`
 dedicated-test gap and `normalizeLatent` omissions were closed in slices 22 and 23.
 VA2-013 plugin header-dep gap (workaround in §2.1); the CI leg for the release gate was
@@ -514,7 +533,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 ## 8. Reference map
 
-- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–26 + all findings),
+- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–27 + all findings),
   `docs/audits/AUDIT-2.md`, `docs/audits/REVIEW-PATTERNS.md`.
 - Plans: `docs/superpowers/plans/2026-08-16-hardening-audit-phase0-1.md` (epic origin).
 - Numerics backlog: `docs/stability/NUMERICAL_STABILITY_FINDINGS.md`.
@@ -526,9 +545,8 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
   derivation — beware rewriting cases), `Metal/Shaders/Metal4Common.h` (shared constants +
   cosine rescue; mirrored in the preamble).
 
-**Owner-requested next work:** optional-bias validation, after the separately selected
-factory upload fix. The design and task plan are drafted; making raw `encodeFused` throwing
-versus introducing a separate checked API still needs an owner decision. The pool's 64 MiB
-cap versus larger-buffer support decision also remains open. VA3-024 performance requires
+**Next planning decision:** the pool's 64 MiB cap versus larger-buffer support remains
+open. The owner approved the throwing `encodeFused` change for optional-bias validation
+(slice 27), following the factory upload fix. VA3-024 performance requires
 before/after benchmarks; VA3-029 and recorded residuals remain. VA3-019 atomic accumulation
 policy still needs an owner decision. Group C has no remaining numbered findings.

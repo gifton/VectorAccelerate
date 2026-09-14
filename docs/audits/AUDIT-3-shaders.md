@@ -1275,6 +1275,66 @@ configuration. SHA-256 hashes of the final factory and test source matched acros
 full gates. Read-only review approved implementation, regressions and contract. Local
 logs and compiler probes: `/private/tmp/va-factory-upload/`. No performance claim.
 
+## Remediation slice 27 (2026-09-13, owner-approved optional-bias validation) — EXECUTED
+
+**Decision and scope.** The owner approved making the existing raw
+`BatchMatrixKernel.encodeFused` throwing. The internal `multiplyFused` caller now uses
+`try`; external callers must migrate. This closes the adjacent raw batch bias-capacity
+residual and the float-only neural binding gap. The pool policy remains pending; no new
+numbered shader finding is closed. See the
+[optional-bias contract](../stability/OPTIONAL-BIAS-CONTRACT.md) for migration and limits.
+
+**Implementation.** Float-only neural encoding reuses the persistent 128-Float zero bias
+at buffer(3), retaining real bias precedence. Raw widths above 128 and insufficient bias
+storage throw before encoder mutation. Unloaded-model behavior and the latent cap remain.
+Batch encoding derives active bias from buffer/layout, preserving nil, `.none`, and legacy
+`hasBias` disagreement behavior. Active shared and per-batch bias require at least N or
+batchSize × N Float32 values on the context device. Both element and byte products use
+checked Int arithmetic before binding or dispatch; larger buffers are accepted. Disabled
+mode binds one persistent zero Float at buffer(4), with mode zero at buffer(7). Empty
+output grids return their existing geometry without encoding a zero-sized dispatch.
+Requested high-level bias allocation failure now throws before command execution instead
+of silently selecting no bias. No shader ABI, arithmetic, positive dispatch geometry,
+public dimension cap, or general matrix-buffer validation policy changes.
+
+**Reproduction.** Neural no-bias execution aborted under Metal validation: missing
+buffer(3) for `encoderBias`. An over-cap raw neural test separately failed two assertions:
+no rejection and encoder-label mutation. Batch no-bias execution aborted for missing
+buffer(4). The first short shared-bias regression failed its expected throw after only
+the source-signature migration; the command buffer was ended and discarded without
+submission. A compiler diagnostic during test construction is not behavioral red evidence.
+Final short-bias tests cover both shared and per-batch layouts, catch rejection and then
+submit a valid operation on the same encoder, checking the rejected output stays poisoned.
+No baseline run of the valid batch controls is claimed.
+
+The initial zero-grid validation log was overwritten during development. A separate
+replay removed only the zero-grid early return from the final batch source and reproduced
+the Metal assertion that the product of threadgroup dimensions must not be zero (signal 6,
+exit 1). `batch-zero-grid-red-replay.log` preserves it. The exact reviewed source was
+restored in a finally block; final debug validation and both full gates ran afterward.
+
+**Coverage and limitations.** Four neural tests cover signed projections, activation,
+ragged dimensions, L=128, output canaries, unloaded/reloaded weights, and raw explicit-bias
+ordering separately from wrapper coverage. Six batch tests cover exact/oversized capacity,
+both broadcasting layouts, disabled modes, legacy flag disagreement, both multiplication
+overflows, short-bias recovery, zero work, and high-level bias/activation results.
+Wrong-device coverage is conditional inside a meaningful active-layout test; this
+single-device host leaves that branch source-reviewed. High-level allocation failure is
+also source-reviewed because no safe failure seam exists; no GPU-memory exhaustion or
+new allocator abstraction was used. Other raw tensor sizes, model-shape agreement,
+resource lifetime, device/encoder compatibility and synchronization remain caller-owned.
+
+**Final verification.** Targeted batch/neural guards, capability and kernel-consumer tests
+**55/0** (1.254s). Combined bias tests under `MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1`:
+debug **10/0** (0.159s), release **10/0** (3.037s). Full debug **1732/0/11** (258.316s),
+release **1732/0/11** (55.185s), all exit 0: **1721 passed and 11 existing placeholder
+skips** in each full configuration. Swift 6.3.3 on Apple M3 Max; release validation
+executes runtime shader compilation.
+SHA-256 hashes of both production and both test files matched across the full gates.
+Independent read-only review approved code, tests, source migration and contract with no
+outstanding findings. Local logs: `/private/tmp/va-optional-bias/`. No performance claim.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).

@@ -40,7 +40,9 @@ Weight loading prepares a persistent zero decoder-bias buffer sized to the outpu
 All decoder wrappers bind it when no real bias exists. Metal API validation rejected the
 previous unbound transposed-decoder bias argument despite its shader null check. Real
 bias still takes precedence, and unloading weights releases the fallback. This local
-correction does not establish validation coverage for every optional-bias API.
+correction does not establish validation coverage for every optional-bias API. Slice 27
+separately covers float-only encoding and batch bias; see the
+[optional-bias contract](OPTIONAL-BIAS-CONTRACT.md).
 
 The non-transposed optimized decoders process complete float4 latent blocks. Their Swift
 wrapper selects them only when L is divisible by four, otherwise using the existing

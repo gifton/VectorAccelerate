@@ -41,8 +41,9 @@ The no-bias generic quantizing wrapper also binds a persistent 128-float zero bu
 Metal API validation rejected its previous nil buffer(4) binding even though the shader
 checks for a null bias pointer. A 512-byte fallback allocated at kernel initialization
 preserves the no-bias quantized output; a real bias takes precedence. Allocation failure
-throws through the existing initializer. Other optional-bias entry points are outside
-this local correction and remain candidates for broader validation.
+throws through the existing initializer. Slice 27 extends the same fallback to float-only
+encoding and validates batch bias; see the [optional-bias contract](OPTIONAL-BIAS-CONTRACT.md)
+for its exact scope and source migration.
 
 ## Raw migration and retained limits
 

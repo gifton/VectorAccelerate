@@ -258,3 +258,18 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
 - **Review extension:** direct CPU upload requires CPU-accessible storage. Preserve
   resource-option flags, notify managed writes where supported, and test GPU readback
   after source lifetime ends. Rounded length alone does not guarantee base alignment.
+
+
+## 22. Optional arithmetic still needs a valid Metal binding
+- **Mechanism:** a shader null check or disabled mode does not establish that Metal API
+  validation accepts a missing buffer argument. Reproduce the wrapper under validation;
+  use owned, initialized fallback storage sized for the reads the shader can perform.
+- **Incident:** slice 27 reproduced missing neural float-encoder buffer(3) and batch
+  fused bias buffer(4) bindings. The neural wrapper reuses its 128-Float fallback with a
+  raw latent-width guard; disabled batch mode binds one persistent Float and reads none.
+- **Review extension:** distinguish absent bias from failed allocation of requested bias.
+  Validate active raw bias length/device with wide checked arithmetic before any encoder
+  mutation. Exercise rejection without submitting an unsafe baseline dispatch; after the
+  fix, catch rejection, encode a valid operation, and verify both its result and the
+  untouched rejected output. Record allocation-failure or multi-device branches as
+  source-reviewed when hardware/fault-injection coverage is unavailable.
