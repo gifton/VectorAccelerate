@@ -11,12 +11,12 @@ release `swift test -c release` → **1590 / 0 / 11**. Both must stay that way (
 
 This document is self-contained, but the authoritative per-finding record is
 `docs/audits/AUDIT-3-shaders.md` (findings VA3-001…034, groups A–G, remediation
-slices 1–29) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
+slices 1–30) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
 `docs/audits/REVIEW-PATTERNS.md` holds the project's adversarial-review pattern library.
 
 ---
 
-## Current addendum — 2026-09-13
+## Current addendum — 2026-09-14
 
 **Slice 9 completed: VA3-015 is FIXED.** Correlation finalization now avoids fast-math
 variance-product overflow/underflow and divides by the smaller finite norm first so tiny
@@ -32,8 +32,8 @@ NaN-containing input, including mixed NaN/Inf. Empty input and infinity without 
 throw; higher-moment, quantile, and correlation requests retain finite-only validation.
 Histograms and softmax are unchanged. Nine further tests cover both shader paths and public APIs.
 
-Current full gates: **debug 1752 / 0 failures / 11 skipped; release 1752 / 0 / 11**.
-This is 1741 passed and 11 skipped in each configuration; see slice 29 for current evidence.
+Current full gates: **debug 1758 / 0 failures / 11 skipped; release 1758 / 0 / 11**.
+This is 1747 passed and 11 skipped in each configuration; see slice 30 for current evidence.
 The original state stamp above is historical. On 2026-09-07, the owner authorized
 checkpointing all project work through slice 16 on `gifton/metal-hardening-checkpoint`
 and pushing that branch to `origin`. This checkpoint includes the hardening tests, audit
@@ -261,8 +261,20 @@ expanded red 31 assertions, final target 72/0, API+shader validation 9/0 in each
 full debug/release 1752/0/11 (1741 passed, 11 existing skips), all exit 0. Review approved and
 source hashes matched. See the [lifecycle contract](../stability/BUFFER-POOL-LIFECYCLE-CONTRACT.md)
 for reset-generation budgets, provider lifetime for borrowed pointers, and GPU requirements.
-ArgumentTablePool's analogous registry and BufferPool clearCache accounting remain follow-ups.
+ArgumentTablePool's analogous registry was subsequently fixed in slice 30; BufferPool
+clearCache accounting remained a separate follow-up at that checkpoint.
 Same checkpoint branch; no public signatures, shaders or allocation limits changed.
+
+**Slice 30 completed: ArgumentTablePool ownership fixed.** Tokens weakly reference a
+pool-owned queue; orphaned tables/bindings are released with the pool, while live tokens
+own tables independently. Twelve direct engine returns migrated to token acquisition/defer
+release, preserving descriptors and GPU lifetimes. Six new tests; baseline six assertions,
+targeted 69/0, scoped table/engine API+shader validation 26/0 in debug and release; full
+1758/0/11 each (1747 passed), all exit 0. Review approved and hashes matched. Broader
+validation reproduced a separate unary elementwise missing input_b binding on unchanged
+baseline; that finding remains open. See the
+[table contract](../stability/ARGUMENT-TABLE-LIFECYCLE-CONTRACT.md). BufferPool clearCache
+accounting is the next authorized item. Same checkpoint branch; no shader/public API changes.
 
 ## 1. What this project is
 
@@ -280,7 +292,7 @@ numerics policy are the parity reference), VectorIndex (pins VA 0.3.1 — not in
 - Swift: `Core/` (Metal4Context, Metal4ComputeEngine, KernelContext, PipelineCache/Key,
   PipelineRegistry, GPUDecisionEngine), `Kernels/Metal4/` (per-kernel wrappers),
   `Integration/` (MetalComputeProvider, KernelDistanceProviders), `Index/` (IVF pipeline).
-- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **31 permanent guard
+- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **32 permanent guard
   suites** created by this epic (§5).
 
 ## 2. Architecture facts you must internalize first
@@ -420,6 +432,7 @@ E determinism, F deletion inventory, G hygiene. Then twenty-seven remediation sl
 | 27 | 09-13 | Optional bias validation | Throwing raw batch bounds, disabled bindings, empty-grid no-op, requested allocation failure and neural float fallback | 1732/0/11 |
 | 28 | 09-13 | Central pool allocation bounds | Recoverable 64 MiB cap, checked typed/aligned/preallocation sizes, actual capacity, empty uploads and consumer error contracts | 1743/0/11 |
 | 29 | 09-13 | BufferPool return lifecycle | Per-pool queues, weak token destinations, reset retirement, cycle removal and tracked-return accounting | 1752/0/11 |
+| 30 | 09-14 | ArgumentTablePool ownership | Pool-owned return queue, weak token destinations, binding lifetime and twelve engine migrations | 1758/0/11 |
 
 **Status:** every P1 fixed; groups A, B, C, D, F closed (B/C retain documented contracts
 and limits). Groups E/G and the recorded residuals remain open (§6).
@@ -459,6 +472,7 @@ and limits). Groups E/G and the recorded residuals remain open (§6).
 | `BatchOptionalBiasValidationTests` | Active bias layouts/capacity/overflow, disabled modes, legacy flags, encoder recovery, zero work and high-level results; conditional device coverage |
 | `BufferAllocationBoundsTests` | All bucket boundaries, malformed/oversized requests, checked typed/aligned/preallocation sizes, empty uploads, compatibility paths, deterministic budget cleanup and reuse |
 | `BufferPoolLifecycleTests` | Queued-buffer/pool destruction, token ownership, compatibility cycles/pointer lifetime, reset retirement, duplicate/foreign returns, concurrent returns/reset and GPU completion |
+| `ArgumentTableLifecycleTests` | Queued table/binding destruction, independent token ownership, immediate reuse, concurrent releases and pool isolation |
 
 The 11 skips in the current Apple Silicon gates are explicit unimplemented
 `IVFValidationTests` placeholders (including the missing retrieval API), not environment
@@ -520,9 +534,12 @@ ragged-pair asymmetry (euclidean→+Inf vs cosine→NaN, provider-unreachable).
 **Coverage gaps / debt:** central pool allocation bounds are addressed in slice 28;
 IVF/neural physical-capacity guards remain. Slice 29 fixes BufferPool's global pending-return
 ownership/address reuse and stale post-reset returns; its previous fresh-pool reset
-workarounds are removed. `ArgumentTablePool` still has an analogous global actor-address
-return queue, and BufferPool `clearCache()` still removes cached buffers without reducing
-retained-memory accounting. These are separate follow-ups. Reset budgets still exclude
+workarounds are removed. Slice 30 fixes ArgumentTablePool's analogous queue and migrates
+its twelve direct engine return sites. BufferPool `clearCache()` still removes cached
+buffers without reducing retained-memory accounting; this is the next authorized fix.
+Broader Metal validation also reproduced a pre-existing unary ElementwiseKernel.scale
+missing input_b binding at index 1 on unchanged baseline; record this separately from the
+passing scoped ownership gates. Reset budgets still exclude
 physically live retired leases by the documented policy. Direct factory
 aligned/vector uploads are fixed in slice 26:
 exact payload copies, zero padding, checked size/rounding, rectangular/count checks and
@@ -570,7 +587,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 ## 8. Reference map
 
-- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–29 + all findings),
+- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–30 + all findings),
   `docs/audits/AUDIT-2.md`, `docs/audits/REVIEW-PATTERNS.md`.
 - Plans: `docs/superpowers/plans/2026-08-16-hardening-audit-phase0-1.md` (epic origin).
 - Numerics backlog: `docs/stability/NUMERICAL_STABILITY_FINDINGS.md`.
@@ -584,8 +601,9 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 **Next work:** central pool allocation bounds retain the 64 MiB cap (slice 28), following
 optional-bias validation (slice 27) and the factory upload fix. BufferPool return/reset
-lifecycle is fixed in slice 29. Next lifecycle follow-ups are the analogous ArgumentTablePool
-queue and BufferPool clearCache accounting. VA3-024 performance requires before/after
+lifecycle is fixed in slice 29 and ArgumentTablePool ownership in slice 30. BufferPool
+clearCache accounting is next. The baseline-reproduced unary elementwise missing-binding
+validation failure also remains open. VA3-024 performance requires before/after
 benchmarks; VA3-029 and recorded residuals remain.
 VA3-019 atomic accumulation policy still needs an owner decision. Group C has no remaining
 numbered findings.

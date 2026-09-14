@@ -62,5 +62,5 @@ is necessary for that particular blit. Previous bounds tests no longer reset fre
 to avoid stale global returns. See AUDIT-3 slice 29 for execution evidence.
 
 This fix does not redesign `clearCache()` accounting, eviction, raw token data-access
-synchronization or `ArgumentTablePool`. The latter still has an analogous global
-actor-address return queue and merits a separate lifecycle follow-up.
+synchronization or `ArgumentTablePool`. Its analogous return ownership was subsequently
+fixed separately; see the [argument table lifecycle contract](ARGUMENT-TABLE-LIFECYCLE-CONTRACT.md).

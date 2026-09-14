@@ -1453,6 +1453,49 @@ through the full gates. No performance claim. Existing checkpoint branch retaine
 
 
 
+## Remediation slice 30 (2026-09-14, owner-authorized argument table ownership) — EXECUTED
+
+**Scope:** each ArgumentTablePool now owns its return queue; tokens weakly reference the
+queue while owning their tables. Pool destruction releases undrained tables and retained
+buffer bindings. Explicit/deinit release preserves exactly-once locking and captures the
+weak destination once. The existing tracked-membership guard and clearAvailable timing
+remain unchanged. Unlike BufferPool reset, clearing available tables does not retire leases.
+
+Twelve engine sites previously returned tables directly to the global queue. They now
+acquire tokens and defer token release over the same operations, preserving default/batch/
+matrix descriptors, buffer bindings and GPU completion waits. This dependency was missed
+by the initial one-file estimate and caught by compilation and independent review; the
+build-failure log is preserved. No public signature, shader, table-limit, descriptor-reuse
+or batch-acquisition policy changes. See the
+[argument table lifecycle contract](../stability/ARGUMENT-TABLE-LIFECYCLE-CONTRACT.md).
+
+**Evidence:** six new ArgumentTableLifecycleTests reproduced six baseline assertions,
+including orphaned queued tables/buffers and tokens retaining pools. Tests cover both
+acquisition spellings, explicit/deinit reuse and binding cleanup, concurrent exactly-once
+returns, pool isolation and live returns after clearAvailable. Final targeted table/pool/
+engine/consumer tests **69/0** (1.248s), exit 0. Independent review approved implementation,
+engine migrations, tests and contract after the migration blocker was fixed.
+
+**Separate validation finding:** broader API+shader validation aborted in the unchanged
+KernelConsumerTests.testElementwiseOperations unary scaling path: elementwise_operation_kernel
+has no input_b binding at index 1. Replaying with both changed production files restored to
+baseline HEAD `5e6e6e8` reproduced the same assertion; reviewed files were restored in finally
+and their hashes rechecked. This is recorded adjacent debt, not fixed or attributed to
+argument-table ownership. Scoped table/engine validation excludes that unrelated consumer;
+normal full gates still include it. Table lifetime tests use real Swift tables and Metal
+buffers, without claiming new native argument-table dispatch functionality.
+
+Local evidence: `/private/tmp/va-pool-followups/2026-09-14/` (`table-*` and
+`elementwise-validation-baseline.log`). Final validation/full results follow below.
+
+**Final gates:** scoped API+shader validation **26/0** in debug (0.520s) and release
+(0.307s); full debug **1758/0/11** (260.001s), release **1758/0/11** (56.214s), all exit 0.
+Each full configuration has **1747 passed and 11 existing placeholder skips**. Swift 6.3.3
+on Apple M3 Max; release exercises runtime compilation. Both production files and the new
+test file retained their reviewed SHA-256 hashes across the gates. No performance claim.
+
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).

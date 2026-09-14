@@ -199,8 +199,9 @@ public actor Metal4ComputeEngine {
         let pipeline = try await getPipeline(functionName: "euclideanDistance")
 
         // Acquire argument table
-        let argTable = try await argumentTablePool.acquire()
-        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+        let argTableToken = try await argumentTablePool.acquireToken()
+        let argTable = argTableToken.table
+        defer { argTableToken.release() }
 
         // Configure argument table
         argTable.setBuffer(bufferA.buffer, offset: 0, index: 0)
@@ -261,8 +262,9 @@ public actor Metal4ComputeEngine {
         let pipeline = try await getPipeline(functionName: "cosineDistance")
 
         // Acquire argument table
-        let argTable = try await argumentTablePool.acquire()
-        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+        let argTableToken = try await argumentTablePool.acquireToken()
+        let argTable = argTableToken.table
+        defer { argTableToken.release() }
 
         // Configure
         argTable.setBuffer(bufferA.buffer, offset: 0, index: 0)
@@ -317,8 +319,9 @@ public actor Metal4ComputeEngine {
         let pipeline = try await getPipeline(functionName: "dotProduct")
 
         // Acquire argument table
-        let argTable = try await argumentTablePool.acquire()
-        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+        let argTableToken = try await argumentTablePool.acquireToken()
+        let argTable = argTableToken.table
+        defer { argTableToken.release() }
 
         argTable.setBuffer(bufferA.buffer, offset: 0, index: 0)
         argTable.setBuffer(bufferB.buffer, offset: 0, index: 1)
@@ -502,8 +505,9 @@ public actor Metal4ComputeEngine {
         let pipeline = try await getPipeline(functionName: "batchEuclideanDistance")
 
         // Acquire argument table (batch descriptor for more bindings)
-        let argTable = try await argumentTablePool.acquire(descriptor: .batch)
-        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+        let argTableToken = try await argumentTablePool.acquireToken(descriptor: .batch)
+        let argTable = argTableToken.table
+        defer { argTableToken.release() }
 
         argTable.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
         argTable.setBuffer(candidatesBuffer.buffer, offset: 0, index: 1)
@@ -576,8 +580,9 @@ public actor Metal4ComputeEngine {
 
         let pipeline = try await getPipeline(functionName: "batchCosineDistance")
 
-        let argTable = try await argumentTablePool.acquire(descriptor: .batch)
-        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+        let argTableToken = try await argumentTablePool.acquireToken(descriptor: .batch)
+        let argTable = argTableToken.table
+        defer { argTableToken.release() }
 
         argTable.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
         argTable.setBuffer(candidatesBuffer.buffer, offset: 0, index: 1)
@@ -647,8 +652,9 @@ public actor Metal4ComputeEngine {
         let distancePipeline = try await getPipeline(functionName: distanceFunctionName)
 
         // Acquire argument tables
-        let distanceArgTable = try await argumentTablePool.acquire(descriptor: .batch)
-        defer { PendingTableReturns.shared.enqueue(table: distanceArgTable, pool: argumentTablePool) }
+        let distanceArgTableToken = try await argumentTablePool.acquireToken(descriptor: .batch)
+        let distanceArgTable = distanceArgTableToken.table
+        defer { distanceArgTableToken.release() }
 
         distanceArgTable.setBuffer(queryBuffer.buffer, offset: 0, index: 0)
         distanceArgTable.setBuffer(databaseBuffer.buffer, offset: 0, index: 1)
@@ -716,8 +722,9 @@ public actor Metal4ComputeEngine {
 
         let pipeline = try await getPipeline(functionName: "vectorNormalize")
 
-        let argTable = try await argumentTablePool.acquire()
-        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+        let argTableToken = try await argumentTablePool.acquireToken()
+        let argTable = argTableToken.table
+        defer { argTableToken.release() }
 
         argTable.setBuffer(inputBuffer.buffer, offset: 0, index: 0)
         argTable.setBuffer(outputBuffer.buffer, offset: 0, index: 1)
@@ -797,8 +804,9 @@ public actor Metal4ComputeEngine {
 
         let pipeline = try await getPipeline(functionName: "matrixVectorMultiply")
 
-        let argTable = try await argumentTablePool.acquire(descriptor: .matrix)
-        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+        let argTableToken = try await argumentTablePool.acquireToken(descriptor: .matrix)
+        let argTable = argTableToken.table
+        defer { argTableToken.release() }
 
         argTable.setBuffer(matrixBuffer.buffer, offset: 0, index: 0)
         argTable.setBuffer(vectorBuffer.buffer, offset: 0, index: 1)
@@ -931,8 +939,9 @@ public extension Metal4ComputeEngine {
     ) async throws {
         let pipeline = try await getPipeline(functionName: "batchEuclideanDistance")
 
-        let argTable = try await argumentTablePool.acquire(descriptor: .batch)
-        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+        let argTableToken = try await argumentTablePool.acquireToken(descriptor: .batch)
+        let argTable = argTableToken.table
+        defer { argTableToken.release() }
 
         argTable.setBuffer(query.buffer, offset: 0, index: 0)
         argTable.setBuffer(database.buffer, offset: 0, index: 1)
@@ -970,8 +979,9 @@ public extension Metal4ComputeEngine {
     ) async throws {
         let pipeline = try await getPipeline(functionName: "batchCosineDistance")
 
-        let argTable = try await argumentTablePool.acquire(descriptor: .batch)
-        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+        let argTableToken = try await argumentTablePool.acquireToken(descriptor: .batch)
+        let argTable = argTableToken.table
+        defer { argTableToken.release() }
 
         argTable.setBuffer(query.buffer, offset: 0, index: 0)
         argTable.setBuffer(database.buffer, offset: 0, index: 1)
@@ -1010,8 +1020,9 @@ public extension Metal4ComputeEngine {
     ) async throws -> Float {
         let pipeline = try await getPipeline(functionName: "euclideanDistance")
 
-        let argTable = try await argumentTablePool.acquire()
-        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+        let argTableToken = try await argumentTablePool.acquireToken()
+        let argTable = argTableToken.table
+        defer { argTableToken.release() }
 
         argTable.setBuffer(vectorA.buffer, offset: 0, index: 0)
         argTable.setBuffer(vectorB.buffer, offset: 0, index: 1)
@@ -1044,8 +1055,9 @@ public extension Metal4ComputeEngine {
     ) async throws -> Float {
         let pipeline = try await getPipeline(functionName: "dotProduct")
 
-        let argTable = try await argumentTablePool.acquire()
-        defer { PendingTableReturns.shared.enqueue(table: argTable, pool: argumentTablePool) }
+        let argTableToken = try await argumentTablePool.acquireToken()
+        let argTable = argTableToken.table
+        defer { argTableToken.release() }
 
         argTable.setBuffer(vectorA.buffer, offset: 0, index: 0)
         argTable.setBuffer(vectorB.buffer, offset: 0, index: 1)

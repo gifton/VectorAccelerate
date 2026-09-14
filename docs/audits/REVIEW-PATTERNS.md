@@ -304,3 +304,10 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   lifetime across reset while the provider lives, and distinguish current-generation
   accounting from all physically live storage. Internal returns must prove tracked
   membership before modifying cache/accounting. Audit analogous registries separately.
+
+
+- **Follow-up, slice 30:** the same ownership correction applies to argument-table
+  tokens, including tables retaining bound buffers. Search for direct queue users as
+  well as token constructors: twelve engine defer sites used the old singleton directly
+  and needed migration to token leases. Existing membership checks already protect raw
+  releases; preserve them and the distinct clearAvailable semantics.
