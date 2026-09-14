@@ -328,7 +328,9 @@ public final class MetalBufferFactory: @unchecked Sendable {
 
     /// Select appropriate bucket size for a requested size
     /// - Parameter requestedSize: The size needed in bytes
-    /// - Returns: The smallest bucket size >= requestedSize, or max bucket size
+    /// - Returns: The smallest bucket size >= requestedSize, or max bucket size.
+    ///   This is a lookup helper and intentionally caps its result; allocation entry
+    ///   points validate the original request before using it.
     public static func selectBucketSize(for requestedSize: Int) -> Int {
         for size in standardBucketSizes {
             if size >= requestedSize {
@@ -342,13 +344,25 @@ public final class MetalBufferFactory: @unchecked Sendable {
     /// - Parameters:
     ///   - requestedSize: The minimum size needed
     ///   - options: Metal resource options (uses default if not specified)
-    /// - Returns: Buffer with bucket-rounded size, or nil if allocation fails
+    /// - Returns: Buffer with bucket-rounded size, or nil if the original request is
+    ///   negative, exceeds the largest standard bucket or device limit, or allocation fails
     public func createBucketedBuffer(
         size requestedSize: Int,
         options: MTLResourceOptions? = nil
     ) -> (any MTLBuffer)? {
+        guard requestedSize >= 0,
+              let maximum = Self.standardBucketSizes.last,
+              requestedSize <= maximum else {
+            return nil
+        }
         let bucketSize = Self.selectBucketSize(for: requestedSize)
-        return createBuffer(length: bucketSize, options: options)
+        guard bucketSize <= device.maxBufferLength,
+              let buffer = createBuffer(length: bucketSize, options: options),
+              buffer.length >= requestedSize,
+              buffer.length >= bucketSize else {
+            return nil
+        }
+        return buffer
     }
 
     // MARK: - Buffer Utilities

@@ -205,7 +205,11 @@ final class IVFCandidateBoundsTests: XCTestCase {
         let context = try await Metal4Context()
         let device = context.device.rawDevice
         let kernel = try await IVFGPUCandidateBuilderKernel(context: context)
-        for (q, entries) in [(1, UInt32(16_777_217)), (257, UInt32(65_537))] {
+        for (q, entries, requestedBytes) in [
+            // The fused path conservatively reserves twice the observed list size.
+            (1, UInt32(16_777_217), 134_217_736),
+            (257, UInt32(65_537), 67_372_036),
+        ] {
             do {
                 let result = try await kernel.buildCandidates(nearestCentroids: buffer([UInt32](repeating: 0, count: q), device),
                     listOffsets: buffer([0, entries], device), numQueries: q, nprobe: 1, numLists: 1)
@@ -213,7 +217,11 @@ final class IVFCandidateBoundsTests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(result.candidateIVFIndices.length / 4, result.totalCandidates)
                 XCTAssertGreaterThanOrEqual(result.candidateQueryIds.length / 4, result.totalCandidates)
                 XCTAssertEqual(words(result.candidateOffsets, q + 1), (0...q).map { UInt32($0) * entries })
-            } catch let error as VectorError { XCTAssertEqual(error.kind, .allocationFailed) }
+            } catch let error as VectorError {
+                XCTAssertEqual(error.kind, .invalidData)
+                XCTAssertEqual(error.context.additionalInfo["requested_size"], String(requestedBytes))
+                XCTAssertEqual(error.context.additionalInfo["maximum_size"], String(64 * 1024 * 1024))
+            }
         }
     }
 

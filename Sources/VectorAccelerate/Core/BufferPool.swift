@@ -174,10 +174,12 @@ public final class BufferToken: @unchecked Sendable {
     public func write<T>(data: [T]) {
         let maxCount = size / MemoryLayout<T>.stride
         precondition(data.count <= maxCount, "Data exceeds buffer capacity")
-        
-        let pointer = contents(as: T.self)
-        data.withUnsafeBufferPointer { source in
-            pointer.update(from: source.baseAddress!, count: data.count)
+
+        if !data.isEmpty {
+            let pointer = contents(as: T.self)
+            data.withUnsafeBufferPointer { source in
+                pointer.update(from: source.baseAddress!, count: data.count)
+            }
         }
         
         // Track the actual data count
@@ -292,17 +294,32 @@ public actor BufferPool: BufferProvider {
     
     // MARK: - Buffer Management
     
-    /// Get a buffer of at least the specified size
+    /// Get a buffer of at least the specified size.
+    /// Zero bytes receives the minimum bucket. Negative requests are invalid, and
+    /// requests above the 64 MiB standard-pool cap fail rather than returning less storage.
     public func getBuffer(size: Int) async throws -> BufferToken {
         // Drain pending returns from token deinits (synchronous, no Task.detached)
         drainPendingReturns()
 
+        guard size >= 0 else {
+            throw VectorError.invalidInput("Buffer size must be nonnegative")
+        }
+        guard let maximumBucketSize = bucketSizes.last,
+              size <= maximumBucketSize else {
+            throw VectorError.invalidBufferSize(
+                requested: size,
+                maximum: bucketSizes.last ?? 0
+            )
+        }
+
         // Find appropriate bucket size
         let bucketSize = selectBucketSize(for: size)
-        
-        // Check if size exceeds maximum
-        if bucketSize > bucketSizes.last! {
-            throw VectorError.invalidBufferSize(requested: size, maximum: bucketSizes.last!)
+
+        guard bucketSize <= device.rawDevice.maxBufferLength else {
+            throw VectorError.invalidBufferSize(
+                requested: size,
+                maximum: min(maximumBucketSize, device.rawDevice.maxBufferLength)
+            )
         }
         
         // Get or create bucket
@@ -313,6 +330,11 @@ public actor BufferPool: BufferProvider {
         // Try to get available buffer
         if var bucket = buckets[bucketSize], !bucket.available.isEmpty {
             let buffer = bucket.available.removeLast()
+            guard buffer.length >= size, buffer.length >= bucketSize else {
+                currentMemoryUsage = max(0, currentMemoryUsage - bucketSize)
+                buckets[bucketSize] = bucket
+                throw VectorError.bufferAllocationFailed(size: bucketSize)
+            }
             bucket.inUse.insert(ObjectIdentifier(buffer))
             buckets[bucketSize] = bucket
             hitCount += 1
@@ -323,11 +345,11 @@ public actor BufferPool: BufferProvider {
         missCount += 1
         
         // Check memory pressure
-        if currentMemoryUsage + bucketSize > maxTotalMemory {
+        if bucketSize > maxTotalMemory || currentMemoryUsage > maxTotalMemory - bucketSize {
             try await performMemoryCleanup()
             
             // Check again after cleanup
-            if currentMemoryUsage + bucketSize > maxTotalMemory {
+            if bucketSize > maxTotalMemory || currentMemoryUsage > maxTotalMemory - bucketSize {
                 throw VectorError.memoryPressure()
             }
         }
@@ -342,7 +364,9 @@ public actor BufferPool: BufferProvider {
         }
 
         // Allocate new buffer synchronously via factory (no async overhead)
-        guard let buffer = factory.createBuffer(length: bucketSize) else {
+        guard let buffer = factory.createBuffer(length: bucketSize),
+              buffer.length >= size,
+              buffer.length >= bucketSize else {
             throw VectorError.bufferAllocationFailed(size: bucketSize)
         }
 
@@ -389,7 +413,10 @@ public actor BufferPool: BufferProvider {
     
     /// Get buffer for typed data
     public func getBuffer<T>(for data: [T]) async throws -> BufferToken {
-        let size = data.count * MemoryLayout<T>.stride
+        let (size, overflow) = data.count.multipliedReportingOverflow(by: MemoryLayout<T>.stride)
+        guard !overflow else {
+            throw VectorError.invalidInput("Typed buffer byte count is not representable")
+        }
         let token = try await getBuffer(size: size)
         token.write(data: data)
         return token
@@ -405,9 +432,19 @@ public actor BufferPool: BufferProvider {
         return false
     }
     
-    /// Create a buffer with specific alignment requirements
+    /// Create a buffer whose byte length is rounded up to a positive power-of-two alignment.
+    /// This rounds length only; it does not promise arbitrary GPU-address alignment.
     public func getAlignedBuffer(size: Int, alignment: Int = 16) async throws -> BufferToken {
-        let alignedSize = (size + alignment - 1) & ~(alignment - 1)
+        guard size >= 0,
+              alignment > 0,
+              alignment & (alignment - 1) == 0 else {
+            throw VectorError.invalidInput("Buffer size and alignment must be nonnegative and alignment must be a power of two")
+        }
+        let (roundedInput, overflow) = size.addingReportingOverflow(alignment - 1)
+        guard !overflow else {
+            throw VectorError.invalidInput("Aligned buffer size is not representable")
+        }
+        let alignedSize = roundedInput & ~(alignment - 1)
         return try await getBuffer(size: alignedSize)
     }
     
@@ -476,16 +513,24 @@ public actor BufferPool: BufferProvider {
     /// Pre-allocate buffers for common sizes to reduce initial allocation overhead
     /// Call this after initialization to warm up the pool
     public func preallocateCommonSizes(buffersPerSize: Int = 2, maxSizes: Int = 3) {
+        guard buffersPerSize > 0, maxSizes > 0 else { return }
         for size in Self.commonPreallocationSizes.prefix(maxSizes) {
             let bucketSize = selectBucketSize(for: size)
 
-            // Skip if would exceed memory limit
-            guard currentMemoryUsage + (bucketSize * buffersPerSize) <= maxTotalMemory else {
+            let (requestedBytes, overflow) = bucketSize.multipliedReportingOverflow(
+                by: buffersPerSize
+            )
+            guard !overflow,
+                  bucketSize <= device.rawDevice.maxBufferLength,
+                  requestedBytes <= maxTotalMemory,
+                  currentMemoryUsage <= maxTotalMemory - requestedBytes else {
                 continue
             }
 
+            // Skip if would exceed memory limit
             for _ in 0..<buffersPerSize {
-                if let buffer = factory.createBuffer(length: bucketSize) {
+                if let buffer = factory.createBuffer(length: bucketSize),
+                   buffer.length >= bucketSize {
                     buffer.label = "VectorAccelerate.BufferPool.Prealloc.\(bucketSize)"
 
                     var bucket = buckets[bucketSize] ?? BufferBucket(size: bucketSize)
@@ -503,7 +548,13 @@ public actor BufferPool: BufferProvider {
 
     /// Get a buffer for a specific type and count
     public func getBuffer<T>(for type: T.Type, count: Int) async throws -> BufferToken {
-        let byteSize = count * MemoryLayout<T>.stride
+        guard count >= 0 else {
+            throw VectorError.invalidInput("Typed buffer count must be nonnegative")
+        }
+        let (byteSize, overflow) = count.multipliedReportingOverflow(by: MemoryLayout<T>.stride)
+        guard !overflow else {
+            throw VectorError.invalidInput("Typed buffer byte count is not representable")
+        }
         return try await getBuffer(size: byteSize)
     }
 

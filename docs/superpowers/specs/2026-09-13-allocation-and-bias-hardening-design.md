@@ -1,7 +1,8 @@
 # Allocation and optional-bias hardening: design discussion
 
 **Status:** decision B approved and completed as slice 27 on 2026-09-13, including the
-existing raw `encodeFused` becoming throwing. Decision A remains proposed and unresolved.
+existing raw `encodeFused` becoming throwing. Decision A authorized on 2026-09-13:
+retain the 64 MiB pool cap with recoverable errors; completed as slice 28.
 **Baseline:** `1d2928f`, branch `gifton/metal-hardening-checkpoint`.
 
 These are two independently deliverable changes. Numerical-backlog reconciliation is
@@ -15,8 +16,8 @@ implementation. Maintain separate checkpoints on the existing branch.
 | A: Requests larger than 64 MiB | Enforce the existing pool limit with a recoverable error. Preserve direct non-bucketed allocation APIs for explicitly larger workloads. | Support larger buffers within device and configured memory limits. Requires a design for their accounting, return and reuse; expands this slice. |
 | B: Raw batch `encodeFused` compatibility | Make the existing method throwing; validate before mutating the encoder. Migrate internal callers with `try`. | Add a separate checked API. Existing callers remain unchecked, so this does not close safety on the original public entry point. |
 
-The owner approved recommendation B and its plan. Recommendation A remains provisional;
-optional-bias work does not settle the pool policy.
+The owner approved recommendation B and its plan, then requested execution of central
+buffer-pool bounds after the recommendation to retain the 64 MiB cap (decision A).
 
 ## A. Allocation contract
 
@@ -62,6 +63,9 @@ size details without weakening its physical-capacity assertions.
 - Compare selected allocation length with device limits and the current memory budget.
   Preserve existing memory-pressure cleanup/error behavior and successful lease return.
   Use overflow-safe comparisons where these checks are touched.
+- Keep the preallocation convenience nonthrowing: nonpositive counts are a no-op;
+  skip groups with overflowing aggregate sizes or insufficient device/budget capacity.
+  This closes its allocation arithmetic without redesigning pool lifecycle.
 - Check actual buffer capacity before returning a lease or copying initialized data.
   Failed input must not create a tracked handle or increase retained allocation usage.
   Draining already-pending returns may legitimately change statistics on a call.
@@ -73,8 +77,8 @@ selected the direct aligned/vector upload issue on 2026-09-13. Slice 26 separate
 destination capacity from exact source-copy length, checks aligned size arithmetic,
 rejects ragged/mismatched vector rows and CPU-inaccessible initialized storage, and zeroes
 padding. See the [factory upload contract](../../stability/FACTORY-UPLOAD-BOUNDS-CONTRACT.md).
-These completed changes do not resolve decision A or harden every factory utility.
-Pool arithmetic and oversized bucket behavior remain within the proposed plan above.
+These completed changes do not harden every factory utility. Pool arithmetic and
+oversized bucket behavior are covered by the separately authorized plan above.
 
 No new large-buffer cache, custom bucket configuration, eviction redesign, general
 BufferToken API redesign, residency rewrite or concurrency-policy change. Existing
@@ -172,7 +176,7 @@ using the finite zero buffer. No private test setter or unrelated public API is 
 ## Execution and validation
 
 Implement A and B as separate checkpoints on the same existing branch. The owner
-selected the separate factory fix first, then B; decision A remains open. Neither needs
+selected the separate factory fix first, then B, and has now authorized A. Neither needs
 a new dependency or a VectorCore update. Preserve Metal 4/platform
 requirements and VectorCore 0.3.3. Use mechanism-specific failing tests before each fix,
 then targeted tests, Metal validation for bias work, and full debug and release gates.
@@ -182,6 +186,6 @@ Documentation-only reconciliation gets source/reference/math checks, not new run
 coverage claims. Latest historical full gates remain 1701 passed + 11 skips in each
 configuration. Implementation counts are recorded only after fresh runs.
 
-Task plans (A provisional; B complete):
+Task plans (A and B complete):
 - [Allocation plan](../plans/2026-09-13-buffer-allocation-bounds.md)
 - [Optional-bias plan](../plans/2026-09-13-optional-bias-validation.md)

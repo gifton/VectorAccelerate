@@ -33,8 +33,9 @@ that differ from the loaded configuration, code lengths other than N×L, and sca
 other than N. Output products must fit the device buffer limit before allocation and
 UInt32 conversion. High-level encoding rejects ragged input before flattening it. Each
 pooled allocation is checked for sufficient actual storage before a CPU copy or dispatch.
-The global pool's oversized-request behavior remains separate debt; these wrappers reject
-an undersized allocation rather than writing past it.
+The central [pool allocation contract](BUFFER-ALLOCATION-CONTRACT.md) now rejects requests
+above 64 MiB before allocation. These wrappers retain their local actual-capacity guards
+and do not automatically route larger outputs to direct non-pooled allocations.
 
 Weight loading prepares a persistent zero decoder-bias buffer sized to the output row.
 All decoder wrappers bind it when no real bias exists. Metal API validation rejected the

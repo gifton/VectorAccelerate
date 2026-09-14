@@ -35,9 +35,10 @@ unbounded hint. No truncated fused prefix is returned as a complete result.
 The three-pass prefix sum uses a wide accumulator and saturates output at UInt32.max;
 the host rejects that marker before allocating/building candidates. Supported totals
 are below UInt32.max and within device/allocation limits. Exact output and metadata
-allocations verify actual buffer length before CPU or GPU writes. This matters because
-the current pool can cap requests at its largest 64 MiB bucket. Such an undersized exact
-allocation throws an allocation error; this slice does not repair the pool globally.
+allocations verify actual buffer length before CPU or GPU writes. The central
+[pool allocation contract](BUFFER-ALLOCATION-CONTRACT.md) now rejects requests above
+64 MiB with `invalidBufferSize` (kind `.invalidData`) before allocation. The local
+actual-capacity guards remain in place; candidate construction does not bypass the cap.
 
 Public counts and hints must be nonnegative; query/list counts must fit below UInt32.max.
 Input buffers must cover the declared probe and CSR-offset arrays. Zero queries, zero

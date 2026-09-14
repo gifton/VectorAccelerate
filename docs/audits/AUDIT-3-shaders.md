@@ -1335,6 +1335,68 @@ Independent read-only review approved code, tests, source migration and contract
 outstanding findings. Local logs: `/private/tmp/va-optional-bias/`. No performance claim.
 
 
+## Remediation slice 28 (2026-09-13, owner-authorized central pool allocation bounds) — EXECUTED
+
+**Policy and scope:** retain the 64 MiB maximum pooled request, with recoverable errors;
+keep direct non-bucketed allocation for larger workloads. Original request validation now
+precedes capped bucket lookup. Invalid negative requests use `invalidInput`; representable
+over-cap byte requests use `invalidBufferSize` (kind `.invalidData`) with original and
+maximum byte counts. The bucketed factory returns nil for unsupported requests, while its
+public lookup retains capped semantics for compatibility.
+
+Selected device limits, overflow-safe budget checks and actual capacity are enforced
+before lease registration. Checked typed multiplication and alignment rounding prevent
+wrapped requests and copy preconditions. Empty initialized uploads retain zero data count
+without pointer copying, and zero-byte requests retain a 1 KiB lease. Preallocation rejects
+invalid counts/overflow without traps and preserves ordinary warm-up. Compatibility APIs
+share the guarded allocator. IVF/neural physical guards remain; IVF's early-cap error test
+now expects exact size details. No large-buffer cache, reset/return redesign or performance
+claim is introduced. See [the pool contract](../stability/BUFFER-ALLOCATION-CONTRACT.md).
+
+**Evidence:** logs under `/private/tmp/va-buffer-bounds/2026-09-13/`.
+Task1 red: 24 tests / 17 assertion failures, including negative/over-cap factory results,
+capped pool successes and invalid compatibility allocation bookkeeping. Green24/0.
+Invalid red requests did not copy into undersized storage or allocate giant host arrays.
+Task1 independent production review approved; boundary/budget test suggestions incorporated
+in Task2. Final scope and gates must be recorded after completion.
+
+**Derived-size evidence:** typed count multiplication and alignment arithmetic each
+terminated the baseline xctest process with signal 5; negative preallocation trapped with
+`Range requires lowerBound <= upperBound`. Each ran separately and exited 1. The preserved
+IVF migration failure was a test expectation correction: fused conservative capacity
+requests 134,217,736 bytes, while the exact case requests 67,372,036 bytes. The production
+error already retained the actual request.
+
+Eleven new `BufferAllocationBoundsTests` cover every bucket transition, one byte, zero,
+exact cap/cap+1, typed/rounding overflow, both initialized spellings, compatibility handles,
+and deterministic budget rejection/cleanup/reuse. A bounded 64 MiB+1 upload fixture runs
+only after direct rejection is established. Final targeted pool/enhanced31/0, IVF8/0,
+neural6/0; all exit0. Two fixture controls were added afterward (one byte and representable
+over-budget preallocation); final validation/full gates include them. API+shader validation
+passed25/0 in debug (0.482s) and release (0.470s), both exit0, with runtime compilation
+covered. Independent final review approved, including the final fixture additions.
+
+**Evidence limits and remaining lifecycle issue:** device-allocation failure, hypothetical
+undersized Metal allocations, and hardware device-limit rejection are source-reviewed;
+there is no fault-injection seam or smaller-limit device here. An intermediate pool test
+run exposed stale pending returns entering a new pool after actor address reuse. Its log
+was overwritten and is not claimed as preserved reproduction evidence; independent source
+review confirms the identity mechanism. Deterministic budget tests explicitly reset before
+their sequences; other rejection tests compare stable baseline deltas. `PendingBufferReturns`
+uses only `ObjectIdentifier(pool)`, so orphan returns, identity reuse, reset with outstanding
+leases and their accounting consequences remain separate lifecycle debt. This slice does
+not certify general pool accounting. A preliminary full debug run was intentionally stopped
+to add the final fixtures; its log is retained and is not counted as a completed gate.
+
+**Final full gates:** `swift test` **1743/0/11** (259.266s) and
+`swift test -c release` **1743/0/11** (55.235s), both exit 0: **1732 passed and 11
+existing placeholder skips** in each configuration. Swift 6.3.3 on Apple M3 Max,
+Metal 32023.883; release exercises runtime shader compilation. SHA-256 hashes of both
+production files and all three changed/new test files matched after both gates. No
+shader changes or performance claim. Work continues on `gifton/metal-hardening-checkpoint`.
+
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).

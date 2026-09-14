@@ -273,3 +273,18 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   fix, catch rejection, encode a valid operation, and verify both its result and the
   untouched rejected output. Record allocation-failure or multi-device branches as
   source-reviewed when hardware/fault-injection coverage is unavailable.
+
+
+## 23. Validate the original request before choosing a capped bucket
+- **Mechanism:** a bucket lookup that clamps to its largest entry can defeat a later
+  maximum-size check. The allocator then returns less storage than requested, and typed
+  copies either hit a precondition or write past the physical allocation.
+- **Incident:** slice 28 checks original pool/factory requests before bucket selection,
+  rejects over-cap requests recoverably, and retains actual-capacity guards before lease
+  registration. Capped lookup remains a documented lookup operation, not an allocation
+  validation API. Existing tests expecting truncated success were replaced.
+- **Review extension:** follow every route that derives a size: count times stride,
+  alignment rounding, compatibility handles, initialized uploads and warm-up counts.
+  Overflow tests use scalar sizes; prove direct rejection before testing bounded real
+  over-cap uploads. Check budget rejection and reuse separately, and retain consumer
+  physical-capacity guards even after repairing the shared allocator.
