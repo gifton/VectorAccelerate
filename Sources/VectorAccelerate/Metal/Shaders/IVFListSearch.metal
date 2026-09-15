@@ -46,6 +46,20 @@ struct IVFBestCand {
     uint pos;
 };
 
+// Only one reduction result per 32-lane SIMD group is shared.
+struct IVFHeadScratch {
+    IVFBestCand minima[IVF_MAX_TGS / 32];
+    uint winnerThread;
+};
+
+// Scanning and selection have disjoint lifetimes. Reuse their storage so the
+// instrumented pipeline fits the device budget without reducing retained candidates.
+union IVFWorkspace {
+    float query[IVF_MAX_D_CACHED];
+    IVFCandidate candidates[IVF_MAX_SHARED_CANDIDATES_POT];
+    IVFHeadScratch heads;
+};
+
 // MARK: - Helper Functions
 
 inline bool ivf_is_better(IVFCandidate a, IVFCandidate b) {
@@ -224,7 +238,8 @@ kernel void ivf_list_search(
 
     // Query cache (threadgroup) when dimension fits.
     const bool cacheQuery = (D <= IVF_MAX_D_CACHED);
-    threadgroup float query_cached[IVF_MAX_D_CACHED];
+    threadgroup IVFWorkspace workspace;
+    threadgroup float* query_cached = workspace.query;
     if (cacheQuery) {
         for (uint d = tid; d < D; d += tgs) {
             query_cached[d] = query_ptr[d];
@@ -260,64 +275,57 @@ kernel void ivf_list_search(
         }
     }
 
-    // Merge per-thread heaps into shared candidates.
-    threadgroup IVFCandidate shared_candidates[IVF_MAX_SHARED_CANDIDATES_POT];
-
-    const uint num_valid_candidates = tgs * IVF_K_PRIVATE;
-    uint pow2_size = 1;
-    while (pow2_size < num_valid_candidates) pow2_size <<= 1;
-    pow2_size = min(pow2_size, IVF_MAX_SHARED_CANDIDATES_POT);
-
-    // Layout: (k, tid) -> k * tgs + tid
-    #pragma unroll
-    for (uint kidx = 0; kidx < IVF_K_PRIVATE; ++kidx) {
-        uint shared_idx = kidx * tgs + tid;
-        if (shared_idx < pow2_size) {
-            shared_candidates[shared_idx] = private_heap[kidx];
-        }
-    }
-
-    // Pad to pow2 with sentinels.
-    for (uint i = num_valid_candidates + tid; i < pow2_size; i += tgs) {
-        shared_candidates[i] = {INFINITY, IVF_SENTINEL_INDEX};
-    }
+    // Every lane must finish reading the query before any lane reuses its storage.
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Selection / sort.
     if (K <= 32) {
-        threadgroup IVFBestCand scratch[IVF_MAX_TGS];
-
-        if (tid == 0) {
-            for (uint i = 0; i < K; ++i) {
-                outIndices[outBase + i] = IVF_SENTINEL_INDEX;
-                outDistances[outBase + i] = INFINITY;
+        // The next retained-pool winner must be a head of one of the sorted heaps.
+        // Keep candidates private; publish only SIMD minima and the winning owner.
+        uint head = 0;
+        for (uint out = 0; out < K; ++out) {
+            IVFBestCand local = {INFINITY, IVF_SENTINEL_INDEX, tid};
+            if (head < IVF_K_PRIVATE) {
+                IVFCandidate candidate = private_heap[head];
+                local = {candidate.distance, candidate.index, tid};
             }
+            IVFBestCand winner = ivf_parallel_min_reduce(workspace.heads.minima, local, tid, tgs);
+            if (tid == 0) {
+                outIndices[outBase + out] = winner.index;
+                outDistances[outBase + out] = winner.distance;
+                workspace.heads.winnerThread = winner.index == IVF_SENTINEL_INDEX
+                    ? IVF_SENTINEL_INDEX : winner.pos;
+            }
+            // Publish the owner and finish scratch reads. Every lane consumes the
+            // owner before the next reduction barrier permits another owner write.
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (tid == workspace.heads.winnerThread) {
+                ++head;
+            }
+        }
+    } else {
+        // Merge per-thread heaps into shared candidates.
+        threadgroup IVFCandidate* shared_candidates = workspace.candidates;
+
+        const uint num_valid_candidates = tgs * IVF_K_PRIVATE;
+        uint pow2_size = 1;
+        while (pow2_size < num_valid_candidates) pow2_size <<= 1;
+        pow2_size = min(pow2_size, IVF_MAX_SHARED_CANDIDATES_POT);
+
+        // Layout: (k, tid) -> k * tgs + tid
+        #pragma unroll
+        for (uint kidx = 0; kidx < IVF_K_PRIVATE; ++kidx) {
+            uint shared_idx = kidx * tgs + tid;
+            if (shared_idx < pow2_size) {
+                shared_candidates[shared_idx] = private_heap[kidx];
+            }
+        }
+
+        // Pad to pow2 with sentinels.
+        for (uint i = num_valid_candidates + tid; i < pow2_size; i += tgs) {
+            shared_candidates[i] = {INFINITY, IVF_SENTINEL_INDEX};
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        for (uint out = 0; out < K; ++out) {
-            IVFBestCand local = {INFINITY, IVF_SENTINEL_INDEX, 0};
-            for (uint idx = tid; idx < pow2_size; idx += tgs) {
-                IVFCandidate c = shared_candidates[idx];
-                IVFBestCand bc = {c.distance, c.index, idx};
-                local = ivf_reduce_min(local, bc);
-            }
-            IVFBestCand winner = ivf_parallel_min_reduce(scratch, local, tid, tgs);
-
-            if (tid == 0) {
-                if (winner.index != IVF_SENTINEL_INDEX) {
-                    outIndices[outBase + out] = winner.index;
-                    outDistances[outBase + out] = winner.distance;
-                    shared_candidates[winner.pos].distance = INFINITY;
-                    shared_candidates[winner.pos].index = IVF_SENTINEL_INDEX;
-                } else {
-                    outIndices[outBase + out] = IVF_SENTINEL_INDEX;
-                    outDistances[outBase + out] = INFINITY;
-                }
-            }
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-        }
-    } else {
         ivf_block_bitonic_sort(shared_candidates, pow2_size, tid, tgs);
 
         for (uint out = tid; out < K; out += tgs) {

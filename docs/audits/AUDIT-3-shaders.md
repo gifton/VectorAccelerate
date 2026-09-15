@@ -1702,6 +1702,56 @@ minimal-array matrix, red/green tests, paired benchmark, reviews and final logs/
 The unrelated untracked `REVIEW-2026-09-14-slice32.md` remains untouched.
 
 
+## Remediation slice 35 (2026-09-14, owner-authorized bounded IVF instrumentation fix) — EXECUTED
+
+**Scope:** restore instrumented `ivf_list_search` execution while retaining its public
+large-K path. The owner accepts the exact device-budget fit and defers additional memory
+headroom and a reusable performance harness to the broader benchmarking/guardrail suite.
+Same `gifton/metal-hardening-checkpoint` branch; no public API or buffer ABI change.
+
+**Change:** query cache, large-K candidates and small-K reduction scratch share one union
+workspace. A post-scan threadgroup barrier completes all query reads before selection
+writes reuse that storage. K≤32 reduces heads of the existing sorted private heaps; only
+the published winner owner advances. Scratch has one entry per SIMD group. K>32 retains
+the original shared candidate layout, power-of-two padding and bitonic sorting network.
+Eight retained candidates per lane, original-index/NaN/sentinel ordering, distance math,
+D≤2048 caching/raw larger-D device reads and fixed public width 256 remain unchanged.
+See the [bounded IVF contract](../stability/IVF-LIST-INSTRUMENTATION-CONTRACT.md).
+
+**Measured budget:** original 27,648 normal / 55,296 instrumented bytes; fixed 16,384 normal /
+32,768 instrumented on M3 Max / Metal 32023.883. Both actual package compilation paths fit
+exactly at the device limit; there is no instrumented headroom or future-toolchain promise.
+The memory test asserts the actual compiled budget, and new regression dispatches guard
+against an over-budget process abort. This is not a production fallback.
+
+**Red/green:** `IVFListInstrumentationTests` adds five tests. Original instrumented budget
+fails with two assertions (plugin/runtime, exit 1, 0.245s); all five pass normally on the
+original implementation (2.175s, exit 0). Fixed full instrumentation passes 5/0 (3.695s).
+Permanent coverage includes a ninth concentrated candidate discarded by the retained-pool
+contract, widths 32/64/96/128/256, K=1/8/31/32/33/128/513/2051, reversed original IDs and ties,
+nonfinite/empty/invalid-list padding, suffix canaries, three distinct queries, repeated
+unequal-work cache reuse at D=2048 and both adjacent dimensions. Trained public searches
+exercise K=32/33, actual filter rejection at requested K=11 → over-fetch K=33, and nprobe=4/16.
+Independent review approves synchronization, semantic preservation and oracle coverage.
+
+**Scoped API+shader gates:** debug 24/0 (1.614s), release 24/0 (1.367s), both exit 0. Includes
+five new tests, six IVF pipeline tests, nine revived trained-IVF correctness tests, the
+existing IVF NaN test and three fused instrumentation tests. No selected tests skipped.
+These establish trained-list execution beyond the preceding fused-only validation scope.
+
+**Performance boundary:** no new benchmark harness or performance claim in this slice.
+The preceding investigation compared throwaway alternatives and motivated retaining the
+large-K bitonic path. Broader measurement and additional memory headroom remain deferred
+until the owner's suite can evaluate the next algorithm. The indices-only fused distance
+binding and unary elementwise input_b binding failures remain separate open issues.
+
+**Final normal gates:** debug **1772/0/2** (269.477s), release **1772/0/2** (56.005s),
+both exit 0: **1770 passed and two existing throughput placeholders skipped** in each.
+Source/test SHA-256 values match through scoped and full gates. Local evidence:
+`/private/tmp/va-ivf-bounded/2026-09-14/` (red/baseline/green, scoped/full logs, source hashes,
+review notes). Unrelated untracked audit/research documents remain untouched.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).

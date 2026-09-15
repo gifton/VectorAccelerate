@@ -1,8 +1,9 @@
 # IVF list search: instrumented memory investigation
 
 2026-09-14. Investigated against `b69d4e9` on
-`gifton/metal-hardening-checkpoint`. **Investigation only: the production shader
-is unchanged and its validation failure remains open.**
+`gifton/metal-hardening-checkpoint`. This historical investigation left production
+unchanged. The subsequent [slice 35 bounded fix](IVF-LIST-INSTRUMENTATION-CONTRACT.md)
+implements the recommended shared-workspace hybrid; additional headroom is deferred.
 
 ## Finding
 

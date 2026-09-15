@@ -342,3 +342,10 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   exceeded the same limit. Preserve live large-K performance when choosing a replacement;
   the fused wrapper's fallback does not imply the IVF wrapper has one. Full normal gates
   and scoped instrumented gates establish different coverage; record exclusions explicitly.
+
+- **Slice 35 extension:** IVF reuses one union workspace across scan/selection phases.
+  Review the barrier separating the final read of the old view from the first write of
+  the new view, including lanes with less work. Compact scratch by SIMD-group count,
+  preserve the retained candidate pool, and keep large-K sorting when all-head reductions
+  regress it. An exact-budget fit is valid but has no instrumentation headroom; test the
+  actual compiled budget and keep the future-toolchain limitation explicit.

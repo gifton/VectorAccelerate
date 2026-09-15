@@ -59,7 +59,8 @@ public struct IVFListSearchParameters: Sendable {
 /// - One threadgroup per query (256 threads)
 /// - Query cached in threadgroup memory for dimension ≤ 2048
 /// - Per-thread heap size: 8 candidates
-/// - Two top-K paths: parallel min-reduce for K≤32, bitonic sort for K>32
+/// - Two top-K paths: private heap-head reduction for K≤32, bitonic sort for K>32
+/// - Query caching and selection reuse one threadgroup workspace
 public final class IVFListSearchKernel: @unchecked Sendable, Metal4Kernel {
     public let context: Metal4Context
     public let name: String = "IVFListSearchKernel"

@@ -87,22 +87,24 @@ old large-K bitonic network. Public K>8 fallback code is unchanged.
 
 ## Remaining validation blockers
 
-**Trained IVF list search is still blocked under shader instrumentation.** Once fused
-coarse selection succeeds, the unchanged `ivf_list_search` pipeline asserts at 55,296
-bytes against the 32,768-byte limit. This was observed in
+**Trained IVF list search exposed a further blocker, resolved in slice 35.** During slice
+34, once fused coarse selection succeeded, the then-unchanged `ivf_list_search` pipeline
+asserted at 55,296 bytes against the 32,768-byte limit. This was observed in
 `IVFValidationTests.testAllVectorsAssignedToExactlyOneCluster`. Passing the basic IVF
 test does not establish trained-list-kernel coverage; routing may use a flat path.
 
-A separate IVF remediation must preserve its public large-K performance: both IVF search
+The separate IVF investigation needed to preserve public large-K performance: both IVF search
 APIs accept K>8 without the fused wrapper's fallback, and filtering can triple K before
 list search. Simply copying the new all-K reduction would put the measured large-K
-tradeoff on ordinary public calls. Next investigation: measure the IVF footprint in both
-compilation modes, compare strategies that preserve efficient large-K selection, and
-benchmark representative K, nprobe, dimension and filtered searches before choosing.
+tradeoff on ordinary public calls. The proposed investigation was to measure the IVF
+footprint in both compilation modes and compare memory strategies and representative
+workloads before choosing a replacement.
 
 The subsequent [IVF list investigation](IVF-LIST-INSTRUMENTATION-INVESTIGATION.md)
-reproduces the failure and compares three throwaway remedies. It recommends shared
-workspace reuse with the existing small/large-K split; production remediation remains open.
+reproduces the failure and compares three throwaway remedies. The
+[bounded IVF fix](IVF-LIST-INSTRUMENTATION-CONTRACT.md) implements shared workspace
+reuse with the existing small/large-K split, fitting at 32,768 instrumented bytes.
+Additional headroom and broader performance evaluation remain deferred.
 
 **Indices-only fused dispatch has a separate pre-existing binding failure.**
 `includeDistances: false` leaves buffer(3) unbound. API validation rejects it despite the
