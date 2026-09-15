@@ -1532,6 +1532,64 @@ new test files retained their reviewed SHA-256 hashes across the gates. Existing
 checkpoint branch retained; both pool follow-ups are complete.
 
 
+## Remediation slice 32 (2026-09-14, owner-authorized IVF coverage) — EXECUTED
+
+**Scope:** implement five existing `IVFValidationTests` placeholders without changing
+production code, public APIs, shaders or adding test hooks. The test count stays the same;
+five previously skipped tests now execute.
+
+- **Exactly-once membership:** all-list single/batch searches must return the exact inserted
+  handle multiset after explicit training, a subsequent single insert and a subsequent
+  batch insert. Searches between insertions independently exercise both cache invalidations.
+  This checks public assignment/publication behavior rather than relying on aggregate counts.
+- **CSR offsets:** the shipping IVFStructure serializer uses restored literal centroids,
+  sparse storage slots and an empty interior list. Literal offsets, indices and reordered
+  vector bytes cover empty, populated, removed and emptied states. This isolates serialization
+  from K-Means and does not claim to test WAL recovery itself.
+- **Zero-threshold routing:** a trained small index with nprobe=1 returns a strict candidate
+  subset and IVF metadata; a high-threshold control returns every vector through flat search.
+  Single and batch APIs are both exercised. No timing-based inference or new telemetry hook.
+- **Handle retrieval:** delete non-tail entries and compact, then compare single/bulk
+  retrieval of search handles against original vectors. This separates stable IDs from
+  physical slots and checks removed handles stay invalid.
+- **End-to-end:** public insert/train/later insert/single+batch search/retrieve is compared
+  with an independent Double squared-L2 oracle, including an exact tie and perturbed queries.
+  Full probing deliberately isolates correctness from approximate recall policy.
+
+The retrieval API already exists; the old placeholder's missing-API explanation was stale.
+Initial compile diagnostics involved retrieval overload selection and type inference. The
+first compiled run's 40 assertions came from an incorrectly rooted-L2 test oracle; the
+existing documented index contract returns squared L2. Correcting the oracle required no
+production change. These are test-development errors, not baseline product bug claims.
+
+**Fault-injection evidence:** separate temporary production mutations were restored
+byte-for-byte in a finally block. The corresponding tests detected duplicate membership
+(8 assertions), wrong CSR offsets (4), zero threshold routed to flat (8), wrong retrieved
+slot (116) and doubled result scores (40); each exited 1 with zero unexpected failures.
+These counts precede the final three-phase membership refinement. The corrected initial
+five-test run passed 5/0 (0.072s). Independent review approved the final tests, including
+separate cache invalidation coverage after each insertion spelling.
+
+**Validation limitation:** API+shader validation aborts in the existing fused_l2_topk
+pipeline with `total used threadgroupMemoryLength(45056) must be <= 32768`. The unchanged
+IVFTests.testIVFBasicSearch reproduces the same assertion with unchanged production files.
+API-only validation passes the five new tests in debug; shader-instrumented execution is
+not claimed. This is separate from the unary elementwise missing-binding debt in slice 30.
+The instrumented memory-limit issue needs a dedicated investigation; this slice does not
+change the fused kernel or its dispatch policy.
+
+Evidence: `/private/tmp/va-ivf-coverage/2026-09-14/` (mutation logs/JSON, corrected target,
+validation and baseline reproduction, review, final gate logs and hashes).
+
+**Final gates:** API-only validation **5/0** in debug (0.334s) and release (0.315s).
+Full debug **1764/0/6** (260.595s), release **1764/0/6** (55.628s), all exit 0:
+**1758 passed and six remaining placeholders** in each configuration. The full debug
+IVFValidationTests suite is **39/0/6** (33 passed). Swift 6.3.3 on Apple M3 Max; release
+exercises runtime compilation. The final test-file SHA-256 matched through all gates;
+production files remain identical to HEAD f685660. No performance claim. Existing single
+checkpoint branch retained.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).

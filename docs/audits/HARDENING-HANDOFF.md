@@ -11,7 +11,7 @@ release `swift test -c release` → **1590 / 0 / 11**. Both must stay that way (
 
 This document is self-contained, but the authoritative per-finding record is
 `docs/audits/AUDIT-3-shaders.md` (findings VA3-001…034, groups A–G, remediation
-slices 1–31) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
+slices 1–32) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
 `docs/audits/REVIEW-PATTERNS.md` holds the project's adversarial-review pattern library.
 
 ---
@@ -32,8 +32,8 @@ NaN-containing input, including mixed NaN/Inf. Empty input and infinity without 
 throw; higher-moment, quantile, and correlation requests retain finite-only validation.
 Histograms and softmax are unchanged. Nine further tests cover both shader paths and public APIs.
 
-Current full gates: **debug 1764 / 0 failures / 11 skipped; release 1764 / 0 / 11**.
-This is 1753 passed and 11 skipped in each configuration; see slice 31 for current evidence.
+Current full gates: **debug 1764 / 0 failures / 6 skipped; release 1764 / 0 / 6**.
+This is 1758 passed and six skipped in each configuration; see slice 32 for current evidence.
 The original state stamp above is historical. On 2026-09-07, the owner authorized
 checkpointing all project work through slice 16 on `gifton/metal-hardening-checkpoint`
 and pushing that branch to `origin`. This checkpoint includes the hardening tests, audit
@@ -286,6 +286,17 @@ follow-ups are complete. See the
 [cache-clearing contract](../stability/BUFFER-CACHE-CLEARING-CONTRACT.md). Same checkpoint
 branch; no public signatures, shaders, allocation limits or reset policy changes.
 
+**Slice 32 completed: five IVF placeholders implemented.** Existing tests now verify
+exact membership through training and later inserts, CSR offsets/indices/vector layout,
+actual zero-threshold IVF routing with a flat control, retrieval after compaction and
+end-to-end squared-L2 correctness against a Double oracle. Both single and batch paths
+are covered. No production changes or inspection hooks. Five separate fault injections
+were detected and removed; independent review approved. API-only validation 5/0 in each
+configuration; full debug/release 1764/0/6 (1758 passed), all exit 0, hashes matched.
+Shader instrumentation hits a fused_l2_topk threadgroup-memory limit, reproduced in an
+unchanged existing test; it remains separate investigation work. Six placeholders remain
+(§5); the old missing-retrieval-API skip explanation was stale. Same checkpoint branch.
+
 ## 1. What this project is
 
 VectorAccelerate (VA) is the GPU-acceleration package of the VSK suite: Metal 4 compute
@@ -379,7 +390,7 @@ to the VA3-015 stragglers was completed in slice 9, including smaller-norm-first
    that discriminate (e.g. data where the honest and the buggy answer differ in FP32).
 3. **Gates.** After the fix: targeted suites, then FULL debug suite, then FULL release
    suite (`swift test -c release`) — release exercises the runtime-compiled library
-   (§2.1). Record exact counts. Current expectation: 1764/0/11 both configs.
+   (§2.1). Record exact counts. Current expectation: 1764/0/6 both configs.
 4. **Ledger + memory.** Append a "Remediation slice N" section to
    `docs/audits/AUDIT-3-shaders.md`, flip the finding's summary-table row and detail
    heading to **FIXED**, and append a dated paragraph to the session memory file
@@ -409,7 +420,7 @@ tie-break policy standardized on the CPU side to VectorCore `TopKSelection` `.sm
 **AUDIT-3 (2026-08-16, VA3-001…034).** Independent end-to-end read of all shader files with
 per-finding Swift dispatch/liveness verification, organized into groups: A reduction/barrier,
 B numerics/fast-math policy, C memory-safety/dispatch contracts, D phantom surface,
-E determinism, F deletion inventory, G hygiene. Then thirty-one remediation slices:
+E determinism, F deletion inventory, G hygiene. Then thirty-two remediation slices:
 
 | Slice | Date | Scope | Highlights | Gate |
 |---|---|---|---|---|
@@ -444,6 +455,7 @@ E determinism, F deletion inventory, G hygiene. Then thirty-one remediation slic
 | 29 | 09-13 | BufferPool return lifecycle | Per-pool queues, weak token destinations, reset retirement, cycle removal and tracked-return accounting | 1752/0/11 |
 | 30 | 09-14 | ArgumentTablePool ownership | Pool-owned return queue, weak token destinations, binding lifetime and twelve engine migrations | 1758/0/11 |
 | 31 | 09-14 | BufferPool cache accounting | Drain queued returns once, restore cleared-cache budget, preserve live leases/handles and cumulative statistics | 1764/0/11 |
+| 32 | 09-14 | Five IVF coverage placeholders | Exact membership, literal CSR layout, actual zero-threshold routing, retrieval after compaction and independent squared-L2 end-to-end checks | 1764/0/6 |
 
 **Status:** every P1 fixed; groups A, B, C, D, F closed (B/C retain documented contracts
 and limits). Groups E/G and the recorded residuals remain open (§6).
@@ -486,9 +498,13 @@ and limits). Groups E/G and the recorded residuals remain open (§6).
 | `ArgumentTableLifecycleTests` | Queued table/binding destruction, independent token ownership, immediate reuse, concurrent releases and pool isolation |
 | `BufferPoolCacheAccountingTests` | Cache budget recovery, queued returns, live leases/handles, repeated multi-bucket clearing, reset isolation and drain-time discards |
 
-The 11 skips in the current Apple Silicon gates are explicit unimplemented
-`IVFValidationTests` placeholders (including the missing retrieval API), not environment
-gates. Slice 20 corrected the previous misclassification after inspecting the test logs.
+Slice 32 implements five existing `IVFValidationTests` placeholders: exact cluster
+membership, CSR offsets, zero-threshold routing, handle retrieval and end-to-end search.
+The retrieval API already existed; its old missing-API skip explanation was stale.
+The remaining six placeholders cover nprobe throughput scaling, throughput stability,
+common dimensions, nearest-centroid membership, recall after repeated inserts and different
+metrics. They are unimplemented tests, not environment gates. Only Euclidean is currently
+supported; the metric placeholder needs to test that contract or accompany a separate feature.
 The separate ten-test phantom neural class was deleted in slice 8.
 
 ## 6. Remaining work (the honest open list)
@@ -558,8 +574,11 @@ physically live retired leases by the documented policy. Direct factory
 aligned/vector uploads are fixed in slice 26:
 exact payload copies, zero padding, checked size/rounding, rectangular/count checks and
 CPU-accessible initialized storage; see the [factory contract](../stability/FACTORY-UPLOAD-BOUNDS-CONTRACT.md).
-Other direct factory utilities retain their documented caller requirements. 11 unimplemented
-`IVFValidationTests` placeholders remain. Slices 23/24 fixed generic quantizing and decoder
+Other direct factory utilities retain their documented caller requirements. Six unimplemented
+`IVFValidationTests` placeholders remain after slice 32; see §5. Instrumented IVF execution
+also hits fused_l2_topk's 45056-byte threadgroup-memory assertion against a 32768-byte limit,
+reproduced by unchanged IVFTests.testIVFBasicSearch. API-only validation passes; shader
+instrumentation coverage remains limited pending investigation. Slices 23/24 fixed generic quantizing and decoder
 bias bindings; slice 27 fixes float-only binding, raw batch bias capacity and requested
 bias allocation failure. See the [optional-bias contract](../stability/OPTIONAL-BIAS-CONTRACT.md)
 for the throwing raw API migration and retained caller responsibilities. Per-vector scale loss and
@@ -601,7 +620,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 ## 8. Reference map
 
-- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–31 + all findings),
+- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–32 + all findings),
   `docs/audits/AUDIT-2.md`, `docs/audits/REVIEW-PATTERNS.md`.
 - Plans: `docs/superpowers/plans/2026-08-16-hardening-audit-phase0-1.md` (epic origin).
 - Numerics backlog: `docs/stability/NUMERICAL_STABILITY_FINDINGS.md`.
@@ -617,7 +636,9 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 optional-bias validation (slice 27) and the factory upload fix. BufferPool return/reset
 lifecycle is fixed in slice 29, ArgumentTablePool ownership in slice 30, and BufferPool
 clearCache accounting in slice 31. The baseline-reproduced unary elementwise missing-binding
-validation failure also remains open. VA3-024 performance requires before/after
+validation failure also remains open. Slice 32 closes five IVF placeholders; six remain.
+The baseline-reproduced fused_l2_topk shader-instrumentation memory-limit assertion needs
+investigation. VA3-024 performance requires before/after
 benchmarks; VA3-029 and recorded residuals remain.
 VA3-019 atomic accumulation policy still needs an owner decision. Group C has no remaining
 numbered findings.
