@@ -100,6 +100,10 @@ tradeoff on ordinary public calls. Next investigation: measure the IVF footprint
 compilation modes, compare strategies that preserve efficient large-K selection, and
 benchmark representative K, nprobe, dimension and filtered searches before choosing.
 
+The subsequent [IVF list investigation](IVF-LIST-INSTRUMENTATION-INVESTIGATION.md)
+reproduces the failure and compares three throwaway remedies. It recommends shared
+workspace reuse with the existing small/large-K split; production remediation remains open.
+
 **Indices-only fused dispatch has a separate pre-existing binding failure.**
 `includeDistances: false` leaves buffer(3) unbound. API validation rejects it despite the
 shader's null check. A standalone reproduction using the original shader, with API
