@@ -1,8 +1,8 @@
 # IVF benchmark integration requirements
 
 2026-09-14. Prepared after bounded instrumentation fix `2c57337`.
-Status: workload and acceptance requirements; shared-suite integration location is
-awaiting coordination with its owner. No benchmark implementation is claimed here.
+Status: ownership and interfaces coordinated; test-target fixture/oracle preparation
+is in progress. Shared-suite adapters and measured benchmark integration remain pending.
 
 ## Purpose and ownership
 
@@ -13,10 +13,24 @@ to detect an injected regression; then expand to the matrix below.
 
 Use the shared runner, schema, environment fingerprint, sampling, baseline storage,
 and comparison policy from the observability program. Do not create a competing
-IVF-specific framework or duplicate RNG/statistics infrastructure. The research
-brief records non-product `VectorTestKit` and `VectorAccelerateBench` targets, but
-neither exists in this checkout at the start of this integration task. Their
-implementation location and ownership must be established before wiring adapters.
+IVF-specific framework or duplicate RNG/statistics infrastructure. The owner has
+confirmed two future non-product targets in this package: `Sources/VectorTestKit/`
+(generic kit; imports only Foundation, Darwin, CryptoKit) and
+`Sources/VectorAccelerateBench/` (runner, store, comparison and CLI). The IVF family
+owns `Sources/VectorAccelerateBench/Cases/IVF/` and one registration line in
+`Cases/Registry.swift`. The shared owner builds the targets and infrastructure.
+
+The [harness interface contract](2026-09-14-harness-interface-contract.md) defines
+the adapter seam. `BenchCase` prepares outside timing; `PreparedCase.runOnce()`
+executes one iteration, with verification outside timing and optional resource
+facts. The harness owns wall time. The isolated list dispatch will report
+`.commandBuffer` GPU timing; future context submission records can replace its
+collection without changing the adapter interface. No GPU duration is fabricated.
+
+Before the shared owner's M0, implementation is limited to test-target pure fixture
+builders, content identity, independent CPU oracles and correctness checks using
+the existing `TestRNG` and `TestDataGenerator`. No RNG, statistics, schema, timing
+loop, artifact writer, baseline store, comparison or environment capture is added.
 
 The recorded owner policy is authoritative for this integration: performance
 changes alert in either direction, without blocking; the per-case boundary is
@@ -141,8 +155,9 @@ fixture remains useful for routing correctness, not broad quality claims.
 
 ## Integration sequence and completion criteria
 
-1. Coordinate the shared suite checkout and the ownership of runner/schema/timing.
-2. Implement one IVF adapter against those interfaces, plus deterministic fixture
+1. Ownership and the shared adapter seam are coordinated. Finish the test-target
+   fixtures and oracles described below while the shared owner delivers M0.
+2. After M0, implement one IVF adapter against those interfaces, plus deterministic fixture
    identity and independent correctness checks. Keep Metal dependencies out of the
    generic kit as required by the recorded architecture decision.
 3. Connect capture/compare and demonstrate the first complete workload's acceptance
@@ -156,3 +171,56 @@ Completion means reproducible IVF cases participate in the shared suite's artifa
 baselines and comparison reports, with correctness/resource failures and performance
 alerts demonstrated. Printing timings, passing existing tests, or adding this document
 alone does not complete the integration.
+
+## Preparatory fixture layer
+
+The test-target implementation lives in `Tests/VectorAccelerateTests/Fixtures/IVF/`,
+with CPU tests in `IVFBenchmarkFixtureTests.swift` and GPU correctness checks in
+`IVFBenchmarkFixtureGPUTests.swift`. Its prepared data is CPU-owned CSR, original
+IDs, centroids, queries and frozen selected lists; it contains no Metal buffers or
+benchmark run schema.
+
+- Each factory call resets the existing seeded utilities. Streams `s` through
+  `s+3` generate centroids, vector noise, queries and shuffled original IDs.
+  Query-count sweeps preserve the prefix of the query corpus and selected lists.
+- Controlled binary-grid clusters provide exactly representable squared distances
+  for the tested dimensions. They measure controlled kernel workloads; they are
+  not representative embedding-quality datasets.
+- Literal Float bit patterns and ID/list arrays pin a small prepared fixture for
+  generator version one. Promotion to `VectorGenerator` must retain those outputs;
+  the shared `VectorGenerator.version` becomes part of case identity at integration.
+- The exact oracle independently sorts Double squared distances across the eligible
+  corpus. The retained-pool oracle independently sorts candidates per lane, retains
+  eight per lane, then sorts their union. A literal adversarial test proves that
+  retained-pool correctness can differ from global exact K.
+- GPU checks compare IDs, distances, padding and output canaries for the first
+  workload, K=31/32/33/128/384, uneven and empty lists, widths 32/96/256 and
+  D=2047/2048/2049. They exercise available plugin/runtime library paths and check
+  compiled memory capacity. These dispatches collect no timing samples.
+
+One digest contract gap remains: the shared canonical format says count-prefixed
+little-endian elements but has not fixed the count-prefix width or scalar encoding.
+The proposed encoding is UInt64 little-endian counts, Float bit patterns and
+UInt32 arrays in little-endian form, then count-prefixed UInt64 shape scalars.
+Fixture field order and a layout version will be pinned once the owner confirms
+that encoding. Do not publish a temporary incompatible digest.
+
+This layer does not register benchmark cases, emit artifacts, measure recall or
+performance, or establish baselines. Filtered over-fetch and broader probe/batch
+sweeps still need the pipeline/public adapters after M0, even though existing
+instrumentation tests already provide routing correctness coverage.
+
+### Preparatory verification (2026-09-14)
+
+The eight new tests pass in normal debug. The combined selection of
+`IVFBenchmarkFixtureTests|IVFBenchmarkFixtureGPUTests|IVFListInstrumentationTests`
+passes 13 tests with zero failures or skips in normal release and with
+`MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1` in both debug and release. Instrumented
+pipelines report 32,768 bytes against the measured device's 32,768-byte capacity;
+the normal release pipeline reports 16,384 bytes. Independent review found no
+important issues in this preparation layer; digest review is still pending.
+
+Reproduce with `swift test --filter 'IVFBenchmarkFixtureTests|IVFBenchmarkFixtureGPUTests|IVFListInstrumentationTests'`,
+adding `-c release` for release and the environment variables above for validation.
+Local logs are under `/private/tmp/va-ivf-fixtures/2026-09-14/`. These are focused
+correctness checks, not a rerun of the entire package suite or benchmark evidence.
