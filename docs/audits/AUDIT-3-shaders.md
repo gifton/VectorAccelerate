@@ -1590,6 +1590,58 @@ production files remain identical to HEAD f685660. No performance claim. Existin
 checkpoint branch retained.
 
 
+## Remediation slice 33 (2026-09-14, owner-authorized IVF coverage follow-up) — EXECUTED
+
+**Scope:** implement four more existing IVFValidationTests placeholders, retaining all
+production code, public APIs, shaders and capability limits. The two remaining placeholders
+are the throughput-scaling and throughput-stability performance tests.
+
+- **Repeated insertion recall:** four batches cross automatic training at 16 vectors,
+  then update already-cached lists. Single/batch queries compare top-3 IDs and squared
+  distances against a refreshed Double reference after each insertion. The first 16
+  training vectors have four distinct positions, each repeated four times, making
+  K-means++ seed every group; cluster numbering alone varies. Later points move closer
+  to the fixed queries. Exact recall is justified for this separated fixture, not asserted
+  as a universal property of approximate IVF or changing datasets. Before training, flat
+  fallback is explicitly expected; after training, nprobe=1 IVF is required.
+- **Nearest centroid:** assign real data against actual trained centroids, independently
+  computing Double distances, and inspect the serialized list membership. A second literal
+  fixture checks exact ties selecting the first centroid, with hand-derived expected lists.
+- **Common dimensions:** nonzero full-row data checks exact single/batch top-5 IDs/scores
+  at 64/128/256/384/512/768 dimensions. At 1024/1536, both search APIs must reject through
+  the existing fused coarse-quantizer's 768-D cap with a recoverable invalidInput error.
+  This does not add larger-dimension support or establish a global index cap for every path.
+- **Metric support:** both index initializers run Euclidean search with independently
+  checked squared-L2 results and reject cosine/dot/Manhattan/Chebyshev as invalid metric
+  configurations. No additional metric implementation is claimed.
+
+**Test development/review:** initial focused run passed three tests; the dimension test
+incorrectly assumed 1024-D success and encountered the existing cap. It was revised to
+cover that retained rejection contract. Independent review also found an attainable bad
+K-means seed arrangement in the first recall fixture; four repeated distinct training
+positions removed that false-failure risk. Final review approved with no outstanding
+findings. These are test-scope/fixture corrections, not production bug fixes.
+
+**Evidence:** corrected targeted four tests **4/0** (0.234s), exit 0. Four separate temporary
+production mutations were detected: stale insertion cache (56 assertions), last-centroid
+rather than first-centroid ties (13), lost final vector coordinate (100) and accepted cosine
+(2). Every mutation exited 1 with zero unexpected failures; production files were restored
+byte-for-byte in a finally block. Evidence lives under
+`/private/tmp/va-ivf-coverage-next/2026-09-14/` (review, mutations, target, final gates/hashes).
+
+The shader-instrumentation fused_l2_topk memory assertion reproduced in slice 32 remains
+open, as does the separate elementwise missing input_b binding. This slice's validation
+is API-only; no shader-instrumentation pass or performance improvement is claimed.
+
+**Final gates:** all nine revived IVF tests pass API-only validation: debug **9/0**
+(0.331s), release **9/0** (0.204s). Full debug **1764/0/2** (258.669s), release
+**1764/0/2** (55.633s), all exit 0: **1762 passed and two remaining performance placeholders**
+in each configuration. Full debug IVFValidationTests is **39/0/2** (37 passed). Swift 6.3.3
+on Apple M3 Max; release exercises runtime compilation. The final test-file SHA-256 matched
+through the gates, and production files are unchanged from HEAD 39bb404. Same single
+checkpoint branch retained.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).

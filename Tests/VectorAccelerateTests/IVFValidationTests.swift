@@ -1389,10 +1389,55 @@ final class IVFValidationTests: XCTestCase {
 
     /// Test common embedding dimensions
     func testCommonEmbeddingDimensions() async throws {
-        // TODO: Implement
-        // - Test D = [64, 128, 256, 384, 512, 768, 1024, 1536]
-        // - Verify recall is reasonable for each
-        throw XCTSkip("Not yet implemented")
+        // Nonzero data throughout each dimension catches truncated row strides/tails.
+        // Full probing makes exact top-K the oracle, avoiding a loose recall threshold.
+        let context = try await Metal4Context()
+        for dimension in [64, 128, 256, 384, 512, 768, 1024, 1536] {
+            let base = membershipDataset()
+            let vectors = base.enumerated().map { i, prefix -> [Float] in
+                var vector = prefix
+                for d in 8..<dimension { vector.append(Float((i * 13 + d * 7) % 23 - 11) / 16) }
+                vector[dimension - 1] = Float(i) * 0.125
+                return vector
+            }
+            let index = try await AcceleratedVectorIndex(configuration: .ivf(
+                dimension: dimension, nlist: 4, nprobe: 4, capacity: 64, routingThreshold: 0), context: context)
+            let handles = try await index.insert(vectors)
+            try await index.train()
+            var queries = [vectors[3], vectors[24]]
+            queries[0][dimension - 1] += 0.2
+            queries[1][0] += 1.25
+            if dimension > 768 {
+                // The current fused coarse-quantizer path retains its 768-D cap.
+                // These advertised embedding sizes must reject, never return partial data.
+                for batched in [false, true] {
+                    do {
+                        if batched { _ = try await index.search(queries: queries, k: 5) }
+                        else { _ = try await index.search(query: queries[0], k: 5) }
+                        XCTFail("Accepted unsupported fused dimension \(dimension)")
+                    } catch let error as IndexError {
+                        guard case .invalidInput(let message) = error else { throw error }
+                        XCTAssertTrue(message.contains("dimension \(dimension)"))
+                        XCTAssertTrue(message.contains("768"))
+                    }
+                }
+                continue
+            }
+            let batch = try await index.search(queries: queries, k: 5)
+            XCTAssertEqual(batch.count, queries.count, "D=\(dimension)")
+            for (query, batched) in zip(queries, batch) {
+                let expected = referenceNeighbors(query: query, handles: handles, vectors: vectors, k: 5)
+                let single = try await index.search(query: query, k: 5)
+                for results in [single, batched] {
+                    XCTAssertFalse(results.isExhaustive, "D=\(dimension)")
+                    XCTAssertEqual(results.map { $0.id }, expected.map { $0.0 }, "D=\(dimension)")
+                    for (result, neighbor) in zip(results, expected) {
+                        XCTAssertEqual(Double(result.distance), neighbor.1,
+                                       accuracy: max(0.0001, neighbor.1 * 0.000002), "D=\(dimension)")
+                    }
+                }
+            }
+        }
     }
 
     /// Test various dataset sizes with sqrt(N) nlist rule
@@ -1873,11 +1918,57 @@ final class IVFValidationTests: XCTestCase {
 
     /// Verify vectors in each cluster are closer to their centroid
     func testVectorsCloserToOwnCentroid() async throws {
-        // TODO: Implement
-        // - For each vector, compute distance to all centroids
-        // - Verify it's in the cluster with minimum distance
-        // - (May allow some tolerance for edge cases)
-        throw XCTSkip("Not yet implemented")
+        let context = try await Metal4Context()
+        let device = context.device.rawDevice
+        // Exercise assignment against actual trained centroids, then a literal boundary
+        // fixture with exact ties. Compare the serialized lists, not just return values.
+        for literalBoundary in [false, true] {
+            let vectors: [[Float]] = literalBoundary
+                ? [[-2, 0], [2, 0], [0, 4], [0, 0], [-1, 0], [1, 0], [0, 2], [0.25, 0]]
+                : membershipDataset()
+            let dimension = vectors[0].count
+            let ivf = IVFStructure(numClusters: 4, nprobe: 1, dimension: dimension)
+            if literalBoundary {
+                ivf.restoreTrainedState(centroids: [[-2, 0], [2, 0], [0, 4], [0, 0]])
+            } else {
+                try await ivf.train(vectors: vectors, context: context)
+            }
+            let centroids = ivf.trainedCentroids
+            XCTAssertEqual(centroids.count, 4)
+            let storage = try GPUVectorStorage(device: device, dimension: dimension, capacity: vectors.count)
+            try storage.writeVectors(vectors, startingAt: 0)
+            var expectedLists = [[UInt32]](repeating: [], count: 4)
+            for (slot, vector) in vectors.enumerated() {
+                let distances = centroids.map { centroid -> Double in
+                    zip(vector, centroid).reduce(0.0) { sum, pair in
+                        let delta = Double(pair.0) - Double(pair.1)
+                        return sum + delta * delta
+                    }
+                }
+                let nearest = try XCTUnwrap(distances.indices.min {
+                    distances[$0] == distances[$1] ? $0 < $1 : distances[$0] < distances[$1]
+                })
+                expectedLists[nearest].append(UInt32(slot))
+                XCTAssertEqual(ivf.assignToCluster(vector: vector, slotIndex: UInt32(slot)), nearest)
+            }
+            if literalBoundary { XCTAssertEqual(expectedLists, [[0, 4], [1, 5], [2, 6], [3, 7]]) }
+            let gpu = try ivf.prepareGPUStructure(storage: storage, device: device)
+            let offsets = readIVFBuffer(gpu.listOffsets, as: UInt32.self, count: 5)
+            let slots = readIVFBuffer(gpu.vectorIndices, as: UInt32.self, count: vectors.count)
+            XCTAssertEqual(gpu.totalVectors, vectors.count)
+            guard offsets.count == 5, slots.count == vectors.count else { continue }
+            var expectedStart = 0
+            for cluster in 0..<4 {
+                XCTAssertEqual(Int(offsets[cluster]), expectedStart)
+                expectedStart += expectedLists[cluster].count
+                XCTAssertEqual(Int(offsets[cluster + 1]), expectedStart)
+                let lower = Int(offsets[cluster]), upper = Int(offsets[cluster + 1])
+                guard lower <= upper, upper <= slots.count else {
+                    XCTFail("Invalid cluster interval"); continue
+                }
+                XCTAssertEqual(Array(slots[lower..<upper]), expectedLists[cluster])
+            }
+        }
     }
 
     // MARK: - 9. Regression Tests
@@ -1917,11 +2008,41 @@ final class IVFValidationTests: XCTestCase {
 
     /// Regression: Verify recall doesn't degrade with repeated inserts
     func testRecallStableAfterRepeatedInserts() async throws {
-        // TODO: Implement
-        // - Insert initial batch, measure recall
-        // - Insert more batches
-        // - Verify recall stays stable (within tolerance)
-        throw XCTSkip("Not yet implemented")
+        // Controlled separated clusters: all three exact neighbors belong to the
+        // probed cluster once trained. This is not a universal recall monotonicity claim.
+        // Training sees exactly four distinct coordinates, each repeated four times.
+        // K-means++ therefore seeds every center (only their numbering is random).
+        let dataset: [[Float]] = (0..<32).map { i in
+            let offset = i < 16 ? Float(0) : Float((i - 16) / 4 + 1)
+            return [Float((i % 4) * 64 - 96) + offset, offset * 0.25, 0, 0, 0, 0, 0, 0]
+        }
+        let index = try await AcceleratedVectorIndex(configuration: .ivf(
+            dimension: 8, nlist: 4, nprobe: 1, capacity: 64,
+            routingThreshold: 0, minTrainingVectors: 16))
+        let queries = Array(dataset.suffix(4)) // Later inserts become the nearest neighbors.
+        var handles: [VectorHandle] = []
+        var vectors: [[Float]] = []
+        for start in stride(from: 0, to: dataset.count, by: 8) {
+            let additions = Array(dataset[start..<(start + 8)])
+            handles += try await index.insert(additions)
+            vectors += additions
+            let trained = await index.isTrained
+            XCTAssertEqual(trained, vectors.count >= 16)
+            let batch = try await index.search(queries: queries, k: 3)
+            XCTAssertEqual(batch.count, queries.count)
+            for (query, batched) in zip(queries, batch) {
+                // Recompute against every currently inserted vector, not the old corpus.
+                let expected = referenceNeighbors(query: query, handles: handles, vectors: vectors, k: 3)
+                let single = try await index.search(query: query, k: 3)
+                for results in [single, batched] {
+                    XCTAssertEqual(results.isExhaustive, !trained)
+                    XCTAssertEqual(results.map { $0.id }, expected.map { $0.0 })
+                    for (result, neighbor) in zip(results, expected) {
+                        XCTAssertEqual(Double(result.distance), neighbor.1, accuracy: 0.0001)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - 10. Integration Tests
@@ -2388,15 +2509,59 @@ final class IVFValidationTests: XCTestCase {
 
     /// Test IVF with different distance metrics (if supported)
     func testDifferentDistanceMetrics() async throws {
-        // TODO: Implement
-        // - Test L2, cosine, dot product (if available)
-        // - Verify recall is reasonable for each
-        throw XCTSkip("Not yet implemented")
+        // Current contract: native squared Euclidean scores; all other advertised
+        // configuration metrics must fail explicitly instead of silently running L2.
+        let context = try await Metal4Context()
+        for sharedContext in [false, true] {
+            for metric: SupportedDistanceMetric in [.euclidean, .cosine, .dotProduct, .manhattan, .chebyshev] {
+                let config = IndexConfiguration.ivf(dimension: 8, nlist: 4, nprobe: 4,
+                    metric: metric, capacity: 64, routingThreshold: 0)
+                do {
+                    let index: AcceleratedVectorIndex
+                    if sharedContext {
+                        index = try await AcceleratedVectorIndex(configuration: config, context: context)
+                    } else {
+                        index = try await AcceleratedVectorIndex(configuration: config)
+                    }
+                    guard metric == .euclidean else { XCTFail("Accepted unsupported metric \(metric)"); continue }
+                    let vectors = membershipDataset()
+                    let handles = try await index.insert(vectors)
+                    try await index.train()
+                    let query = vectors[7]
+                    let expected = referenceNeighbors(query: query, handles: handles, vectors: vectors, k: 4)
+                    let results = try await index.search(query: query, k: 4)
+                    XCTAssertFalse(results.isExhaustive)
+                    XCTAssertEqual(results.map { $0.id }, expected.map { $0.0 })
+                    for (result, neighbor) in zip(results, expected) {
+                        XCTAssertEqual(Double(result.distance), neighbor.1, accuracy: 0.0001)
+                    }
+                } catch let error as IndexError {
+                    guard metric != .euclidean,
+                          case .invalidConfiguration(let parameter, _) = error else { throw error }
+                    XCTAssertEqual(parameter, "metric")
+                }
+            }
+        }
     }
 }
 
-// Shared deterministic fixtures for the five formerly skipped correctness tests.
+// Shared deterministic fixtures for the formerly skipped correctness tests.
 private extension IVFValidationTests {
+    func referenceNeighbors(query: [Float], handles: [VectorHandle], vectors: [[Float]], k: Int)
+        -> [(VectorHandle, Double)] {
+        var distances: [(VectorHandle, Double)] = []
+        for (handle, vector) in zip(handles, vectors) {
+            var squared = 0.0
+            for (a, b) in zip(query, vector) {
+                let delta = Double(a) - Double(b)
+                squared += delta * delta
+            }
+            distances.append((handle, squared))
+        }
+        distances.sort { $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 < $1.1 }
+        return Array(distances.prefix(k))
+    }
+
     func membershipDataset() -> [[Float]] {
         // Interleave four well-separated groups so list order differs from insertion order.
         (0..<32).map { i -> [Float] in
