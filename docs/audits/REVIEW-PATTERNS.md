@@ -327,3 +327,18 @@ discover a new masking pattern append it here (name / mechanism / tell / inciden
   Preserve cumulative counters and distinguish pool-accounted storage from Metal objects
   retained externally. State the concurrent enqueue boundary rather than promising a
   globally empty cache while returns continue.
+
+
+## 26. Source-level shared-memory arithmetic does not prove instrumented capacity
+- **Mechanism:** shader instrumentation can increase a pipeline's compiled static
+  threadgroup footprint beyond the device limit even when normal dispatch succeeds.
+  Disabling one validation check category need not remove that storage overhead.
+- **Incident:** slice 34 measured fused selection at 22,528 bytes normally and 45,056
+  instrumented against a 32,768-byte limit. Minimal-array probes reproduced the expansion.
+  Keeping sorted heaps private and reducing their heads removes the large shared copy.
+- **Review extension:** query actual compiled pipeline memory in both library paths and
+  run instrumented dispatches. A normal-only budget test misses the mechanism. Follow
+  routing beyond the first repaired blocker: unchanged IVF list selection subsequently
+  exceeded the same limit. Preserve live large-K performance when choosing a replacement;
+  the fused wrapper's fallback does not imply the IVF wrapper has one. Full normal gates
+  and scoped instrumented gates establish different coverage; record exclusions explicitly.

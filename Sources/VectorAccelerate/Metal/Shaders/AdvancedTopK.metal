@@ -9,7 +9,7 @@
 // - Fused L2 distance + top-K selection
 // - Streaming top-K for large datasets
 // - Warp-optimized selection for small K
-// - Bitonic sort for large K values
+// - Distributed heap merge for fused selection
 
 #include "Metal4Common.h"
 
@@ -18,7 +18,6 @@
 constexpr constant uint K_PRIVATE = 8;                // Per-thread register heap size
 constexpr constant uint MAX_TGS = 256;                // Maximum threadgroup size
 constexpr constant uint MAX_D = 768;                  // Maximum dimension for query caching (supports BERT-768)
-constexpr constant uint MAX_SHARED_CANDIDATES_POT = 2048; // Max candidates in shared memory
 constexpr constant uint SENTINEL_INDEX = 0xFFFFFFFF;  // Invalid index marker
 constexpr constant uint MAX_K_PRIVATE = 128;          // Maximum K for private-heap selection kernels
 constexpr constant uint K4_MAX_K = 32;                // Maximum K for warp-optimized kernel
@@ -98,30 +97,6 @@ inline void update_private_heap_sorted(thread Candidate* heap, float new_dist, u
             }
         }
     }
-}
-
-// Bitonic sort for shared memory candidates
-inline void block_bitonic_sort(threadgroup Candidate* data, const uint N_PoT, const uint tid, const uint tgs) {
-    for (uint k = 2; k <= N_PoT; k *= 2) {
-        for (uint j = k / 2; j > 0; j /= 2) {
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-            for (uint i = tid; i < N_PoT; i += tgs) {
-                uint partner = i ^ j;
-                if (i < partner) {
-                    bool direction_ascending = ((i & k) == 0);
-                    Candidate c_i = data[i];
-                    Candidate c_p = data[partner];
-                    bool p_is_better = is_better(c_p, c_i);
-                    bool should_swap = (direction_ascending == p_is_better);
-                    if (should_swap) {
-                        data[i] = c_p;
-                        data[partner] = c_i;
-                    }
-                }
-            }
-        }
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
 }
 
 // Parallel reduction for finding minimum
@@ -228,7 +203,8 @@ kernel void fused_l2_topk(
     }
 
     threadgroup float query_cached[MAX_D];
-    threadgroup Candidate shared_candidates[MAX_SHARED_CANDIDATES_POT];
+    threadgroup BestCand scratch[MAX_TGS];
+    threadgroup uint winner_thread;
 
     // Initialize private heap
     Candidate private_heap[K_PRIVATE];
@@ -251,78 +227,32 @@ kernel void fused_l2_topk(
         update_private_heap_sorted(private_heap, dist, n_idx);
     }
 
-    // Merge private heaps in shared memory
-    const uint num_valid_candidates = tgs * K_PRIVATE;
-    uint pow2_size = 1;
-    while (pow2_size < num_valid_candidates) { pow2_size <<= 1; }
-    pow2_size = metal::min(pow2_size, (uint)MAX_SHARED_CANDIDATES_POT);
-
-    // Copy private heap to shared memory
-    for (uint k = 0; k < K_PRIVATE; ++k) {
-        uint shared_idx = k * tgs + tid;
-        if (shared_idx < pow2_size) {
-            shared_candidates[shared_idx] = private_heap[k];
-        }
-    }
-    
-    // Pad with sentinels
-    for (uint i = num_valid_candidates + tid; i < pow2_size; i += tgs) {
-        shared_candidates[i] = {INFINITY, SENTINEL_INDEX};
-    }
-
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
+    // Merge sorted private heaps by their heads. The next winner must be a head,
+    // so materializing all tgs * K_PRIVATE candidates in threadgroup memory is
+    // unnecessary. This also leaves room for shader validation's memory overhead.
+    // Raw K > K_PRIVATE still selects from the same per-thread retained candidates;
+    // public execute() continues to use its exact fallback for K > K_PRIVATE.
+    uint head = 0;
     const ulong output_offset = (ulong)q_id * K;
-
-    // Small-K path: emit exact top-K when K <= 32 using reductions
-    if (K <= 32) {
-        // Use parallel reduction for small K
-        threadgroup BestCand scratch[MAX_TGS];
-        
-        for (uint sel = 0; sel < K; ++sel) {
-            BestCand local = {INFINITY, SENTINEL_INDEX, 0};
-            for (uint i = tid; i < pow2_size; i += tgs) {
-                Candidate c = shared_candidates[i];
-                BestCand cur = {c.distance, c.index, i};
-                local = reduce_min(local, cur);
-            }
-            
-            BestCand winner = parallel_min_reduce(scratch, local, tid, tgs);
-            if (tid == 0) {
-                if (winner.index != SENTINEL_INDEX) {
-                    result_indices[output_offset + sel] = winner.index;
-                    if (result_distances != nullptr) {
-                        result_distances[output_offset + sel] = winner.distance;
-                    }
-                    // Invalidate the index too: a real infinity/NaN must never win twice.
-                    shared_candidates[winner.pos] = {INFINITY, SENTINEL_INDEX};
-                } else {
-                    result_indices[output_offset + sel] = SENTINEL_INDEX;
-                    if (result_distances != nullptr) {
-                        result_distances[output_offset + sel] = INFINITY;
-                    }
-                }
-            }
-            threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint sel = 0; sel < K; ++sel) {
+        BestCand local = {INFINITY, SENTINEL_INDEX, tid};
+        if (head < K_PRIVATE) {
+            Candidate candidate = private_heap[head];
+            local = {candidate.distance, candidate.index, tid};
         }
-    } else {
-        // Use bitonic sort for larger K and emit full K results
-        block_bitonic_sort(shared_candidates, pow2_size, tid, tgs);
-        
-        for (uint out = tid; out < K; out += tgs) {
-            if (out < pow2_size) {
-                Candidate result = shared_candidates[out];
-                result_indices[output_offset + out] = result.index;
-                if (result_distances != nullptr) {
-                    result_distances[output_offset + out] = result.distance;
-                }
-            } else {
-                result_indices[output_offset + out] = SENTINEL_INDEX;
-                if (result_distances != nullptr) {
-                    result_distances[output_offset + out] = INFINITY;
-                }
+        BestCand winner = parallel_min_reduce(scratch, local, tid, tgs);
+        if (tid == 0) {
+            result_indices[output_offset + sel] = winner.index;
+            if (result_distances != nullptr) {
+                result_distances[output_offset + sel] = winner.distance;
             }
+            winner_thread = winner.index == SENTINEL_INDEX ? SENTINEL_INDEX : winner.pos;
         }
+        // Publish the owner and finish all reads of this reduction's scratch.
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (tid == winner_thread) { ++head; }
+        // Every thread participates even after exhaustion. The next reduction's
+        // barrier orders these owner reads before thread 0 publishes the next owner.
     }
 }
 

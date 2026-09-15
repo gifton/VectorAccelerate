@@ -1642,6 +1642,66 @@ through the gates, and production files are unchanged from HEAD 39bb404. Same si
 checkpoint branch retained.
 
 
+## Remediation slice 34 (2026-09-14, owner-authorized shader-instrumentation investigation) — EXECUTED
+
+**Scope:** remove the `fused_l2_topk` instrumented threadgroup-memory overflow while
+preserving public limits, ordering and normal performance. Same checkpoint branch.
+
+**Measured mechanism:** on M3 Max / Metal 32023.883 / Swift 6.3.3, the original pipeline
+reports 22,528 static bytes normally and 45,056 under shader instrumentation, exceeding
+the 32,768-byte device limit. A standalone runtime-compiled dispatch reproduces the abort;
+minimal shared-array kernels independently show instrumentation expanding their static
+footprints. Disabling only threadgroup-memory or only global-memory validation does not
+remove the original excess. No proprietary compiler-internal explanation is asserted.
+
+**Change:** remove the 2,048-entry shared candidate materialization and unused bitonic
+helper. Reduce the heads of the existing sorted private heaps, publish the winner owner,
+and advance only that owner's cursor. All threads participate after exhaustion; the
+existing reduction barrier and following publication barrier order scratch/owner access.
+The retained candidate multiset, integer-based NaN/index order and padding are preserved.
+Public fused K≤8, D≤768, fixed 256-thread geometry and exact K>8 fallback remain unchanged;
+raw large K retains its existing eight-candidates-per-thread limitation. See the
+[fused instrumentation contract](../stability/FUSED-TOPK-INSTRUMENTATION-CONTRACT.md).
+
+**Red/green:** new `FusedTopKInstrumentationTests` adds three tests. The pre-fix compiled
+budget check fails on both plugin and runtime libraries at 45,056 bytes (two assertions,
+no process abort); all three tests pass normally on the old implementation to establish
+behavioral parity. Fixed API+shader validation passes all three, reporting **12,308 bytes**
+on both paths; normal static footprint is **6,160 bytes**. Tests cover concentrated/repeated
+winners, per-thread retained-pool ordering, widths 32/64/96/128/256, K=1/4/8/33/129,
+D=767/768, NaN/infinity/index ties, exhausted/empty padding and output suffix canaries.
+Independent design and implementation reviews approve the algorithm and synchronization.
+
+**Performance:** one-process alternating paired GPU-time benchmark, 50 warm-up pairs then
+100 measured pairs per shape, with validation off. Four public fused samples have lower
+medians (about 23%, 11%, 7%, 2%); no general speedup or statistical-significance claim.
+Raw K=128 slows from 65.38 to 118.96 microseconds (about 82%), consistent with repeated
+reductions replacing bitonic sorting. The public large-K fallback is unchanged. Review
+found no supported-path performance blocker; exact shapes/method are in the contract.
+
+**Scoped validation:** API+shader debug **21/0** (0.501s), release **21/0** (1.489s), exit 0.
+Includes the three new tests, 15 public fused/fallback tests, fused NaN/cap tests and the
+original basic IVF reproducer. Two without-distance methods are explicitly excluded only
+from this diagnostic command: API validation rejects the pre-existing null buffer(3)
+`result_distances` binding, independently reproduced with the original shader and API-only
+validation (SIGABRT). Normal full suites still include both methods.
+
+**Further blockers found, not closed:** deeper trained IVF execution now reaches unchanged
+`ivf_list_search` and aborts at **55,296 bytes > 32,768** in the membership test. The basic
+IVF test's pass must not be described as trained-list-kernel validation. IVF public search
+has no K≤8 fallback and filtering can triple K, so copying the slower raw large-K merge
+requires a separate performance/design investigation. Review agrees with keeping that
+slice separate. The original unary elementwise missing input_b binding also remains open.
+
+**Final normal gates:** debug **1767/0/2** (262.869s), release **1767/0/2** (56.522s),
+all exit 0: **1765 passed and two existing throughput placeholders skipped** in each.
+Source/test SHA-256 values match through the scoped and full gates. Final documentation
+review found no blockers. Evidence in
+`/private/tmp/va-fused-instrumentation/2026-09-14/` includes baseline snapshots/probes,
+minimal-array matrix, red/green tests, paired benchmark, reviews and final logs/hashes.
+The unrelated untracked `REVIEW-2026-09-14-slice32.md` remains untouched.
+
+
 ---
 
 Liveness legend: **LIVE** (dispatched by shipping Swift), **LIVE-cond** (live behind a config or public-API parameter), **LATENT** (kernel defect shielded by the current caller's exact geometry), **DEAD** (no Swift dispatch site).
@@ -1928,7 +1988,7 @@ Deleting this inventory removes ~2,500 lines and the majority of this ledger's l
 ## Re-verified AUDIT-2 anchors that are already sound (no action)
 
 - `IVFListSearch.metal` pow2-merge handles non-pow2 tgs correctly; ulong indexing throughout; barrier discipline clean; host dispatches fixed 256 (mult-of-32, so the simd-shuffle contract holds).
-- `fused_l2_topk` merge/selection structure mirrors IVF and is sound; Swift caps fused K at 8 with a two-pass fallback and validates D ≤ 768 in the params init.
+- `fused_l2_topk` uses a distributed heap-head merge after slice 34; Swift caps fused K at 8 with a two-pass fallback and validates D ≤ 768 in the params init.
 - `BasicOperations` normalize core (`va_tg_reduce_*`, `va_normalize_scales`) and all `l2_normalize_*` kernels: dispatch-robust, non-pow2-safe, FTZ-invariant — the reference implementation for Group A.
 - `kmeans_assign_points` + `kmeans_update_*`: exemplary guard/barrier pattern; Swift caps tile_capacity at 32 (kernel-side stride-vs-clamp mismatch remains a latent trap if the Swift 32 is ever raised — noted under Group A hardening).
 - `minkowski_distance_batch`/`stable` cooperative loads, `hamming_distance_batch`/`normalized` tiling, `merge_topk_sorted_kernel`, `ivf_distance_with_indirection` (model input validation), `parallel_reduce_kernel` (contract documented, host complies), histograms' atomic binning: all correct as dispatched.

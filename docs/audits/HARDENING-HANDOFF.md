@@ -11,7 +11,7 @@ release `swift test -c release` → **1590 / 0 / 11**. Both must stay that way (
 
 This document is self-contained, but the authoritative per-finding record is
 `docs/audits/AUDIT-3-shaders.md` (findings VA3-001…034, groups A–G, remediation
-slices 1–33) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
+slices 1–34) and `docs/audits/AUDIT-2.md` (findings VA2-001…013). Read them before deep work.
 `docs/audits/REVIEW-PATTERNS.md` holds the project's adversarial-review pattern library.
 
 ---
@@ -32,8 +32,8 @@ NaN-containing input, including mixed NaN/Inf. Empty input and infinity without 
 throw; higher-moment, quantile, and correlation requests retain finite-only validation.
 Histograms and softmax are unchanged. Nine further tests cover both shader paths and public APIs.
 
-Current full gates: **debug 1764 / 0 failures / 2 skipped; release 1764 / 0 / 2**.
-This is 1762 passed and two skipped in each configuration; see slice 33 for current evidence.
+Current full gates: **debug 1767 / 0 failures / 2 skipped; release 1767 / 0 / 2**.
+This is 1765 passed and two skipped in each configuration; see slice 34 for current evidence.
 The original state stamp above is historical. On 2026-09-07, the owner authorized
 checkpointing all project work through slice 16 on `gifton/metal-hardening-checkpoint`
 and pushing that branch to `origin`. This checkpoint includes the hardening tests, audit
@@ -308,6 +308,20 @@ approved. All nine revived tests pass API-only validation 9/0 in debug/release; 
 remain. The previously recorded shader-instrumentation and elementwise binding debts remain
 separate follow-ups. Same checkpoint branch.
 
+**Slice 34 completed: fused shader-instrumentation memory fix.**
+The measured static footprint drops from 45,056 to 12,308 instrumented bytes against the
+M3 Max's 32,768-byte limit. Distributed private-heap head selection preserves public K≤8,
+D≤768, numeric/NaN/index ordering and the K>8 fallback. Three regressions cover both
+compilation paths. Scoped API+shader validation passes debug/release 21/0; normal full
+suites pass 1767/0/2 each (1765 passed), exit 0, source hashes matched. Sampled supported fused timings show no regression; raw K=128 is
+82% slower, outside the public fused guarantee. Independent review approved.
+Deeper trained IVF remains blocked by unchanged `ivf_list_search` at 55,296 bytes;
+its live public large-K path needs a separate performance-aware remedy. Two indices-only
+fused methods hit a separately baseline-reproduced optional distance-binding assertion
+and are excluded from the scoped diagnostic command, not from normal suites. The unary
+elementwise binding debt remains. See the [instrumentation contract](../stability/FUSED-TOPK-INSTRUMENTATION-CONTRACT.md).
+
+
 ## 1. What this project is
 
 VectorAccelerate (VA) is the GPU-acceleration package of the VSK suite: Metal 4 compute
@@ -324,7 +338,7 @@ numerics policy are the parity reference), VectorIndex (pins VA 0.3.1 — not in
 - Swift: `Core/` (Metal4Context, Metal4ComputeEngine, KernelContext, PipelineCache/Key,
   PipelineRegistry, GPUDecisionEngine), `Kernels/Metal4/` (per-kernel wrappers),
   `Integration/` (MetalComputeProvider, KernelDistanceProviders), `Index/` (IVF pipeline).
-- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **33 permanent guard
+- Tests: `Tests/VectorAccelerateTests/`, including `Hardening/` — **34 permanent guard
   suites** created by this epic (§5).
 
 ## 2. Architecture facts you must internalize first
@@ -401,7 +415,7 @@ to the VA3-015 stragglers was completed in slice 9, including smaller-norm-first
    that discriminate (e.g. data where the honest and the buggy answer differ in FP32).
 3. **Gates.** After the fix: targeted suites, then FULL debug suite, then FULL release
    suite (`swift test -c release`) — release exercises the runtime-compiled library
-   (§2.1). Record exact counts. Current expectation: 1764/0/2 both configs.
+   (§2.1). Record exact counts. Current expectation: 1767/0/2 both configs.
 4. **Ledger + memory.** Append a "Remediation slice N" section to
    `docs/audits/AUDIT-3-shaders.md`, flip the finding's summary-table row and detail
    heading to **FIXED**, and append a dated paragraph to the session memory file
@@ -468,6 +482,7 @@ E determinism, F deletion inventory, G hygiene. Then thirty-three remediation sl
 | 31 | 09-14 | BufferPool cache accounting | Drain queued returns once, restore cleared-cache budget, preserve live leases/handles and cumulative statistics | 1764/0/11 |
 | 32 | 09-14 | Five IVF coverage placeholders | Exact membership, literal CSR layout, actual zero-threshold routing, retrieval after compaction and independent squared-L2 end-to-end checks | 1764/0/6 |
 | 33 | 09-14 | Four more IVF placeholders | Controlled insertion recall, nearest-centroid membership/ties, dimension success/rejection and Euclidean-only metric validation | 1764/0/2 |
+| 34 | 09-14 | Fused instrumentation memory | Private-heap head merge reduces instrumented static storage to 12,308 bytes; public limits preserved; trained IVF and nil-binding residuals recorded | 1767/0/2 |
 
 **Status:** every P1 fixed; groups A, B, C, D, F closed (B/C retain documented contracts
 and limits). Groups E/G and the recorded residuals remain open (§6).
@@ -489,6 +504,7 @@ and limits). Groups E/G and the recorded residuals remain open (§6).
 | `CapabilityCapPolicyTests` | over-cap throws + sentinel fills + throw-mid-encode propagation (VA3-011) |
 | `FastMathPolicyTests` | finite correlation denominator extremes and division order; histogram nonfinite exclusion; LSE/softmax infinity branches on both compilation paths (VA3-015) |
 | `NaNReductionPolicyTests` | NaN-dominates-infinity LSE/basic statistics across payloads, positions, lanes/groups/strides, both compile paths, and public API boundaries (VA3-016 reduction portion) |
+| `FusedTopKInstrumentationTests` | Compiled threadgroup budget under instrumentation, retained-heap ordering, concentrated winners, nonfinite exhaustion/padding and output canaries; both compile paths |
 | `TopKNaNPolicyTests` | NaN-last/index-tie membership and ordering, subnormals, sentinels, streaming/chunk merges, fused/IVF selection in both compile paths, public CPU/GPU merge agreement (VA3-016 Top-K portion) |
 | `MinkowskiRangePolicyTests` | Tiny/fractional distances, exact p specializations, explicit fast range limits, stable ratio/root rescaling, FLT_MAX endpoints, public finite-p validation; both compile paths (VA3-022) |
 | `EuclideanRangePolicyTests` | Direct rooted-L2 huge/tiny rescue, boundary/nonfinite values, tails/widths/SoA stride, CPU/GPU routes, mapped search, retained squared/dot limits; both compile paths (VA3-030) |
@@ -590,10 +606,12 @@ aligned/vector uploads are fixed in slice 26:
 exact payload copies, zero padding, checked size/rounding, rectangular/count checks and
 CPU-accessible initialized storage; see the [factory contract](../stability/FACTORY-UPLOAD-BOUNDS-CONTRACT.md).
 Other direct factory utilities retain their documented caller requirements. Two unimplemented
-`IVFValidationTests` performance placeholders remain after slice 33; see §5. Instrumented IVF execution
-also hits fused_l2_topk's 45056-byte threadgroup-memory assertion against a 32768-byte limit,
-reproduced by unchanged IVFTests.testIVFBasicSearch. API-only validation passes; shader
-instrumentation coverage remains limited pending investigation. Slices 23/24 fixed generic quantizing and decoder
+`IVFValidationTests` performance placeholders remain after slice 33; see §5. Slice 34 fixes
+fused_l2_topk's instrumented memory overflow, but trained IVF now reaches unchanged
+ivf_list_search's 55296-byte assertion against the 32768-byte limit. Its public large-K
+path needs separate evaluation. Indices-only fused dispatch also has a baseline-reproduced
+missing result_distances binding under API validation. See the
+[instrumentation contract](../stability/FUSED-TOPK-INSTRUMENTATION-CONTRACT.md) for exact scope. Slices 23/24 fixed generic quantizing and decoder
 bias bindings; slice 27 fixes float-only binding, raw batch bias capacity and requested
 bias allocation failure. See the [optional-bias contract](../stability/OPTIONAL-BIAS-CONTRACT.md)
 for the throwing raw API migration and retained caller responsibilities. Per-vector scale loss and
@@ -635,7 +653,7 @@ deprecated `StreamingTopKKernel` still ships (its kernel truncates a `ulong` ind
 
 ## 8. Reference map
 
-- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–33 + all findings),
+- Ledgers: `docs/audits/AUDIT-3-shaders.md` (authoritative; slices 1–34 + all findings),
   `docs/audits/AUDIT-2.md`, `docs/audits/REVIEW-PATTERNS.md`.
 - Plans: `docs/superpowers/plans/2026-08-16-hardening-audit-phase0-1.md` (epic origin).
 - Numerics backlog: `docs/stability/NUMERICAL_STABILITY_FINDINGS.md`.
@@ -653,8 +671,9 @@ lifecycle is fixed in slice 29, ArgumentTablePool ownership in slice 30, and Buf
 clearCache accounting in slice 31. The baseline-reproduced unary elementwise missing-binding
 validation failure also remains open. Slices 32/33 close nine IVF placeholders; only the
 two throughput performance placeholders remain.
-The baseline-reproduced fused_l2_topk shader-instrumentation memory-limit assertion needs
-investigation. VA3-024 performance requires before/after
+Slice 34 resolves fused_l2_topk's memory assertion. Next investigate unchanged
+ivf_list_search's instrumented memory budget while preserving live large-K performance,
+and repair indices-only fused result_distances binding separately. VA3-024 performance requires before/after
 benchmarks; VA3-029 and recorded residuals remain.
 VA3-019 atomic accumulation policy still needs an owner decision. Group C has no remaining
 numbered findings.
