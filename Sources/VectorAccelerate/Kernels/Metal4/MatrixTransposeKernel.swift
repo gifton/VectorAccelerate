@@ -24,6 +24,8 @@ public struct Metal4TransposeConfig: Sendable {
     /// Conjugate transpose (for complex numbers, future)
     public let conjugate: Bool
     /// Attempt in-place transpose if matrix is square
+    /// Requesting `true` throws from `execute`/`transpose`: no in-place transpose
+    /// kernel has ever shipped (VA3-021) — the old behavior silently ran out-of-place.
     public let inPlace: Bool
 
     public init(conjugate: Bool = false, inPlace: Bool = false) {
@@ -121,7 +123,6 @@ public final class MatrixTransposeKernel: @unchecked Sendable, Metal4Kernel {
     // MARK: - Pipelines
 
     private let transposePipeline: any MTLComputePipelineState
-    private let inPlacePipeline: (any MTLComputePipelineState)?
 
     // MARK: - Initialization
 
@@ -140,11 +141,9 @@ public final class MatrixTransposeKernel: @unchecked Sendable, Metal4Kernel {
         let device = context.device.rawDevice
         self.transposePipeline = try await device.makeComputePipelineState(function: transposeFunc)
 
-        if let inPlaceFunc = library.makeFunction(name: "tiledTransposeInPlace") {
-            self.inPlacePipeline = try await device.makeComputePipelineState(function: inPlaceFunc)
-        } else {
-            self.inPlacePipeline = nil
-        }
+        // NOTE (VA3-021): the optional `tiledTransposeInPlace` load was deleted — the
+        // kernel never existed, so the pipeline was permanently nil and `inPlace`
+        // requests silently ran out-of-place. `execute` now throws for them.
     }
 
     // MARK: - Warm Up
@@ -161,18 +160,16 @@ public final class MatrixTransposeKernel: @unchecked Sendable, Metal4Kernel {
         into encoder: any MTLComputeCommandEncoder,
         input: any MTLBuffer,
         output: any MTLBuffer,
-        parameters: TransposeParameters,
-        inPlace: Bool = false
+        parameters: TransposeParameters
     ) -> Metal4EncodingResult {
-        let canDoInPlace = inPlace && parameters.rows == parameters.columns && inPlacePipeline != nil
-        let pipeline = canDoInPlace ? inPlacePipeline! : transposePipeline
-        let pipelineName = canDoInPlace ? "tiledTransposeInPlace" : "tiledTranspose"
+        let pipeline = transposePipeline
+        let pipelineName = "tiledTranspose"
 
         encoder.setComputePipelineState(pipeline)
         encoder.label = "MatrixTranspose (\(parameters.rows)×\(parameters.columns))"
 
         encoder.setBuffer(input, offset: 0, index: 0)
-        encoder.setBuffer(canDoInPlace ? input : output, offset: 0, index: 1)
+        encoder.setBuffer(output, offset: 0, index: 1)
 
         var dims = SIMD2<UInt32>(parameters.rows, parameters.columns)
         encoder.setBytes(&dims, length: MemoryLayout<SIMD2<UInt32>>.size, index: 2)
@@ -208,26 +205,27 @@ public final class MatrixTransposeKernel: @unchecked Sendable, Metal4Kernel {
         let device = context.device.rawDevice
         let outputSize = Int(parameters.rows) * Int(parameters.columns) * MemoryLayout<Float>.size
 
-        let canDoInPlace = config.inPlace && parameters.rows == parameters.columns && inPlacePipeline != nil
-
-        let outputBuffer: any MTLBuffer
-        if canDoInPlace {
-            outputBuffer = input
-        } else {
-            guard let buffer = device.makeBuffer(length: outputSize, options: .storageModeShared) else {
-                throw VectorError.bufferAllocationFailed(size: outputSize)
-            }
-            buffer.label = "MatrixTranspose.output"
-            outputBuffer = buffer
+        // VA3-021: `tiledTransposeInPlace` never existed in any .metal file — the optional
+        // load was always nil, and an inPlace request silently ran the out-of-place kernel
+        // (a caller who then read the input buffer got untransposed data, no signal).
+        // Unsupported modes throw (KernelTests.testInPlaceRequestThrowsInsteadOfSilentDowngrade).
+        guard !config.inPlace else {
+            throw VectorError.invalidInput(
+                "in-place transpose is not supported — no in-place kernel has ever shipped (VA3-021)")
         }
+
+        guard let buffer = device.makeBuffer(length: outputSize, options: .storageModeShared) else {
+            throw VectorError.bufferAllocationFailed(size: outputSize)
+        }
+        buffer.label = "MatrixTranspose.output"
+        let outputBuffer: any MTLBuffer = buffer
 
         try await context.executeAndWait { [self] _, encoder in
             self.encode(
                 into: encoder,
                 input: input,
                 output: outputBuffer,
-                parameters: parameters,
-                inPlace: canDoInPlace
+                parameters: parameters
             )
         }
 

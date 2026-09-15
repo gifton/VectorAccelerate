@@ -27,6 +27,15 @@ struct PQConfig {
     uint32_t D_sub;  // Dimensions per subspace (D/M)
 };
 
+// Byte codes support 1...256 centroids. ADC retains an 8192-float (32 KB)
+// shared-table cap; the host also checks the device/pipeline memory budget.
+constant uint VA_PQ_MAX_CENTROIDS = 256;
+constant uint VA_PQ_MAX_ADC_ENTRIES = 8192;
+
+inline bool pq_valid_centroid_count(uint K) {
+    return K > 0 && K <= VA_PQ_MAX_CENTROIDS;
+}
+
 // MARK: - Helper Functions
 
 // Helper function for calculating L2 distance squared (Vectorized)
@@ -34,8 +43,8 @@ float calculate_l2_sq_dist(device const float* vec, device const float* centroid
     float dist = 0.0f;
     // Vectorized distance calculation (float4)
     uint simd_blocks = D_sub / 4;
-    device const float4* vec4 = (device const float4*)vec;
-    device const float4* cent4 = (device const float4*)centroid;
+    device const packed_float4* vec4 = (device const packed_float4*)vec;
+    device const packed_float4* cent4 = (device const packed_float4*)centroid;
 
     float4 dist_acc = 0.0f;
 
@@ -74,16 +83,23 @@ kernel void pq_assignment_or_encoding(
     const uint D_sub = config.D_sub;
     const uint K = config.K;
 
+    if (!pq_valid_centroid_count(K)) {
+        // The entire config is unsupported; 0xff is a marker, not a reserved
+        // code in valid K=256 models (where centroid 255 remains usable).
+        assignments_or_codes[(ulong)vec_id * config.M + m] = 0xff;
+        return;
+    }
+
     // Pointers
-    device const float* vec_sub = vectors + vec_id * config.D + m * D_sub;
-    device const float* codebook_m = codebooks + m * K * D_sub;
+    device const float* vec_sub = vectors + (ulong)vec_id * config.D + (ulong)m * D_sub;
+    device const float* codebook_m = codebooks + (ulong)m * K * D_sub;
 
     float min_dist = INFINITY;
     uint8_t best_centroid = 0;
 
     // Find nearest centroid K
     for (uint k = 0; k < K; ++k) {
-        device const float* centroid_k = codebook_m + k * D_sub;
+        device const float* centroid_k = codebook_m + (ulong)k * D_sub;
         float dist = calculate_l2_sq_dist(vec_sub, centroid_k, D_sub);
 
         if (dist < min_dist) {
@@ -93,7 +109,7 @@ kernel void pq_assignment_or_encoding(
     }
 
     // Store the assignment/code
-    assignments_or_codes[vec_id * config.M + m] = best_centroid;
+    assignments_or_codes[(ulong)vec_id * config.M + m] = best_centroid;
 }
 
 // MARK: - Phase 1: Training Update Step (M-step)
@@ -118,12 +134,15 @@ kernel void pq_train_update_accumulate(
     const uint D_sub = config.D_sub;
     const uint K = config.K;
 
-    // Get the assignment
-    uint8_t assignment = assignments[vec_id * config.M + m];
+    if (!pq_valid_centroid_count(K)) return;
+
+    // Reject codes outside this subspace before forming accumulator pointers.
+    uint8_t assignment = assignments[(ulong)vec_id * config.M + m];
+    if (assignment >= K) return;
 
     // Pointers
-    device const float* vec_sub = training_data + vec_id * config.D + m * D_sub;
-    device atomic_float* accum_target = centroids_accum + (m * K + assignment) * D_sub;
+    device const float* vec_sub = training_data + (ulong)vec_id * config.D + (ulong)m * D_sub;
+    device atomic_float* accum_target = centroids_accum + ((ulong)m * K + assignment) * D_sub;
 
     // Accumulate vector values atomically
     for (uint d = 0; d < D_sub; ++d) {
@@ -133,7 +152,7 @@ kernel void pq_train_update_accumulate(
     }
 
     // Increment count atomically
-    uint count_idx = m * K + assignment;
+    ulong count_idx = (ulong)m * K + assignment;
     atomic_fetch_add_explicit(&centroid_counts[count_idx], 1u, memory_order_relaxed);
 }
 
@@ -154,11 +173,11 @@ kernel void pq_train_update_finalize(
     if (k >= config.K || m >= config.M) return;
 
     const uint D_sub = config.D_sub;
-    const uint count_idx = m * config.K + k;
+    const ulong count_idx = (ulong)m * config.K + k;
     uint count = atomic_load_explicit(&centroid_counts[count_idx], memory_order_relaxed);
 
-    device float* centroid_target = codebooks + count_idx * D_sub;
-    device const atomic_float* accum_source = centroids_accum + count_idx * D_sub;
+    device float* centroid_target = codebooks + (ulong)count_idx * D_sub;
+    device const atomic_float* accum_source = centroids_accum + (ulong)count_idx * D_sub;
 
     float movement_sq = 0.0f;
 
@@ -201,14 +220,14 @@ kernel void pq_precompute_distance_table(
     if (k >= config.K || m >= config.M) return;
 
     // Pointers
-    device const float* query_sub = query + m * config.D_sub;
-    device const float* centroid_k = codebooks + (m * config.K + k) * config.D_sub;
+    device const float* query_sub = query + (ulong)m * config.D_sub;
+    device const float* centroid_k = codebooks + ((ulong)m * config.K + k) * config.D_sub;
 
     // Calculate L2 squared distance
     float dist = calculate_l2_sq_dist(query_sub, centroid_k, config.D_sub);
 
     // Store the precomputed squared L2 distance
-    distance_table[m * config.K + k] = dist;
+    distance_table[(ulong)m * config.K + k] = dist;
 }
 
 // Kernel 3.2: Compute Distances via Lookup (Optimized with Threadgroup Memory)
@@ -225,6 +244,12 @@ kernel void pq_compute_distances_adc(
 ) {
     const uint M = config.M;
     const uint K = config.K;
+    // Uniform across the threadgroup: reject before any shared-memory access
+    // or barrier. Divide the bound before multiplying to avoid uint overflow.
+    if (!pq_valid_centroid_count(K) || M == 0 || M > VA_PQ_MAX_ADC_ENTRIES / K) {
+        if (tid < config.N) distances[tid] = NAN;
+        return;
+    }
     const uint MK = M * K;
 
     // 1. Cooperatively load the distance table into threadgroup memory
@@ -238,7 +263,7 @@ kernel void pq_compute_distances_adc(
     // 2. Compute the distance for the assigned vector
     if (tid >= config.N) return;
 
-    device const uint8_t* vector_codes = codes + tid * M;
+    device const uint8_t* vector_codes = codes + (ulong)tid * M;
     float approx_dist_sq = 0.0f;
 
     // Accumulate distances by looking up the codes in the shared distance table
@@ -246,8 +271,12 @@ kernel void pq_compute_distances_adc(
     #pragma unroll
     for (uint m = 0; m < M; ++m) {
         uint8_t code = vector_codes[m];
+        if (code >= K) {
+            distances[tid] = NAN;
+            return;  // All threads have already passed the shared-table barrier.
+        }
         // Access pattern in shared memory: [m * K + code]
-        approx_dist_sq += shared_dist_table[m * K + code];
+        approx_dist_sq += shared_dist_table[(ulong)m * K + code];
     }
 
     // Store the result (Squared L2 distance).

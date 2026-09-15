@@ -11,7 +11,7 @@
 // MARK: - Constants and Definitions
 
 // Use common epsilon, with local alias
-constant float EPSILON = VA_EPSILON;
+// constant float EPSILON = VA_EPSILON;
 
 // Maximum threadgroup size supported by the reduction kernels.
 // This defines the static allocation size for threadgroup memory.
@@ -28,6 +28,7 @@ struct StatsAggregate {
     float maxVal;
     float sum;
     uint count;
+    uint hasNaN;
 };
 
 // Helper function to merge two StatsAggregates using Welford's combination formula.
@@ -39,6 +40,7 @@ StatsAggregate mergeStats(StatsAggregate A, StatsAggregate B) {
 
     StatsAggregate R;
     R.count = A.count + B.count;
+    R.hasNaN = A.hasNaN | B.hasNaN;
     
     // Use floats for counts in calculations to maintain precision
     float countA = (float)A.count;
@@ -102,12 +104,15 @@ kernel void computeBasicStatistics(
 
     // 1. Initialize local stats aggregate in registers.
     // Initialize min/max with limits for correct reduction.
-    StatsAggregate localStats = {0.0f, 0.0f, FLT_MAX, -FLT_MAX, 0.0f, 0};
+    StatsAggregate localStats = {0.0f, 0.0f, FLT_MAX, -FLT_MAX, 0.0f, 0, 0};
 
     // 2. Local aggregation phase (Iterative Welford)
     // Thread-stride loop ensures coalesced memory access and covers all data.
     for (uint i = tid; i < dimension; i += tgSize) {
         float x = input[i];
+        // Track input NaNs independently of fast-math arithmetic and min/max.
+        // NaNReductionPolicyTests covers lane merges, grid strides, and NaN payloads.
+        localStats.hasNaN |= uint((as_type<uint>(x) & 0x7fffffffu) > 0x7f800000u);
 
         // Update local stats using Welford's sequential online algorithm steps (efficient for local aggregation)
         localStats.count += 1;
@@ -134,13 +139,15 @@ kernel void computeBasicStatistics(
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     // 4. Parallel reduction phase (Parallel Welford Combination)
-    // Optimized tree reduction pattern using the stable mergeStats helper.
-    for (uint stride = tgSize / 2; stride > 0; stride /= 2) {
-        if (tid < stride) {
-            // Robustness check for non-power-of-2 tgSize
-            if (tid + stride < tgSize) {
-                sharedStats[tid] = mergeStats(sharedStats[tid], sharedStats[tid + stride]);
-            }
+    // Fixed power-of-two starting stride with a ragged-tail guard: correct for ANY tgSize
+    // up to MAX_TG_SIZE (Metal's device maximum). The pre-fix tree started at tgSize/2,
+    // whose `tid + stride < tgSize` guard prevented the out-of-bounds read but silently
+    // ORPHANED lanes on every odd halving — under a comment claiming it was a "robustness
+    // check for non-power-of-2 tgSize" (AUDIT-3 VA3-014; the Swift dispatcher forces a
+    // power-of-two width precisely to sidestep this, and no longer has to).
+    for (uint stride = MAX_TG_SIZE / 2; stride > 0; stride /= 2) {
+        if (tid < stride && tid + stride < tgSize) {
+            sharedStats[tid] = mergeStats(sharedStats[tid], sharedStats[tid + stride]);
         }
         // Barrier ensures synchronization before the next iteration
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -158,6 +165,9 @@ kernel void computeBasicStatistics(
             output[3] = 0.0f; // max
             output[4] = 0.0f; // sum
             output[5] = 0.0f; // count
+        } else if (finalStats.hasNaN != 0u) {
+            for (uint i = 0; i < 5; ++i) output[i] = NAN;
+            output[5] = (float)finalStats.count;
         } else {
             output[0] = finalStats.mean;
             output[1] = finalStats.M2;
@@ -217,11 +227,11 @@ kernel void computeHigherMoments(
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     // 4. Parallel reduction phase (simple sum reduction)
-    for (uint stride = tgSize / 2; stride > 0; stride /= 2) {
-        if (tid < stride) {
-            if (tid + stride < tgSize) {
-                sharedMoments[tid] = mergeMoments(sharedMoments[tid], sharedMoments[tid + stride]);
-            }
+    // Fixed power-of-two starting stride + ragged-tail guard — see the note on
+    // computeBasicStatistics' reduction above (AUDIT-3 VA3-014).
+    for (uint stride = MAX_TG_SIZE / 2; stride > 0; stride /= 2) {
+        if (tid < stride && tid + stride < tgSize) {
+            sharedMoments[tid] = mergeMoments(sharedMoments[tid], sharedMoments[tid + stride]);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
@@ -338,9 +348,9 @@ kernel void computeCorrelation(
     }
     
     // Define output indices and matrix size
-    uint matrix_size = numDatasets * numDatasets;
-    uint idx_ij = i * numDatasets + j;
-    uint idx_ji = j * numDatasets + i;
+    ulong matrix_size = (ulong)numDatasets * numDatasets;
+    ulong idx_ij = (ulong)i * numDatasets + j;
+    ulong idx_ji = (ulong)j * numDatasets + i;
 
     // Handle insufficient data size (N < 2 required for sample statistics N-1)
     if (dataSize < 2) {
@@ -359,8 +369,8 @@ kernel void computeCorrelation(
     }
 
     // Calculate base addresses for datasets i and j
-    device const float* data_i = datasets + i * dataSize;
-    device const float* data_j = datasets + j * dataSize;
+    device const float* data_i = datasets + (ulong)i * dataSize;
+    device const float* data_j = datasets + (ulong)j * dataSize;
 
     // Phase 1: Compute means (Two-pass algorithm for stability)
     float sum_i = 0.0f;
@@ -416,17 +426,29 @@ kernel void computeCorrelation(
     // Pearson correlation calculation
     // correlation = cov_sum / sqrt(M2_i * M2_j). (N-1) terms cancel out.
     float correlation = 0.0f;
-    // sqrt(a)*sqrt(b), not sqrt(a*b): the product of two large variances can overflow to +Inf
-    // (BE3 4.2). Floor with FLT_MIN (leastNormalMagnitude), not a precision-relative epsilon, so
-    // low-but-nonzero variance isn't misread as constant data (BE3 4.5).
-    float corr_denom = sqrt(M2_i) * sqrt(M2_j);
+    // FastMathPolicyTests pins large/small finite M2 cases on both compile paths.
+    // Fast math can turn sqrt(a)*sqrt(b) into sqrt(a*b), overflowing/underflowing
+    // before either norm would do so. Do not form that product, even for the floor.
+    float norm_i = sqrt(M2_i);
+    float norm_j = sqrt(M2_j);
 
-    // Check for zero variance (constant data)
-    if (corr_denom < FLT_MIN) {
+    // Preserve the FLT_MIN floor on the norm PRODUCT, rather than imposing a new
+    // per-norm epsilon. Handle zero explicitly before dividing the floor by norm_j.
+    // Restrict that zero guard to finite norms so a nonfinite peer still reaches
+    // the existing quotient/clamp path rather than becoming a constant-data zero.
+    bool finite_norms = norm_i <= FLT_MAX && norm_j <= FLT_MAX;
+    if (finite_norms && (norm_i == 0.0f || norm_j == 0.0f || norm_i < precise::divide(FLT_MIN, norm_j))) {
         // If variance is zero, correlation is undefined. Return 0.0 as required by spec.
         correlation = 0.0f;
     } else {
-        correlation = cov_sum / corr_denom;
+        // Plain chained division can become cov_sum * rcp(norm_i * norm_j),
+        // whose reciprocal flushes to zero for large finite norm products.
+        // Divide by the smaller finite norm first: Cauchy-Schwarz bounds the
+        // intermediate by the larger norm. The reverse order can underflow a
+        // representable final correlation (FastMathPolicyTests' 1e-28 fixture).
+        float first_norm = finite_norms ? min(norm_i, norm_j) : norm_i;
+        float second_norm = finite_norms ? max(norm_i, norm_j) : norm_j;
+        correlation = precise::divide(precise::divide(cov_sum, first_norm), second_norm);
         // Clamp result to [-1.0, 1.0] due to potential floating point inaccuracies
         correlation = clamp(correlation, -1.0f, 1.0f);
     }
@@ -543,8 +565,9 @@ kernel void uniformHistogram(
         for (uint i = gid; i < dataCount; i += gridSize) {
             const float value = data[i];
 
-            // Skip NaN/Infinity
-            if (!isfinite(value)) {
+            // Dynamic comparison avoids fast-math folding of isfinite; both compile
+            // paths and all histogram variants are covered by FastMathPolicyTests.
+            if (!(fabs(value) <= FLT_MAX)) {
                 continue;
             }
 
@@ -567,8 +590,8 @@ kernel void uniformHistogram(
     for (uint i = gid; i < dataCount; i += gridSize) {
         const float value = data[i];
 
-        // Skip NaN/Infinity values
-        if (!isfinite(value)) {
+        // Dynamic finite-value gate (FastMathPolicyTests).
+        if (!(fabs(value) <= FLT_MAX)) {
             continue;
         }
 
@@ -644,8 +667,8 @@ kernel void adaptiveHistogram(
     for (uint i = gid; i < dataCount; i += gridSize) {
         const float value = data[i];
 
-        // Skip NaN/Infinity values
-        if (!isfinite(value)) {
+        // Dynamic finite-value gate (FastMathPolicyTests).
+        if (!(fabs(value) <= FLT_MAX)) {
             continue;
         }
 
@@ -723,7 +746,7 @@ kernel void logarithmicHistogram(
 
         // Skip non-positive values (logarithm undefined for value <= 0)
         // Also handles NaN/Infinity
-        if (!isfinite(value) || value <= 0.0f) {
+        if (!(fabs(value) <= FLT_MAX) || value <= 0.0f) {
             continue;
         }
 

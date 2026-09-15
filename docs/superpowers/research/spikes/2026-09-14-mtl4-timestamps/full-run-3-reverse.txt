@@ -1,0 +1,95 @@
+=== Device ===
+name: Apple M3 Max
+supportsFamily(.metal4): true
+supportsFamily(.apple9): true
+queryTimestampFrequency(): 24000000 ticks/s
+  -> tick resolution: 41.6667 ns
+sizeOfCounterHeapEntry(.timestamp): 8 bytes
+supportsCounterSampling(.atStageBoundary):    true
+supportsCounterSampling(.atDispatchBoundary): false
+supportsCounterSampling(.atBlitBoundary):     false
+supportsCounterSampling(.atDrawBoundary):     false
+
+=== Kernel ===
+threadExecutionWidth=32 maxTotalThreadsPerThreadgroup=1024
+grid threads=4194304 (float4)  threadsPerThreadgroup=256
+
+=== Copy verification ===
+dst == src after one dispatch: true
+first dispatch: wall   7.9526 ms  cbGPU(feedback)   0.3238 ms
+
+=== Results (20 warm-up, 100 measured, one dispatch per command buffer) ===
+traffic per dispatch: 128.0 MiB
+
+--- mode: precise ---
+  wall        median   0.5825 ms  p90   0.7699 ms  min   0.5453 ms  max   2.2242 ms  rsd  50.00%  n=100
+  cbGPU(fb)   median   0.3698 ms  p90   0.3811 ms  min   0.3214 ms  max   2.0435 ms  rsd  44.19%  n=100
+  cbHeap      median   0.3672 ms  p90   0.3786 ms  min   0.3119 ms  max   2.0410 ms  rsd  44.54%  n=100
+  kernel      median   0.3599 ms  p90   0.3665 ms  min   0.3171 ms  max   0.8060 ms  rsd  12.88%  n=100
+  implied bandwidth from kernel median: 372.9 GB/s  (from cbGPU median: 363.0 GB/s)
+  samples with any zero timestamp (written slots only): 0/100   non-monotonic: 12/100   resolve size mismatch: 0/100
+  violations by pair: cb0>enc1: 12   enc1>enc2: 0   enc2>cb3: 0   cb0>cb3: 0
+    example raw [cb0, enc1, enc2, cb3] = [31980100774972, 31980100774938, 31980100783620, 31980100783708]  deltas(ticks): cb0->enc1 -34  enc1->enc2 8682  enc2->cb3 88
+    example raw [cb0, enc1, enc2, cb3] = [31980100795354, 31980100795341, 31980100803949, 31980100804030]  deltas(ticks): cb0->enc1 -13  enc1->enc2 8608  enc2->cb3 81
+    example raw [cb0, enc1, enc2, cb3] = [31980100916087, 31980100915897, 31980100923508, 31980100923673]  deltas(ticks): cb0->enc1 -190  enc1->enc2 7611  enc2->cb3 165
+  first measured raw ticks [cb0, enc1, enc2, cb3]: [31980100742982, 31980100745479, 31980100754057, 31980100754225]
+  first measured deltas: cb0->enc1 0.1040 ms, enc1->enc2 0.3574 ms, enc2->cb3 0.0070 ms, cb0->cb3 0.4685 ms
+
+--- mode: relaxed ---
+  wall        median   0.5807 ms  p90   0.8226 ms  min   0.5454 ms  max   1.7908 ms  rsd  45.91%  n=100
+  cbGPU(fb)   median   0.3727 ms  p90   0.3804 ms  min   0.3230 ms  max   0.7273 ms  rsd  11.87%  n=100
+  cbHeap      median   0.3703 ms  p90   0.3778 ms  min   0.3019 ms  max   0.7247 ms  rsd  12.22%  n=100
+  kernel      median   0.3614 ms  p90   0.3657 ms  min   0.3183 ms  max   0.7163 ms  rsd  10.43%  n=100
+  implied bandwidth from kernel median: 371.4 GB/s  (from cbGPU median: 360.1 GB/s)
+  samples with any zero timestamp (written slots only): 0/100   non-monotonic: 12/100   resolve size mismatch: 0/100
+  violations by pair: cb0>enc1: 12   enc1>enc2: 0   enc2>cb3: 0   cb0>cb3: 0
+    example raw [cb0, enc1, enc2, cb3] = [31980103133869, 31980103133615, 31980103141418, 31980103141493]  deltas(ticks): cb0->enc1 -254  enc1->enc2 7803  enc2->cb3 75
+    example raw [cb0, enc1, enc2, cb3] = [31980103321963, 31980103321778, 31980103329444, 31980103329642]  deltas(ticks): cb0->enc1 -185  enc1->enc2 7666  enc2->cb3 198
+    example raw [cb0, enc1, enc2, cb3] = [31980103416238, 31980103416204, 31980103424886, 31980103424957]  deltas(ticks): cb0->enc1 -34  enc1->enc2 8682  enc2->cb3 71
+  first measured raw ticks [cb0, enc1, enc2, cb3]: [31980102977025, 31980102977242, 31980102985948, 31980102986022]
+  first measured deltas: cb0->enc1 0.0090 ms, enc1->enc2 0.3627 ms, enc2->cb3 0.0031 ms, cb0->cb3 0.3749 ms
+
+--- mode: cbOnly ---
+  wall        median   0.5738 ms  p90   0.7343 ms  min   0.5415 ms  max   2.1800 ms  rsd  53.13%  n=100
+  cbGPU(fb)   median   0.3750 ms  p90   0.3832 ms  min   0.3210 ms  max   2.0161 ms  rsd  42.16%  n=100
+  cbHeap      median   0.3721 ms  p90   0.3807 ms  min   0.2990 ms  max   2.0135 ms  rsd  42.66%  n=100
+  implied bandwidth from cbHeap median: 360.7 GB/s
+  samples with any zero timestamp (written slots only): 0/100   non-monotonic: 0/100   resolve size mismatch: 0/100
+  first measured raw ticks [cb0, enc1, enc2, cb3]: [31980105181210, 0, 0, 31980105190342]
+  first measured deltas: cb0->enc1 -1332504382.5504 ms, enc1->enc2 0.0000 ms, enc2->cb3 1332504382.9309 ms, cb0->cb3 0.3805 ms
+
+--- mode: none ---
+  wall        median   0.5425 ms  p90   0.7640 ms  min   0.4925 ms  max   1.9959 ms  rsd  48.01%  n=100
+  cbGPU(fb)   median   0.3631 ms  p90   0.3713 ms  min   0.3231 ms  max   0.8200 ms  rsd  18.90%  n=100
+  implied bandwidth from cbGPU median: 369.6 GB/s
+
+=== Full-heap resolve cross-check ===
+resolveCounterRange errors so far: 0
+mode precise: full resolve returned 480 entries (heap.count=480); per-iteration vs full mismatches: 0/100
+mode relaxed: full resolve returned 480 entries (heap.count=480); per-iteration vs full mismatches: 0/100
+mode cbOnly: full resolve returned 480 entries (heap.count=480); per-iteration vs full mismatches: 0/100
+
+=== relaxed vs precise (medians) ===
+kernel   relaxed   0.3614 ms  precise   0.3599 ms  delta -0.0014 ms (-0.40%)
+cbGPU    none   0.3631 ms  cbOnly   0.3750 ms  relaxed   0.3727 ms  precise   0.3698 ms
+wall     none   0.5425 ms  cbOnly   0.5738 ms  relaxed   0.5807 ms  precise   0.5825 ms
+cbHeap   cbOnly   0.3721 ms  relaxed   0.3703 ms  precise   0.3672 ms
+
+=== Legacy MTLCounterSampleBuffer path ===
+sampleTimestamps: cpu0=1332504544644583 gpu0=1332504544644583 cpu1=1332504649662583 gpu1=1332504649662583
+  gpuDelta/cpuDelta over ~100 ms sleep = 1.000000 (cpu timestamps are mach_absolute_time-domain ns per MTLDevice docs)
+counterSets: ["timestamp"]
+private-storage counter sample buffer created: true
+run 0: resolved 4 entries [stageStart, stageEnd, dispatchStart, dispatchEnd] = [1332504651120041, 1332504651503958, 0, 0]  zeros=2 errorValues=0  stageDelta=383917 ticks  legacy cb gpuEnd-gpuStart=0.7679 ms
+      blit-resolved (.shared csb): [1332504651120041, 1332504651503958, 0, 0]   blit-resolved (.private csb): [0, 0, 0, 0]
+run 1: resolved 4 entries [stageStart, stageEnd, dispatchStart, dispatchEnd] = [1332504652211958, 1332504652581000, 0, 0]  zeros=2 errorValues=0  stageDelta=369042 ticks  legacy cb gpuEnd-gpuStart=0.7440 ms
+      blit-resolved (.shared csb): [1332504652211958, 1332504652581000, 0, 0]   blit-resolved (.private csb): [1332504651504458, 1332504651885041, 0, 0]
+run 2: resolved 4 entries [stageStart, stageEnd, dispatchStart, dispatchEnd] = [1332504653221291, 1332504653587958, 0, 0]  zeros=2 errorValues=0  stageDelta=366667 ticks  legacy cb gpuEnd-gpuStart=0.7369 ms
+      blit-resolved (.shared csb): [1332504653221291, 1332504653587958, 0, 0]   blit-resolved (.private csb): [1332504652581500, 1332504652953125, 0, 0]
+run 3: resolved 4 entries [stageStart, stageEnd, dispatchStart, dispatchEnd] = [1332504654235333, 1332504654616375, 0, 0]  zeros=2 errorValues=0  stageDelta=381042 ticks  legacy cb gpuEnd-gpuStart=1.1603 ms
+      blit-resolved (.shared csb): [1332504654235333, 1332504654616375, 0, 0]   blit-resolved (.private csb): [1332504653588416, 1332504653955541, 0, 0]
+run 4: resolved 4 entries [stageStart, stageEnd, dispatchStart, dispatchEnd] = [1332504656508458, 1332504656878291, 0, 0]  zeros=2 errorValues=0  stageDelta=369833 ticks  legacy cb gpuEnd-gpuStart=0.7510 ms
+      blit-resolved (.shared csb): [1332504656508458, 1332504656878291, 0, 0]   blit-resolved (.private csb): [1332504654616833, 1332504655392791, 0, 0]
+legacy summary: runs=5  CPU-resolve(.shared): allZeroRuns=0 anyZeroRuns(any of 4 slots, incl. never-sampled dispatch slots)=5  blit-resolve(.shared) stage pair zero runs=0  blit-resolve(.private) stage pair zero runs=1
+
+done.

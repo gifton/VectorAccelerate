@@ -133,11 +133,13 @@ final class WarmupManagerTests: XCTestCase {
             configuration: .testing
         )
 
-        // Use multiple keys to give us time to pause
+        // Use multiple DISTINCT keys to give us time to pause (the mechanical
+        // cosineSimilarity → dotProduct key swap had left a duplicate here, which quietly
+        // weakened the premise if the manager dedupes its key list).
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
             .dotProduct(dimension: 0),
+            .dotProduct(dimension: 384),
         ]
 
         // Start warmup in background
@@ -172,7 +174,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
             .dotProduct(dimension: 0),
         ]
 
@@ -206,7 +208,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         // Start warmup in background
@@ -268,7 +270,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         // Start warmup in background
@@ -294,7 +296,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         // Start warmup in background
@@ -335,7 +337,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         await manager.beginWarmup(keys: keys)
@@ -446,7 +448,7 @@ final class WarmupManagerTests: XCTestCase {
         XCTAssertEqual(state, .completed)
 
         // Second warmup - should reset and complete
-        await manager.beginWarmup(keys: [.cosineSimilarity(dimension: 0)])
+        await manager.beginWarmup(keys: [.dotProduct(dimension: 0)])
 
         state = await manager.state
         XCTAssertEqual(state, .completed)
@@ -627,7 +629,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         await manager.beginWarmup(keys: keys)
@@ -654,7 +656,7 @@ final class WarmupManagerTests: XCTestCase {
 
         // Second warmup with different keys
         await manager.beginWarmup(keys: [
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
             .dotProduct(dimension: 0),
         ])
         let statsAfterSecond = await manager.statistics
@@ -722,7 +724,7 @@ final class WarmupManagerTests: XCTestCase {
         delegate.reset()
 
         // Start another warmup
-        await manager.beginWarmup(keys: [.cosineSimilarity(dimension: 0)])
+        await manager.beginWarmup(keys: [.dotProduct(dimension: 0)])
 
         // Wait for potential delegate calls
         try? await Task.sleep(for: .milliseconds(100))
@@ -744,7 +746,7 @@ final class WarmupManagerTests: XCTestCase {
         // Use multiple keys to allow time for pause
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
             .dotProduct(dimension: 0),
         ]
 
@@ -788,7 +790,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         // Start warmup in background

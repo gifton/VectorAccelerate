@@ -111,7 +111,9 @@ final class IndexBenchmarkHarnessTests: XCTestCase {
         let speedup = singleResult.latencyStats.p50 / batchResult.latencyStats.p50
         print("\nSpeedup from batching: \(String(format: "%.2fx", speedup))")
 
-        XCTAssertGreaterThan(speedup, 1.0, "Batching should provide some speedup")
+        if PerfGate.strict {
+            XCTAssertGreaterThan(speedup, 1.0, "Batching should provide some speedup")
+        }
     }
 
     func testBenchmarkHarnessLatencyStats() async throws {

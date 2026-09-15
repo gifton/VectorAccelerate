@@ -36,68 +36,51 @@ public struct BufferPoolConfiguration: Sendable {
     public static let `default` = BufferPoolConfiguration()
 }
 
-/// Lock-protected pending-return queue for buffer tokens.
+/// Lock-protected return queue owned by one pool generation.
 ///
-/// When a `BufferToken` is deallocated (deinit), it cannot call the actor-isolated
-/// `BufferPool.returnBuffer()` synchronously. Instead, it enqueues the buffer here.
-/// The pool drains this queue at the start of each `getBuffer()` call, ensuring
-/// recently freed buffers are available for immediate reuse.
+/// Token deinitialization cannot call the pool actor synchronously. Tokens instead
+/// weakly reference this queue, which the pool drains on acquisition/statistics reads.
+/// Pool destruction releases queued buffers; reset replaces the queue so old leases
+/// cannot return into new accounting. No global registry or actor address is involved.
 ///
-/// This replaces the previous `Task.detached` pattern which was:
-/// - Unordered (recently freed buffers weren't available on the next acquire)
-/// - Unreliable (task might not execute before program exit)
-/// - A Swift concurrency antipattern (unstructured task from deinit)
+/// Safety: the lock protects all queue storage. Enqueue and drain are synchronous;
+/// callers transfer buffer ownership, not permission for concurrent CPU/GPU access.
 internal final class PendingBufferReturns: @unchecked Sendable {
-    static let shared = PendingBufferReturns()
-
-    /// Entry stores the pool's ObjectIdentifier to avoid retaining the pool actor.
-    /// This prevents a retain cycle: Token -> PendingReturns(singleton) -> Pool -> Token.
-    private struct Entry {
-        let buffer: any MTLBuffer
-        let size: Int
-        let poolId: ObjectIdentifier
-    }
-
-    private var pending: [Entry] = []
+    private var pending: [(buffer: any MTLBuffer, size: Int)] = []
     private let lock = NSLock()
 
-    func enqueue(buffer: any MTLBuffer, size: Int, pool: BufferPool) {
+    func enqueue(buffer: any MTLBuffer, size: Int) {
         lock.lock()
-        pending.append(Entry(buffer: buffer, size: size, poolId: ObjectIdentifier(pool)))
+        pending.append((buffer: buffer, size: size))
         lock.unlock()
     }
 
-    /// Drain all pending returns for a specific pool. Called from within the pool actor.
-    func drain(for pool: BufferPool) -> [(buffer: any MTLBuffer, size: Int)] {
+    func drain() -> [(buffer: any MTLBuffer, size: Int)] {
         lock.lock()
-        let poolId = ObjectIdentifier(pool)
-        var returned: [(buffer: any MTLBuffer, size: Int)] = []
-        pending.removeAll { entry in
-            if entry.poolId == poolId {
-                returned.append((entry.buffer, entry.size))
-                return true
-            }
-            return false
-        }
+        let returned = pending
+        pending = []
         lock.unlock()
         return returned
     }
 }
 
 /// Token representing a borrowed buffer from the pool
-/// Automatically returns buffer to pool when deallocated (RAII pattern)
+/// Automatically returns storage to its originating pool generation on deallocation.
+/// The token owns its buffer but does not keep the pool alive. After reset or pool
+/// destruction, the buffer remains valid for the token's lifetime and is no longer cached.
 public final class BufferToken: @unchecked Sendable {
     public let buffer: any MTLBuffer
-    private let pool: BufferPool?
+    // Set only at initialization; ARC safely clears the weak reference when retired.
+    private weak var pendingReturns: PendingBufferReturns?
     public let size: Int
     private var dataCount: Int?  // Track actual data count for typed data
     private var isReturned: Bool = false
     private let lock = NSLock()
 
-    init(buffer: any MTLBuffer, size: Int, pool: BufferPool?, dataCount: Int? = nil) {
+    init(buffer: any MTLBuffer, size: Int, pendingReturns: PendingBufferReturns, dataCount: Int? = nil) {
         self.buffer = buffer
         self.size = size
-        self.pool = pool
+        self.pendingReturns = pendingReturns
         self.dataCount = dataCount
     }
 
@@ -107,11 +90,11 @@ public final class BufferToken: @unchecked Sendable {
         isReturned = true  // Prevent double-return if returnToPool() races with deinit
         lock.unlock()
 
-        guard !alreadyReturned, let pool = pool else { return }
+        guard !alreadyReturned, let pendingReturns else { return }
 
         // Synchronous enqueue -- no Task.detached needed.
         // The pool will drain this on its next getBuffer() call.
-        PendingBufferReturns.shared.enqueue(buffer: buffer, size: size, pool: pool)
+        pendingReturns.enqueue(buffer: buffer, size: size)
     }
 
     /// Manually return buffer to pool (optional - happens automatically on deinit)
@@ -124,8 +107,8 @@ public final class BufferToken: @unchecked Sendable {
         isReturned = true
         lock.unlock()
 
-        guard let pool = pool else { return }
-        PendingBufferReturns.shared.enqueue(buffer: buffer, size: size, pool: pool)
+        guard let pendingReturns else { return }
+        pendingReturns.enqueue(buffer: buffer, size: size)
     }
     
     /// Get buffer contents as typed pointer.
@@ -174,10 +157,12 @@ public final class BufferToken: @unchecked Sendable {
     public func write<T>(data: [T]) {
         let maxCount = size / MemoryLayout<T>.stride
         precondition(data.count <= maxCount, "Data exceeds buffer capacity")
-        
-        let pointer = contents(as: T.self)
-        data.withUnsafeBufferPointer { source in
-            pointer.update(from: source.baseAddress!, count: data.count)
+
+        if !data.isEmpty {
+            let pointer = contents(as: T.self)
+            data.withUnsafeBufferPointer { source in
+                pointer.update(from: source.baseAddress!, count: data.count)
+            }
         }
         
         // Track the actual data count
@@ -227,6 +212,7 @@ public actor BufferPool: BufferProvider {
     private let maxBuffersPerBucket: Int
     private let maxTotalMemory: Int
     private var currentMemoryUsage: Int = 0
+    private var pendingReturns = PendingBufferReturns()
 
     // BufferProvider conformance - track handles for VectorCore integration
     private var activeHandles: [UUID: BufferToken] = [:]
@@ -292,17 +278,32 @@ public actor BufferPool: BufferProvider {
     
     // MARK: - Buffer Management
     
-    /// Get a buffer of at least the specified size
+    /// Get a buffer of at least the specified size.
+    /// Zero bytes receives the minimum bucket. Negative requests are invalid, and
+    /// requests above the 64 MiB standard-pool cap fail rather than returning less storage.
     public func getBuffer(size: Int) async throws -> BufferToken {
         // Drain pending returns from token deinits (synchronous, no Task.detached)
         drainPendingReturns()
 
+        guard size >= 0 else {
+            throw VectorError.invalidInput("Buffer size must be nonnegative")
+        }
+        guard let maximumBucketSize = bucketSizes.last,
+              size <= maximumBucketSize else {
+            throw VectorError.invalidBufferSize(
+                requested: size,
+                maximum: bucketSizes.last ?? 0
+            )
+        }
+
         // Find appropriate bucket size
         let bucketSize = selectBucketSize(for: size)
-        
-        // Check if size exceeds maximum
-        if bucketSize > bucketSizes.last! {
-            throw VectorError.invalidBufferSize(requested: size, maximum: bucketSizes.last!)
+
+        guard bucketSize <= device.rawDevice.maxBufferLength else {
+            throw VectorError.invalidBufferSize(
+                requested: size,
+                maximum: min(maximumBucketSize, device.rawDevice.maxBufferLength)
+            )
         }
         
         // Get or create bucket
@@ -313,21 +314,26 @@ public actor BufferPool: BufferProvider {
         // Try to get available buffer
         if var bucket = buckets[bucketSize], !bucket.available.isEmpty {
             let buffer = bucket.available.removeLast()
+            guard buffer.length >= size, buffer.length >= bucketSize else {
+                currentMemoryUsage = max(0, currentMemoryUsage - bucketSize)
+                buckets[bucketSize] = bucket
+                throw VectorError.bufferAllocationFailed(size: bucketSize)
+            }
             bucket.inUse.insert(ObjectIdentifier(buffer))
             buckets[bucketSize] = bucket
             hitCount += 1
-            return BufferToken(buffer: buffer, size: bucketSize, pool: self)
+            return BufferToken(buffer: buffer, size: bucketSize, pendingReturns: pendingReturns)
         }
         
         // Need to allocate new buffer
         missCount += 1
         
         // Check memory pressure
-        if currentMemoryUsage + bucketSize > maxTotalMemory {
+        if bucketSize > maxTotalMemory || currentMemoryUsage > maxTotalMemory - bucketSize {
             try await performMemoryCleanup()
             
             // Check again after cleanup
-            if currentMemoryUsage + bucketSize > maxTotalMemory {
+            if bucketSize > maxTotalMemory || currentMemoryUsage > maxTotalMemory - bucketSize {
                 throw VectorError.memoryPressure()
             }
         }
@@ -342,7 +348,9 @@ public actor BufferPool: BufferProvider {
         }
 
         // Allocate new buffer synchronously via factory (no async overhead)
-        guard let buffer = factory.createBuffer(length: bucketSize) else {
+        guard let buffer = factory.createBuffer(length: bucketSize),
+              buffer.length >= size,
+              buffer.length >= bucketSize else {
             throw VectorError.bufferAllocationFailed(size: bucketSize)
         }
 
@@ -357,12 +365,12 @@ public actor BufferPool: BufferProvider {
         bucket.inUse.insert(ObjectIdentifier(buffer))
         buckets[bucketSize] = bucket
         
-        return BufferToken(buffer: buffer, size: bucketSize, pool: self)
+        return BufferToken(buffer: buffer, size: bucketSize, pendingReturns: pendingReturns)
     }
     
     /// Drain buffers that were returned via deinit (enqueued in PendingBufferReturns).
     private func drainPendingReturns() {
-        let returned = PendingBufferReturns.shared.drain(for: self)
+        let returned = pendingReturns.drain()
         for (buffer, size) in returned {
             returnBuffer(buffer, size: size)
         }
@@ -373,8 +381,8 @@ public actor BufferPool: BufferProvider {
         // Find the appropriate bucket
         guard var bucket = buckets[size] else { return }
         
-        // Remove from in-use set
-        bucket.inUse.remove(ObjectIdentifier(buffer))
+        // Only a currently tracked lease may change this generation's accounting.
+        guard bucket.inUse.remove(ObjectIdentifier(buffer)) != nil else { return }
         
         // Add to available if under limit
         if bucket.available.count < maxBuffersPerBucket {
@@ -389,7 +397,10 @@ public actor BufferPool: BufferProvider {
     
     /// Get buffer for typed data
     public func getBuffer<T>(for data: [T]) async throws -> BufferToken {
-        let size = data.count * MemoryLayout<T>.stride
+        let (size, overflow) = data.count.multipliedReportingOverflow(by: MemoryLayout<T>.stride)
+        guard !overflow else {
+            throw VectorError.invalidInput("Typed buffer byte count is not representable")
+        }
         let token = try await getBuffer(size: size)
         token.write(data: data)
         return token
@@ -405,9 +416,19 @@ public actor BufferPool: BufferProvider {
         return false
     }
     
-    /// Create a buffer with specific alignment requirements
+    /// Create a buffer whose byte length is rounded up to a positive power-of-two alignment.
+    /// This rounds length only; it does not promise arbitrary GPU-address alignment.
     public func getAlignedBuffer(size: Int, alignment: Int = 16) async throws -> BufferToken {
-        let alignedSize = (size + alignment - 1) & ~(alignment - 1)
+        guard size >= 0,
+              alignment > 0,
+              alignment & (alignment - 1) == 0 else {
+            throw VectorError.invalidInput("Buffer size and alignment must be nonnegative and alignment must be a power of two")
+        }
+        let (roundedInput, overflow) = size.addingReportingOverflow(alignment - 1)
+        guard !overflow else {
+            throw VectorError.invalidInput("Aligned buffer size is not representable")
+        }
+        let alignedSize = roundedInput & ~(alignment - 1)
         return try await getBuffer(size: alignedSize)
     }
     
@@ -437,19 +458,27 @@ public actor BufferPool: BufferProvider {
         currentMemoryUsage -= freedMemory
     }
     
-    /// Clear all cached buffers
+    /// Drain returns already queued, then release cached buffers and their accounted bytes.
+    /// Outstanding leases, their return queue and cumulative statistics remain intact.
+    /// Returns enqueued after the drain may become available on a later pool operation.
     public func clearCache() {
-        for size in buckets.keys {
-            buckets[size]?.available.removeAll()
+        drainPendingReturns()
+        for size in bucketSizes {
+            guard var bucket = buckets[size] else { continue }
+            // Every cached buffer was already charged to currentMemoryUsage. Returns
+            // discarded while draining have already been subtracted by returnBuffer.
+            currentMemoryUsage -= size * bucket.available.count
+            bucket.available.removeAll()
+            buckets[size] = bucket
         }
     }
     
-    /// Reset the pool completely
+    /// Start a fresh pool generation, discarding cached storage and statistics.
+    /// Outstanding tokens/compatibility handles retain their storage until released,
+    /// but their retired allocations are excluded from the new generation's budget
+    /// and statistics. Late returns cannot enter the new cache.
     public func reset() {
-        // Drain and discard any pending returns from this pool's tokens.
-        // Without this, in-flight returns would be re-injected on the next
-        // getStatistics() / getBuffer() call and reappear as available buffers.
-        _ = PendingBufferReturns.shared.drain(for: self)
+        pendingReturns = PendingBufferReturns()
 
         buckets.removeAll()
         for size in bucketSizes {
@@ -476,16 +505,24 @@ public actor BufferPool: BufferProvider {
     /// Pre-allocate buffers for common sizes to reduce initial allocation overhead
     /// Call this after initialization to warm up the pool
     public func preallocateCommonSizes(buffersPerSize: Int = 2, maxSizes: Int = 3) {
+        guard buffersPerSize > 0, maxSizes > 0 else { return }
         for size in Self.commonPreallocationSizes.prefix(maxSizes) {
             let bucketSize = selectBucketSize(for: size)
 
-            // Skip if would exceed memory limit
-            guard currentMemoryUsage + (bucketSize * buffersPerSize) <= maxTotalMemory else {
+            let (requestedBytes, overflow) = bucketSize.multipliedReportingOverflow(
+                by: buffersPerSize
+            )
+            guard !overflow,
+                  bucketSize <= device.rawDevice.maxBufferLength,
+                  requestedBytes <= maxTotalMemory,
+                  currentMemoryUsage <= maxTotalMemory - requestedBytes else {
                 continue
             }
 
+            // Skip if would exceed memory limit
             for _ in 0..<buffersPerSize {
-                if let buffer = factory.createBuffer(length: bucketSize) {
+                if let buffer = factory.createBuffer(length: bucketSize),
+                   buffer.length >= bucketSize {
                     buffer.label = "VectorAccelerate.BufferPool.Prealloc.\(bucketSize)"
 
                     var bucket = buckets[bucketSize] ?? BufferBucket(size: bucketSize)
@@ -503,7 +540,13 @@ public actor BufferPool: BufferProvider {
 
     /// Get a buffer for a specific type and count
     public func getBuffer<T>(for type: T.Type, count: Int) async throws -> BufferToken {
-        let byteSize = count * MemoryLayout<T>.stride
+        guard count >= 0 else {
+            throw VectorError.invalidInput("Typed buffer count must be nonnegative")
+        }
+        let (byteSize, overflow) = count.multipliedReportingOverflow(by: MemoryLayout<T>.stride)
+        guard !overflow else {
+            throw VectorError.invalidInput("Typed buffer byte count is not representable")
+        }
         return try await getBuffer(size: byteSize)
     }
 
@@ -580,7 +623,8 @@ public actor BufferPool: BufferProvider {
         256  // Metal buffer alignment requirement
     }
 
-    /// Acquire a buffer of at least the specified size (VectorCore interface)
+    /// Acquire a buffer of at least the specified size (VectorCore interface).
+    /// The handle borrows a pointer: retain this pool until the handle is released.
     public func acquire(size: Int) async throws -> BufferHandle {
         // Get buffer from pool using existing infrastructure
         let token = try await getBuffer(size: size)

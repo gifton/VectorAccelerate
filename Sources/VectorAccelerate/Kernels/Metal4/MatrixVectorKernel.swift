@@ -137,7 +137,6 @@ public final class MatrixVectorKernel: @unchecked Sendable, Metal4Kernel {
 
     private let simdPipeline: any MTLComputePipelineState
     private let basicPipeline: any MTLComputePipelineState
-    private let batchPipeline: (any MTLComputePipelineState)?
 
     // MARK: - Initialization
 
@@ -163,11 +162,6 @@ public final class MatrixVectorKernel: @unchecked Sendable, Metal4Kernel {
         self.simdPipeline = try await device.makeComputePipelineState(function: simdFunc)
         self.basicPipeline = try await device.makeComputePipelineState(function: basicFunc)
 
-        if let batchFunc = library.makeFunction(name: "batchMatrixVector") {
-            self.batchPipeline = try await device.makeComputePipelineState(function: batchFunc)
-        } else {
-            self.batchPipeline = nil
-        }
     }
 
     // MARK: - Warm Up

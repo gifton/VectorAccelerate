@@ -46,17 +46,12 @@ final class PipelineCacheKeyTests: XCTestCase {
         XCTAssertEqual(key.dataType, .float32)
     }
 
-    func testCosineSimilarityFactory() {
-        let key = PipelineCacheKey.cosineSimilarity(dimension: 384)
-
-        XCTAssertEqual(key.operation, "cosineSimilarity")
-        XCTAssertEqual(key.dimension, 384)
-    }
-
     func testDotProductFactory() {
         let key = PipelineCacheKey.dotProduct(dimension: 1536)
 
-        XCTAssertEqual(key.operation, "dotProduct")
+        // "dot_product", not "dotProduct": the latter is the single-pair kernel's literal
+        // function name, and sharing it rerouted the engine's dispatch (AUDIT-3 VA3-031).
+        XCTAssertEqual(key.operation, "dot_product")
         XCTAssertEqual(key.dimension, 1536)
     }
 
@@ -93,16 +88,12 @@ final class PipelineCacheKeyTests: XCTestCase {
     // MARK: - Function Name Resolution
 
     func testFunctionNameForL2Distance() {
-        XCTAssertEqual(PipelineCacheKey.l2Distance(dimension: 384).functionName, "l2_distance_384_kernel")
-        XCTAssertEqual(PipelineCacheKey.l2Distance(dimension: 512).functionName, "l2_distance_512_kernel")
-        XCTAssertEqual(PipelineCacheKey.l2Distance(dimension: 768).functionName, "l2_distance_768_kernel")
-        XCTAssertEqual(PipelineCacheKey.l2Distance(dimension: 1536).functionName, "l2_distance_1536_kernel")
+        // Every dimension resolves to the general kernel: the specialized
+        // l2_distance_{384,512,768,1536}_kernel variants were deleted in AUDIT-3 Group F
+        // (no dispatch path ever selected them).
+        XCTAssertEqual(PipelineCacheKey.l2Distance(dimension: 384).functionName, "l2_distance_kernel")
+        XCTAssertEqual(PipelineCacheKey.l2Distance(dimension: 1536).functionName, "l2_distance_kernel")
         XCTAssertEqual(PipelineCacheKey.l2Distance(dimension: 0).functionName, "l2_distance_kernel")
-    }
-
-    func testFunctionNameForCosineSimilarity() {
-        XCTAssertEqual(PipelineCacheKey.cosineSimilarity(dimension: 384).functionName, "cosine_similarity_384_kernel")
-        XCTAssertEqual(PipelineCacheKey.cosineSimilarity(dimension: 0).functionName, "cosine_similarity_kernel")
     }
 
     func testFunctionNameForDotProduct() {
@@ -110,7 +101,9 @@ final class PipelineCacheKeyTests: XCTestCase {
     }
 
     func testFunctionNameForTopK() {
-        XCTAssertEqual(PipelineCacheKey.topK(k: 10).functionName, "top_k_selection")
+        // The real batch selection kernel — the pre-audit derivation produced the phantom
+        // "top_k_selection" (AUDIT-2 VA2-006).
+        XCTAssertEqual(PipelineCacheKey.topK(k: 10).functionName, "topk_select_batch_kernel")
     }
 
     func testFunctionNameWithQuantization() {
@@ -196,9 +189,11 @@ final class PipelineCacheKeyTests: XCTestCase {
         let commonKeys = PipelineCacheKey.commonKeys
 
         XCTAssertFalse(commonKeys.isEmpty)
-        XCTAssertTrue(commonKeys.contains(where: { $0.operation == "l2Distance" && $0.dimension == 384 }))
-        XCTAssertTrue(commonKeys.contains(where: { $0.operation == "l2Distance" && $0.dimension == 768 }))
-        XCTAssertTrue(commonKeys.contains(where: { $0.operation == "cosineSimilarity" }))
+        XCTAssertTrue(commonKeys.contains(where: { $0.operation == "l2Distance" }))
+        XCTAssertTrue(commonKeys.contains(.dotProduct(dimension: 768)))
+        // The cosineSimilarity operation (and its never-dispatched kernel family) was removed
+        // in AUDIT-3 Group F; cosine warms through `cosineDistance`/`batchCosineDistance`.
+        XCTAssertFalse(commonKeys.contains(where: { $0.operation == "cosineSimilarity" }))
     }
 
     func testEmbeddingModelKeys() {

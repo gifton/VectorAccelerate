@@ -35,7 +35,7 @@ struct BenchmarkRunner {
             let suite = BenchmarkSuite(engine: engine, context: context)
 
             // Define benchmark configurations
-            // Includes 384, 512, 768, 1536 to test optimized kernels (VectorCore 0.1.5)
+            // Includes 384, 512, 768, 1536 to test VectorCore's dimension-optimized kernels
             let configurations = [
                 BenchmarkConfiguration(
                     iterations: 50,

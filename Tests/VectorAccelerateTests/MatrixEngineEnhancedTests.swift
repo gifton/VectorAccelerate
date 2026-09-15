@@ -565,8 +565,10 @@ final class MatrixEngineEnhancedTests: XCTestCase {
             // Performance should be reasonable (use generous thresholds for CI variability)
             // Minimum 1.0s threshold accounts for CI runner GPU variability
             let multiplyThreshold = max(1.0, Double(size) * 0.02)
-            XCTAssertLessThan(multiplyTime, multiplyThreshold, "Multiplication should be efficient")
-            XCTAssertLessThan(transposeTime, 0.5, "Transpose should be fast")
+            if PerfGate.strict {
+                XCTAssertLessThan(multiplyTime, multiplyThreshold, "Multiplication should be efficient")
+                XCTAssertLessThan(transposeTime, 0.5, "Transpose should be fast")
+            }
         }
     }
     
@@ -587,7 +589,9 @@ final class MatrixEngineEnhancedTests: XCTestCase {
             print("Operation \(i + 1): \(elapsed * 1000)ms")
             
             // Performance should remain consistent (no memory leaks)
-            XCTAssertLessThan(elapsed, 1.0, "Performance should remain consistent")
+            if PerfGate.strict {
+                XCTAssertLessThan(elapsed, 1.0, "Performance should remain consistent")
+            }
         }
         
         let metrics = await engine!.getPerformanceMetrics()

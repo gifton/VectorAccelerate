@@ -259,14 +259,31 @@ public actor PipelineCache {
 
     // MARK: - Warm-up
 
-    /// Warm up cache with common pipelines
-    public func warmUp(keys: [PipelineCacheKey]) async {
-        await withTaskGroup(of: Void.self) { group in
+    /// Warm up cache with common pipelines.
+    ///
+    /// Returns the keys that FAILED to warm, with their error descriptions — pre-audit this was
+    /// `try?`-swallowed, so a warm-up could fail for every key (e.g. the four phantom
+    /// `PipelineCacheKey.functionName` derivations, AUDIT-2 VA2-006) and nothing ever noticed.
+    /// Callers that treat warm-up as best-effort can discard the result; callers that expect
+    /// their keys to exist should assert on it.
+    @discardableResult
+    public func warmUp(keys: [PipelineCacheKey]) async -> [(key: PipelineCacheKey, error: String)] {
+        await withTaskGroup(of: (PipelineCacheKey, String?).self) { group in
             for key in keys {
                 group.addTask {
-                    _ = try? await self.getPipeline(for: key)
+                    do {
+                        _ = try await self.getPipeline(for: key)
+                        return (key, nil)
+                    } catch {
+                        return (key, String(describing: error))
+                    }
                 }
             }
+            var failures: [(key: PipelineCacheKey, error: String)] = []
+            for await (key, error) in group {
+                if let error { failures.append((key, error)) }
+            }
+            return failures
         }
     }
 

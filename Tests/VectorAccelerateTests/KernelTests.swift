@@ -2428,6 +2428,20 @@ final class MatrixTransposeKernelTests: XCTestCase {
         XCTAssertGreaterThan(result.throughputGBps, 0)
     }
 
+    // MARK: - VA3-021: in-place was a phantom
+
+    /// `tiledTransposeInPlace` never existed in any `.metal` file — the optional load was
+    /// always nil, so an `inPlace: true` request silently ran the out-of-place kernel: a
+    /// caller who passed `inPlace` and then read the INPUT buffer got untransposed data
+    /// with no signal (AUDIT-3 VA3-021). Requesting the unsupported mode must throw.
+    func testInPlaceRequestThrowsInsteadOfSilentDowngrade() async throws {
+        let A = Matrix(rows: 32, columns: 32, values: (0..<1024).map(Float.init))
+        do {
+            _ = try await kernel.transpose(A, config: Metal4TransposeConfig(inPlace: true))
+            XCTFail("inPlace: true must throw — no in-place kernel has ever shipped")
+        } catch { /* expected */ }
+    }
+
     // MARK: - Validation Tests
 
     func testDoubleTranspose() async throws {
@@ -2512,6 +2526,11 @@ final class BatchMatrixKernelTests: XCTestCase {
         XCTAssertGreaterThan(result.totalGflops, 0)
     }
 
+    /// AUDIT-3 VA3-004 regression: the pre-fix shader indexed the bias as an M×N matrix
+    /// (`bias[row * N + col]`) while the API documented and validated an N-length column
+    /// bias — every row past the first read out of bounds. The original form of this test
+    /// only asserted `batchSize`, so the garbage values stayed green. Both accepted layouts
+    /// are now value-checked against a CPU oracle.
     func testBatchWithBias() async throws {
         let batchSize = 3
         let M = 16
@@ -2526,17 +2545,60 @@ final class BatchMatrixKernelTests: XCTestCase {
             batchB.append(Matrix.random(rows: K, columns: N))
         }
 
-        let bias = (0..<N).map { _ in Float.random(in: -1...1) }
+        func cpuFused(_ bias: [Float], perBatch: Bool) -> [[Float]] {
+            (0..<batchSize).map { b in
+                var out = [Float](repeating: 0, count: M * N)
+                for m in 0..<M {
+                    for n in 0..<N {
+                        var sum: Float = 0
+                        for k in 0..<K {
+                            sum += batchA[b].values[m * K + k] * batchB[b].values[k * N + n]
+                        }
+                        out[m * N + n] = sum + (perBatch ? bias[b * N + n] : bias[n])
+                    }
+                }
+                return out
+            }
+        }
+
         let config = Metal4BatchFusedConfig(hasBias: true)
 
-        let result = try await kernel.multiplyFused(
-            batchA: batchA,
-            batchB: batchB,
-            bias: bias,
-            config: config
-        )
+        // Shared per-column bias (length N, broadcast over rows and batches).
+        let sharedBias = (0..<N).map { Float($0 + 1) * 0.5 }
+        let shared = try await kernel.multiplyFused(
+            batchA: batchA, batchB: batchB, bias: sharedBias, config: config)
+        XCTAssertEqual(shared.batchSize, batchSize)
+        let sharedExpected = cpuFused(sharedBias, perBatch: false)
+        for b in 0..<batchSize {
+            let gpu = try XCTUnwrap(shared.matrix(at: b)).values
+            for i in 0..<(M * N) {
+                XCTAssertEqual(gpu[i], sharedExpected[b][i], accuracy: 1e-2,
+                               "shared-bias fused GEMM diverged at batch \(b), element \(i)")
+            }
+        }
 
-        XCTAssertEqual(result.batchSize, batchSize)
+        // Per-batch column bias (length batchSize × N).
+        let perBatchBias = (0..<(batchSize * N)).map { Float($0) * 0.25 - 1 }
+        let perBatch = try await kernel.multiplyFused(
+            batchA: batchA, batchB: batchB, bias: perBatchBias, config: config)
+        let perBatchExpected = cpuFused(perBatchBias, perBatch: true)
+        for b in 0..<batchSize {
+            let gpu = try XCTUnwrap(perBatch.matrix(at: b)).values
+            for i in 0..<(M * N) {
+                XCTAssertEqual(gpu[i], perBatchExpected[b][i], accuracy: 1e-2,
+                               "per-batch-bias fused GEMM diverged at batch \(b), element \(i)")
+            }
+        }
+
+        // A bias length matching neither layout must be rejected, not misread.
+        do {
+            _ = try await kernel.multiplyFused(
+                batchA: batchA, batchB: batchB,
+                bias: [Float](repeating: 0, count: N + 1), config: config)
+            XCTFail("bias of length N+1 should have been rejected")
+        } catch {
+            // expected
+        }
     }
 
     func testMatrixExtraction() async throws {
@@ -3269,13 +3331,11 @@ final class StatisticsKernelTests: XCTestCase {
         }
     }
 
-    func testNaNInputThrows() async throws {
-        do {
-            _ = try await kernel.computeBasicStatistics([1.0, Float.nan, 3.0])
-            XCTFail("Expected error for NaN input")
-        } catch {
-            // Expected
-        }
+    func testNaNInputPropagates() async throws {
+        let result = try await kernel.computeBasicStatistics([1.0, Float.nan, 3.0])
+        XCTAssertEqual(result.count, 3)
+        XCTAssertTrue([result.mean, result.variance, result.standardDeviation,
+                       result.minimum, result.maximum, result.range, result.sum].allSatisfy(\.isNaN))
     }
 
     // MARK: - Config Tests
@@ -3347,6 +3407,61 @@ final class MinkowskiDistanceKernelTests: XCTestCase {
         XCTAssertEqual(result.distance(row: 0, col: 0), 5.0, accuracy: 1e-4)
         // query[0] to dataset[1]: 0
         XCTAssertEqual(result.distance(row: 0, col: 1), 0.0, accuracy: 1e-4)
+    }
+
+    // MARK: - Stable-Kernel Barrier Discipline (AUDIT-3 VA3-003)
+
+    /// The stable kernel's pre-fix per-thread early exit (`max_diff < 1e-8`) returned before
+    /// the pass-2 threadgroup barriers — undefined behavior whenever a 16×16 tile mixed
+    /// degenerate pairs (self-distances) with live ones, which is exactly what an all-pairs
+    /// matrix produces. Pins: mixed tiles compute correct Lp distances everywhere, zeros on
+    /// the diagonal, and micro-scale distances are no longer zeroed by the old absolute
+    /// epsilon.
+    func testStableKernelMixedDegenerateTilesMatchCPU() async throws {
+        let p: Float = 12.0   // stable kernel is the default path for p ∈ (10, 30]
+        let dimension = 40
+        // 20 vectors, and the dataset IS the query set: the 16×16 tiles all mix
+        // zero-distance diagonal pairs with live pairs.
+        var vectors: [[Float]] = []
+        for v in 0..<20 {
+            vectors.append((0..<dimension).map { i in
+                Float((v * 31 + i * 17 + 7) % 101) / 101.0
+            })
+        }
+
+        let config = Metal4MinkowskiConfig(p: p, useStableComputation: true)
+        let result = try await kernel.computeDistances(queries: vectors, dataset: vectors, config: config)
+
+        func cpuMinkowski(_ a: [Float], _ b: [Float]) -> Float {
+            var maxDiff: Float = 0
+            for i in 0..<a.count { maxDiff = max(maxDiff, abs(a[i] - b[i])) }
+            guard maxDiff > 0 else { return 0 }
+            var sum: Double = 0
+            for i in 0..<a.count {
+                sum += pow(Double(abs(a[i] - b[i]) / maxDiff), Double(p))
+            }
+            return maxDiff * Float(pow(sum, 1.0 / Double(p)))
+        }
+
+        for r in 0..<20 {
+            for c in 0..<20 {
+                let expected = cpuMinkowski(vectors[r], vectors[c])
+                XCTAssertEqual(result.distance(row: r, col: c), expected,
+                               accuracy: max(1e-4, expected * 1e-3),
+                               "stable Minkowski diverged at (\(r), \(c))")
+            }
+        }
+
+        // Micro-scale pair: true distance ≈ 2e-9·D^(1/p); the old absolute 1e-8 cutoff
+        // zeroed it.
+        let tinyA = [Float](repeating: 1e-9, count: dimension)
+        let tinyB = [Float](repeating: 3e-9, count: dimension)
+        let tiny = try await kernel.computeDistances(queries: [tinyA], dataset: [tinyB], config: config)
+        let expectedTiny = cpuMinkowski(tinyA, tinyB)
+        XCTAssertGreaterThan(expectedTiny, 0)
+        XCTAssertEqual(tiny.distance(row: 0, col: 0), expectedTiny,
+                       accuracy: expectedTiny * 1e-2,
+                       "micro-scale stable Minkowski distance was zeroed")
     }
 
     // MARK: - L1 (Manhattan) Tests
@@ -3518,6 +3633,124 @@ final class HammingDistanceKernelTests: XCTestCase {
     }
 }
 
+// MARK: - QuantizationStatisticsKernel Grid-Guard Regression (AUDIT-3 VA3-005)
+
+@available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
+final class QuantizationStatisticsKernelTests: XCTestCase {
+
+    /// The pre-fix kernel had no numVectors guard while the wrapper dispatched
+    /// ceil-rounded threadgroups: any batch over 1024 vectors that wasn't a multiple of the
+    /// threadgroup width made the overshoot threads WRITE past the end of the mse/psnr
+    /// buffers. 1500 vectors crosses the 1024 threadgroup boundary; every per-vector MSE
+    /// must match the CPU oracle.
+    func testLargeBatchCrossesThreadgroupBoundary() async throws {
+        guard MTLCreateSystemDefaultDevice() != nil else {
+            throw XCTSkip("Metal device not available")
+        }
+        let context = try await Metal4Context()
+        let kernel = try await QuantizationStatisticsKernel(context: context)
+
+        let numVectors = 1500
+        let dimension = 8
+        var original: [[Float]] = []
+        var quantized: [[Float]] = []
+        for v in 0..<numVectors {
+            let base = (0..<dimension).map { i in Float((v + i) % 17) * 0.25 + 1.0 }
+            // Per-vector error of (v % 5) * 0.01 in every component → MSE = error².
+            let err = Float(v % 5) * 0.01
+            original.append(base)
+            quantized.append(base.map { $0 + err })
+        }
+
+        let stats = try await kernel.computeStatistics(original: original, quantized: quantized)
+        XCTAssertEqual(stats.perVectorMetrics.count, numVectors)
+        for v in stride(from: 0, to: numVectors, by: 97) {
+            let err = Float(v % 5) * 0.01
+            XCTAssertEqual(stats.perVectorMetrics[v].mse, err * err, accuracy: 1e-6,
+                           "per-vector MSE diverged at vector \(v)")
+        }
+        // The last vector past the final full threadgroup boundary.
+        let lastErr = Float((numVectors - 1) % 5) * 0.01
+        XCTAssertEqual(stats.perVectorMetrics[numVectors - 1].mse, lastErr * lastErr,
+                       accuracy: 1e-6)
+    }
+
+    /// AUDIT-3 meta-review: the leg above pins the numVectors plumbing but cannot see the
+    /// OOB write itself — pre-fix, in-range values stayed correct while overshoot threads
+    /// scribbled past the buffer end, so re-deleting the kernel's grid guard would leave it
+    /// green. This leg hands the kernel oversized, poisoned output buffers under the
+    /// wrapper's exact ceil-rounded dispatch: a regressed guard turns the poison into
+    /// computed values.
+    func testOvershootThreadsLeaveOutputTailUntouched() async throws {
+        guard MTLCreateSystemDefaultDevice() != nil else {
+            throw XCTSkip("Metal device not available")
+        }
+        let context = try await Metal4Context()
+        let pipeline = try await context.getPipeline(functionName: "computeQuantizationStats")
+        let device = context.device.rawDevice
+
+        let numVectors = 1500
+        let dimension = 8
+        let paddedCount = 2048   // two full 1024-wide threadgroups, the wrapper's ceil dispatch
+        var original: [Float] = []
+        var quantized: [Float] = []
+        for v in 0..<numVectors {
+            let err = Float(v % 5) * 0.01
+            for i in 0..<dimension {
+                let x = Float((v + i) % 17) * 0.25 + 1.0
+                original.append(x)
+                quantized.append(x + err)
+            }
+        }
+
+        let originalBuffer = try XCTUnwrap(device.makeBuffer(
+            bytes: original, length: original.count * MemoryLayout<Float>.size,
+            options: .storageModeShared))
+        let quantizedBuffer = try XCTUnwrap(device.makeBuffer(
+            bytes: quantized, length: quantized.count * MemoryLayout<Float>.size,
+            options: .storageModeShared))
+        let poison: Float = -31337.0
+        let poisonArray = [Float](repeating: poison, count: paddedCount)
+        let mseBuffer = try XCTUnwrap(device.makeBuffer(
+            bytes: poisonArray, length: paddedCount * MemoryLayout<Float>.size,
+            options: .storageModeShared))
+        let psnrBuffer = try XCTUnwrap(device.makeBuffer(
+            bytes: poisonArray, length: paddedCount * MemoryLayout<Float>.size,
+            options: .storageModeShared))
+
+        try await context.executeAndWait { _, encoder in
+            encoder.setComputePipelineState(pipeline)
+            encoder.setBuffer(originalBuffer, offset: 0, index: 0)
+            encoder.setBuffer(quantizedBuffer, offset: 0, index: 1)
+            encoder.setBuffer(mseBuffer, offset: 0, index: 2)
+            encoder.setBuffer(psnrBuffer, offset: 0, index: 3)
+            var params = SIMD2<UInt32>(UInt32(dimension), UInt32(numVectors))
+            encoder.setBytes(&params, length: MemoryLayout<SIMD2<UInt32>>.size, index: 4)
+            encoder.dispatchThreadgroups(
+                MTLSize(width: 2, height: 1, depth: 1),
+                threadsPerThreadgroup: MTLSize(width: 1024, height: 1, depth: 1))
+        }
+
+        let mse = Array(UnsafeBufferPointer(
+            start: mseBuffer.contents().bindMemory(to: Float.self, capacity: paddedCount),
+            count: paddedCount))
+        let psnr = Array(UnsafeBufferPointer(
+            start: psnrBuffer.contents().bindMemory(to: Float.self, capacity: paddedCount),
+            count: paddedCount))
+
+        for v in stride(from: 0, to: numVectors, by: 97) {
+            let err = Float(v % 5) * 0.01
+            XCTAssertEqual(mse[v], err * err, accuracy: 1e-6, "in-range MSE diverged at \(v)")
+        }
+        for slot in numVectors..<paddedCount {
+            XCTAssertEqual(mse[slot].bitPattern, poison.bitPattern,
+                           "overshoot thread wrote mse[\(slot)] — the VA3-005 OOB write is back")
+            XCTAssertEqual(psnr[slot].bitPattern, poison.bitPattern,
+                           "overshoot thread wrote psnr[\(slot)] — the VA3-005 OOB write is back")
+        }
+    }
+}
+
 // MARK: - Batch 6a: JaccardDistanceKernel Tests
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
@@ -3561,6 +3794,44 @@ final class JaccardDistanceKernelTests: XCTestCase {
 
         XCTAssertEqual(result.distance, 1.0, accuracy: 1e-4)
         XCTAssertEqual(result.similarity, 0.0, accuracy: 1e-4)
+    }
+
+    /// AUDIT-3 VA3-001 regression: the pre-fix kernel assumed exactly one 256-thread
+    /// threadgroup while the wrapper dispatched `ceil(dimension/256)` groups of 256 — an
+    /// early return before the barrier (undefined behavior for any dimension not a multiple
+    /// of 256) plus a cross-threadgroup `atomic_store` race that could publish a
+    /// tail-only total for dimension > 256. Weighted-Jaccard results must match the CPU
+    /// oracle at every ragged and multi-tile dimension.
+    func testWeightedJaccardMatchesCPUAcrossDimensions() async throws {
+        for dimension in [1, 4, 17, 100, 255, 256, 257, 300, 777, 1000, 4096] {
+            // Deterministic non-negative inputs, with the overlap mass concentrated in the
+            // first 256 elements so a tail-only total is far from the true answer.
+            var a = [Float](repeating: 0, count: dimension)
+            var b = [Float](repeating: 0, count: dimension)
+            for i in 0..<dimension {
+                let x = Float((i * 37 + 11) % 97) / 97.0
+                let y = Float((i * 53 + 29) % 89) / 89.0
+                if i < 256 {
+                    a[i] = 1.0 + x
+                    b[i] = 1.0 + y
+                } else {
+                    a[i] = 0.01 * x
+                    b[i] = 0.01 * y
+                }
+            }
+
+            var intersection: Float = 0
+            var union: Float = 0
+            for i in 0..<dimension {
+                intersection += min(a[i], b[i])
+                union += max(a[i], b[i])
+            }
+            let expected: Float = union > 1e-8 ? 1.0 - intersection / union : 1.0
+
+            let result = try await kernel.computeDistance(vectorA: a, vectorB: b)
+            XCTAssertEqual(result.distance, expected, accuracy: 1e-3,
+                           "weighted Jaccard diverged from CPU oracle at dimension \(dimension)")
+        }
     }
 
     func testPartialOverlap() async throws {

@@ -108,18 +108,13 @@ final class BufferPoolEnhancedTests: XCTestCase {
     
     func testLargeSizeHandling() async throws {
         let largeSize = 100 * 1024 * 1024 // 100 MB
-
         do {
-            let token = try await bufferPool.getBuffer(size: largeSize)
-            // Pool caps at 64 MB (largest bucket size)
-            let expectedSize = 64 * 1024 * 1024
-            XCTAssertGreaterThanOrEqual(token.buffer.length, expectedSize)
-            
-            // Large buffers might not be pooled
-            token.returnToPool()
-        } catch {
-            // Acceptable if allocation fails due to memory limits
-            XCTAssertTrue(error is VectorError)
+            _ = try await bufferPool.getBuffer(size: largeSize)
+            XCTFail("unsupported requests must not return undersized storage")
+        } catch let error as VectorError {
+            XCTAssertEqual(error.kind, .invalidData)
+            XCTAssertEqual(error.context.additionalInfo["requested_size"], String(largeSize))
+            XCTAssertEqual(error.context.additionalInfo["maximum_size"], String(64 * 1024 * 1024))
         }
     }
     
@@ -413,12 +408,14 @@ final class BufferPoolEnhancedTests: XCTestCase {
     
     func testVeryLargeBuffer() async throws {
         let hugeSize = Int.max / 2
-
-        // BufferPool now caps at maximum bucket size (64 MB) instead of throwing
-        let token = try await bufferPool.getBuffer(size: hugeSize)
-        let maxBucketSize = 64 * 1024 * 1024
-        XCTAssertEqual(token.buffer.length, maxBucketSize)
-        token.returnToPool()
+        do {
+            _ = try await bufferPool.getBuffer(size: hugeSize)
+            XCTFail("unrepresentable pool request must throw")
+        } catch let error as VectorError {
+            XCTAssertEqual(error.kind, .invalidData)
+            XCTAssertEqual(error.context.additionalInfo["requested_size"], String(hugeSize))
+            XCTAssertEqual(error.context.additionalInfo["maximum_size"], String(64 * 1024 * 1024))
+        }
     }
     
     func testEmptyDataArray() async throws {

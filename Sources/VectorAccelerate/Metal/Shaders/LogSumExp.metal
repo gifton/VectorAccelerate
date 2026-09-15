@@ -21,6 +21,19 @@
 #include <metal_stdlib>
 using namespace metal;
 
+// Use dynamic FLT_MAX comparisons for infinity branches under fast math (VA3-015).
+// FastMathPolicyTests exercises row/reduction/softmax behavior on both compile paths.
+
+// Integer classification survives fast-math assumptions about floating operands.
+// NaNReductionPolicyTests covers signs/payloads and both compilation paths.
+inline bool va_lse_is_nan(float value) {
+    return (as_type<uint>(value) & 0x7fffffffu) > 0x7f800000u;
+}
+
+inline bool va_lse_any_nan(float4 value) {
+    return any((as_type<uint4>(value) & 0x7fffffffu) > 0x7f800000u);
+}
+
 // MARK: - Row-wise LogSumExp
 
 /// Numerically stable log-sum-exp along rows.
@@ -42,22 +55,27 @@ kernel void logsumexp_row_kernel(
 ) {
     if (tid >= n) return;
 
-    device const float* row = input + tid * d;
+    device const float* row = input + (ulong)tid * d;
 
     // Step 1: Find maximum for numerical stability
-    float maxVal = row[0];
-    for (uint i = 1; i < d; i++) {
-        maxVal = max(maxVal, row[i]);
+    float maxVal = -INFINITY;
+    for (uint i = 0; i < d; i++) {
+        float value = row[i];
+        if (va_lse_is_nan(value)) {
+            output[tid] = NAN;
+            return;
+        }
+        maxVal = max(maxVal, value);
     }
 
     // Handle edge case: all -inf
-    if (maxVal == -INFINITY) {
+    if (maxVal < -FLT_MAX) {
         output[tid] = -INFINITY;
         return;
     }
 
     // Handle edge case: contains +inf
-    if (maxVal == INFINITY) {
+    if (maxVal > FLT_MAX) {
         output[tid] = INFINITY;
         return;
     }
@@ -89,21 +107,26 @@ kernel void logsumexp_row_vectorized_kernel(
 ) {
     if (tid >= n) return;
 
-    device const float4* row = input + tid * d4;
+    device const float4* row = input + (ulong)tid * d4;
 
     // Find maximum using float4
-    float4 maxVec = row[0];
-    for (uint i = 1; i < d4; i++) {
-        maxVec = max(maxVec, row[i]);
+    float4 maxVec = float4(-INFINITY);
+    for (uint i = 0; i < d4; i++) {
+        float4 value = row[i];
+        if (va_lse_any_nan(value)) {
+            output[tid] = NAN;
+            return;
+        }
+        maxVec = max(maxVec, value);
     }
     float maxVal = max(max(maxVec.x, maxVec.y), max(maxVec.z, maxVec.w));
 
     // Handle edge cases
-    if (maxVal == -INFINITY) {
+    if (maxVal < -FLT_MAX) {
         output[tid] = -INFINITY;
         return;
     }
-    if (maxVal == INFINITY) {
+    if (maxVal > FLT_MAX) {
         output[tid] = INFINITY;
         return;
     }
@@ -137,33 +160,47 @@ kernel void logsumexp_reduce_pass1_kernel(
     device float* partialSumExp         [[buffer(2)]],  // [numGroups]
     constant uint& count                [[buffer(3)]],
     constant uint& numThreadgroups      [[buffer(4)]],  // Total threadgroups
-    uint tid [[thread_position_in_grid]],
     uint tgid [[threadgroup_position_in_grid]],
     uint tsize [[threads_per_threadgroup]],
     uint lid [[thread_position_in_threadgroup]]
 ) {
-    // Shared memory for reduction (256 is typical threadgroup size)
     threadgroup float sharedMax[256];
     threadgroup float sharedSum[256];
+    threadgroup uint sharedNaN[256];
 
-    // Grid-stride loop: compute grid size manually
-    uint gridSize = tsize * numThreadgroups;
+    // Dispatch-robust for ANY threadgroup width (AUDIT-3 VA3-014): lanes clamp to the
+    // shared-array capacity, loads are lane-guarded, and the trees start at a fixed
+    // power-of-two stride with a ragged-tail guard. The pre-fix trees halved a raw
+    // `tsize/2` stride, whose `lid + s < tsize` guard prevented the out-of-bounds read
+    // but silently orphaned lanes on every odd halving — an under-count, not a crash.
+    // Under the host's fixed 256-wide dispatch the element coverage below is identical
+    // to the original grid-stride loop.
+    const uint lanes = min(tsize, 256u);
+    uint gridSize = lanes * numThreadgroups;
+    uint base = tgid * lanes + lid;
 
     // Load and find local max using grid-stride loop
     float localMax = -INFINITY;
-    uint idx = tid;
-    while (idx < count) {
-        localMax = max(localMax, input[idx]);
-        idx += gridSize;
+    uint localNaN = 0u;
+    if (lid < lanes) {
+        uint idx = base;
+        while (idx < count) {
+            float value = input[idx];
+            localNaN |= uint(va_lse_is_nan(value));
+            localMax = max(localMax, value);
+            idx += gridSize;
+        }
+        sharedMax[lid] = localMax;
+        sharedNaN[lid] = localNaN;
     }
-    sharedMax[lid] = localMax;
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     // Reduce max within threadgroup
-    for (uint s = tsize / 2; s > 0; s >>= 1) {
-        if (lid < s && lid + s < tsize) {
+    for (uint s = 128; s > 0; s >>= 1) {
+        if (lid < s && lid + s < lanes) {
             sharedMax[lid] = max(sharedMax[lid], sharedMax[lid + s]);
+            sharedNaN[lid] |= sharedNaN[lid + s];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
@@ -171,8 +208,17 @@ kernel void logsumexp_reduce_pass1_kernel(
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Handle edge case: all -inf
-    if (groupMax == -INFINITY) {
+    // Uniform decision after the reduction: NaN dominates either infinity.
+    if (sharedNaN[0] != 0u) {
+        if (lid == 0) {
+            partialMax[tgid] = NAN;
+            partialSumExp[tgid] = NAN;
+        }
+        return;
+    }
+
+    // Handle edge case: all -inf (uniform across the threadgroup — no divergent barriers)
+    if (groupMax < -FLT_MAX) {
         if (lid == 0) {
             partialMax[tgid] = -INFINITY;
             partialSumExp[tgid] = 0.0f;
@@ -180,24 +226,36 @@ kernel void logsumexp_reduce_pass1_kernel(
         return;
     }
 
+    // Symbolic +Inf partial. Avoid Inf-Inf manufacturing a NaN sum that pass2
+    // would correctly treat as poison. Its scale is immaterial when max is +Inf.
+    if (groupMax > FLT_MAX) {
+        if (lid == 0) {
+            partialMax[tgid] = INFINITY;
+            partialSumExp[tgid] = 1.0f;
+        }
+        return;
+    }
+
     // Compute sum of exp(x - groupMax) using grid-stride loop
     float localSum = 0.0f;
-    idx = tid;
-    while (idx < count) {
-        float val = input[idx];
-        // Only add finite values to sum
-        if (val > -INFINITY) {
-            localSum += exp(val - groupMax);
+    if (lid < lanes) {
+        uint idx = base;
+        while (idx < count) {
+            float val = input[idx];
+            // NaNs/+Inf handled above; exclude -Inf, retaining -FLT_MAX.
+            if (val >= -FLT_MAX) {
+                localSum += exp(val - groupMax);
+            }
+            idx += gridSize;
         }
-        idx += gridSize;
+        sharedSum[lid] = localSum;
     }
-    sharedSum[lid] = localSum;
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     // Reduce sum within threadgroup
-    for (uint s = tsize / 2; s > 0; s >>= 1) {
-        if (lid < s && lid + s < tsize) {
+    for (uint s = 128; s > 0; s >>= 1) {
+        if (lid < s && lid + s < lanes) {
             sharedSum[lid] += sharedSum[lid + s];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -226,21 +284,40 @@ kernel void logsumexp_reduce_pass2_kernel(
     device const float* partialSumExp   [[buffer(1)]],
     device float* output                [[buffer(2)]],
     constant uint& numGroups            [[buffer(3)]],
-    uint lid [[thread_position_in_threadgroup]]
+    uint lid [[thread_position_in_threadgroup]],
+    uint tsize [[threads_per_threadgroup]]
 ) {
     threadgroup float sharedMax[256];
     threadgroup float sharedSum[256];
+    threadgroup uint sharedNaN[256];
 
-    // Load partials (handle case where numGroups < threadgroup size)
-    float localMax = (lid < numGroups) ? partialMax[lid] : -INFINITY;
-    sharedMax[lid] = localMax;
+    // Dispatch-robust for ANY threadgroup width and ANY numGroups (AUDIT-3 VA3-014): the
+    // pre-fix trees ran a guardless fixed-128 stride over sharedMax[256], so dispatching
+    // fewer than 256 threads folded UNINITIALIZED threadgroup memory into the global max
+    // (observed: garbage max → every exp(partialMax − globalMax) underflows → output −inf),
+    // and partials beyond lane 255 were silently dropped. Loads now stride over the full
+    // partial range and the trees carry the ragged-tail guard.
+    const uint lanes = min(tsize, 256u);
+
+    // Find this lane's max over its strided slice of the partials
+    float localMax = -INFINITY;
+    uint localNaN = 0u;
+    if (lid < lanes) {
+        for (uint i = lid; i < numGroups; i += lanes) {
+            localNaN |= uint(va_lse_is_nan(partialMax[i]) || va_lse_is_nan(partialSumExp[i]));
+            localMax = max(localMax, partialMax[i]);
+        }
+        sharedMax[lid] = localMax;
+        sharedNaN[lid] = localNaN;
+    }
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     // Find global max
     for (uint s = 128; s > 0; s >>= 1) {
-        if (lid < s) {
+        if (lid < s && lid + s < lanes) {
             sharedMax[lid] = max(sharedMax[lid], sharedMax[lid + s]);
+            sharedNaN[lid] |= sharedNaN[lid + s];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
@@ -248,8 +325,13 @@ kernel void logsumexp_reduce_pass2_kernel(
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Handle edge case: all -inf
-    if (globalMax == -INFINITY) {
+    if (sharedNaN[0] != 0u) {
+        if (lid == 0) output[0] = NAN;
+        return;
+    }
+
+    // Handle edge case: all -inf (uniform — every thread takes the same branch)
+    if (globalMax < -FLT_MAX) {
         if (lid == 0) {
             output[0] = -INFINITY;
         }
@@ -257,7 +339,7 @@ kernel void logsumexp_reduce_pass2_kernel(
     }
 
     // Handle edge case: contains +inf
-    if (globalMax == INFINITY) {
+    if (globalMax > FLT_MAX) {
         if (lid == 0) {
             output[0] = INFINITY;
         }
@@ -270,16 +352,20 @@ kernel void logsumexp_reduce_pass2_kernel(
     //        = sum(exp(x - partialMax_i) * exp(partialMax_i - globalMax))
     //        = partialSum_i * exp(partialMax_i - globalMax)
     float localSum = 0.0f;
-    if (lid < numGroups && partialMax[lid] > -INFINITY) {
-        localSum = partialSumExp[lid] * exp(partialMax[lid] - globalMax);
+    if (lid < lanes) {
+        for (uint i = lid; i < numGroups; i += lanes) {
+            if (partialMax[i] >= -FLT_MAX) {
+                localSum += partialSumExp[i] * exp(partialMax[i] - globalMax);
+            }
+        }
+        sharedSum[lid] = localSum;
     }
-    sharedSum[lid] = localSum;
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     // Reduce sum
     for (uint s = 128; s > 0; s >>= 1) {
-        if (lid < s) {
+        if (lid < s && lid + s < lanes) {
             sharedSum[lid] += sharedSum[lid + s];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -316,7 +402,7 @@ kernel void softmax_row_kernel(
     uint col = tid.x;
     if (row >= n || col >= d) return;
 
-    device const float* rowPtr = input + row * d;
+    device const float* rowPtr = input + (ulong)row * d;
 
     // Compute logsumexp for this row
     float maxVal = rowPtr[0];
@@ -325,19 +411,19 @@ kernel void softmax_row_kernel(
     }
 
     // Handle edge case
-    if (maxVal == -INFINITY || maxVal == INFINITY) {
-        if (maxVal == INFINITY) {
+    if (maxVal < -FLT_MAX || maxVal > FLT_MAX) {
+        if (maxVal > FLT_MAX) {
             // One or more +Inf: the softmax limit is uniform over the argmax (Inf) set, so each
             // +Inf position gets 1/count and the rest get 0 — keeping the row summed to 1. (The
             // previous code assigned 1.0 to every +Inf, so a row with k infinities summed to k.)
             uint infCount = 0;
             for (uint i = 0; i < d; i++) {
-                if (rowPtr[i] == INFINITY) infCount++;
+                if (rowPtr[i] > FLT_MAX) infCount++;
             }
-            output[row * d + col] = (input[row * d + col] == INFINITY) ? (1.0f / float(infCount)) : 0.0f;
+            output[(ulong)row * d + col] = (input[(ulong)row * d + col] > FLT_MAX) ? (1.0f / float(infCount)) : 0.0f;
         } else {
             // All -inf would give 0/0 = NaN; define the row as all zeros.
-            output[row * d + col] = 0.0f;
+            output[(ulong)row * d + col] = 0.0f;
         }
         return;
     }
@@ -350,7 +436,7 @@ kernel void softmax_row_kernel(
     float lse = log(sumExp) + maxVal;
 
     // Output softmax: exp(x_i - logsumexp)
-    output[row * d + col] = exp(input[row * d + col] - lse);
+    output[(ulong)row * d + col] = exp(input[(ulong)row * d + col] - lse);
 }
 
 // MARK: - Softmax (Efficient Row-per-Thread Variant)
@@ -372,8 +458,8 @@ kernel void softmax_row_efficient_kernel(
 ) {
     if (tid >= n) return;
 
-    device const float* rowIn = input + tid * d;
-    device float* rowOut = output + tid * d;
+    device const float* rowIn = input + (ulong)tid * d;
+    device float* rowOut = output + (ulong)tid * d;
 
     // Find max
     float maxVal = rowIn[0];
@@ -382,20 +468,20 @@ kernel void softmax_row_efficient_kernel(
     }
 
     // Handle edge cases
-    if (maxVal == -INFINITY) {
+    if (maxVal < -FLT_MAX) {
         for (uint i = 0; i < d; i++) {
             rowOut[i] = 0.0f;
         }
         return;
     }
-    if (maxVal == INFINITY) {
+    if (maxVal > FLT_MAX) {
         // Uniform over the argmax (Inf) set so the row sums to 1 (previously each +Inf got 1.0).
         uint infCount = 0;
         for (uint i = 0; i < d; i++) {
-            if (rowIn[i] == INFINITY) infCount++;
+            if (rowIn[i] > FLT_MAX) infCount++;
         }
         for (uint i = 0; i < d; i++) {
-            rowOut[i] = (rowIn[i] == INFINITY) ? (1.0f / float(infCount)) : 0.0f;
+            rowOut[i] = (rowIn[i] > FLT_MAX) ? (1.0f / float(infCount)) : 0.0f;
         }
         return;
     }

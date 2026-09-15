@@ -278,6 +278,159 @@ final class BatchDistanceEngineTests: XCTestCase {
         XCTAssertTrue(results.isEmpty, "Empty candidates should return empty results")
     }
 
+    // MARK: - Phantom GPU branches (AUDIT-3 meta-review)
+
+    /// The dot-product GPU branch requested a kernel named "batchDotProduct" that has never
+    /// existed in any library. The branch arms at gpuThreshold (1000) candidates with no
+    /// decision engine, and — post the VA2-003 k-gate exemption — for large engine-gated
+    /// batches too, throwing shaderNotFound where callers previously got CPU results. The
+    /// operation must return correct values on every routing, GPU-requested or not.
+    func test_batchDotProduct_largeBatchAndExplicitGPU_matchesCPU() async throws {
+        var rng = TestRNG(seed: 0x3A32_0001)
+        let dim = 64
+        let query = (0..<dim).map { _ in rng.nextFloat(in: -1...1) }
+
+        // Threshold-routed default (1000 ≥ gpuThreshold) and the explicit-GPU small batch.
+        for (count, useGPU) in [(1000, nil), (8, true)] as [(Int, Bool?)] {
+            let candidates = (0..<count).map { _ in (0..<dim).map { _ in rng.nextFloat(in: -1...1) } }
+            let results = try await engine.batchDotProduct(
+                query: query, candidates: candidates, useGPU: useGPU)
+            XCTAssertEqual(results.count, count)
+            for i in stride(from: 0, to: count, by: max(1, count / 16)) {
+                XCTAssertEqual(results[i], cpuDotProduct(query, candidates[i]), accuracy: 1e-3,
+                               "count=\(count) useGPU=\(String(describing: useGPU)) idx=\(i)")
+            }
+        }
+    }
+
+    /// Same defect for Manhattan: "batchManhattanDistance" exists in no library.
+    func test_batchManhattanDistance_largeBatchAndExplicitGPU_matchesCPU() async throws {
+        var rng = TestRNG(seed: 0x3A32_0002)
+        let dim = 64
+        let query = (0..<dim).map { _ in rng.nextFloat(in: -1...1) }
+
+        for (count, useGPU) in [(1000, nil), (8, true)] as [(Int, Bool?)] {
+            let candidates = (0..<count).map { _ in (0..<dim).map { _ in rng.nextFloat(in: -1...1) } }
+            let results = try await engine.batchManhattanDistance(
+                query: query, candidates: candidates, useGPU: useGPU)
+            XCTAssertEqual(results.count, count)
+            for i in stride(from: 0, to: count, by: max(1, count / 16)) {
+                XCTAssertEqual(results[i], cpuManhattanDistance(query, candidates[i]), accuracy: 1e-3,
+                               "count=\(count) useGPU=\(String(describing: useGPU)) idx=\(i)")
+            }
+        }
+    }
+
+    /// `batchCosineSimilarity`'s below-simdThreshold CPU leg kept the pre-VA2-008 naive
+    /// formula (NaN swallowed to 0 via `queryNorm > 0`, product denominator overflowing to
+    /// Inf → similarity 0, no clamp) while the SIMD (≥ 100 candidates) and GPU legs run the
+    /// shared rescue — one public API, different answers across the batch-size-100 boundary.
+    /// Every CPU routing must agree with AccelerateFallback.
+    func test_batchCosineSimilarity_cpuLegsAgreeAcrossSimdBoundary() async throws {
+        var rng = TestRNG(seed: 0x3A32_0003)
+        let dim = 32
+
+        for (label, poison, scale) in
+            [("nanPoisoned", Float.nan, Float(1)), ("huge", nil, Float(1e19))] as [(String, Float?, Float)] {
+            for n in [99, 100] {
+                let query = (0..<dim).map { _ in rng.nextFloat(in: -1...1) * scale }
+                var candidates = (0..<n).map { _ in
+                    (0..<dim).map { _ in rng.nextFloat(in: -1...1) * scale }
+                }
+                if let p = poison { candidates[n / 2][dim / 2] = p }
+
+                let got = try await engine.batchCosineSimilarity(
+                    query: query, candidates: candidates, useGPU: false)
+                let expected = AccelerateFallback.batchCosineSimilarity(query: query, candidates: candidates)
+                XCTAssertEqual(got.count, n)
+                for i in 0..<n {
+                    let ok = (got[i].isNaN && expected[i].isNaN) || abs(got[i] - expected[i]) <= 1e-4
+                    XCTAssertTrue(ok, "\(label) n=\(n) idx=\(i): got=\(got[i]) expected=\(expected[i])")
+                }
+            }
+        }
+    }
+
+    // MARK: - Ragged Candidate Rejection
+
+    /// Audit finding (2026-08-21 /audit review of this file): the four batch entries
+    /// validated only `candidates[0]`, so a ragged candidate at any later index sailed
+    /// past the guard and each backend answered with a different policy. This test pins
+    /// the closure: every candidate must match the query dimension, and a violation
+    /// throws `dimensionMismatch` from the public entry before routing — so one
+    /// small-batch leg per operation covers every routing outcome.
+    ///
+    /// Pre-guard behaviors this replaces (observed red 2026-08-23, via a stderr
+    /// probe because the manhattan crash killed XCTest before its failure output
+    /// flushed): euclidean swallowed the ragged slot to +inf, cosine to NaN, dot
+    /// returned a zip-truncated partial product on the n < simdThreshold leg
+    /// ([7] = 118.0 = the query's first-31-element sum; the vDSP leg answers 0),
+    /// and manhattan's n < simdThreshold leg tripped VectorCore's debug-only
+    /// dimension assert — in release that leg walks the candidate buffer with the
+    /// query's count, an out-of-bounds read for shorter candidates.
+    func test_raggedCandidateRejectedUniformlyAcrossOperations() async throws {
+        let dim = 32
+        let query: [Float] = (0..<dim).map { Float($0 % 7) + 1 }
+        let base: [[Float]] = (0..<12).map { i in
+            (0..<dim).map { Float(($0 + i) % 5) + 1 }
+        }
+
+        func ragged(at index: Int, count: Int) -> [[Float]] {
+            var copy = base
+            copy[index] = [Float](repeating: 1, count: count)
+            return copy
+        }
+
+        func expectMismatch(_ label: String, _ body: () async throws -> [Float]) async {
+            do {
+                let values = try await body()
+                let raggedSlot = values.indices.contains(7) ? "\(values[7])" : "missing"
+                XCTFail("\(label): expected dimensionMismatch for ragged candidate, "
+                    + "got \(values.count) values; value at ragged index 7 = \(raggedSlot)")
+            } catch let error as VectorError where error.kind == .dimensionMismatch {
+                // Expected: one policy for the whole operation family.
+            } catch {
+                XCTFail("\(label): expected dimensionMismatch, got \(error)")
+            }
+        }
+
+        // Index 7 sits past the old candidates[0]-only guard. Sweep a shorter and a
+        // longer ragged candidate so the pinned predicate is !=, not <. Manhattan runs
+        // last: pre-guard, its small-batch leg died on VectorCore's debug assert, and
+        // the crash suppresses XCTest failure output — last place let the three
+        // value-returning defects execute (and be probed) before the process died.
+        for count in [dim - 1, dim + 3] {
+            let candidates = ragged(at: 7, count: count)
+            await expectMismatch("euclidean(raggedCount: \(count))") {
+                try await self.engine.batchEuclideanDistance(query: query, candidates: candidates)
+            }
+            await expectMismatch("cosine(raggedCount: \(count))") {
+                try await self.engine.batchCosineSimilarity(query: query, candidates: candidates)
+            }
+            await expectMismatch("dotProduct(raggedCount: \(count))") {
+                try await self.engine.batchDotProduct(query: query, candidates: candidates)
+            }
+            await expectMismatch("manhattan(raggedCount: \(count))") {
+                try await self.engine.batchManhattanDistance(query: query, candidates: candidates)
+            }
+        }
+
+        // Control: uniform candidates flow through the same entries untouched — the
+        // guard must reject ragged input without overfiring on valid input.
+        let controls: [(String, [Float])] = [
+            ("euclidean", try await engine.batchEuclideanDistance(query: query, candidates: base)),
+            ("cosine", try await engine.batchCosineSimilarity(query: query, candidates: base)),
+            ("dotProduct", try await engine.batchDotProduct(query: query, candidates: base)),
+            ("manhattan", try await engine.batchManhattanDistance(query: query, candidates: base)),
+        ]
+        for (label, values) in controls {
+            XCTAssertEqual(values.count, base.count, "\(label) control: wrong result count")
+            XCTAssertTrue(values.allSatisfy(\.isFinite),
+                "\(label) control: non-finite value in a uniform batch")
+        }
+    }
+
+
     // MARK: - K-Nearest Neighbors Tests
 
     /// KNN with Euclidean metric: verify correct k nearest are returned

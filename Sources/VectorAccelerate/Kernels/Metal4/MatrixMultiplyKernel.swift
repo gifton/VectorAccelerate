@@ -156,9 +156,9 @@ public final class MatrixMultiplyKernel: @unchecked Sendable, Metal4Kernel {
     // MARK: - Pipelines
 
     private let genericPipeline: any MTLComputePipelineState
-    private let pipeline512: (any MTLComputePipelineState)?
-    private let pipeline768: (any MTLComputePipelineState)?
-    private let pipeline1536: (any MTLComputePipelineState)?
+    // NOTE (VA3-021): the optional dimension-specialized pipelines (512/768/1536)
+    // were deleted — `tiledMatrixMultiply_{512,768,1536}` never existed in any
+    // .metal file, so selection always fell through to the generic kernel anyway.
 
     // MARK: - Initialization
 
@@ -177,40 +177,8 @@ public final class MatrixMultiplyKernel: @unchecked Sendable, Metal4Kernel {
         let device = context.device.rawDevice
         self.genericPipeline = try await device.makeComputePipelineState(function: genericFunc)
 
-        // Load dimension-specific pipelines (optional)
-        if let func512 = library.makeFunction(name: "tiledMatrixMultiply_512") {
-            self.pipeline512 = try await device.makeComputePipelineState(function: func512)
-        } else {
-            self.pipeline512 = nil
-        }
-
-        if let func768 = library.makeFunction(name: "tiledMatrixMultiply_768") {
-            self.pipeline768 = try await device.makeComputePipelineState(function: func768)
-        } else {
-            self.pipeline768 = nil
-        }
-
-        if let func1536 = library.makeFunction(name: "tiledMatrixMultiply_1536") {
-            self.pipeline1536 = try await device.makeComputePipelineState(function: func1536)
-        } else {
-            self.pipeline1536 = nil
-        }
     }
 
-    // MARK: - Pipeline Selection
-
-    private func selectPipeline(for K: Int) -> any MTLComputePipelineState {
-        switch K {
-        case 512 where pipeline512 != nil:
-            return pipeline512!
-        case 768 where pipeline768 != nil:
-            return pipeline768!
-        case 1536 where pipeline1536 != nil:
-            return pipeline1536!
-        default:
-            return genericPipeline
-        }
-    }
 
     // MARK: - Warm Up
 
@@ -229,7 +197,7 @@ public final class MatrixMultiplyKernel: @unchecked Sendable, Metal4Kernel {
         matrixC: any MTLBuffer,
         parameters: MatrixMultiplyParameters
     ) -> Metal4EncodingResult {
-        let pipeline = selectPipeline(for: Int(parameters.K))
+        let pipeline = genericPipeline
 
         encoder.setComputePipelineState(pipeline)
         encoder.label = "MatrixMultiply (\(parameters.M)×\(parameters.K)×\(parameters.N))"

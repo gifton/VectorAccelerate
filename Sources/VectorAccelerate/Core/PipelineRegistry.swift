@@ -42,7 +42,7 @@ public enum PipelineTier: String, Sendable, CaseIterable, Codable {
 /// let criticalKeys = registry.criticalKeys
 ///
 /// // Check tier for a specific key
-/// let tier = registry.tier(for: .l2Distance(dimension: 384))
+/// let tier = registry.tier(for: .l2Distance(dimension: 0))
 /// assert(tier == .critical)
 /// ```
 ///
@@ -51,8 +51,8 @@ public enum PipelineTier: String, Sendable, CaseIterable, Codable {
 /// ```swift
 /// let customRegistry = PipelineRegistry(entries: [
 ///     .critical: [
-///         .l2Distance(dimension: 512),
-///         .cosineSimilarity(dimension: 512),
+///         .l2Distance(dimension: 0),
+///         .dotProduct(dimension: 512),
 ///     ],
 ///     .occasional: [
 ///         .dotProduct(dimension: 0),
@@ -169,37 +169,32 @@ extension PipelineRegistry {
     public static let journalingApp = PipelineRegistry(entries: [
         .critical: [
             // Core embedding operations (384-dim MiniLM)
-            .l2Distance(dimension: 384),
-            .cosineSimilarity(dimension: 384),
+            .l2Distance(dimension: 0),
+            .dotProduct(dimension: 384),
             .topK(k: 0),  // Generic top-K
-            PipelineCacheKey(operation: "l2_normalize"),
+            PipelineCacheKey(operation: "l2_normalize_general_kernel"),
         ],
         .occasional: [
             // Higher dimension models (BERT 768, OpenAI 1536)
-            .l2Distance(dimension: 768),
-            .l2Distance(dimension: 1536),
-            .cosineSimilarity(dimension: 768),
-            .cosineSimilarity(dimension: 1536),
+            .dotProduct(dimension: 768),
+            .dotProduct(dimension: 1536),
             // Generic fallbacks
-            .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
-            // Alternative distance metrics
             .dotProduct(dimension: 0),
-            .dotProduct(dimension: 384),
+            .distance("cosineDistance", dimension: 0),
             // Statistics
-            PipelineCacheKey(operation: "compute_statistics"),
+            PipelineCacheKey(operation: "computeBasicStatistics"),
         ],
         .rare: [
             // Quantization
-            PipelineCacheKey(operation: "scalar_quantize_int8"),
-            PipelineCacheKey(operation: "scalar_quantize_int4"),
-            PipelineCacheKey(operation: "binary_quantize"),
+            PipelineCacheKey(operation: "quantize_int8_kernel"),
+            PipelineCacheKey(operation: "quantize_int4_kernel"),
+            PipelineCacheKey(operation: "binaryQuantize"),
             // Matrix operations
-            PipelineCacheKey(operation: "matrix_multiply"),
-            PipelineCacheKey(operation: "matrix_transpose"),
+            PipelineCacheKey(operation: "tiledMatrixMultiply"),
+            PipelineCacheKey(operation: "tiledTranspose"),
             // ML kernels
-            PipelineCacheKey(operation: "attention_similarity"),
-            PipelineCacheKey(operation: "neural_quantization"),
+            PipelineCacheKey(operation: "attention_similarity_kernel"),
+            PipelineCacheKey(operation: "neural_encode_kernel"),
             // Batch operations
             .batch("euclideanDistance", dimension: 0),
         ]
@@ -212,11 +207,11 @@ extension PipelineRegistry {
     public static let embeddingFocused = PipelineRegistry(entries: [
         .critical: PipelineCacheKey.embeddingModelKeys + [
             .topK(k: 0),
-            PipelineCacheKey(operation: "l2_normalize"),
+            PipelineCacheKey(operation: "l2_normalize_general_kernel"),
         ],
         .occasional: [
             .dotProduct(dimension: 0),
-            PipelineCacheKey(operation: "compute_statistics"),
+            PipelineCacheKey(operation: "computeBasicStatistics"),
         ],
         .rare: []
     ])

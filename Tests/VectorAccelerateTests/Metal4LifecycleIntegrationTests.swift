@@ -431,7 +431,7 @@ extension Metal4LifecycleIntegrationTests {
         // Start warmup with multiple keys
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
             .dotProduct(dimension: 0),
         ]
 
@@ -546,7 +546,7 @@ extension Metal4LifecycleIntegrationTests {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         // Start warmup
@@ -575,7 +575,7 @@ extension Metal4LifecycleIntegrationTests {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         await manager.beginWarmup(keys: keys)
@@ -601,7 +601,7 @@ extension Metal4LifecycleIntegrationTests {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         await manager.beginWarmup(keys: keys)
@@ -992,8 +992,9 @@ extension Metal4LifecycleIntegrationTests {
     func testPipelineRegistryTierLookup() {
         let registry = PipelineRegistry.journalingApp
 
-        // Critical keys
-        let l2Tier = registry.tier(for: .l2Distance(dimension: 384))
+        // Critical keys (journalingApp's critical tier holds the generic L2 key since the
+        // dimension-specialized L2 kernels were deleted in AUDIT-3 Group F)
+        let l2Tier = registry.tier(for: .l2Distance(dimension: 0))
         XCTAssertEqual(l2Tier, .critical)
 
         // Unknown key defaults to rare

@@ -29,7 +29,14 @@ public struct L2NormalizationParameters: Sendable {
     public let inputStride: UInt32
     /// Output stride between vectors
     public let outputStride: UInt32
-    /// Epsilon for numerical stability
+    /// Explicit degenerate threshold: vectors with `0 < ‖v‖₂ ≤ epsilon` are
+    /// emitted as the zero vector.
+    ///
+    /// This is **not** a numerical-stability knob. The kernel pre-scales by
+    /// `1 / max(maxAbs, FLT_MIN)` and only ever forms `1/‖v‖₂` after proving it
+    /// representable, so no value of `epsilon` — `0` included — can produce
+    /// `Inf`/`NaN`. It defaults to `0` (normalize whenever the reciprocal norm is
+    /// representable), which is what matches VectorCore's CPU behavior.
     public let epsilon: Float
     /// Whether to store norms
     public let storeNorms: UInt8
@@ -39,7 +46,7 @@ public struct L2NormalizationParameters: Sendable {
     public init(
         numVectors: Int,
         dimension: Int,
-        epsilon: Float = 1e-8,
+        epsilon: Float = 0,
         storeNorms: Bool = false,
         inputStride: Int? = nil,
         outputStride: Int? = nil
@@ -98,6 +105,43 @@ public struct Metal4L2NormalizationResult: Sendable {
 /// ```
 /// v_normalized = v / ||v||₂
 /// ```
+///
+/// ## Numerical Policy (CPU parity)
+///
+/// The norm is computed with the same Kahan pre-scaled two-pass algorithm as
+/// VectorCore's `NormalizeKernels` (BE3 §4.4): `maxAbs → den = max(maxAbs, FLT_MIN)
+/// → Σ (v·(1/den))² → ‖v‖ = den·√Σ`. Consequences:
+///
+/// - Vectors with huge components (`Σ v²` would overflow to `+∞`) normalize
+///   correctly instead of collapsing to the zero vector — including vectors whose
+///   `‖v‖₂` itself exceeds `.greatestFiniteMagnitude` (elements ≥ 1e38), because
+///   `1/‖v‖₂` is never formed: the output is `precise::divide(v · scale, ‖v‖ · scale)`.
+/// - Vectors with subnormal components (`Σ v²` would underflow to `0`) normalize
+///   correctly instead of collapsing to the zero vector.
+/// - `norms` (when `storeNorms` is set) is the true `‖v‖₂` over the normal range.
+///   It saturates to `+∞` where the norm genuinely exceeds
+///   `.greatestFiniteMagnitude` — the honest answer, where the pre-fix kernel
+///   reported a finite-looking `0` — and at the other end may read `0` for a
+///   subnormal `‖v‖₂` on a GPU that flushes denormals (see the `VA_NORM_MIN_SCALED`
+///   note in `Metal4Common.h`; those vectors are the pass-through class anyway).
+///   The normalized *output* is exact in both cases.
+/// - No finite input can produce `Inf`/`NaN` output, for any `epsilon` including `0`.
+///
+/// ## Degenerate Inputs
+///
+/// The input is copied through **unchanged** when it cannot be normalized: the true
+/// zero vector, vectors too small for `1/‖v‖₂` to be representable
+/// (`‖v‖₂ ≤ 2^-127`, i.e. a deeply subnormal largest component), and vectors
+/// containing a non-finite component (`±Inf`/`NaN`). This is a small-side
+/// criterion — `‖v‖₂` *above* `.greatestFiniteMagnitude` has no representable
+/// reciprocal either, yet those vectors normalize correctly because `1/‖v‖₂` is
+/// never formed. Matches `VectorCore.NormalizeKernels.normalizeUnchecked`
+/// (VectorCore's checked `normalized()` returns `.failure` for these; this kernel
+/// has no error channel, so it mirrors the unchecked form). For the zero vector,
+/// "unchanged" and "zeroed" coincide.
+///
+/// `epsilon` is a separate, caller-controlled policy: vectors with
+/// `0 < ‖v‖₂ ≤ epsilon` are emitted as zeros. It defaults to `0`.
 ///
 /// ## Dimension Optimizations
 ///
@@ -320,10 +364,14 @@ public final class L2NormalizationKernel: @unchecked Sendable, Metal4Kernel, Fus
     // MARK: - High-Level API
 
     /// Normalize vectors to unit length.
+    ///
+    /// - Parameter epsilon: Explicit degenerate threshold; vectors with
+    ///   `0 < ‖v‖₂ ≤ epsilon` are emitted as zeros. Defaults to `0` — see the type
+    ///   documentation for the (epsilon-independent) numerical guarantees.
     public func normalize(
         _ vectors: [[Float]],
         storeNorms: Bool = false,
-        epsilon: Float = 1e-8
+        epsilon: Float = 0
     ) async throws -> Metal4L2NormalizationResult {
         guard !vectors.isEmpty else {
             throw VectorError.invalidInput("Empty input vectors")
@@ -359,10 +407,12 @@ public final class L2NormalizationKernel: @unchecked Sendable, Metal4Kernel, Fus
     }
 
     /// Normalize using VectorProtocol types.
+    ///
+    /// - Parameter epsilon: See ``normalize(_:storeNorms:epsilon:)-[[Float]]``.
     public func normalize<V: VectorProtocol>(
         _ vectors: [V],
         storeNorms: Bool = false,
-        epsilon: Float = 1e-8
+        epsilon: Float = 0
     ) async throws -> Metal4L2NormalizationResult where V.Scalar == Float {
         guard !vectors.isEmpty else {
             throw VectorError.invalidInput("Empty input vectors")
@@ -376,9 +426,12 @@ public final class L2NormalizationKernel: @unchecked Sendable, Metal4Kernel, Fus
     }
 
     /// Normalize single vector.
+    ///
+    /// - Parameter epsilon: See ``normalize(_:storeNorms:epsilon:)-[[Float]]``.
+    /// - Returns: The normalized vector and its true `‖v‖₂`.
     public func normalizeSingle(
         _ vector: [Float],
-        epsilon: Float = 1e-8
+        epsilon: Float = 0
     ) async throws -> (normalized: [Float], norm: Float) {
         let result = try await normalize([vector], storeNorms: true, epsilon: epsilon)
         let normalized = result.asArrays().first ?? []

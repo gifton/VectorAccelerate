@@ -714,7 +714,9 @@ final class BoruvkaMSTKernelTests: XCTestCase {
 
         // GPU should be competitive at this size (may be faster or slower depending on hardware)
         // We just verify both produce correct results
-        XCTAssertGreaterThan(speedup, 0.1, "GPU should be within reasonable range of CPU for n=\(n)")
+        if PerfGate.strict {
+            XCTAssertGreaterThan(speedup, 0.1, "GPU should be within reasonable range of CPU for n=\(n)")
+        }
     }
 
     func testPerformanceComparison_500Points() async throws {
