@@ -2,6 +2,7 @@
 
 **Date:** 2026-09-14
 **Status:** Approved design (sections 1–4 approved by the owner in conversation on 2026-09-14); awaiting owner review of this written form before the implementation plan.
+**Search-quality addendum:** The owner approved the initial downstream-search measurement scope in §13. Numerical thresholds and characterization counts remain for subsequent owner review.
 **Program:** Observability, guardrails, and reproducible benchmarks for VectorAccelerate. Research brief: `docs/superpowers/research/2026-09-14-observability-harness-research.md` (decisions in §6a). Adapter seam: `docs/superpowers/specs/2026-09-14-harness-interface-contract.md` (this spec is the authority where the two overlap; the contract is updated to match on approval). Library wish list: `docs/superpowers/research/2026-09-14-metal-improvements-wishlist-for-harness.md`. First consumer: `docs/superpowers/specs/2026-09-14-ivf-benchmark-integration.md`.
 **Version impact:** VectorAccelerate **0.7.0** (breaking: removes the `Benchmarking/` public surface, the `VectorAccelerateBenchmarks` product, and `IndexAccelerationConfiguration.logDecisions`).
 
@@ -13,7 +14,7 @@
 
 **Milestone M0 (acceptance in §11).** `swift run -c release VectorAccelerateBench run --mode quick` on the M3 Max writes an artifact under `.bench/runs/`; `baseline capture` stores it; `compare` reports `ok` for an unchanged tree and `alert(slower)` for a deliberately slowed probe; every test in §10 is green in debug and release.
 
-**Non-goals (later sub-projects).** Encoder-level kernel timing and per-submission records (SP1, blocked on wish-list HW-01..03). Validation-layer script and CI job, determinism bound, soak mode, skip audit (SP2). Signposts and decision records (SP3). The benchmark matrix, crossover sweep, recall–QPS curves, README regeneration, the two IVF throughput placeholders, VA3-024 measurement (SP4). Automation, history, viewers (SP5). Adopting ordo-one/package-benchmark (deferred to SP3 by Q9).
+**Non-goals (later sub-projects).** Encoder-level kernel timing and per-submission records (SP1, blocked on wish-list HW-01..03). Validation-layer script and CI job, numerical-variation bounds and the initial downstream-search guardrails in §13, soak mode, skip audit (SP2). Signposts and decision records (SP3). The benchmark matrix, crossover sweep, recall–QPS curves, README regeneration, the two IVF throughput placeholders, VA3-024 measurement (SP4). Automation, history, viewers (SP5). Adopting ordo-one/package-benchmark (deferred to SP3 by Q9). A deterministic execution mode is outside this program's initial scope.
 
 ## 2. Decisions this spec inherits
 
@@ -22,7 +23,7 @@
 | Q1 | VectorAccelerate-only; the kit is generic by discipline so it can be lifted to VectorCore later. |
 | Q2 | Non-product targets inside this package: `VectorTestKit` (library), `VectorAccelerateBench` (executable). Triggers: first bench-only external dependency moves the harness to a `Benchmarks/` sub-package; VectorCore adopting the kit moves the kit out. No app. |
 | Q3 | M3 Max is the only trusted runner now; M4 Pro and M2 Pro are future environment keys. |
-| Q4 | Determinism: accept and bound (SP2). |
+| Q4 | Accept and bound numerical variation (SP2), initially through downstream search quality (§13). Retain existing atomic accumulation paths; no bitwise training guarantee or deterministic execution mode. Broader output-quality requirements are deferred. |
 | Q5 | Performance alerts are non-blocking; boundary `max(2.5%, 2 × baseline RSD)`; improvements alert. |
 | Q6 | README performance claims retired now. |
 | Q7 | Dead code deleted aggressively, with a mechanical orphan guard. |
@@ -88,6 +89,8 @@ Tiers, in order: both NaN → `.equal`; bitwise equal (covers ±0 and same-signe
 ### 4.6 `RecallPolicy` and `Recall`
 
 `public struct RecallPolicy: Codable, Sendable { public var k: Int; public var epsilon: Double }`. `Recall.atK(returned: [(id: Int, distance: Double)], groundTruth: [(id: Int, distance: Double)], policy:) -> Double`: a returned neighbor counts if its distance ≤ `(1 + epsilon) × groundTruth[k−1].distance`; result is count / k, clamped to [0, 1]. Ground truth must have at least `k` entries; fewer throws. Distances are compared as `Double`.
+
+This is the distance-threshold recall measure, reported separately from exact-ID recall in §13. The caller supplies independently recomputed distances for valid, eligible IDs, considers at most the first requested K results, and awards each ID credit at most once. Invalid or duplicate results also fail result-validity checks; clamping a recall value does not make them valid. For an eligible corpus smaller than requested K, the adapter passes `k = min(requestedK, eligibleCount)` and records both values. If that value is zero, recall is absent/not applicable, the helper is not called, and the expected result is empty. The helper's nonempty-ground-truth precondition remains intact.
 
 ### 4.7 `Stats`
 
@@ -206,9 +209,9 @@ Argument parsing is hand-written (no `swift-argument-parser`, per the Q2 depende
 Input: a run artifact and, per case, the approved (or `--against <n>`) baseline `CaseRecord` under the same `environmentKey`. Per case, in this order:
 
 1. `invalidArtifact` if either record fails `validate()`.
-2. `incomparable` if `identity != baseline.identity` or the environment keys differ or the baseline is missing.
-3. `correctnessFailed` if `correctness.status == "fail"`.
-4. `resourceFailed` if `resources.staticThreadgroupBytes > resources.maxThreadgroupBytes` (both present) or any note in `resources.notes` begins with `LIMIT_EXCEEDED:`.
+2. `correctnessFailed` if `correctness.status == "fail"`, regardless of whether a comparable baseline exists.
+3. `resourceFailed` if `resources.staticThreadgroupBytes > resources.maxThreadgroupBytes` (both present) or any note in `resources.notes` begins with `LIMIT_EXCEEDED:`, regardless of whether a comparable baseline exists.
+4. `incomparable` if `identity != baseline.identity` or the environment keys differ or the baseline is missing. Missing baselines are handled here, not treated as malformed records at step 1. Reports retain all observed correctness/resource failures and any comparison-unavailability reason even when a single primary status is selected.
 5. For each timing kind present in both: `delta = (new.median − base.median) / base.median`; `boundary = max(0.025, 2 × base.rsd)`; `alert(slower)` if `delta > boundary`, `alert(faster)` if `delta < −boundary`. A case with any alerting kind is reported as that alert; kinds are listed individually in the report with `delta`, `boundary`, and whether the boundary was widened beyond 2.5%.
 6. Otherwise `ok`.
 
@@ -271,12 +274,12 @@ The fingerprint runs `git`, `pmset`, `swift`, and `xcrun` as subprocesses with f
 | `Harness/OrphanPublicTypeTests` — regex-collects `public (struct|class|final class|enum|actor|protocol|typealias) Name` in `Sources/VectorAccelerate`; fails if `\bName\b` occurs nowhere in `Sources/` + `Tests/` outside the declaring file **and** `Name` is not in the in-test allowlist. The allowlist is seeded at implementation time with every currently-unreferenced intended-API type, each with a one-line justification; the test is a ratchet against new orphans. | Q7 class |
 | `Harness/SeededRNGGoldenTests`, `VectorGeneratorGoldenTests`, `ContentDigestGoldenTests` | stream and digest freeze |
 | `Harness/ComparatorTests` — the ten adversarial value classes from `DifferentialKernelVsCPUTests` (normal, zeros, duplicates, 1e19, 1e-20, subnormal, mixed scale, NaN, +Inf, −Inf) crossed pairwise; asserts tier outcomes; plus `ToleranceDerivationTests` for `forSum` | comparator contract |
-| `Harness/RecallTests` — epsilon form vs ID-set form on a constructed tie case | recall policy |
+| `Harness/RecallTests` — epsilon form vs ID-set form on a constructed tie case; duplicate IDs cannot inflate credit; only the first K results are considered; small/empty eligible-corpus handling at the adapter boundary | recall policy |
 | `Harness/StatsTests` — percentiles against hand-computed values; bootstrap CI reproducible for a fixed seed and contains the median | statistics |
 | `Harness/ArtifactSchemaTests` — encode/decode round-trip of a full synthetic artifact; `validate()` fails on each required field removed in turn; unknown `schemaVersion` rejected | schema |
 | `Harness/FingerprintTests` — kit fingerprint populates chip, cores, memory, OS build; environment key excludes hostname; key changes when `validationLayers` flips | fingerprint |
 | `Harness/RunStoreTests` — in a temporary directory: run write is create-only; capture appends `n+1` and leaves `approved` alone; `--approve` moves it; capture refuses dirty, non-quiet, and validation artifacts with the right error | store |
-| `Harness/CompareTests` — synthetic artifact pairs produce each status: `ok`, `alert(slower)`, `alert(faster)`, widened boundary when baseline RSD > 1.25%, `incomparable` (identity, key, missing), `correctnessFailed`, `resourceFailed`, `invalidArtifact`; exit-code mapping with and without `--strict-perf` | decision rule |
+| `Harness/CompareTests` — synthetic artifact pairs produce each status: `ok`, `alert(slower)`, `alert(faster)`, widened boundary when baseline RSD > 1.25%, `incomparable` (identity, key, missing), `correctnessFailed`, `resourceFailed`, `invalidArtifact`; correctness/resource failures still fail with missing or mismatched baselines; exit-code mapping with and without `--strict-perf` | decision rule |
 | `Harness/CaseIDTests` — grammar accepts the two M0 IDs and rejects seeds/uppercase/spaces | identity |
 | `Harness/RegistryTests` — duplicate ID detection | registry |
 | `IndexRecallTests` (ported) — flat recall exactly 1.0; IVF recall > 0.9 on a seeded clustered set | keeps existing coverage |
@@ -297,7 +300,68 @@ Run on the M3 Max, AC power, in this order, recording the commands and outputs i
 
 ## 12. Open items carried to later sub-projects
 
+- SP2 implements the initial search-quality acceptance outline in §13. Per-query summaries, retraining records and quality thresholds require shared-owner interface work; they are not additional M0 cases or a parallel family-owned framework.
 - Ground-truth artifact caching under `.bench/fixtures/` (SP4, when a real dataset arrives).
 - Warm-up window and CoV threshold retuned from SP1's variance-profiling run; the values here (8, 0.05, cap 50) are the initial contract and are recorded in every artifact.
 - `.bench/` history and a `bench-history` branch (SP5).
 - The interface contract's §10 is superseded by this section.
+
+## 13. SP2 acceptance outline — downstream search quality
+
+### 13.1 Outcome and scope
+
+**Owner-approved outcome:** search continues to return useful, valid neighbors, and training variation does not conceal a quality regression. Start with downstream retrieval quality for trained IVF and PQ search paths. Expand to other outputs iteratively.
+
+Retain the existing atomic accumulation paths. No deterministic execution mode or bitwise reproducible training guarantee is introduced. Prepared inputs, initial state, seeds and configuration are reproducible; computed training outputs may vary. Accepting this policy does not establish that the current variation is acceptable: SP2 must characterize it and verify agreed numerical and quality requirements.
+
+Clustering partition similarity, UMAP layout/neighborhood preservation, general training-convergence studies and a deterministic implementation are outside this initial scope. PQ score distortion is included only to explain downstream retrieval behavior. SP0 supplies the foundation; SP2 adds these guardrails on a bounded workload selection; SP4 expands the benchmark matrix and trade-off curves.
+
+### 13.2 Core quality measurements
+
+| Measurement | Record | Outcome protected |
+|---|---|---|
+| Exact-ID recall@K | Per-query fraction of exact reference neighbors recovered and mean across queries; use a documented reference tie order | Search continues to recover the reference neighbors |
+| Tie-aware / epsilon recall | Separate distance-threshold recall under the declared epsilon policy, using independent original-vector distances and distinct returned IDs | Equally good alternatives receive explicit credit without silently relaxing exact-ID recall |
+| Poor-query behavior | Minimum recall, a declared lower recall percentile, and fraction of queries below the agreed quality floor; identify the recall measure used | A good mean does not conceal consistently poor queries |
+| Result completeness | Requested K, eligible corpus size, expected available count, valid unique returned count, and underfilled-query rate | Returning fewer useful results cannot masquerade as an improvement |
+| Result validity | Counts and query IDs for invalid IDs, duplicate IDs, filter violations, malformed padding and ordering violations under the route's contract | Results satisfy the API contract |
+| Distance accuracy | Absolute/relative score error against an independent reference and nonfinite-class mismatches; exact or approximate score contract identified | Reported scores remain trustworthy under the operation's contract |
+| Filtered search quality | Recall and completeness against eligible ground truth, grouped by filter acceptance rate | Filtering does not silently destroy retrieval quality |
+| Variation across retraining | Distribution of recall and underfill metrics across training repeats with identical inputs, initialization and seeds | Execution variability remains within agreed downstream limits |
+| Quality regression | Changes in mean recall, poor-query behavior and completeness against the reference implementation on the same evaluation corpus | Implementation changes do not silently reduce quality |
+
+Preserve per-query observations and associate them with each training repetition before aggregating. Same-seed repeats measure execution variability; different-seed runs measure initialization sensitivity and are reported separately. Do not treat correlated queries from one trained index as independent retraining repetitions.
+
+### 13.3 Supporting measurements and provenance
+
+| Measurement | Required interpretation |
+|---|---|
+| Search latency | Median and upper-percentile end-to-end latency; single-query and batch calls reported separately |
+| Completed-query throughput | Completed queries divided by measured elapsed time, reported alongside quality; batch-average times are not independent query-latency samples |
+| Actual search work | Selected candidate counts, candidates tested where observable, nprobe, requested K and internal over-fetch K |
+| Resource use | Compiled threadgroup memory and available memory-use facts, checked against explicit limits; unavailable facts remain absent |
+
+Every evaluation identifies corpus/query digests, generator version, training and query seeds, initialization, metric, configuration, filter predicate/version, verified route and environment. Record the reference implementation and ground-truth/tie policy. Retain a digest or equivalent identifier for each prepared trained state so the evaluated state can be distinguished from its seeded input recipe.
+
+Fixed-trained-state search performance comparisons and retraining-quality experiments are separate. Strict search performance comparisons require identical prepared work. Retraining experiments deliberately evaluate potentially different trained states against a common corpus and protocol; their grouping must not bypass the existing `CaseIdentity` equality requirement for performance comparisons.
+
+### 13.4 Measurement and failure rules
+
+1. **Independent ground truth.** Compute reference neighbors over original vectors and the eligible corpus. Recompute returned IDs' distances independently before awarding distance-threshold recall credit. Approximate reported scores cannot establish their own retrieval correctness.
+2. **Credit and ties.** Only the first requested K results are considered; each valid eligible ID earns credit at most once. Report exact-ID and distance-threshold recall separately with their policies. Alternate equally distant neighbors may change exact-ID recall without changing distance-threshold recall; acceptance rules must account for this deliberately.
+3. **Small eligible corpora.** Use `effectiveK = min(requestedK, eligibleCount)` for recall and expected completeness, preserving requested K in the record. With no eligible neighbors, recall is absent/not applicable and an empty result is expected. A short return when more eligible neighbors exist remains visible as underfill; it is not removed from the denominator.
+4. **Approximate scores.** For PQ, distinguish arithmetic correctness of the specified approximate score from distortion relative to the original-vector distance. Report both where applicable; do not require an approximate score to equal the original-vector distance.
+5. **Missing data.** Unmeasured recall, error and resource facts stay absent with a reason. They never become perfect recall, zero error or zero use. Missing evidence required by an acceptance case prevents that case from satisfying acceptance.
+6. **Separate numerical and quality requirements.** `Tolerance.forSum` supports local arithmetic checks; it is not a bound on an entire training process or on search recall. Establish operation-specific limits rather than widening tolerance until tests pass.
+7. **Hard failures remain hard.** Invalid results, violated numerical contracts, exceeded resource limits and violations of approved search-quality requirements fail their acceptance run. Performance alerts remain non-blocking under Q5. Failure reporting does not depend on the presence of a comparable baseline (§5.6).
+8. **No hidden compensation.** Do not silently increase nprobe or over-fetch, change epsilon, discard poor queries, or change the evaluation corpus to restore quality. Such changes define explicitly identified configurations and comparisons.
+
+### 13.5 Characterization and acceptance work
+
+The measurement scope above is approved; numerical thresholds, lower-tail percentile, repetition counts and dataset sizes are not selected by this addendum. Establish them from owner-defined quality requirements, numerical reasoning and representative characterization, then obtain owner agreement before making them release gates. Observed current behavior alone is not the acceptance standard.
+
+Use the same held-out query corpus for matched evaluations. Include a bounded selection of balanced and uneven/empty-list fixtures, selection-boundary and larger K, and filters with both sufficient and insufficient eligible neighbors. Existing binary-grid IVF fixtures establish controlled correctness; broad search-quality claims need representative datasets. Keep nonfinite/adversarial correctness cases separate from ordinary quality and performance populations.
+
+Acceptance must demonstrate that the guardrails detect controlled regressions: missing neighbors, duplicate or ineligible IDs, incorrect scores, underfill, a subset of degraded queries, and violations of an agreed retraining-quality bound. Include correct tie cases and empty eligible corpora to demonstrate that valid behavior is not falsely rejected. The implementations of statistics, comparison and artifact storage remain owned by the shared harness.
+
+The shared owner must extend the SP2 reporting seam beyond SP0's single aggregate `Correctness.recall`: per-query quality, completeness, repetition identity and retraining summaries need structured representation. Their exact schema and migration are SP2 design work. Until that seam exists, family adapters may prepare fixtures, independent oracles and correctness checks within the existing contract, but must not create local statistics, schemas, timing loops or stores.
