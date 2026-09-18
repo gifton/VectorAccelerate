@@ -3,7 +3,7 @@
 **Date:** 2026-09-14
 **Audience:** the agent (or person) doing Metal hardening and improvements in `Sources/VectorAccelerate`.
 **Origin:** the research brief `docs/superpowers/research/2026-09-14-observability-harness-research.md` and the timing spike in `docs/superpowers/research/spikes/2026-09-14-mtl4-timestamps/`. Read Appendix D of the brief for the measured numbers behind HW-01 to HW-03.
-**Status of the harness program:** SP0 (foundation: schema, fingerprint, seeded kit, harness executable) is being designed now and needs nothing from this list. SP1 (kernel-level timing) is blocked on HW-01. SP2/SP3 (guardrails, observability) consume HW-05 onward.
+**Status (updated 2026-09-17):** the owner decided to drop the legacy Metal command path entirely. HW-01, HW-02, HW-03, HW-04, HW-05, and HW-09 are now delivered by `docs/superpowers/specs/2026-09-17-metal4-command-model-adoption-design.md` and should be implemented from that spec, not from the entries below (kept for the rationale). HW-06 to HW-08 and HW-10 to HW-16 remain standalone items for later sub-projects.
 
 ## Ground rules that apply to every item
 
