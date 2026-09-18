@@ -32,14 +32,14 @@ public struct GPUInfo: Codable, Sendable, Equatable {
 }
 
 public struct PowerInfo: Codable, Sendable, Equatable {
-    /// "ac" | "battery" | "unknown"
+    /// "ac" | "battery" | "unknown" (producer convention, not validated)
     public var source: String
     public var lowPowerMode: Bool
     public init(source: String, lowPowerMode: Bool) { self.source = source; self.lowPowerMode = lowPowerMode }
 }
 
 public struct ThermalInfo: Codable, Sendable, Equatable {
-    /// "nominal" | "fair" | "serious" | "critical" | "unknown"
+    /// "nominal" | "fair" | "serious" | "critical" | "unknown" (producer convention, not validated)
     public var start: String
     public var end: String
     public init(start: String, end: String) { self.start = start; self.end = end }
@@ -200,18 +200,42 @@ public struct BenchArtifact: Codable, Sendable, Equatable {
         self.schemaVersion = schemaVersion; self.package = package; self.metadata = metadata; self.cases = cases
     }
 
-    /// Structural validation beyond what `Codable` enforces (spec §4.8).
+    private enum CodingKeys: String, CodingKey { case schemaVersion, package, metadata, cases }
+
+    /// Decoding an unknown `schemaVersion` fails with a typed error before the payload is read (spec §4.8);
+    /// `encode(to:)` stays synthesized. Pinned by `ArtifactSchemaTests.testUnknownSchemaVersionRejectedAtDecode`.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let version = try container.decode(Int.self, forKey: .schemaVersion)
+        guard version == 1 else { throw ArtifactValidationError.unsupportedSchemaVersion(version) }
+        schemaVersion = version
+        package = try container.decode(String.self, forKey: .package)
+        metadata = try container.decode(Metadata.self, forKey: .metadata)
+        cases = try container.decode([CaseRecord].self, forKey: .cases)
+    }
+
+    /// Structural validation beyond what `Codable` enforces (spec §4.8). The version check is repeated here
+    /// because in-memory records can be mutated after decoding.
     public func validate() throws {
         guard schemaVersion == 1 else { throw ArtifactValidationError.unsupportedSchemaVersion(schemaVersion) }
         if metadata.environmentKey.isEmpty { throw ArtifactValidationError.missing("metadata.environmentKey") }
         if metadata.deviceModel.isEmpty { throw ArtifactValidationError.missing("metadata.deviceModel") }
+        var seen = Set<String>()
+        for c in cases {
+            guard seen.insert(c.id).inserted else { throw ArtifactValidationError.invalid("duplicate case id: \(c.id)") }
+            if c.id != c.identity.id { throw ArtifactValidationError.invalid("case \(c.id): identity.id differs (\(c.identity.id))") }
+        }
         for c in cases { try c.validate() }
     }
 }
 
 public extension CaseRecord {
-    /// Per-case structural checks; also used by `Compare` on baseline records.
+    /// Per-case structural checks; intended for reuse by the compare step on baseline records.
     func validate() throws {
+        // Non-measured cases may legitimately carry zero counts.
+        if status == .measured && (samples < 1 || iterations < 1 || unitCount < 1) {
+            throw ArtifactValidationError.invalid("case \(id): samples/iterations/unitCount must be >= 1 for measured cases")
+        }
         if warmupUsed.count != samples { throw ArtifactValidationError.invalid("case \(id): warmupUsed.count must equal samples") }
         if status == .measured && timing.wall == nil { throw ArtifactValidationError.missing("case \(id): timing.wall") }
         for kind in TimingKind.allCases {

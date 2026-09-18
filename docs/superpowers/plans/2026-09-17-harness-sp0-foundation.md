@@ -1338,12 +1338,54 @@ final class ArtifactSchemaTests: XCTestCase {
         var obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         var md = obj["metadata"] as! [String: Any]; md.removeValue(forKey: "environmentKey"); obj["metadata"] = md
         let stripped = try JSONSerialization.data(withJSONObject: obj)
-        XCTAssertThrowsError(try JSONDecoder().decode(BenchArtifact.self, from: stripped))
+        XCTAssertThrowsError(try JSONDecoder().decode(BenchArtifact.self, from: stripped)) { error in
+            guard let decodingError = error as? DecodingError, case .keyNotFound(let key, _) = decodingError else {
+                return XCTFail("expected DecodingError.keyNotFound, got \(error)")
+            }
+            XCTAssertEqual(key.stringValue, "environmentKey")
+        }
     }
 
     func testTimingSubscript() {
         let a = Self.sampleArtifact()
         XCTAssertNotNil(a.cases[0].timing[.wall]); XCTAssertNil(a.cases[0].timing[.encoder])
+    }
+
+    func testMeasuredRequiresPositiveCounts() {
+        var a = Self.sampleArtifact()
+        a.cases[0].samples = 0; a.cases[0].iterations = 0; a.cases[0].warmupUsed = []
+        a.cases[0].timing.wall = Series(raw: [], summary: Stats.summarize([], bootstrapSeed: 0), bias: nil)
+        XCTAssertThrowsError(try a.validate()) { XCTAssertEqual($0 as? ArtifactValidationError, .invalid("case probe.gpu_copy.bytes=8: samples/iterations/unitCount must be >= 1 for measured cases")) }
+    }
+
+    func testUnknownSchemaVersionRejectedAtDecode() throws {
+        var a = Self.sampleArtifact(); a.schemaVersion = 2
+        let data = try JSONEncoder().encode(a)
+        XCTAssertThrowsError(try JSONDecoder().decode(BenchArtifact.self, from: data)) { XCTAssertEqual($0 as? ArtifactValidationError, .unsupportedSchemaVersion(2)) }
+    }
+
+    func testCaseIdsMustBeUniqueAndMatchIdentity() {
+        var dup = Self.sampleArtifact(); dup.cases.append(dup.cases[0])
+        XCTAssertThrowsError(try dup.validate()) { XCTAssertEqual($0 as? ArtifactValidationError, .invalid("duplicate case id: probe.gpu_copy.bytes=8")) }
+        var mismatch = Self.sampleArtifact(); mismatch.cases[0].identity.id = "other"
+        XCTAssertThrowsError(try mismatch.validate()) { XCTAssertEqual($0 as? ArtifactValidationError, .invalid("case probe.gpu_copy.bytes=8: identity.id differs (other)")) }
+    }
+
+    func testEmptyRequiredMetadataFieldsRejected() {
+        var a = Self.sampleArtifact(); a.metadata.environmentKey = ""
+        XCTAssertThrowsError(try a.validate()) { XCTAssertEqual($0 as? ArtifactValidationError, .missing("metadata.environmentKey")) }
+        var b = Self.sampleArtifact(); b.metadata.deviceModel = ""
+        XCTAssertThrowsError(try b.validate()) { XCTAssertEqual($0 as? ArtifactValidationError, .missing("metadata.deviceModel")) }
+    }
+
+    func testUInt64FieldsRoundTripAtFullRange() throws {
+        var a = Self.sampleArtifact()
+        a.cases[0].identity.seed = 0x9E3779B97F4A7C15
+        a.metadata.runSeed = UInt64.max
+        let back = try JSONDecoder().decode(BenchArtifact.self, from: JSONEncoder().encode(a))
+        XCTAssertEqual(back, a)
+        XCTAssertEqual(back.cases[0].identity.seed, 0x9E3779B97F4A7C15)
+        XCTAssertEqual(back.metadata.runSeed, UInt64.max)
     }
 }
 ```
@@ -1390,14 +1432,14 @@ public struct GPUInfo: Codable, Sendable, Equatable {
 }
 
 public struct PowerInfo: Codable, Sendable, Equatable {
-    /// "ac" | "battery" | "unknown"
+    /// "ac" | "battery" | "unknown" (producer convention, not validated)
     public var source: String
     public var lowPowerMode: Bool
     public init(source: String, lowPowerMode: Bool) { self.source = source; self.lowPowerMode = lowPowerMode }
 }
 
 public struct ThermalInfo: Codable, Sendable, Equatable {
-    /// "nominal" | "fair" | "serious" | "critical" | "unknown"
+    /// "nominal" | "fair" | "serious" | "critical" | "unknown" (producer convention, not validated)
     public var start: String
     public var end: String
     public init(start: String, end: String) { self.start = start; self.end = end }
@@ -1558,18 +1600,42 @@ public struct BenchArtifact: Codable, Sendable, Equatable {
         self.schemaVersion = schemaVersion; self.package = package; self.metadata = metadata; self.cases = cases
     }
 
-    /// Structural validation beyond what `Codable` enforces (spec §4.8).
+    private enum CodingKeys: String, CodingKey { case schemaVersion, package, metadata, cases }
+
+    /// Decoding an unknown `schemaVersion` fails with a typed error before the payload is read (spec §4.8);
+    /// `encode(to:)` stays synthesized. Pinned by `ArtifactSchemaTests.testUnknownSchemaVersionRejectedAtDecode`.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let version = try container.decode(Int.self, forKey: .schemaVersion)
+        guard version == 1 else { throw ArtifactValidationError.unsupportedSchemaVersion(version) }
+        schemaVersion = version
+        package = try container.decode(String.self, forKey: .package)
+        metadata = try container.decode(Metadata.self, forKey: .metadata)
+        cases = try container.decode([CaseRecord].self, forKey: .cases)
+    }
+
+    /// Structural validation beyond what `Codable` enforces (spec §4.8). The version check is repeated here
+    /// because in-memory records can be mutated after decoding.
     public func validate() throws {
         guard schemaVersion == 1 else { throw ArtifactValidationError.unsupportedSchemaVersion(schemaVersion) }
         if metadata.environmentKey.isEmpty { throw ArtifactValidationError.missing("metadata.environmentKey") }
         if metadata.deviceModel.isEmpty { throw ArtifactValidationError.missing("metadata.deviceModel") }
+        var seen = Set<String>()
+        for c in cases {
+            guard seen.insert(c.id).inserted else { throw ArtifactValidationError.invalid("duplicate case id: \(c.id)") }
+            if c.id != c.identity.id { throw ArtifactValidationError.invalid("case \(c.id): identity.id differs (\(c.identity.id))") }
+        }
         for c in cases { try c.validate() }
     }
 }
 
 public extension CaseRecord {
-    /// Per-case structural checks; also used by `Compare` on baseline records.
+    /// Per-case structural checks; intended for reuse by the compare step on baseline records.
     func validate() throws {
+        // Non-measured cases may legitimately carry zero counts.
+        if status == .measured && (samples < 1 || iterations < 1 || unitCount < 1) {
+            throw ArtifactValidationError.invalid("case \(id): samples/iterations/unitCount must be >= 1 for measured cases")
+        }
         if warmupUsed.count != samples { throw ArtifactValidationError.invalid("case \(id): warmupUsed.count must equal samples") }
         if status == .measured && timing.wall == nil { throw ArtifactValidationError.missing("case \(id): timing.wall") }
         for kind in TimingKind.allCases {
@@ -1585,7 +1651,7 @@ public extension CaseRecord {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter ArtifactSchemaTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 9 tests, with 0 failures`
+Expected: `Executed 14 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
 
