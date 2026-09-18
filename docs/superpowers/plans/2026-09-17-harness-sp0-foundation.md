@@ -802,6 +802,9 @@ final class ComparatorTests: XCTestCase {
         XCTAssertEqual(Comparator.ulpDistance(1.0, 1.0.nextUp), 1)
         XCTAssertEqual(Comparator.ulpDistance(Float(1.0), Float(1.0).nextUp), 1)
         XCTAssertEqual(Comparator.ulpDistance(-1.0, 1.0) > 1_000_000, true)
+        // Extreme finite range: the true distance exceeds Int64.max, so a checked Int64 subtraction would trap.
+        XCTAssertEqual(Comparator.ulpDistance(-Double.greatestFiniteMagnitude, Double.greatestFiniteMagnitude), 18_437_736_874_454_810_622 as UInt64)
+        XCTAssertEqual(Comparator.ulpDistance(-Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude), 4_278_190_078 as UInt64)
         XCTAssertEqual(Comparator.compare(1.0, 1.0.nextUp, tolerance: Tolerance(ulps: 1)), .withinTolerance)
         XCTAssertEqual(Comparator.compare(1.0, 1.0.nextUp.nextUp, tolerance: Tolerance(ulps: 1)), .outOfTolerance(absError: 1.0.nextUp.nextUp - 1.0, relError: (1.0.nextUp.nextUp - 1.0) / 1.0.nextUp.nextUp))
     }
@@ -919,7 +922,9 @@ public enum Comparator {
             return i >= 0 ? i : Int64.min - i
         }
         let (x, y) = (ordered(a), ordered(b))
-        return x >= y ? UInt64(x - y) : UInt64(y - x)
+        // The true distance is < 2⁶⁴ but can exceed Int64.max (e.g. ±greatestFiniteMagnitude), so a checked
+        // `x - y` traps; wrapping subtraction plus UInt64(bitPattern:) recovers the exact value. Pinned by testULPTier.
+        return x >= y ? UInt64(bitPattern: x &- y) : UInt64(bitPattern: y &- x)
     }
 
     public static func ulpDistance(_ a: Float, _ b: Float) -> UInt64 {
@@ -935,7 +940,7 @@ public enum Comparator {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `swift test --filter ComparatorTests 2>&1 | tail -1`
+Run: `swift test --filter ComparatorTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
 Expected: `Executed 9 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
