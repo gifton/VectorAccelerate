@@ -32,7 +32,7 @@
 ## File Structure
 
 **Created — `Sources/VectorTestKit/` (library target, no product)**
-- `VectorTestKit.swift` — module marker: `public enum VectorTestKit { public static let schemaVersion = 1 }`.
+- `VectorTestKit.swift` — module marker: `public enum VectorTestKit { public static let schemaVersion = 1 }`. Deleted in Task 7 once real kit files exist.
 - `SeededRNG.swift` — moved from `Tests/VectorAccelerateTests/Utilities/TestRNG.swift`, type renamed; deprecated `TestRNG` typealias.
 - `VectorGenerator.swift` — moved from `Tests/VectorAccelerateTests/Utilities/TestDataGenerator.swift`, type renamed; `static let version = "1"`; deprecated `TestDataGenerator` typealias.
 - `ContentDigest.swift` — `DigestPart`, `ContentDigest.sha256(_:)`.
@@ -1104,6 +1104,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Files:**
 - Create: `Sources/VectorTestKit/Stats.swift`
 - Test: `Tests/VectorAccelerateTests/Harness/StatsTests.swift`
+- Delete: `Sources/VectorTestKit/VectorTestKit.swift` (Task 0 module marker; a type named after its module shadows the module for qualified lookup, and nothing references it)
 
 **Interfaces:**
 - Produces: `public struct Summary: Codable, Sendable, Equatable { median, p90, p99, min, max, mean, rsd: Double; ci95: [Double]; count: Int }`; `public enum Stats { static func percentile(sorted: [Double], p: Double) -> Double; static func summarize(_ values: [Double], bootstrapSeed: UInt64) -> Summary }`; `@inline(never) public func blackHole<T>(_ value: T)`.
