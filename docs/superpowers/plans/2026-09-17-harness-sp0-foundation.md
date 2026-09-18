@@ -501,7 +501,7 @@ public enum ContentDigest {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `swift test --filter "ContentDigestGoldenTests|KitImportLintTests" 2>&1 | tail -1`
+Run: `swift test --filter "ContentDigestGoldenTests|KitImportLintTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
 Expected: `Executed 4 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
@@ -618,7 +618,7 @@ grep -L "import VectorTestKit" $FILES   # expected: no output
 
 - [ ] **Step 5: Build and run the goldens plus the touched suites**
 
-Run: `swift test --filter "SeededRNGGoldenTests|DifferentialKernelVsCPUTests|RoutingProvenanceTests|KitImportLintTests" 2>&1 | tail -1`
+Run: `swift test --filter "SeededRNGGoldenTests|DifferentialKernelVsCPUTests|RoutingProvenanceTests|KitImportLintTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
 Expected: `0 failures` (test count = 18 goldens + the two suites' existing counts + 1).
 
 - [ ] **Step 6: Commit**
@@ -731,7 +731,7 @@ grep -rn "TestDataGenerator" Tests/VectorAccelerateTests | grep -v "typealias"  
 
 - [ ] **Step 5: Run**
 
-Run: `swift test --filter "VectorGeneratorGoldenTests|SeededRNGGoldenTests|IVFQualityAssessmentTests|OperationsDispatchTests|KitImportLintTests" 2>&1 | tail -1`
+Run: `swift test --filter "VectorGeneratorGoldenTests|SeededRNGGoldenTests|IVFQualityAssessmentTests|OperationsDispatchTests|KitImportLintTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
 Expected: `0 failures`.
 
 - [ ] **Step 6: Commit**
@@ -1063,6 +1063,8 @@ public enum RecallError: Error, Equatable {
 
 /// Distance-threshold recall@k (spec §4.6). The caller supplies independently recomputed distances for
 /// valid, eligible IDs and, for small corpora, passes `k = min(requestedK, eligibleCount)` (never 0).
+/// Precondition (unverified here): `groundTruth` is sorted ascending by distance — the k-th distance is
+/// read at index k−1. Callers that build ground truth from an exact oracle must sort before calling.
 public enum Recall {
     public static func atK(returned: [Neighbor], groundTruth: [Neighbor], policy: RecallPolicy) throws -> Double {
         guard policy.k >= 1 else { throw RecallError.invalidK }
@@ -1083,7 +1085,7 @@ public enum Recall {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `swift test --filter RecallTests 2>&1 | tail -1`
+Run: `swift test --filter RecallTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
 Expected: `Executed 7 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
@@ -1139,7 +1141,10 @@ final class StatsTests: XCTestCase {
     func testBootstrapIsReproducibleForSeed() {
         let v = (0..<50).map { Double($0 * 7 % 13) }
         XCTAssertEqual(Stats.summarize(v, bootstrapSeed: 42).ci95, Stats.summarize(v, bootstrapSeed: 42).ci95)
-        XCTAssertNotEqual(Stats.summarize(v, bootstrapSeed: 42).ci95, Stats.summarize(v, bootstrapSeed: 43).ci95)
+        // Interval bounds are discrete-ish, so two particular seeds can legitimately coincide; the seed must
+        // move the interval across a handful of seeds (seeds 0–7 yield ≥ 2 distinct intervals on this data).
+        let intervals = Set((0..<8).map { Stats.summarize(v, bootstrapSeed: UInt64($0)).ci95 })
+        XCTAssertGreaterThan(intervals.count, 1)
     }
 
     func testSingleAndEmptyInputs() {
@@ -1235,7 +1240,7 @@ public func blackHole<T>(_ value: T) {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `swift test --filter StatsTests 2>&1 | tail -1`
+Run: `swift test --filter StatsTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
 Expected: `Executed 5 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
@@ -1577,7 +1582,7 @@ public extension CaseRecord {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `swift test --filter ArtifactSchemaTests 2>&1 | tail -1`
+Run: `swift test --filter ArtifactSchemaTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
 Expected: `Executed 9 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
@@ -1749,7 +1754,7 @@ public struct WarmupPolicy: Sendable {
 
 - [ ] **Step 4: Run to verify they pass**
 
-Run: `swift test --filter "CaseIDTests|WarmupPolicyTests" 2>&1 | tail -1`
+Run: `swift test --filter "CaseIDTests|WarmupPolicyTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
 Expected: `Executed 8 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
@@ -2028,7 +2033,7 @@ public enum PreflightProbe {
 
 - [ ] **Step 5: Run to verify it passes**
 
-Run: `swift test --filter "FingerprintTests|KitImportLintTests" 2>&1 | tail -1`
+Run: `swift test --filter "FingerprintTests|KitImportLintTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
 Expected: `Executed 8 tests, with 0 failures`
 
 - [ ] **Step 6: Commit**
@@ -2216,7 +2221,7 @@ public struct RunStore: Sendable {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `swift test --filter RunStoreTests 2>&1 | tail -1`
+Run: `swift test --filter RunStoreTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
 Expected: `Executed 3 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
@@ -2446,7 +2451,7 @@ public enum Compare {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `swift test --filter CompareTests 2>&1 | tail -1`
+Run: `swift test --filter CompareTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
 Expected: `Executed 8 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
@@ -3375,7 +3380,7 @@ Seed the allowlist: run the test once, and for every name it reports decide whet
 ```bash
 swift test --filter OrphanPublicTypeTests 2>&1 | grep -A200 "Unreferenced public types" | head -80   # review this list
 # ... edit OrphanAllowlist.txt / delete genuine dead types ...
-swift test --filter OrphanPublicTypeTests 2>&1 | tail -1   # expected: 0 failures
+swift test --filter OrphanPublicTypeTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1   # expected: 0 failures
 ```
 
 - [ ] **Step 6: README and CHANGELOG**
@@ -3454,7 +3459,7 @@ MSG
 - [ ] **Step 1: Run the acceptance sequence (spec §11) on the M3 Max, AC power, idle desktop; paste every command and its tail output into the evidence file**
 
 ```bash
-swift test 2>&1 | tail -1;  swift test -c release 2>&1 | tail -1                                   # 1. counts
+swift test 2>&1 | grep -E "Executed [0-9]+ test" | tail -1;  swift test -c release 2>&1 | grep -E "Executed [0-9]+ test" | tail -1                                   # 1. counts
 swift run -c release VectorAccelerateBench run --mode quick 2>&1 | tail -4                          # 2. artifact, quiet: true
 A=$(ls -t .bench/runs/*/*.json | head -1); swift run -q -c release VectorAccelerateBench validate-artifact "$A"
 swift run -q -c release VectorAccelerateBench baseline capture --from "$A" --approve                # 3. (fails with refusedDirty if tree is dirty → commit first or add --allow-dirty and say so)
