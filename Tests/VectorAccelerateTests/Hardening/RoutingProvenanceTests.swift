@@ -15,6 +15,7 @@ import XCTest
 @preconcurrency import Metal
 import VectorCore
 @testable import VectorAccelerate
+import VectorTestKit
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 final class RoutingProvenanceTests: XCTestCase {
@@ -23,7 +24,7 @@ final class RoutingProvenanceTests: XCTestCase {
     }
 
     private func makeVectors(_ n: Int, _ dim: Int, seed: UInt64 = 42) -> [DynamicVector] {
-        var rng = TestRNG(seed: seed)
+        var rng = SeededRNG(seed: seed)
         return (0..<n).map { _ in DynamicVector((0..<dim).map { _ in rng.nextFloat(in: -1...1) }) }
     }
 
@@ -94,7 +95,7 @@ final class RoutingProvenanceTests: XCTestCase {
     func testSoAPathAlwaysGPU() async throws {
         let context = try await Metal4Context()
         let provider = try await MetalComputeProvider(context: context)
-        var rng = TestRNG(seed: 7)
+        var rng = SeededRNG(seed: 7)
         let candidates = try (0..<64).map { _ in
             try Vector512Optimized((0..<512).map { _ in rng.nextFloat(in: -1...1) })
         }

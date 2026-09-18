@@ -1,4 +1,5 @@
 import Foundation
+import VectorTestKit
 
 /// CPU-owned input for future IVF adapters; no buffers, timing, or run schema.
 struct IVFBenchmarkFixture: Sendable {
@@ -50,7 +51,7 @@ enum IVFBenchmarkFixtures {
         var centersGenerator = TestDataGenerator(seed: seed, stream: stream)
         var vectorsGenerator = TestDataGenerator(seed: seed, stream: stream &+ 1)
         var queriesGenerator = TestDataGenerator(seed: seed, stream: stream &+ 2)
-        var idGenerator = TestRNG(seed: seed, stream: stream &+ 3)
+        var idGenerator = SeededRNG(seed: seed, stream: stream &+ 3)
         let centers = grid(centersGenerator.uniformVectors(count: listSizes.count, dimension: dimension))
         let noise = grid(vectorsGenerator.uniformVectors(count: count, dimension: dimension, range: -0.25...0.25))
         var vectors: [[Float]] = []

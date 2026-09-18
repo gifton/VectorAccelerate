@@ -11,6 +11,7 @@ import XCTest
 @testable import VectorAccelerate
 @preconcurrency import Metal
 import VectorCore
+import VectorTestKit
 
 final class BatchDistanceEngineTests: XCTestCase {
 
@@ -286,7 +287,7 @@ final class BatchDistanceEngineTests: XCTestCase {
     /// batches too, throwing shaderNotFound where callers previously got CPU results. The
     /// operation must return correct values on every routing, GPU-requested or not.
     func test_batchDotProduct_largeBatchAndExplicitGPU_matchesCPU() async throws {
-        var rng = TestRNG(seed: 0x3A32_0001)
+        var rng = SeededRNG(seed: 0x3A32_0001)
         let dim = 64
         let query = (0..<dim).map { _ in rng.nextFloat(in: -1...1) }
 
@@ -305,7 +306,7 @@ final class BatchDistanceEngineTests: XCTestCase {
 
     /// Same defect for Manhattan: "batchManhattanDistance" exists in no library.
     func test_batchManhattanDistance_largeBatchAndExplicitGPU_matchesCPU() async throws {
-        var rng = TestRNG(seed: 0x3A32_0002)
+        var rng = SeededRNG(seed: 0x3A32_0002)
         let dim = 64
         let query = (0..<dim).map { _ in rng.nextFloat(in: -1...1) }
 
@@ -327,7 +328,7 @@ final class BatchDistanceEngineTests: XCTestCase {
     /// shared rescue — one public API, different answers across the batch-size-100 boundary.
     /// Every CPU routing must agree with AccelerateFallback.
     func test_batchCosineSimilarity_cpuLegsAgreeAcrossSimdBoundary() async throws {
-        var rng = TestRNG(seed: 0x3A32_0003)
+        var rng = SeededRNG(seed: 0x3A32_0003)
         let dim = 32
 
         for (label, poison, scale) in

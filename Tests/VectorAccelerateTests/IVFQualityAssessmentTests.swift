@@ -11,6 +11,7 @@
 import XCTest
 import VectorCore
 @testable import VectorAccelerate
+import VectorTestKit
 
 final class IVFQualityAssessmentTests: XCTestCase {
 

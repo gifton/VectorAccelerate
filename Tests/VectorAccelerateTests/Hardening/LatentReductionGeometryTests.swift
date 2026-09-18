@@ -32,6 +32,7 @@
 import XCTest
 @preconcurrency import Metal
 @testable import VectorAccelerate
+import VectorTestKit
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 final class LatentReductionGeometryTests: XCTestCase {
@@ -76,7 +77,7 @@ final class LatentReductionGeometryTests: XCTestCase {
 
     func testManhattanChebyshevKernelsAcrossGeometries() async throws {
         let context = try await Metal4Context()
-        var rng = TestRNG(seed: 0x3A13_0001)
+        var rng = SeededRNG(seed: 0x3A13_0001)
         var failures: [String] = []
 
         // dim=1000 with tg=100: the hardcoded 256 stride leaves every element with
@@ -144,7 +145,7 @@ final class LatentReductionGeometryTests: XCTestCase {
     func testEngineManhattanChebyshevParityAcrossDimensions() async throws {
         let context = try await Metal4Context()
         let engine = try await Metal4ComputeEngine(context: context)   // decisionEngine: nil
-        var rng = TestRNG(seed: 0x3A13_0002)
+        var rng = SeededRNG(seed: 0x3A13_0002)
         var failures: [String] = []
 
         // GPU-routed for dimension > 64 (nil decision engine, fallbackThreshold 64).
@@ -260,7 +261,7 @@ final class LatentReductionGeometryTests: XCTestCase {
         // exactly as pass 2 does and compare against a Double reference: any element missed
         // or double-counted by the cross-group partition shows up here.
         let bigCount = 1000
-        var bigRng = TestRNG(seed: 0x3A14_0002)
+        var bigRng = SeededRNG(seed: 0x3A14_0002)
         let bigInput = (0..<bigCount).map { _ in bigRng.nextFloat(in: -8...8) }
         var bigRef: Double = 0
         let bigTrueMax = bigInput.max()!

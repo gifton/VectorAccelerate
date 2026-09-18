@@ -21,6 +21,7 @@
 //
 
 import Foundation
+import VectorTestKit
 
 /// Comprehensive test data generator for vector index testing.
 ///
@@ -28,7 +29,7 @@ import Foundation
 /// for reproducible test results.
 public struct TestDataGenerator {
     /// Internal RNG
-    var rng: TestRNG
+    var rng: SeededRNG
 
     /// Track data generation for diagnostics
     public private(set) var generatedCount: Int = 0
@@ -41,7 +42,7 @@ public struct TestDataGenerator {
     ///   - seed: Random seed for reproducibility
     ///   - stream: Stream ID for parallel generation (default: 0)
     public init(seed: UInt64, stream: UInt64 = 0) {
-        self.rng = TestRNG(seed: seed, stream: stream)
+        self.rng = SeededRNG(seed: seed, stream: stream)
     }
 
     // MARK: - Uniform Random Vectors
@@ -426,7 +427,7 @@ public struct TestDataGenerator {
     // MARK: - Utility Methods
 
     /// Get a copy of the internal RNG for external use.
-    public var randomGenerator: TestRNG {
+    public var randomGenerator: SeededRNG {
         rng
     }
 

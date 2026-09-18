@@ -22,6 +22,7 @@ import XCTest
 @testable import VectorAccelerate
 @preconcurrency import Metal
 import VectorCore
+import VectorTestKit
 
 // MARK: - Helper Functions
 
@@ -164,7 +165,7 @@ final class LogSumExpKernelTests: XCTestCase {
     /// gridSize would double-count most of the array on this live path and stay green.
     /// These counts force 2-group, 4-group, and 256-group-capped topologies.
     func testReduceLargeCountsMatchCPU() async throws {
-        var rng = TestRNG(seed: 0x3A14_0003)
+        var rng = SeededRNG(seed: 0x3A14_0003)
         for count in [257, 1000, 100_000] {
             let input = (0..<count).map { _ in rng.nextFloat(in: -12...12) }
 

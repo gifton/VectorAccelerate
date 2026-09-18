@@ -15,6 +15,7 @@ import XCTest
 @testable import VectorAccelerate
 import VectorCore
 @preconcurrency import Metal
+import VectorTestKit
 
 // MARK: - Spy BatchKernelProvider
 
@@ -94,7 +95,7 @@ final class OperationsDispatchTests: XCTestCase {
     // MetalComputeProviderTests.swift's pattern — ascending order, k smallest, per-pair
     // distance consistency, ~1e-3 relative tolerance)
 
-    /// Deterministic dataset via `TestRNG` (through `TestDataGenerator`) — no `Date`, no
+    /// Deterministic dataset via `SeededRNG` (through `TestDataGenerator`) — no `Date`, no
     /// unseeded `Random`.
     private func makeVectors(count: Int, dim: Int, seed: UInt64) -> (query: DynamicVector, candidates: [DynamicVector]) {
         var gen = TestDataGenerator(seed: seed)

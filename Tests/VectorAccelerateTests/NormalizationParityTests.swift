@@ -34,6 +34,7 @@ import XCTest
 @testable import VectorAccelerate
 @preconcurrency import Metal
 import VectorCore
+import VectorTestKit
 
 final class NormalizationParityTests: XCTestCase {
 
@@ -57,7 +58,7 @@ final class NormalizationParityTests: XCTestCase {
     /// Ordinary values with one non-finite component planted at `index`.
     private static func infixed(_ dimension: Int, at index: Int, value: Float) -> [Float] {
         var v = [Float](repeating: 0, count: dimension)
-        var rng = TestRNG(seed: 0x11F0000)
+        var rng = SeededRNG(seed: 0x11F0000)
         for i in 0..<dimension { v[i] = rng.nextFloat(in: -1...1) }
         v[index] = value
         return v
@@ -71,7 +72,7 @@ final class NormalizationParityTests: XCTestCase {
         var mixed = [Float](repeating: subnormal, count: dimension)
         for i in stride(from: 0, to: dimension, by: Swift.max(1, dimension / 8)) { mixed[i] = 1.0 }
 
-        var rng = TestRNG(seed: 0xBE30044)
+        var rng = SeededRNG(seed: 0xBE30044)
         var random = [Float](repeating: 0, count: dimension)
         for i in 0..<dimension { random[i] = rng.nextFloat(in: -1...1) }
 
@@ -363,7 +364,7 @@ final class NormalizationParityTests: XCTestCase {
         let engine = try await Metal4ComputeEngine(context: context, configuration: .default)
 
         for dimension in [3, 5, 17, 100, 257, 768] {
-            var rng = TestRNG(seed: UInt64(dimension) &+ 7)
+            var rng = SeededRNG(seed: UInt64(dimension) &+ 7)
             let input = (0..<dimension).map { _ in rng.nextFloat(in: -1...1) }
 
             let gpu = try await engine.normalize(input)

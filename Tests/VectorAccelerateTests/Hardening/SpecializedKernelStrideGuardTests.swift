@@ -13,6 +13,7 @@
 import XCTest
 @preconcurrency import Metal
 @testable import VectorAccelerate
+import VectorTestKit
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOSApplicationExtension 3.0, *)
 final class SpecializedKernelStrideGuardTests: XCTestCase {
@@ -34,7 +35,7 @@ final class SpecializedKernelStrideGuardTests: XCTestCase {
         let numQueries = 2        // > 1 so the GEMV path is not taken
         let numDatabase = 3
 
-        var rng = TestRNG(seed: 0xA3_0010)
+        var rng = SeededRNG(seed: 0xA3_0010)
         // Padded rows: payload in [0, 384), poison in the padding so a dense-stride read
         // is guaranteed to change the answer.
         func paddedRows(_ count: Int) -> [Float] {
@@ -100,7 +101,7 @@ final class SpecializedKernelStrideGuardTests: XCTestCase {
         let padded = 400
         let numQueries = 2
         let numDatabase = 3
-        var rng = TestRNG(seed: 0xA3_0011)
+        var rng = SeededRNG(seed: 0xA3_0011)
 
         func rows(_ count: Int, stride: Int) -> [Float] {
             var flat = [Float](repeating: 0, count: count * stride)

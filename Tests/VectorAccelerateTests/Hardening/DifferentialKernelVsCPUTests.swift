@@ -21,6 +21,7 @@ import XCTest
 @preconcurrency import Metal
 import VectorCore
 @testable import VectorAccelerate
+import VectorTestKit
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 final class DifferentialKernelVsCPUTests: XCTestCase {
@@ -44,7 +45,7 @@ final class DifferentialKernelVsCPUTests: XCTestCase {
         case negInfPoisoned
     }
 
-    static func makeMatrix(_ cls: ValueClass, n: Int, dim: Int, rng: inout TestRNG) -> [[Float]] {
+    static func makeMatrix(_ cls: ValueClass, n: Int, dim: Int, rng: inout SeededRNG) -> [[Float]] {
         func randRow() -> [Float] { (0..<dim).map { _ in rng.nextFloat(in: -1...1) } }
         switch cls {
         case .normal:     return (0..<n).map { _ in randRow() }
@@ -71,7 +72,7 @@ final class DifferentialKernelVsCPUTests: XCTestCase {
 
     /// Query row for a class: same distribution as the candidates, except classes that would
     /// make the comparison degenerate (all-zero query against all-zero candidates).
-    static func makeQuery(_ cls: ValueClass, dim: Int, rng: inout TestRNG) -> [Float] {
+    static func makeQuery(_ cls: ValueClass, dim: Int, rng: inout SeededRNG) -> [Float] {
         let effective: ValueClass = (cls == .zeros || cls == .duplicates) ? .normal : cls
         var row = makeMatrix(effective, n: 1, dim: dim, rng: &rng)[0]
         // Poison classes: the poison lives in the candidates; keep the query finite.
@@ -117,7 +118,7 @@ final class DifferentialKernelVsCPUTests: XCTestCase {
     func testL2BatchGPUMatchesCPUFallback() async throws {
         let context = try await Metal4Context()
         let gpu = try await L2KernelDistanceProvider(context: context)
-        var rng = TestRNG(seed: 0xD1FF_0001)
+        var rng = SeededRNG(seed: 0xD1FF_0001)
         var failures: [String] = []
 
         for dim in Self.batchDims {
@@ -145,7 +146,7 @@ final class DifferentialKernelVsCPUTests: XCTestCase {
     func testCosineBatchGPUMatchesCPUFallback() async throws {
         let context = try await Metal4Context()
         let gpu = try await CosineKernelDistanceProvider(context: context)
-        var rng = TestRNG(seed: 0xD1FF_0002)
+        var rng = SeededRNG(seed: 0xD1FF_0002)
         var failures: [String] = []
 
         for dim in Self.batchDims {
@@ -177,7 +178,7 @@ final class DifferentialKernelVsCPUTests: XCTestCase {
     func testBatchCosineSimilarityOperationsGPUMatchesCPU() async throws {
         let context = try await Metal4Context()
         let ops = try await BatchDistanceEngine(context: context)
-        var rng = TestRNG(seed: 0xD1FF_0006)
+        var rng = SeededRNG(seed: 0xD1FF_0006)
         var failures: [String] = []
 
         for dim in Self.batchDims {
@@ -210,7 +211,7 @@ final class DifferentialKernelVsCPUTests: XCTestCase {
     func testFusedTopKMatchesCPUSelectionAndIsDeterministic() async throws {
         let context = try await Metal4Context()
         let engine = try await Metal4ComputeEngine(context: context, decisionEngine: GPUDecisionEngine())
-        var rng = TestRNG(seed: 0xD1FF_0003)
+        var rng = SeededRNG(seed: 0xD1FF_0003)
         var failures: [String] = []
 
         for (n, dim) in [(33, 16), (257, 16), (1000, 768), (5000, 64)] {
@@ -267,7 +268,7 @@ final class DifferentialKernelVsCPUTests: XCTestCase {
     func testSoAScoringMatchesCPUWithProvenance() async throws {
         let context = try await Metal4Context()
         let provider = try await MetalComputeProvider(context: context)
-        var rng = TestRNG(seed: 0xD1FF_0004)
+        var rng = SeededRNG(seed: 0xD1FF_0004)
         var failures: [String] = []
         var soaCalls = 0
         await provider.resetRoutingTelemetry()

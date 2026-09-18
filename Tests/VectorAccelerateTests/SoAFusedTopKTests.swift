@@ -41,6 +41,7 @@ import XCTest
 @preconcurrency import Metal
 import VectorCore
 @testable import VectorAccelerate
+import VectorTestKit
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 final class SoAFusedTopKTests: XCTestCase {
@@ -115,7 +116,7 @@ final class SoAFusedTopKTests: XCTestCase {
         _ type: V.Type, dim: Int, count: Int, seed: UInt64,
         file: StaticString = #filePath, line: UInt = #line
     ) async throws where V.Scalar == Float {
-        var rng = TestRNG(seed: seed)
+        var rng = SeededRNG(seed: seed)
         let candArrays = (0..<count).map { _ in (0..<dim).map { _ in rng.nextFloat(in: -1...1) } }
         let candidates = try candArrays.map { try V($0) }
         let set = try SoACandidateSet(candidates: candidates, device: context.device)
@@ -159,7 +160,7 @@ final class SoAFusedTopKTests: XCTestCase {
 
     func testK129UsesPointerSelectFallbackParity() async throws {
         let dim = 512, count = 300
-        var rng = TestRNG(seed: 0xF411_BACC)
+        var rng = SeededRNG(seed: 0xF411_BACC)
         let candArrays = (0..<count).map { _ in (0..<dim).map { _ in rng.nextFloat(in: -1...1) } }
         let candidates = try candArrays.map { try Vector512Optimized($0) }
         let set = try SoACandidateSet(candidates: candidates, device: context.device)
@@ -180,14 +181,14 @@ final class SoAFusedTopKTests: XCTestCase {
 
     func testBuildOnceQueryManyFusedPath() async throws {
         let dim = 768, count = 200
-        var rng = TestRNG(seed: 0xB0DE_0001)
+        var rng = SeededRNG(seed: 0xB0DE_0001)
         let candArrays = (0..<count).map { _ in (0..<dim).map { _ in rng.nextFloat(in: -1...1) } }
         let candidates = try candArrays.map { try Vector768Optimized($0) }
         let set = try SoACandidateSet(candidates: candidates, device: context.device)
         let bufferPtr = set.buffer.contents()   // the aliased SoA allocation
 
         for qSeed: UInt64 in [0xA1, 0xB2] {
-            var qrng = TestRNG(seed: qSeed)
+            var qrng = SeededRNG(seed: qSeed)
             let qArray = (0..<dim).map { _ in qrng.nextFloat(in: -1...1) }
             let query = try Vector768Optimized(qArray)
 

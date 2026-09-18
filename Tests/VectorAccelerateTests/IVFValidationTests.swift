@@ -12,6 +12,7 @@
 import XCTest
 @preconcurrency import Metal
 @testable import VectorAccelerate
+import VectorTestKit
 
 // MARK: - Test Categories
 

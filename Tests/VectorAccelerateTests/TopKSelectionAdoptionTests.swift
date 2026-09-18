@@ -20,6 +20,7 @@
 import XCTest
 import VectorCore
 @testable import VectorAccelerate
+import VectorTestKit
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 final class TopKSelectionAdoptionTests: XCTestCase {
@@ -100,7 +101,7 @@ final class TopKSelectionAdoptionTests: XCTestCase {
     /// Deterministic pseudo-random distances in a bounded range — exercises both the heap-select
     /// path (k < n/10) and the sort-select path (k >= n/10) of `TopKSelection.select`.
     private func randomDistances(n: Int, seed: UInt64) -> [Float] {
-        var rng = TestRNG(seed: seed)
+        var rng = SeededRNG(seed: seed)
         return (0..<n).map { _ in rng.nextFloat(in: -1000...1000) }
     }
 

@@ -27,6 +27,7 @@
 import XCTest
 @preconcurrency import Metal
 @testable import VectorAccelerate
+import VectorTestKit
 
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 final class TreeReductionDispatchRobustnessTests: XCTestCase {
@@ -54,7 +55,7 @@ final class TreeReductionDispatchRobustnessTests: XCTestCase {
     func testEngineDotProductAcrossThreadgroupWidths() async throws {
         let context = try await Metal4Context()
         let engine = try await Metal4ComputeEngine(context: context)   // decisionEngine: nil
-        var rng = TestRNG(seed: 0x3A02_0001)
+        var rng = SeededRNG(seed: 0x3A02_0001)
         var failures: [String] = []
 
         for dim in Self.sweepDims {
@@ -82,7 +83,7 @@ final class TreeReductionDispatchRobustnessTests: XCTestCase {
     func testEngineCosineDistanceAcrossThreadgroupWidths() async throws {
         let context = try await Metal4Context()
         let engine = try await Metal4ComputeEngine(context: context)   // decisionEngine: nil
-        var rng = TestRNG(seed: 0x3A02_0002)
+        var rng = SeededRNG(seed: 0x3A02_0002)
         var failures: [String] = []
 
         for dim in Self.sweepDims {
@@ -122,7 +123,7 @@ final class TreeReductionDispatchRobustnessTests: XCTestCase {
     func testEuclideanDistanceKernelAcrossThreadgroupWidths() async throws {
         let context = try await Metal4Context()
         let pipeline = try await context.getPipeline(functionName: "euclideanDistance")
-        var rng = TestRNG(seed: 0x3A02_0003)
+        var rng = SeededRNG(seed: 0x3A02_0003)
         var failures: [String] = []
         let dim = 1000
 
@@ -156,7 +157,7 @@ final class TreeReductionDispatchRobustnessTests: XCTestCase {
     /// kernels routing-independently, and are the only coverage of their >256 lanes clamp.
     func testCosineAndDotProductKernelsAcrossThreadgroupWidths() async throws {
         let context = try await Metal4Context()
-        var rng = TestRNG(seed: 0x3A02_0004)
+        var rng = SeededRNG(seed: 0x3A02_0004)
         var failures: [String] = []
         let dim = 1000
 

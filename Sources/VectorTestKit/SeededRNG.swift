@@ -1,5 +1,5 @@
 //
-//  TestRNG.swift
+//  SeededRNG.swift
 //  VectorAccelerateTests
 //
 //  High-quality deterministic pseudorandom number generator for reproducible tests.
@@ -16,7 +16,7 @@
 //    - Increment: 3037000493 (odd, ensures full period)
 //
 //  Usage:
-//    var rng = TestRNG(seed: 42)
+//    var rng = SeededRNG(seed: 42)
 //    let f = rng.nextFloat(in: -1...1)
 //    let g = rng.nextGaussian(mean: 0, stdDev: 1)
 //
@@ -34,7 +34,7 @@ import Foundation
 /// Quality: Suitable for sampling, shuffling, and test data generation.
 /// NOT suitable for cryptography or high-quality Monte Carlo.
 @frozen
-public struct TestRNG: Sendable {
+public struct SeededRNG: Sendable {
     /// Internal state (64-bit)
     @usableFromInline
     internal var state: UInt64
@@ -261,7 +261,11 @@ public struct TestRNG: Sendable {
 
 // MARK: - RandomNumberGenerator Conformance
 
-// TestRNG conforms to RandomNumberGenerator via the next() -> UInt64 method
+// SeededRNG conforms to RandomNumberGenerator via the next() -> UInt64 method
 // defined in the main struct. This allows use with Swift's standard random APIs
 // like Float.random(in:using:) and Array.shuffled(using:).
-extension TestRNG: RandomNumberGenerator {}
+extension SeededRNG: RandomNumberGenerator {}
+
+/// Pre-0.7.0 name. Removed in 0.8.0.
+@available(*, deprecated, renamed: "SeededRNG")
+public typealias TestRNG = SeededRNG
