@@ -2,7 +2,7 @@ import XCTest
 import VectorTestKit
 
 /// Tiers (spec §4.5): both NaN → equal; bitwise equal → equal; class mismatch → hard fail;
-/// abs/rel envelope; optional ULP tier. The ten adversarial value classes come from DifferentialKernelVsCPUTests.
+/// abs/rel envelope; optional ULP tier. The ten adversarial value classes are adapted from DifferentialKernelVsCPUTests.
 final class ComparatorTests: XCTestCase {
     private let classes: [(String, Double)] = [
         ("normal", 1.234), ("zero", 0.0), ("negZero", -0.0), ("huge", 1e19), ("tiny", 1e-20),
@@ -50,12 +50,25 @@ final class ComparatorTests: XCTestCase {
         XCTAssertEqual(Comparator.compare(1.0, 1.0.nextUp.nextUp, tolerance: Tolerance(ulps: 1)), .outOfTolerance(absError: 1.0.nextUp.nextUp - 1.0, relError: (1.0.nextUp.nextUp - 1.0) / 1.0.nextUp.nextUp))
     }
 
+    func testFloatOverloadSharesTiersAndAppliesFloatULPs() {
+        // Float arguments select the Float overload (Swift never promotes Float to Double implicitly).
+        XCTAssertEqual(Comparator.compare(Float.nan, Float.nan, tolerance: Tolerance()), .equal)
+        XCTAssertEqual(Comparator.compare(Float.nan, Float(1), tolerance: Tolerance(absolute: 1e300, relative: 1e300)), .classMismatch)
+        XCTAssertEqual(Comparator.compare(Float(1), Float.infinity, tolerance: Tolerance(absolute: 1e300, relative: 1e300)), .classMismatch)
+        XCTAssertEqual(Comparator.compare(Float(0), -Float(0), tolerance: Tolerance()), .withinTolerance)
+        XCTAssertEqual(Comparator.compare(Float(1), Float(1).nextUp, tolerance: Tolerance(ulps: 1)), .withinTolerance)
+        // Beyond the Float ULP tier: the payload is exactly what the Double overload computes on the widened values.
+        let b = Double(Float(1).nextUp.nextUp)
+        XCTAssertEqual(Comparator.compare(Float(1), Float(1).nextUp.nextUp, tolerance: Tolerance(ulps: 1)), .outOfTolerance(absError: b - 1.0, relError: (b - 1.0) / b))
+    }
+
     func testAdversarialClassesPairwiseNeverCrash() {
         let t = Tolerance(absolute: 1e-5, relative: 2e-4)
         for (na, a) in classes { for (nb, b) in classes {
             let v = Comparator.compare(a, b, tolerance: t)
             let sameClass = (a.isNaN && b.isNaN) || (a.isInfinite && b.isInfinite && a.sign == b.sign) || (a.isFinite && b.isFinite)
             if !sameClass { XCTAssertEqual(v, .classMismatch, "\(na) vs \(nb)") }
+            else { XCTAssertNotEqual(v, .classMismatch, "\(na) vs \(nb)") }
             if a.isNaN && b.isNaN { XCTAssertEqual(v, .equal, "\(na) vs \(nb)") }
         } }
     }
