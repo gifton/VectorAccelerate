@@ -3,9 +3,10 @@ import XCTest
 /// Genericism rule (spec §4.1): the kit imports only Foundation, Darwin, CryptoKit and never uses @testable.
 ///
 /// The scan is line-anchored and covers attribute-prefixed imports (`@testable`, `@preconcurrency`, `@_exported`,
-/// `@_implementationOnly`, `@_spi(...)`, in any order and count, including an attribute on the line before `import`)
-/// and qualified imports (`import struct Foundation.Data` reports module `Foundation`). A commented-out line such as
-/// `// import Metal` does not match because `^\s*` must be followed directly by an attribute or the `import` keyword.
+/// `@_implementationOnly`, `@_spi(...)`, in any order and count, including an attribute on the line before `import`),
+/// SE-0409 access-level modifiers (`private import Metal`, `@_exported public import Metal`), and qualified imports
+/// (`import struct Foundation.Data` reports module `Foundation`). A commented-out line such as `// import Metal`
+/// does not match because `^\s*` must be followed directly by an attribute, an access-level modifier, or `import`.
 /// `testClassifierFixtures` pins each of these behaviours.
 final class KitImportLintTests: XCTestCase {
     private static let allowed: Set<String> = ["Foundation", "Darwin", "CryptoKit"]
@@ -16,10 +17,11 @@ final class KitImportLintTests: XCTestCase {
         var testable: Bool
     }
 
-    // Group 1: zero or more attributes (each with optional parenthesized arguments) preceding `import`.
+    // Group 1: zero or more attributes (each with optional parenthesized arguments) preceding `import`, which may itself
+    //          carry one SE-0409 access-level modifier (`public`, `package`, `internal`, `fileprivate`, `private`).
     // Group 2: the top-level module name, after an optional import-kind keyword and before any `.` qualifier.
     private static let importLine = try! NSRegularExpression(
-        pattern: #"^\s*((?:@\w+(?:\([^)]*\))?\s+)*)import\s+(?:(?:typealias|struct|class|enum|protocol|actor|let|var|func)\s+)?([A-Za-z0-9_]+)"#,
+        pattern: #"^\s*((?:@\w+(?:\([^)]*\))?\s+)*)(?:(?:public|package|internal|fileprivate|private)\s+)?import\s+(?:(?:typealias|struct|class|enum|protocol|actor|let|var|func)\s+)?([A-Za-z0-9_]+)"#,
         options: [.anchorsMatchLines])
 
     /// Every import statement in `text`, in source order. Non-import lines (code, comments) contribute nothing.
@@ -66,6 +68,9 @@ final class KitImportLintTests: XCTestCase {
             ("@_spi(Internal) import Metal",           S(module: "Metal", testable: false)),
             ("@preconcurrency @testable import Metal", S(module: "Metal", testable: true)),
             ("@testable @preconcurrency import Metal", S(module: "Metal", testable: true)),
+            ("private import Metal",                   S(module: "Metal", testable: false)),
+            ("package import Metal",                   S(module: "Metal", testable: false)),
+            ("@_exported public import Metal",         S(module: "Metal", testable: false)),
             ("import struct Foundation.Data",          S(module: "Foundation", testable: false)),
             ("import func Darwin.sqrt",                S(module: "Darwin", testable: false)),
             ("import Foundation.NSData",               S(module: "Foundation", testable: false)),
