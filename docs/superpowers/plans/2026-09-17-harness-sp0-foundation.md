@@ -1247,7 +1247,8 @@ Expected: `Executed 5 tests, with 0 failures`
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/VectorTestKit/Stats.swift Tests/VectorAccelerateTests/Harness/StatsTests.swift
+git rm -q Sources/VectorTestKit/VectorTestKit.swift   # module marker (see Files)
+git add Sources/VectorTestKit/Stats.swift Tests/VectorAccelerateTests/Harness/StatsTests.swift docs/superpowers/plans/2026-09-17-harness-sp0-foundation.md
 git commit -q -m "feat(kit): Stats summary with interpolated percentiles and seeded bootstrap CI; blackHole
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -2037,7 +2038,7 @@ public enum PreflightProbe {
 - [ ] **Step 5: Run to verify it passes**
 
 Run: `swift test --filter "FingerprintTests|KitImportLintTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 8 tests, with 0 failures`
+Expected: `Executed 10 tests, with 0 failures`   (7 FingerprintTests + 3 KitImportLintTests)
 
 - [ ] **Step 6: Commit**
 
