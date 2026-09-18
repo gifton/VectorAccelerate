@@ -283,19 +283,29 @@ enum RepoPaths {
 import XCTest
 
 /// Genericism rule (spec §4.1): the kit imports only Foundation, Darwin, CryptoKit and never uses @testable.
+///
+/// The scan is line-based and covers attribute-prefixed imports (`@testable`, `@preconcurrency`, `@_exported`,
+/// `@_implementationOnly`, `@_spi(...)`, in any order and count) and qualified imports
+/// (`import struct Foundation.Data` reports module `Foundation`). A commented-out line such as `// import Metal`
+/// does not match because `^\s*` must be followed directly by an attribute or the `import` keyword.
 final class KitImportLintTests: XCTestCase {
     private static let allowed: Set<String> = ["Foundation", "Darwin", "CryptoKit"]
 
     func testKitImportsAreWithinAllowlist() throws {
         let files = RepoPaths.swiftFiles(under: "Sources/VectorTestKit")
         XCTAssertFalse(files.isEmpty, "Sources/VectorTestKit must contain Swift files")
-        let importLine = try NSRegularExpression(pattern: #"^\s*(@testable\s+)?import\s+([A-Za-z0-9_]+)"#, options: [.anchorsMatchLines])
+        // Group 1: zero or more attributes (each with optional parenthesized arguments) preceding `import`.
+        // Group 2: the top-level module name, after an optional import-kind keyword and before any `.` qualifier.
+        let importLine = try NSRegularExpression(
+            pattern: #"^\s*((?:@\w+(?:\([^)]*\))?\s+)*)import\s+(?:(?:typealias|struct|class|enum|protocol|actor|let|var|func)\s+)?([A-Za-z0-9_]+)"#,
+            options: [.anchorsMatchLines])
         var violations: [String] = []
         for file in files {
             let text = try String(contentsOf: file, encoding: .utf8)
             let range = NSRange(text.startIndex..., in: text)
             for m in importLine.matches(in: text, range: range) {
-                let testable = m.range(at: 1).location != NSNotFound
+                let attributes = m.range(at: 1).location == NSNotFound ? "" : String(text[Range(m.range(at: 1), in: text)!])
+                let testable = attributes.split(whereSeparator: \.isWhitespace).contains("@testable")
                 let module = String(text[Range(m.range(at: 2), in: text)!])
                 if testable { violations.append("\(file.lastPathComponent): @testable import is forbidden") }
                 if !Self.allowed.contains(module) { violations.append("\(file.lastPathComponent): import \(module) is outside the allowlist \(Self.allowed.sorted())") }
@@ -311,13 +321,18 @@ final class KitImportLintTests: XCTestCase {
 Run: `swift test --filter KitImportLintTests 2>&1 | tail -3`
 Expected: `Executed 1 test, with 0 failures`
 
-- [ ] **Step 4: Prove the guard detects a violation, then remove the probe**
+- [ ] **Step 4: Prove the guard detects both violation kinds, then remove the probe**
+
+The lint is a text scan, so the probe lines sit inside `#if false … #endif`: Swift parses but does not type-check
+inactive branches, whereas an active `@testable import Foundation` is a hard compile error
+("module 'Foundation' was not compiled for testing") that stops `swift test` before the lint ever runs.
 
 ```bash
-printf 'import XCTest\npublic enum _LintProbe {}\n' > Sources/VectorTestKit/_LintProbe.swift
-swift test --filter KitImportLintTests 2>&1 | grep -c "outside the allowlist"   # expected: 1
+printf '#if false\n@preconcurrency import XCTest\n@testable import Foundation\n#endif\npublic enum _LintProbe {}\n' > Sources/VectorTestKit/_LintProbe.swift
+swift test --filter KitImportLintTests 2>&1 | grep -c "outside the allowlist"          # expected: 1
+swift test --filter KitImportLintTests 2>&1 | grep -c "@testable import is forbidden"  # expected: 1
 rm Sources/VectorTestKit/_LintProbe.swift
-swift test --filter KitImportLintTests 2>&1 | tail -1                           # expected: 0 failures
+swift test --filter KitImportLintTests 2>&1 | tail -1                                  # expected: 0 failures
 ```
 
 - [ ] **Step 5: Commit**
