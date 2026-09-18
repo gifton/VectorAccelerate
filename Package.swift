@@ -13,6 +13,16 @@
 // There is NO backwards compatibility with older OS versions.
 // For Metal 3 support, use VectorAccelerate 0.2.x or earlier.
 //
+// 0.7.0 — Benchmark harness foundation (SP0) + dead-code removal (BREAKING):
+//   - Added: VectorTestKit (generic seeded RNG, generators, digest, comparator, recall, stats,
+//     artifact schema v1, host fingerprint, preflight, run store, compare) — not a product
+//   - Added: VectorAccelerateBench executable (run / baseline capture / compare / validate-artifact)
+//   - Removed: Sources/VectorAccelerate/Benchmarking (BenchmarkFramework, IndexBenchmarkHarness and
+//     all their public types), the VectorAccelerateBenchmarks product, PerformanceMonitor,
+//     IndexAccelerationConfiguration.logDecisions
+//   - Changed: README performance claims retired pending measured runs under .bench/runs/
+//   See docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md
+//
 // 0.6.0 — Zero-copy SoA scoring + normalization parity + the promised removal:
 //   - Added: SoACandidateSet (page-aligned lane-major SoA, zero-copy MTLBuffer, borrow mode enforced
 //     structurally) + MetalComputeProvider batchDistance/findNearest against a prebuilt set
@@ -88,9 +98,6 @@ let package = Package(
         .library(
             name: "VectorAccelerate",
             targets: ["VectorAccelerate"]),
-        .executable(
-            name: "VectorAccelerateBenchmarks",
-            targets: ["VectorAccelerateBenchmarks"]),
     ],
     dependencies: [
         // VectorCore 0.3.3 supplies the NaN-last Top-K contract and original-index ties.
@@ -123,12 +130,31 @@ let package = Package(
             ]
         ),
 
-        // MARK: - Benchmarks
+        // MARK: - Test kit (generic; not a product; Foundation/Darwin/CryptoKit only)
+        .target(
+            name: "VectorTestKit",
+            dependencies: [],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+                .enableUpcomingFeature("ExistentialAny")
+            ]
+        ),
+
+        // MARK: - Benchmark harness executable (not a declared product; `swift run VectorAccelerateBench`)
         .executableTarget(
-            name: "VectorAccelerateBenchmarks",
+            name: "VectorAccelerateBench",
             dependencies: [
                 "VectorAccelerate",
+                "VectorTestKit",
                 .product(name: "VectorCore", package: "VectorCore")
+            ],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+                .enableUpcomingFeature("ExistentialAny")
+            ],
+            linkerSettings: [
+                .linkedFramework("Metal"),
+                .linkedFramework("IOKit")
             ]
         ),
 
@@ -137,6 +163,7 @@ let package = Package(
             name: "VectorAccelerateTests",
             dependencies: [
                 "VectorAccelerate",
+                "VectorTestKit",
                 .product(name: "VectorCore", package: "VectorCore")
             ]
         )

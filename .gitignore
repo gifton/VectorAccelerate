@@ -334,3 +334,6 @@ $RECYCLE.BIN/
 
 # Local git worktrees (superpowers using-git-worktrees)
 .worktrees/
+
+# Benchmark harness runs and baselines (SP0); history strategy is SP5
+.bench/
