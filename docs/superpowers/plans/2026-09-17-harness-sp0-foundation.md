@@ -642,7 +642,7 @@ Expected: `cannot find 'VectorGenerator' in scope`.
 
 ```bash
 git mv Tests/VectorAccelerateTests/Utilities/TestDataGenerator.swift Sources/VectorTestKit/VectorGenerator.swift
-sed -i '' -e 's/\bTestDataGenerator\b/VectorGenerator/g' -e 's|//  TestDataGenerator.swift|//  VectorGenerator.swift|' Sources/VectorTestKit/VectorGenerator.swift
+sed -i '' -e 's/\bTestDataGenerator\b/VectorGenerator/g' -e 's|//  TestDataGenerator.swift|//  VectorGenerator.swift|' -e '/^import VectorTestKit$/d' Sources/VectorTestKit/VectorGenerator.swift   # the file now lives inside the kit: drop the self-import Task 3 added
 python3 - <<'PY'
 p="Sources/VectorTestKit/VectorGenerator.swift"; s=open(p).read()
 old="public struct VectorGenerator {\n    /// Internal RNG\n    var rng: SeededRNG\n"
@@ -1062,7 +1062,8 @@ final class StatsTests: XCTestCase {
     }
 
     func testBlackHoleAcceptsAnything() {
-        blackHole([1, 2, 3]); blackHole("x"); blackHole(())
+        // Qualified: VectorAccelerate.blackHole still exists until Task 17 deletes Benchmarking/.
+        VectorTestKit.blackHole([1, 2, 3]); VectorTestKit.blackHole("x"); VectorTestKit.blackHole(())
     }
 }
 ```
