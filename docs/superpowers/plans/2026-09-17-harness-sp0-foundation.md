@@ -577,7 +577,7 @@ Floats are pinned by bit pattern so the file round-trips exactly.
 
 - [ ] **Step 2: Run to verify it fails (the kit has no `SeededRNG` yet)**
 
-Run: `swift test --filter SeededRNGGoldenTests 2>&1 | grep -m1 "error:"`
+Run: `swift test --filter SeededRNGGoldenTests 2>&1 | grep -m1 "cannot find"`
 Expected: `cannot find 'SeededRNG' in scope`.
 
 - [ ] **Step 3: Move and rename**
@@ -703,7 +703,7 @@ If a method's parameter labels differ from the calls above, the compile step fai
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `swift test --filter VectorGeneratorGoldenTests 2>&1 | grep -m1 "error:"`
+Run: `swift test --filter VectorGeneratorGoldenTests 2>&1 | grep -m1 "cannot find"`
 Expected: `cannot find 'VectorGenerator' in scope`.
 
 - [ ] **Step 3: Move, rename, add version and typealias**
@@ -853,7 +853,7 @@ final class ComparatorTests: XCTestCase {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `swift test --filter ComparatorTests 2>&1 | grep -m1 "error:"`
+Run: `swift test --filter ComparatorTests 2>&1 | grep -m1 "cannot find"`
 Expected: `cannot find 'Comparator' in scope` (or `Tolerance`).
 
 - [ ] **Step 3: Implement**
@@ -1036,7 +1036,7 @@ final class RecallTests: XCTestCase {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `swift test --filter RecallTests 2>&1 | grep -m1 "error:"`
+Run: `swift test --filter RecallTests 2>&1 | grep -m1 "cannot find"`
 Expected: `cannot find 'Neighbor' in scope`.
 
 - [ ] **Step 3: Implement**
@@ -1163,7 +1163,7 @@ final class StatsTests: XCTestCase {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `swift test --filter StatsTests 2>&1 | grep -m1 "error:"`
+Run: `swift test --filter StatsTests 2>&1 | grep -m1 "cannot find"`
 Expected: `cannot find 'Stats' in scope`.
 
 - [ ] **Step 3: Implement**
@@ -1348,7 +1348,7 @@ final class ArtifactSchemaTests: XCTestCase {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `swift test --filter ArtifactSchemaTests 2>&1 | grep -m1 "error:"`
+Run: `swift test --filter ArtifactSchemaTests 2>&1 | grep -m1 "cannot find"`
 Expected: `cannot find 'Series' in scope`.
 
 - [ ] **Step 3: Implement**
@@ -1627,7 +1627,8 @@ final class CaseIDTests: XCTestCase {
     }
 
     func testRejects() {
-        for bad in ["Probe.gpu_copy", "probe", "probe.gpu copy", "probe.gpu_copy.seed=42x!", "probe..x", ".probe.x", "probe.x."] {
+        // "probe.x\n": ICU `$` matches before a final line terminator, so the pattern must anchor with `\z`.
+        for bad in ["Probe.gpu_copy", "probe", "probe.gpu copy", "probe.gpu_copy.seed=42x!", "probe..x", ".probe.x", "probe.x.", "probe.x\n"] {
             XCTAssertThrowsError(try CaseID(validating: bad), bad)
         }
     }
@@ -1676,7 +1677,7 @@ final class WarmupPolicyTests: XCTestCase {
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `swift test --filter "CaseIDTests|WarmupPolicyTests" 2>&1 | grep -m1 "error:"`
+Run: `swift test --filter "CaseIDTests|WarmupPolicyTests" 2>&1 | grep -m1 "cannot find"`
 Expected: `cannot find 'CaseID' in scope`.
 
 - [ ] **Step 3: Implement**
@@ -1692,7 +1693,8 @@ public enum CaseIDError: Error, Equatable { case malformed(String) }
 public struct CaseID: Codable, Hashable, Sendable, CustomStringConvertible {
     public let rawValue: String
 
-    private static let grammar = try! NSRegularExpression(pattern: #"^[a-z0-9_]+(\.[a-z0-9_]+)+(\.[a-z0-9_]+=[a-z0-9_]+)*(\.[a-z0-9_]+)?$"#)
+    /// Spec grammar `^…$`, anchored here with `\z` because ICU `$` also matches before a trailing newline (pinned by `CaseIDTests.testRejects`).
+    private static let grammar = try! NSRegularExpression(pattern: #"^[a-z0-9_]+(\.[a-z0-9_]+)+(\.[a-z0-9_]+=[a-z0-9_]+)*(\.[a-z0-9_]+)?\z"#)
 
     public init(validating raw: String) throws {
         let range = NSRange(raw.startIndex..., in: raw)
@@ -1839,7 +1841,7 @@ final class FingerprintTests: XCTestCase {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `swift test --filter FingerprintTests 2>&1 | grep -m1 "error:"`
+Run: `swift test --filter FingerprintTests 2>&1 | grep -m1 "cannot find"`
 Expected: `cannot find 'HostFingerprint' in scope`.
 
 - [ ] **Step 3: Implement `HostFingerprint.swift`**
@@ -2117,7 +2119,7 @@ final class RunStoreTests: XCTestCase {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `swift test --filter RunStoreTests 2>&1 | grep -m1 "error:"`
+Run: `swift test --filter RunStoreTests 2>&1 | grep -m1 "cannot find"`
 Expected: `cannot find 'RunStore' in scope`.
 
 - [ ] **Step 3: Implement**
@@ -2328,7 +2330,7 @@ final class CompareTests: XCTestCase {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `swift test --filter CompareTests 2>&1 | grep -m1 "error:"`
+Run: `swift test --filter CompareTests 2>&1 | grep -m1 "cannot find"`
 Expected: `cannot find 'Compare' in scope`.
 
 - [ ] **Step 3: Implement**
