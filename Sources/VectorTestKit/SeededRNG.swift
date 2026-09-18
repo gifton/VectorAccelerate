@@ -1,6 +1,6 @@
 //
 //  SeededRNG.swift
-//  VectorAccelerateTests
+//  VectorTestKit
 //
 //  High-quality deterministic pseudorandom number generator for reproducible tests.
 //
@@ -151,8 +151,8 @@ public struct SeededRNG: Sendable {
         let r = sqrt(-2 * log(u1))
         let theta = 2 * Float.pi * u2
 
-        let z0 = r * cos(theta)
-        let z1 = r * sin(theta)
+        let z0 = r * opaqueCos(theta)
+        let z1 = r * opaqueSin(theta)
 
         // Cache second value for next call
         cachedGaussian = z1
@@ -258,6 +258,29 @@ public struct SeededRNG: Sendable {
         }
     }
 }
+
+// MARK: - Build-configuration-invariant transcendentals
+
+// Box-Muller calls `sin` and `cos` on the same argument. Under `-O`, LLVM combines an adjacent
+// `sinf`/`cosf` pair inside one function into Darwin's `__sincosf_stret`, whose result differs from
+// standalone `sinf` by 1-2 ulp for some inputs; measured during the Task 3 freeze, 6 of the 384
+// golden Gaussian values diverged between `-O` and `-Onone`. Routing each call through a function
+// the optimizer may not inline keeps the pair out of any single function body, so both build
+// configurations call `sinf` and `cosf` separately, exactly as `-Onone` does.
+// Contract, exercised by `SeededRNGGoldenTests` under both `swift test` and `swift test -c release`.
+// `log` needs no wrapper: both generator builds linked `_logf` directly (`nm -u`, same freeze).
+// `sqrt` is not transcendental and is IEEE 754 correctly rounded whether lowered to `sqrtf` or `fsqrt`.
+// `@usableFromInline internal` rather than `fileprivate` because `nextGaussian` is `@inlinable`.
+
+/// `sin(x)` behind an inlining barrier so it cannot be fused with a neighbouring `cos`.
+@usableFromInline
+@inline(never)
+internal func opaqueSin(_ x: Float) -> Float { sin(x) }
+
+/// `cos(x)` behind an inlining barrier so it cannot be fused with a neighbouring `sin`.
+@usableFromInline
+@inline(never)
+internal func opaqueCos(_ x: Float) -> Float { cos(x) }
 
 // MARK: - RandomNumberGenerator Conformance
 
