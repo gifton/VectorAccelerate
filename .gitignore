@@ -331,3 +331,6 @@ $RECYCLE.BIN/
 
 # Local agent configuration links
 .antigravitycli/
+
+# Local git worktrees (superpowers using-git-worktrees)
+.worktrees/
