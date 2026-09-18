@@ -3,6 +3,9 @@ import VectorTestKit
 
 /// FROZEN output streams of SeededRNG (spec §4.2). Generated once from the pre-promotion TestRNG on 2026-09-17.
 /// A failure here means the sequence changed and every fixture digest in the suite is invalid. Do not regenerate.
+/// These are the `-Onone` (debug) streams, which are the contract by ruling (Task 3 finding: `-O` fuses an adjacent
+/// `sinf`/`cosf` pair into `__sincosf_stret`, shifting Gaussian values by 1-2 ulp); regenerating with `swiftc -O` against
+/// a pre-wrapper `TestRNG.swift` produces a different, wrong file.
 final class SeededRNGGoldenTests: XCTestCase {
     private func first64<T>(_ f: (inout SeededRNG) -> T, seed: UInt64, stream: UInt64) -> [T] {
         var rng = SeededRNG(seed: seed, stream: stream)

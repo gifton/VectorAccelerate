@@ -48,9 +48,9 @@ enum IVFBenchmarkFixtures {
         func grid(_ rows: [[Float]]) -> [[Float]] {
             rows.map { $0.map { ($0 * 16).rounded(.down) / 16 } }
         }
-        var centersGenerator = TestDataGenerator(seed: seed, stream: stream)
-        var vectorsGenerator = TestDataGenerator(seed: seed, stream: stream &+ 1)
-        var queriesGenerator = TestDataGenerator(seed: seed, stream: stream &+ 2)
+        var centersGenerator = VectorGenerator(seed: seed, stream: stream)
+        var vectorsGenerator = VectorGenerator(seed: seed, stream: stream &+ 1)
+        var queriesGenerator = VectorGenerator(seed: seed, stream: stream &+ 2)
         var idGenerator = SeededRNG(seed: seed, stream: stream &+ 3)
         let centers = grid(centersGenerator.uniformVectors(count: listSizes.count, dimension: dimension))
         let noise = grid(vectorsGenerator.uniformVectors(count: count, dimension: dimension, range: -0.25...0.25))

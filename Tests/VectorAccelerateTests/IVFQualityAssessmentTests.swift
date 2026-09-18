@@ -35,11 +35,11 @@ final class IVFQualityAssessmentTests: XCTestCase {
         print(String(repeating: "-", count: 70))
 
         // Generate TRUE UNIFORM random data (hardest case for IVF)
-        var gen = TestDataGenerator(seed: 12345)
+        var gen = VectorGenerator(seed: 12345)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
 
         // Print dataset statistics
-        let stats = TestDataGenerator.statistics(for: dataset)
+        let stats = VectorGenerator.statistics(for: dataset)
         print("Data distribution: UNIFORM RANDOM")
         print(stats.description)
         print(String(repeating: "-", count: 70))
@@ -135,14 +135,14 @@ final class IVFQualityAssessmentTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Create generators with different streams for independent sequences
-        var uniformGen = TestDataGenerator(seed: 42, stream: 0)
-        var gaussianGen = TestDataGenerator(seed: 42, stream: 1)
-        var sparseGen = TestDataGenerator(seed: 42, stream: 2)
+        var uniformGen = VectorGenerator(seed: 42, stream: 0)
+        var gaussianGen = VectorGenerator(seed: 42, stream: 1)
+        var sparseGen = VectorGenerator(seed: 42, stream: 2)
 
         let distributions: [(name: String, data: [[Float]], stats: DatasetStatistics)] = [
             {
                 let data = uniformGen.uniformVectors(count: datasetSize, dimension: dimension)
-                return ("Uniform Rand", data, TestDataGenerator.statistics(for: data))
+                return ("Uniform Rand", data, VectorGenerator.statistics(for: data))
             }(),
             {
                 let data = gaussianGen.gaussianClusters(
@@ -152,7 +152,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
                     clusterSpread: 2.0,
                     clusterStdDev: 0.3
                 )
-                return ("Gaussian Clu", data, TestDataGenerator.statistics(for: data))
+                return ("Gaussian Clu", data, VectorGenerator.statistics(for: data))
             }(),
             {
                 let data = sparseGen.gaussianClusters(
@@ -162,7 +162,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
                     clusterSpread: 3.0,
                     clusterStdDev: 0.5
                 )
-                return ("Sparse Clust", data, TestDataGenerator.statistics(for: data))
+                return ("Sparse Clust", data, VectorGenerator.statistics(for: data))
             }(),
         ]
 
@@ -193,7 +193,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
             let isTrained = ivfStats.ivfStats?.isTrained ?? false
 
             // Generate queries from data using a fresh generator
-            var queryGen = TestDataGenerator(seed: 999, stream: 3)
+            var queryGen = VectorGenerator(seed: 999, stream: 3)
             var totalRecall: Float = 0
             for _ in 0..<numQueries {
                 let queries = queryGen.perturbedQueries(from: data, count: 1, noiseStdDev: 0.05)
@@ -234,7 +234,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
         print("|------|-------|--------|------------|-----------|---------|------------|")
 
         for (sizeIdx, size) in sizes.enumerated() {
-            var gen = TestDataGenerator(seed: 999, stream: UInt64(sizeIdx))
+            var gen = VectorGenerator(seed: 999, stream: UInt64(sizeIdx))
 
             let nlist = max(8, Int(sqrt(Double(size))))  // sqrt(N) rule
             let nprobe = max(1, nlist / 4)  // 25% probe
@@ -321,7 +321,7 @@ final class IVFQualityAssessmentTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate UNIFORM random data for stress test
-        var gen = TestDataGenerator(seed: 777)
+        var gen = VectorGenerator(seed: 777)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
 
         // Flat index for ground truth

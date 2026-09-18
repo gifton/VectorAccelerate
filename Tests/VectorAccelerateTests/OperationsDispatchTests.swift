@@ -95,10 +95,10 @@ final class OperationsDispatchTests: XCTestCase {
     // MetalComputeProviderTests.swift's pattern — ascending order, k smallest, per-pair
     // distance consistency, ~1e-3 relative tolerance)
 
-    /// Deterministic dataset via `SeededRNG` (through `TestDataGenerator`) — no `Date`, no
+    /// Deterministic dataset via `SeededRNG` (through `VectorGenerator`) — no `Date`, no
     /// unseeded `Random`.
     private func makeVectors(count: Int, dim: Int, seed: UInt64) -> (query: DynamicVector, candidates: [DynamicVector]) {
-        var gen = TestDataGenerator(seed: seed)
+        var gen = VectorGenerator(seed: seed)
         let rows = gen.uniformVectors(count: count + 1, dimension: dim)
         let query = DynamicVector(rows[0])
         let candidates = rows.dropFirst().map { DynamicVector($0) }
@@ -201,7 +201,7 @@ final class OperationsDispatchTests: XCTestCase {
         let k = 6
 
         // Build one shared candidate pool and `numQueries` independent query vectors.
-        var gen = TestDataGenerator(seed: 3003)
+        var gen = VectorGenerator(seed: 3003)
         let candidateRows = gen.uniformVectors(count: 400, dimension: dim)
         let queryRows = gen.uniformVectors(count: numQueries, dimension: dim)
         let cands = candidateRows.map { DynamicVector($0) }

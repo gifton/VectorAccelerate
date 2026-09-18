@@ -81,7 +81,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate uniform random data (hardest case)
-        var gen = TestDataGenerator(seed: 42)
+        var gen = VectorGenerator(seed: 42)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
         let queries = gen.perturbedQueries(from: dataset, count: numQueries, noiseStdDev: 0.1)
 
@@ -158,7 +158,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate uniform random data
-        var gen = TestDataGenerator(seed: 123)
+        var gen = VectorGenerator(seed: 123)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
         let queries = gen.perturbedQueries(from: dataset, count: numQueries, noiseStdDev: 0.1)
 
@@ -219,11 +219,11 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate uniform random data
-        var uniformGen = TestDataGenerator(seed: 1111, stream: 0)
+        var uniformGen = VectorGenerator(seed: 1111, stream: 0)
         let uniformData = uniformGen.uniformVectors(count: datasetSize, dimension: dimension)
 
         // Generate clustered data (10 clusters, 100 points each)
-        var clusteredGen = TestDataGenerator(seed: 1111, stream: 1)
+        var clusteredGen = VectorGenerator(seed: 1111, stream: 1)
         let clusteredData = clusteredGen.gaussianClusters(
             numClusters: 10,
             pointsPerCluster: 100,
@@ -292,7 +292,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate uniform random data (hardest case)
-        var gen = TestDataGenerator(seed: 3333)
+        var gen = VectorGenerator(seed: 3333)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
 
         // Create flat index for ground truth
@@ -391,7 +391,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate uniform random data
-        var gen = TestDataGenerator(seed: 456)
+        var gen = VectorGenerator(seed: 456)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
 
         // Create IVF index
@@ -437,7 +437,7 @@ final class IVFValidationTests: XCTestCase {
         }
 
         // Use well-separated Gaussian clusters so K-Means should populate all clusters
-        var gen = TestDataGenerator(seed: 456)
+        var gen = VectorGenerator(seed: 456)
         let (data, initialCenters) = gen.separatedGaussianClusters(
             numClusters: nlist,
             pointsPerCluster: pointsPerCluster,
@@ -500,7 +500,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate uniform random data
-        var gen = TestDataGenerator(seed: 4444)
+        var gen = VectorGenerator(seed: 4444)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
 
         // Create IVF index
@@ -580,7 +580,7 @@ final class IVFValidationTests: XCTestCase {
         }
 
         // Generate separated clusters and use the true centers as initial centroids
-        var gen = TestDataGenerator(seed: 2468)
+        var gen = VectorGenerator(seed: 2468)
         let (data, centers) = gen.separatedGaussianClusters(
             numClusters: nlist,
             pointsPerCluster: pointsPerCluster,
@@ -633,7 +633,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate uniform random data
-        var gen = TestDataGenerator(seed: 789)
+        var gen = VectorGenerator(seed: 789)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
         let queries = gen.perturbedQueries(from: dataset, count: numQueries, noiseStdDev: 0.1)
 
@@ -687,7 +687,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate uniform random data
-        var gen = TestDataGenerator(seed: 321)
+        var gen = VectorGenerator(seed: 321)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
         let queries = gen.perturbedQueries(from: dataset, count: numQueries, noiseStdDev: 0.1)
 
@@ -757,7 +757,7 @@ final class IVFValidationTests: XCTestCase {
         var dataset: [[Float]] = []
 
         // Fill with random vectors
-        var gen = TestDataGenerator(seed: 654)
+        var gen = VectorGenerator(seed: 654)
         dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
 
         // Create some "landmark" vectors at known indices
@@ -857,7 +857,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate data
-        var gen = TestDataGenerator(seed: 6666)
+        var gen = VectorGenerator(seed: 6666)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
 
         // Create IVF index with nprobe=1
@@ -909,7 +909,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate data
-        var gen = TestDataGenerator(seed: 7777)
+        var gen = VectorGenerator(seed: 7777)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
 
         print("Dataset: N=\(datasetSize), nlist=\(nlist) (~\(datasetSize/nlist) per cluster)")
@@ -979,7 +979,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Create clustered data where we know the cluster centers
-        var gen = TestDataGenerator(seed: 8888)
+        var gen = VectorGenerator(seed: 8888)
 
         // Generate 16 cluster centers
         let clusterCenters = gen.uniformVectors(count: nlist, dimension: dimension)
@@ -989,9 +989,11 @@ final class IVFValidationTests: XCTestCase {
         for center in clusterCenters {
             for _ in 0..<(datasetSize / nlist) {
                 var point = center
-                // Add small noise
+                // Add small noise: one uniform draw per dimension through the public API, which consumes the
+                // generator's stream exactly as the former direct `rng.nextFloat(in:)` loop did.
+                let noise = gen.uniformVectors(count: 1, dimension: dimension, range: -0.1...0.1)[0]
                 for j in 0..<dimension {
-                    point[j] += gen.rng.nextFloat(in: -0.1...0.1)
+                    point[j] += noise[j]
                 }
                 dataset.append(point)
             }
@@ -1059,7 +1061,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate base dataset
-        var gen = TestDataGenerator(seed: 9999)
+        var gen = VectorGenerator(seed: 9999)
         var dataset = gen.uniformVectors(count: 100, dimension: dimension)
 
         // Create a specific vector and duplicate it
@@ -1136,7 +1138,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate dataset with a zero vector
-        var gen = TestDataGenerator(seed: 1234)
+        var gen = VectorGenerator(seed: 1234)
         var dataset = gen.uniformVectors(count: datasetSize - 1, dimension: dimension)
 
         // Add zero vector at a known position
@@ -1204,7 +1206,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate high-dimensional data
-        var gen = TestDataGenerator(seed: 2468)
+        var gen = VectorGenerator(seed: 2468)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
         let queries = gen.perturbedQueries(from: dataset, count: numQueries, noiseStdDev: 0.05)
 
@@ -1290,7 +1292,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate uniform random data
-        var gen = TestDataGenerator(seed: 5555)
+        var gen = VectorGenerator(seed: 5555)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
         let queries = gen.randomQueries(count: numQueries, dimension: dimension)
 
@@ -1463,7 +1465,7 @@ final class IVFValidationTests: XCTestCase {
         var sawSpeedup = false
 
         for (sizeIdx, size) in sizes.enumerated() {
-            var gen = TestDataGenerator(seed: 12345 + UInt64(sizeIdx))
+            var gen = VectorGenerator(seed: 12345 + UInt64(sizeIdx))
 
             let nlist = max(16, Int(sqrt(Double(size))))
             let nprobe = max(2, nlist / 8)
@@ -1562,7 +1564,7 @@ final class IVFValidationTests: XCTestCase {
         print("Dataset: N=\(datasetSize), sqrt(N)≈32")
 
         // Generate data
-        var gen = TestDataGenerator(seed: 3579)
+        var gen = VectorGenerator(seed: 3579)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
         let queries = gen.perturbedQueries(from: dataset, count: numQueries, noiseStdDev: 0.1)
 
@@ -1655,7 +1657,7 @@ final class IVFValidationTests: XCTestCase {
         let context = try await Metal4Context()
         let kernel = try await IVFCoarseQuantizerKernel(context: context)
 
-        var gen = TestDataGenerator(seed: 1357)
+        var gen = VectorGenerator(seed: 1357)
         let centroids = gen.uniformVectors(count: numCentroids, dimension: dimension)
         let queries = gen.uniformVectors(count: numQueries, dimension: dimension)
 
@@ -1716,7 +1718,7 @@ final class IVFValidationTests: XCTestCase {
         let context = try await Metal4Context()
         let kernel = try await IVFCoarseQuantizerKernel(context: context)
 
-        var gen = TestDataGenerator(seed: 9753)
+        var gen = VectorGenerator(seed: 9753)
         let centroids = gen.uniformVectors(count: numCentroids, dimension: dimension)
         let queries = gen.uniformVectors(count: numQueries, dimension: dimension)
 
@@ -1769,7 +1771,7 @@ final class IVFValidationTests: XCTestCase {
         }
 
         // Build clearly separated clusters
-        var gen = TestDataGenerator(seed: 8642)
+        var gen = VectorGenerator(seed: 8642)
         let (dataset, centers) = gen.separatedGaussianClusters(
             numClusters: numClusters,
             pointsPerCluster: pointsPerCluster,
@@ -1784,8 +1786,9 @@ final class IVFValidationTests: XCTestCase {
         for i in 0..<numQueries {
             let base = (i * 7) % dataset.count
             baseIndices.append(base)
-            // Small Gaussian noise
-            let noisy = (0..<dimension).map { d in dataset[base][d] + gen.rng.nextGaussian(stdDev: 0.05) }
+            // Small Gaussian noise: `clusterQueries` adds one `nextGaussian(stdDev:)` draw per dimension, the same
+            // stream consumption as the former direct `rng.nextGaussian` map.
+            let noisy = gen.clusterQueries(centers: [dataset[base]], countPerCenter: 1, noiseStdDev: 0.05)[0]
             queryVectors.append(noisy)
         }
 
@@ -2066,7 +2069,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate data
-        var gen = TestDataGenerator(seed: 11111)
+        var gen = VectorGenerator(seed: 11111)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
         let queries = gen.perturbedQueries(from: dataset, count: numQueries, noiseStdDev: 0.1)
 
@@ -2193,7 +2196,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate data
-        var gen = TestDataGenerator(seed: 33333)
+        var gen = VectorGenerator(seed: 33333)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
         let queries = gen.perturbedQueries(from: dataset, count: numQueries, noiseStdDev: 0.1)
 
@@ -2267,7 +2270,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate data
-        var gen = TestDataGenerator(seed: 44444)
+        var gen = VectorGenerator(seed: 44444)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
         let queries = gen.perturbedQueries(from: dataset, count: numQueries, noiseStdDev: 0.1)
 
@@ -2324,7 +2327,7 @@ final class IVFValidationTests: XCTestCase {
         print(String(repeating: "=", count: 70))
 
         // Generate data
-        var gen = TestDataGenerator(seed: 22222)
+        var gen = VectorGenerator(seed: 22222)
         let dataset = gen.uniformVectors(count: datasetSize, dimension: dimension)
         let queries = gen.randomQueries(count: numQueries, dimension: dimension)
 
@@ -2419,7 +2422,7 @@ final class IVFValidationTests: XCTestCase {
         print("|-------|--------------|-------------|---------|")
 
         for (sizeIdx, size) in sizes.enumerated() {
-            var gen = TestDataGenerator(seed: 55555 + UInt64(sizeIdx))
+            var gen = VectorGenerator(seed: 55555 + UInt64(sizeIdx))
 
             let nlist = max(16, Int(sqrt(Double(size))))
             let nprobe = max(2, nlist / 8)
@@ -2741,7 +2744,7 @@ extension IVFValidationTests {
         _ = try await ivfIndex.insert(dataset)
 
         // Generate queries
-        var gen = TestDataGenerator(seed: seed)
+        var gen = VectorGenerator(seed: seed)
         let queries = gen.perturbedQueries(from: dataset, count: numQueries, noiseStdDev: 0.05)
 
         // Compute recall

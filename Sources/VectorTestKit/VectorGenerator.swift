@@ -1,6 +1,6 @@
 //
-//  TestDataGenerator.swift
-//  VectorAccelerateTests
+//  VectorGenerator.swift
+//  VectorTestKit
 //
 //  Comprehensive test data generation utilities for vector index testing.
 //
@@ -14,20 +14,22 @@
 //  - Skewed distributions: Tests robustness to imbalanced clusters
 //
 //  Usage:
-//    var gen = TestDataGenerator(seed: 42)
+//    var gen = VectorGenerator(seed: 42)
 //    let uniform = gen.uniformVectors(count: 1000, dimension: 128)
 //    let clusters = gen.gaussianClusters(numClusters: 20, pointsPerCluster: 50, dimension: 128)
 //    let queries = gen.perturbedQueries(from: uniform, count: 100, noiseStdDev: 0.1)
 //
 
 import Foundation
-import VectorTestKit
 
 /// Comprehensive test data generator for vector index testing.
 ///
 /// Generates various data distributions with deterministic seeding
 /// for reproducible test results.
-public struct TestDataGenerator {
+public struct VectorGenerator {
+    /// Bumped whenever any method's output stream changes; part of every case identity (spec §4.3).
+    public static let version: String = "1"
+
     /// Internal RNG
     var rng: SeededRNG
 
@@ -461,7 +463,7 @@ public struct TestDataGenerator {
 
 // MARK: - Data Distribution Statistics
 
-extension TestDataGenerator {
+extension VectorGenerator {
     /// Compute basic statistics for a dataset.
     public static func statistics(for data: [[Float]]) -> DatasetStatistics {
         guard !data.isEmpty else {
@@ -525,3 +527,7 @@ public struct DatasetStatistics {
         """
     }
 }
+
+/// Pre-0.7.0 name. Removed in 0.8.0.
+@available(*, deprecated, renamed: "VectorGenerator")
+public typealias TestDataGenerator = VectorGenerator
