@@ -15,9 +15,6 @@ enum Runner {
 
         do {
             let prepared = try await c.prepare(context)
-            // Contract (unverified until adapters exist): an adapter whose identity depends on the run seed must be a class that
-            // republishes `identity` after prepare() (the Task 15 distance case does this); struct adapters carry registration-time identity.
-            record.identity = c.identity
             var wall: [[Double]] = [], cb: [[Double]] = [], enc: [[Double]] = []
             var lastOutput: IterationOutput?
             var anyCorrectnessFailed = false
@@ -30,6 +27,12 @@ enum Runner {
                     warm.append(ns(clock.now - start))
                 } while !policy.shouldStop(after: warm)
                 record.warmupUsed.append(warm.count)
+                // Visibility only: the same policy with its maximum lifted says whether the CoV rule was met or the cap ended the warm-up.
+                var uncapped = policy
+                uncapped.maximum = .max
+                if !uncapped.shouldStop(after: warm) {
+                    record.notes.append("sample \(k + 1): warm-up ended at the policy maximum (\(warm.count)) with CoV ≥ \(policy.cov) over the last \(policy.window) iterations")
+                }
 
                 var w: [Double] = [], b: [Double] = [], e: [Double] = []
                 for _ in 0..<o.iterations {
@@ -75,6 +78,10 @@ enum Runner {
             record.correctness = nil
             record.timing = Timing(wall: nil, commandBuffer: nil, encoder: nil)
         }
+        // Re-read after `prepare` whatever its outcome. Contract on adapters (unverified, no test): one whose identity depends on the
+        // run seed is a class that publishes the seeded identity before anything in its `prepare` can throw (`L2BatchDistanceCase`
+        // does), so failed and unavailable records carry the run's seed and digest too; struct adapters return the same value as before.
+        record.identity = c.identity
         return record
     }
 }

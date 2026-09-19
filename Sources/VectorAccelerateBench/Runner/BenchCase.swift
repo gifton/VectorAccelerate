@@ -9,6 +9,9 @@ enum BenchMode: String {
 }
 
 struct RunOptions: Sendable {
+    /// The seed a run uses when `--seed` is absent; also the seed a seed-dependent case describes before `prepare` has run.
+    static let defaultSeed: UInt64 = 42
+
     var mode: BenchMode
     var samples: Int
     var iterations: Int
@@ -68,6 +71,7 @@ enum BenchError: Error, CustomStringConvertible {
     case usage(String)
     case registry(String)
     case probeSetup(String)
+    case outputExists(String)
     var description: String {
         switch self {
         case .metalUnavailable: return "Metal device unavailable"
@@ -75,6 +79,15 @@ enum BenchError: Error, CustomStringConvertible {
         case .usage(let m): return m
         case .registry(let m): return "registry error: \(m)"
         case .probeSetup(let m): return "GPU probe setup failed: \(m)"
+        case .outputExists(let path): return "output path already exists and is never overwritten: \(path)"
+        }
+    }
+
+    /// Spec §7: caller-input errors and startup errors (duplicate registry IDs) exit 2; every other failure exits 1.
+    var exitCode: Int32 {
+        switch self {
+        case .usage, .registry: return 2
+        case .metalUnavailable, .routeMismatch, .probeSetup, .outputExists: return 1
         }
     }
 }

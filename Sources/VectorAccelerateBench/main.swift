@@ -26,9 +26,9 @@ do {
     case "compare": status = try CompareCommand.run(args)             // Task 16
     default: print(usage); status = args.command == "help" ? 0 : 2
     }
-} catch BenchError.usage(let message) {
-    FileHandle.standardError.write(Data("error: \(message)\n".utf8))
-    status = 2
+} catch let error as BenchError {
+    FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+    status = error.exitCode
 } catch {
     FileHandle.standardError.write(Data("error: \(error)\n".utf8))
     status = 1

@@ -74,15 +74,23 @@ final class GPUProbe: @unchecked Sendable {
     }
 
     /// GB/s counting read plus write, like `PreflightProbe.cpuCopyGBps`: 2 × bytes / median seconds / 1e9.
-    /// The warm-up is a fixed 50 dispatches rather than `WarmupPolicy`, and the median is over 50, because of what 81 recorded
-    /// series (13,500 dispatches, M3 Max) showed: after 0.25 s or more of GPU idle the first dispatches take about 1.9× the settled
-    /// time and the series needs up to 41 dispatches to settle; that slow plateau is steady enough (CoV < 5 %) for the policy to
-    /// stop on it at n = 3; and a median of 10 settled dispatches strays up to 4.66 % from its series' level against 1.85 % for a
-    /// median of 50, with a 5 % quiet gate on the difference of two readings. Numbers: plan Task 17 Step 7, spec §5.8 amendment.
-    /// Unverified on any other GPU, and no test exercises it.
-    func copyGBps(warmup: Int = 50, measured: Int = 50) throws -> Double {
+    /// Warm-up ends only when BOTH `warmup` dispatches AND `warmupSeconds` of wall time have passed; the reading is the median of
+    /// `measured` dispatches, which stays on the settled level as long as fewer than half of them (25 of 50) are slow.
+    ///
+    /// Why, from docs/superpowers/research/2026-09-18-preflight-probe-characterization.md (81 series, 13,500 dispatches, one
+    /// M3 Max): after GPU idle — seen at process start and after gaps from 0.1 s to 5 s, in 56 of the 81 series — the first
+    /// dispatches run slow (median 1.88×, range 1.08–2.40× the settled time) and reach the settled level after at most 41
+    /// dispatches, or 55.5 ms of wall time in the 36 wall-stamped series. `WarmupPolicy` cannot find that point: the slow plateau is itself steady (CoV < 5 %), so the
+    /// policy stopped on it at n = 3 in 3 of 45 series. A median of 10 settled dispatches strayed up to 4.66 % from its series'
+    /// level, a median of 50 up to 1.85 %, against a 5 % quiet gate on the difference of two readings. The ramp is a wall-time
+    /// effect, so the count alone would not carry to a GPU that finishes 50 dispatches much sooner; hence the time floor.
+    /// Explicit, unverified contract on any other machine: the executable has no test target, so nothing exercises this.
+    func copyGBps(warmup: Int = 50, warmupSeconds: Double = 0.1, measured: Int = 50) throws -> Double {
         precondition(measured >= 1, "copyGBps needs at least one measured dispatch")
-        for _ in 0..<warmup { _ = try dispatch(loops: 1) }
+        let clock = ContinuousClock()
+        let warmupStart = clock.now
+        var warmed = 0
+        while warmed < warmup || clock.now - warmupStart < .seconds(warmupSeconds) { _ = try dispatch(loops: 1); warmed += 1 }
         var secs: [Double] = []
         for _ in 0..<measured { let t = try dispatch(loops: 1); secs.append(t.endSeconds - t.startSeconds) }
         let median = Stats.percentile(sorted: secs.sorted(), p: 0.5)
