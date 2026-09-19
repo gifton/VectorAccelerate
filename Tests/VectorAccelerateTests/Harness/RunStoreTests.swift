@@ -60,6 +60,11 @@ final class RunStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.writeRun(dotdot)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("environmentKey: ..")) }
         var sha = artifact(); sha.metadata.gitSHA = "../../x"
         XCTAssertThrowsError(try store.writeRun(sha)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("gitSHA: ../../x")) }
+        var nulKey = artifact(); nulKey.metadata.environmentKey = "..\u{0}"; nulKey.cases[0].id = "..\u{0}"; nulKey.cases[0].identity.id = "..\u{0}"
+        XCTAssertThrowsError(try store.captureBaseline(from: nulKey, approve: true, allowDirty: false)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("environmentKey: ..\u{0}")) }
+        XCTAssertThrowsError(try store.writeRun(nulKey)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("environmentKey: ..\u{0}")) }
+        var nulID = artifact(); nulID.cases[0].id = "a\u{0}b"; nulID.cases[0].identity.id = "a\u{0}b"
+        XCTAssertThrowsError(try store.captureBaseline(from: nulID, approve: true, allowDirty: false)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("caseID: a\u{0}b")) }
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.path), "an unsafe artifact must never create the store root")
     }
 

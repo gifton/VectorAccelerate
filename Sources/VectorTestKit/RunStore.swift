@@ -22,10 +22,16 @@ public struct RunStore: Sendable {
         f.dateFormat = "yyyyMMdd'T'HHmmss'Z'"; return f
     }()
 
-    /// Artifact strings become single path components under `root`. Empty, `.`, `..`, and anything containing `/` are
-    /// refused before any filesystem access (pinned by `RunStoreTests.testUnsafePathComponentsAreRefusedBeforeAnyWrite`).
+    /// Artifact strings become single path components under `root`. Two rules, both applied before any filesystem
+    /// access: (1) empty, `.`, `..`, anything containing `/`, and anything containing a NUL byte are refused; (2) the
+    /// value must come back unchanged from `URL.appendingPathComponent` / `lastPathComponent`, so a component the joiner
+    /// would not reproduce exactly (NUL truncation, an undecoded escape, any future normalization) is refused rather
+    /// than silently rewritten. Pinned by `RunStoreTests.testUnsafePathComponentsAreRefusedBeforeAnyWrite`.
     private static func checkComponent(_ value: String, what: String) throws {
-        if value.isEmpty || value.contains("/") || value == "." || value == ".." {
+        if value.isEmpty || value.contains("/") || value == "." || value == ".." || value.utf8.contains(0) {
+            throw RunStoreError.unsafePathComponent("\(what): \(value)")
+        }
+        guard URL(fileURLWithPath: "/").appendingPathComponent(value).lastPathComponent == value else {
             throw RunStoreError.unsafePathComponent("\(what): \(value)")
         }
     }

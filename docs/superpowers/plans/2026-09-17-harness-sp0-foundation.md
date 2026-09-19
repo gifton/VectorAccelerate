@@ -2214,6 +2214,11 @@ final class RunStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.writeRun(dotdot)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("environmentKey: ..")) }
         var sha = artifact(); sha.metadata.gitSHA = "../../x"
         XCTAssertThrowsError(try store.writeRun(sha)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("gitSHA: ../../x")) }
+        var nulKey = artifact(); nulKey.metadata.environmentKey = "..\u{0}"; nulKey.cases[0].id = "..\u{0}"; nulKey.cases[0].identity.id = "..\u{0}"
+        XCTAssertThrowsError(try store.captureBaseline(from: nulKey, approve: true, allowDirty: false)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("environmentKey: ..\u{0}")) }
+        XCTAssertThrowsError(try store.writeRun(nulKey)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("environmentKey: ..\u{0}")) }
+        var nulID = artifact(); nulID.cases[0].id = "a\u{0}b"; nulID.cases[0].identity.id = "a\u{0}b"
+        XCTAssertThrowsError(try store.captureBaseline(from: nulID, approve: true, allowDirty: false)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("caseID: a\u{0}b")) }
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.path), "an unsafe artifact must never create the store root")
     }
 
@@ -2265,10 +2270,16 @@ public struct RunStore: Sendable {
         f.dateFormat = "yyyyMMdd'T'HHmmss'Z'"; return f
     }()
 
-    /// Artifact strings become single path components under `root`. Empty, `.`, `..`, and anything containing `/` are
-    /// refused before any filesystem access (pinned by `RunStoreTests.testUnsafePathComponentsAreRefusedBeforeAnyWrite`).
+    /// Artifact strings become single path components under `root`. Two rules, both applied before any filesystem
+    /// access: (1) empty, `.`, `..`, anything containing `/`, and anything containing a NUL byte are refused; (2) the
+    /// value must come back unchanged from `URL.appendingPathComponent` / `lastPathComponent`, so a component the joiner
+    /// would not reproduce exactly (NUL truncation, an undecoded escape, any future normalization) is refused rather
+    /// than silently rewritten. Pinned by `RunStoreTests.testUnsafePathComponentsAreRefusedBeforeAnyWrite`.
     private static func checkComponent(_ value: String, what: String) throws {
-        if value.isEmpty || value.contains("/") || value == "." || value == ".." {
+        if value.isEmpty || value.contains("/") || value == "." || value == ".." || value.utf8.contains(0) {
+            throw RunStoreError.unsafePathComponent("\(what): \(value)")
+        }
+        guard URL(fileURLWithPath: "/").appendingPathComponent(value).lastPathComponent == value else {
             throw RunStoreError.unsafePathComponent("\(what): \(value)")
         }
     }
