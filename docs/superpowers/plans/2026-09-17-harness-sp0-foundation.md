@@ -3410,6 +3410,7 @@ enum RunCommand {
             mode: mode, samples: args.int("--samples") ?? mode.samples, iterations: args.int("--iterations") ?? mode.iterations,
             seed: args.value("--seed").flatMap(UInt64.init) ?? 42, validationLayers: args.has("--validation-layers"),
             requireGPU: args.has("--require-gpu"), probeSlowdown: args.int("--probe-slowdown") ?? 0, label: args.value("--label"))
+        guard options.samples >= 1, options.iterations >= 1 else { throw BenchError.usage("--samples and --iterations must be >= 1") }
         let include = args.value("--filter").map { [$0] } ?? [], exclude = args.value("--exclude").map { [$0] } ?? []
         let cases = try Registry.select(include: include, exclude: exclude)
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
@@ -3722,6 +3723,7 @@ In `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`:
 - §10: replace the `IndexRecallTests (ported)` row with `| \`IndexBenchmarkRecallValidationTests\` (retained, trimmed) — flat recall exactly 1.0; IVF recall > 0.95 at nprobe = nlist on a seeded set | keeps existing coverage |`.
 - §11 item 1: replace `+ ported (\`IndexRecallTests\`)` with `− one trimmed test`.
 - §5.4: replace the grammar line with `<family>(.<op>)+(.<param>=<value>)*(.<variant>)?` and note that the M0 ID `distance.l2.batch.n=10000.d=768` requires more than one bare op segment.
+- §5.3 (sampling): state that an adapter returns exactly one `GPUSample` per declared timing kind per iteration; a kind produced in any other shape is omitted from the artifact and noted on the record (Task 13 runner behaviour).
 - §4.8: the thermal-state list gains `"unknown"` (what `HostFingerprint.thermalStateName()` returns for `ProcessInfo.thermalState`'s `@unknown default`), matching the schema doc comment.
 
 - [ ] **Step 8: Full gates**
