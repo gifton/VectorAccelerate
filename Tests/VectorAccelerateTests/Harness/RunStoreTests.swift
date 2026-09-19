@@ -51,4 +51,29 @@ final class RunStoreTests: XCTestCase {
         var empty = artifact(); empty.cases[0].status = .unavailable
         XCTAssertThrowsError(try store.captureBaseline(from: empty, approve: false, allowDirty: false)) { XCTAssertEqual($0 as? RunStoreError, .noMeasuredCases) }
     }
+
+    func testUnsafePathComponentsAreRefusedBeforeAnyWrite() {
+        let store = RunStore(root: root)
+        var escape = artifact(); escape.cases[0].id = "../../escape"; escape.cases[0].identity.id = "../../escape"
+        XCTAssertThrowsError(try store.captureBaseline(from: escape, approve: true, allowDirty: false)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("caseID: ../../escape")) }
+        var dotdot = artifact(); dotdot.metadata.environmentKey = ".."
+        XCTAssertThrowsError(try store.writeRun(dotdot)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("environmentKey: ..")) }
+        var sha = artifact(); sha.metadata.gitSHA = "../../x"
+        XCTAssertThrowsError(try store.writeRun(sha)) { XCTAssertEqual($0 as? RunStoreError, .unsafePathComponent("gitSHA: ../../x")) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.path), "an unsafe artifact must never create the store root")
+    }
+
+    func testBadApprovedPointerIsSurfaced() throws {
+        let store = RunStore(root: root)
+        let key = artifact().metadata.environmentKey, id = "probe.gpu_copy.bytes=8"
+        let dir = root.appendingPathComponent("baselines/\(key)/\(id)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let pointer = dir.appendingPathComponent("approved")
+        try "abc\n".write(to: pointer, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try store.approvedVersion(environmentKey: key, caseID: id)) { XCTAssertEqual($0 as? RunStoreError, .badApprovedPointer("abc")) }
+        try "0\n".write(to: pointer, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try store.approvedVersion(environmentKey: key, caseID: id)) { XCTAssertEqual($0 as? RunStoreError, .badApprovedPointer("0")) }
+        try "9\n".write(to: pointer, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try store.approvedBaseline(environmentKey: key, caseID: id)) { XCTAssertEqual($0 as? RunStoreError, .badApprovedPointer("version 9 missing")) }
+    }
 }
