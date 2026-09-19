@@ -2480,6 +2480,36 @@ final class CompareTests: XCTestCase {
         XCTAssertTrue(Compare.render([r], format: "markdown").contains("| probe.gpu_copy.bytes=8 |"))
         XCTAssertNoThrow(try JSONDecoder().decode([CompareResult].self, from: Data(Compare.render([r], format: "json").utf8)))
     }
+
+    func testMarkdownWithMultipleResultsKeepsTableContiguous() throws {
+        let a = Compare.compare(new: record("probe.a", wall: [1, 1, 1]), baseline: nil, newKey: key, baselineKey: nil)
+        let b = Compare.compare(new: record("probe.b", wall: [1, 1, 1]), baseline: nil, newKey: key, baselineKey: nil)
+        let out = Compare.render([a, b], format: "markdown")
+        let lines = out.split(separator: "\n", omittingEmptySubsequences: false)
+        // Header, separator, and one placeholder row per result form one contiguous block.
+        let table = lines.indices.filter { lines[$0].hasPrefix("|") }
+        XCTAssertEqual(table.count, 4, out)
+        XCTAssertEqual(table, Array(try XCTUnwrap(table.first)...(try XCTUnwrap(table.last))), "table rows must be contiguous:\n\(out)")
+        XCTAssertTrue(lines.contains("| probe.a | incomparable | — | — | — | — | — |"), out)
+        XCTAssertTrue(lines.contains("| probe.b | incomparable | — | — | — | — | — |"), out)
+        // Reasons come after the table, separated by one blank line, one newline-terminated bullet each.
+        let lastRow = try XCTUnwrap(table.last)
+        XCTAssertEqual(lines[lastRow + 1], "", out)
+        let bullets = lines.indices.filter { lines[$0].hasPrefix("- ") }
+        XCTAssertTrue(bullets.allSatisfy { $0 > lastRow }, out)
+        XCTAssertEqual(bullets.map { String(lines[$0]) }, ["- probe.a: no baseline for probe.a under k1", "- probe.b: no baseline for probe.b under k1"])
+        XCTAssertTrue(out.hasSuffix("\n"), out)
+    }
+
+    func testTextRenderDoesNotTruncateLongIDs() {
+        let long = "distance.l2.batch.n=10000.d=768.k=100.nprobe=32.isolated_variant"
+        XCTAssertGreaterThan(long.count, 44)
+        let out = Compare.render([CompareResult(id: long, status: .ok, deltas: [], reasons: [])], format: "text")
+        XCTAssertTrue(out.contains(long), out)
+        XCTAssertTrue(out.hasPrefix("\(long) ok\n"), "a long id is printed in full followed by one space:\n\(out)")
+        let short = Compare.render([CompareResult(id: "a.b", status: .ok, deltas: [], reasons: [])], format: "text")
+        XCTAssertTrue(short.hasPrefix("a.b" + String(repeating: " ", count: 41) + " ok\n"), "a short id is still padded to 44 columns:\n\(short)")
+    }
 }
 ```
 
@@ -2493,6 +2523,7 @@ Expected: `cannot find 'Compare' in scope`.
 ```swift
 import Foundation
 
+/// Outcome of comparing one new case against its baseline. Raw values are the labels the renderers print.
 public enum CompareStatus: String, Codable, Sendable, Equatable {
     case ok
     case alertSlower = "alert(slower)"
@@ -2503,6 +2534,8 @@ public enum CompareStatus: String, Codable, Sendable, Equatable {
     case invalidArtifact
 }
 
+/// One timing kind's comparison. `delta` is `(newMedian - baseMedian) / baseMedian`; `boundary` is the symmetric
+/// alert threshold; `widened` is true when 2 × baseline RSD exceeded the 2.5% floor (`CompareTests.testBoundaryWidensWithBaselineRSD`).
 public struct KindDelta: Codable, Sendable, Equatable {
     public var kind: TimingKind
     public var newMedian: Double
@@ -2525,6 +2558,9 @@ public struct CompareResult: Codable, Sendable, Equatable {
 
 /// Owner policy (Q5, spec §5.6): alerts in both directions, boundary max(2.5%, 2 × baseline RSD), non-blocking
 /// unless strict; correctness, resource, and artifact failures block regardless of baseline availability.
+/// Precedence invalidArtifact → correctnessFailed → resourceFailed → incomparable → alert → ok is pinned by
+/// `CompareTests.testInvalidArtifact`, `testCorrectnessAndResourceFailuresWinEvenWithoutBaseline`,
+/// `testIncomparableIdentityKeyAndMissing`, and `testAlertSlowerAndFaster`; blocking rules by `testExitCodes`.
 public enum Compare {
     public static let floorBoundary = 0.025
 
@@ -2576,6 +2612,10 @@ public enum Compare {
         return 0
     }
 
+    /// Right-pads to `width` columns and never truncates, unlike `String.padding(toLength:)`
+    /// (`CompareTests.testTextRenderDoesNotTruncateLongIDs`).
+    private static func pad(_ s: String, to width: Int) -> String { s + String(repeating: " ", count: max(0, width - s.count)) }
+
     public static func render(_ results: [CompareResult], format: String) -> String {
         switch format {
         case "json":
@@ -2588,15 +2628,18 @@ public enum Compare {
                 for d in r.deltas {
                     out += "| \(r.id) | \(r.status.rawValue) | \(d.kind.rawValue) | \(String(format: "%.0f", d.newMedian)) | \(String(format: "%.0f", d.baseMedian)) | \(String(format: "%+.2f%%", d.delta * 100)) | \(String(format: "%.2f%%", d.boundary * 100))\(d.widened ? " (widened)" : "") |\n"
                 }
-                for reason in r.reasons { out += "\n- \(r.id): \(reason)" }
             }
+            // Reasons follow the whole table, after one blank line, so rows stay contiguous across results
+            // (`CompareTests.testMarkdownWithMultipleResultsKeepsTableContiguous`).
+            let bullets = results.flatMap { r in r.reasons.map { "- \(r.id): \($0)\n" } }
+            if !bullets.isEmpty { out += "\n" + bullets.joined() }
             return out
         default:
             var out = ""
             for r in results {
-                out += "\(r.id.padding(toLength: 44, withPad: " ", startingAt: 0)) \(r.status.rawValue)\n"
+                out += "\(pad(r.id, to: 44)) \(r.status.rawValue)\n"
                 for d in r.deltas {
-                    out += "    \(d.kind.rawValue.padding(toLength: 14, withPad: " ", startingAt: 0)) \(String(format: "%+.2f%%", d.delta * 100)) (boundary \(String(format: "%.2f%%", d.boundary * 100))\(d.widened ? ", widened" : ""))\(d.alerting ? "  <-- alert" : "")\n"
+                    out += "    \(pad(d.kind.rawValue, to: 14)) \(String(format: "%+.2f%%", d.delta * 100)) (boundary \(String(format: "%.2f%%", d.boundary * 100))\(d.widened ? ", widened" : ""))\(d.alerting ? "  <-- alert" : "")\n"
                 }
                 for reason in r.reasons { out += "    reason: \(reason)\n" }
             }
@@ -2609,7 +2652,7 @@ public enum Compare {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter CompareTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 8 tests, with 0 failures`
+Expected: `Executed 10 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
 

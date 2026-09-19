@@ -89,6 +89,10 @@ public enum Compare {
         return 0
     }
 
+    /// Right-pads to `width` columns and never truncates, unlike `String.padding(toLength:)`
+    /// (`CompareTests.testTextRenderDoesNotTruncateLongIDs`).
+    private static func pad(_ s: String, to width: Int) -> String { s + String(repeating: " ", count: max(0, width - s.count)) }
+
     public static func render(_ results: [CompareResult], format: String) -> String {
         switch format {
         case "json":
@@ -101,15 +105,18 @@ public enum Compare {
                 for d in r.deltas {
                     out += "| \(r.id) | \(r.status.rawValue) | \(d.kind.rawValue) | \(String(format: "%.0f", d.newMedian)) | \(String(format: "%.0f", d.baseMedian)) | \(String(format: "%+.2f%%", d.delta * 100)) | \(String(format: "%.2f%%", d.boundary * 100))\(d.widened ? " (widened)" : "") |\n"
                 }
-                for reason in r.reasons { out += "\n- \(r.id): \(reason)" }
             }
+            // Reasons follow the whole table, after one blank line, so rows stay contiguous across results
+            // (`CompareTests.testMarkdownWithMultipleResultsKeepsTableContiguous`).
+            let bullets = results.flatMap { r in r.reasons.map { "- \(r.id): \($0)\n" } }
+            if !bullets.isEmpty { out += "\n" + bullets.joined() }
             return out
         default:
             var out = ""
             for r in results {
-                out += "\(r.id.padding(toLength: 44, withPad: " ", startingAt: 0)) \(r.status.rawValue)\n"
+                out += "\(pad(r.id, to: 44)) \(r.status.rawValue)\n"
                 for d in r.deltas {
-                    out += "    \(d.kind.rawValue.padding(toLength: 14, withPad: " ", startingAt: 0)) \(String(format: "%+.2f%%", d.delta * 100)) (boundary \(String(format: "%.2f%%", d.boundary * 100))\(d.widened ? ", widened" : ""))\(d.alerting ? "  <-- alert" : "")\n"
+                    out += "    \(pad(d.kind.rawValue, to: 14)) \(String(format: "%+.2f%%", d.delta * 100)) (boundary \(String(format: "%.2f%%", d.boundary * 100))\(d.widened ? ", widened" : ""))\(d.alerting ? "  <-- alert" : "")\n"
                 }
                 for reason in r.reasons { out += "    reason: \(reason)\n" }
             }

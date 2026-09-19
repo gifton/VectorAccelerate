@@ -74,4 +74,34 @@ final class CompareTests: XCTestCase {
         XCTAssertTrue(Compare.render([r], format: "markdown").contains("| probe.gpu_copy.bytes=8 |"))
         XCTAssertNoThrow(try JSONDecoder().decode([CompareResult].self, from: Data(Compare.render([r], format: "json").utf8)))
     }
+
+    func testMarkdownWithMultipleResultsKeepsTableContiguous() throws {
+        let a = Compare.compare(new: record("probe.a", wall: [1, 1, 1]), baseline: nil, newKey: key, baselineKey: nil)
+        let b = Compare.compare(new: record("probe.b", wall: [1, 1, 1]), baseline: nil, newKey: key, baselineKey: nil)
+        let out = Compare.render([a, b], format: "markdown")
+        let lines = out.split(separator: "\n", omittingEmptySubsequences: false)
+        // Header, separator, and one placeholder row per result form one contiguous block.
+        let table = lines.indices.filter { lines[$0].hasPrefix("|") }
+        XCTAssertEqual(table.count, 4, out)
+        XCTAssertEqual(table, Array(try XCTUnwrap(table.first)...(try XCTUnwrap(table.last))), "table rows must be contiguous:\n\(out)")
+        XCTAssertTrue(lines.contains("| probe.a | incomparable | — | — | — | — | — |"), out)
+        XCTAssertTrue(lines.contains("| probe.b | incomparable | — | — | — | — | — |"), out)
+        // Reasons come after the table, separated by one blank line, one newline-terminated bullet each.
+        let lastRow = try XCTUnwrap(table.last)
+        XCTAssertEqual(lines[lastRow + 1], "", out)
+        let bullets = lines.indices.filter { lines[$0].hasPrefix("- ") }
+        XCTAssertTrue(bullets.allSatisfy { $0 > lastRow }, out)
+        XCTAssertEqual(bullets.map { String(lines[$0]) }, ["- probe.a: no baseline for probe.a under k1", "- probe.b: no baseline for probe.b under k1"])
+        XCTAssertTrue(out.hasSuffix("\n"), out)
+    }
+
+    func testTextRenderDoesNotTruncateLongIDs() {
+        let long = "distance.l2.batch.n=10000.d=768.k=100.nprobe=32.isolated_variant"
+        XCTAssertGreaterThan(long.count, 44)
+        let out = Compare.render([CompareResult(id: long, status: .ok, deltas: [], reasons: [])], format: "text")
+        XCTAssertTrue(out.contains(long), out)
+        XCTAssertTrue(out.hasPrefix("\(long) ok\n"), "a long id is printed in full followed by one space:\n\(out)")
+        let short = Compare.render([CompareResult(id: "a.b", status: .ok, deltas: [], reasons: [])], format: "text")
+        XCTAssertTrue(short.hasPrefix("a.b" + String(repeating: " ", count: 41) + " ok\n"), "a short id is still padded to 44 columns:\n\(short)")
+    }
 }
