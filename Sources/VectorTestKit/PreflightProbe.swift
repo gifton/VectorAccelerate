@@ -12,7 +12,7 @@ public enum PreflightProbe {
     /// copy times are bimodal and alternate, which leaves the median in the valley between the modes. On identical data — ten
     /// trials of ten readings with no other process above 60 % CPU — the range of the ten readings was at most 1.76 % of their
     /// median for the 5th percentile of 100 copies (typically 1.08 %), against 1.89 % for the minimum, 2.11 % for the 10th
-    /// percentile and 3.57 % for the median. With another session compiling, every estimator spread 2–11 %: that is the
+    /// percentile and 3.57 % for the median. With another session compiling, every estimator spread 2–12 %: that is the
     /// machine not being quiet, which the gate exists to report. Explicit, unverified contract on any other machine;
     /// exercised only by the opt-in `PreflightInstrumentCheckTests`.
     public static func cpuCopyGBps(bytes: Int = 268_435_456, repeats: Int = 100, warmupRepeats: Int = 20, warmupSeconds: Double = 0.2) -> Double {

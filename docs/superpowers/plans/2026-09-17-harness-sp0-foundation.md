@@ -1843,10 +1843,10 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `Sources/VectorTestKit/HostFingerprint.swift`, `Sources/VectorTestKit/PreflightProbe.swift`
-- Test: `Tests/VectorAccelerateTests/Harness/FingerprintTests.swift`
+- Test: `Tests/VectorAccelerateTests/Harness/FingerprintTests.swift`, `Tests/VectorAccelerateTests/Harness/PreflightInstrumentCheckTests.swift` (opt-in; added by Task 15's review round 2)
 
 **Interfaces:**
-- Produces: `public struct HostFingerprint: Sendable, Equatable` (fields below) with `static func gather(packageRoot: URL?) -> HostFingerprint`, `static func thermalStateName() -> String`, `static func detectSwiftVersion() -> String`, `static var buildConfiguration: String`, `static func deviceTag(arch:osVersion:hostname:) -> String`; `public enum Subprocess { static func run(_ executable: String, _ args: [String], cwd: URL? = nil, timeout: TimeInterval = 5) -> String? }`; `public enum PowerState { static func read() -> PowerInfo }`; `public enum EnvironmentKey { static func slug(_:) -> String; static func make(chip:gpuCores:osBuild:metalToolchain:swiftVersion:buildConfiguration:validationLayers:) -> String }`; `public enum PreflightProbe { static func cpuCopyGBps(bytes: Int = 268_435_456, repeats: Int = 3) -> Double; static func evaluate(cpu: StartEnd, gpu: StartEnd?, thermalStart: String, thermalEnd: String, gpuDeviceExists: Bool, driftLimitPercent: Double = 5) -> PreflightRecord }`.
+- Produces: `public struct HostFingerprint: Sendable, Equatable` (fields below) with `static func gather(packageRoot: URL?) -> HostFingerprint`, `static func thermalStateName() -> String`, `static func detectSwiftVersion() -> String`, `static var buildConfiguration: String`, `static func deviceTag(arch:osVersion:hostname:) -> String`; `public enum Subprocess { static func run(_ executable: String, _ args: [String], cwd: URL? = nil, timeout: TimeInterval = 5) -> String? }`; `public enum PowerState { static func read() -> PowerInfo }`; `public enum EnvironmentKey { static func slug(_:) -> String; static func make(chip:gpuCores:osBuild:metalToolchain:swiftVersion:buildConfiguration:validationLayers:) -> String }`; `public enum PreflightProbe { static func cpuCopyGBps(bytes: Int = 268_435_456, repeats: Int = 100, warmupRepeats: Int = 20, warmupSeconds: Double = 0.2) -> Double; static func evaluate(cpu: StartEnd, gpu: StartEnd?, thermalStart: String, thermalEnd: String, gpuDeviceExists: Bool, driftLimitPercent: Double = 5) -> PreflightRecord }`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2093,21 +2093,36 @@ import Foundation
 /// Calibration probes run before and after every run (spec §4.10). CPU copy here; the GPU copy lives in
 /// the executable because it needs Metal. GB/s counts read plus write: 2 × bytes / seconds / 1e9.
 public enum PreflightProbe {
-    public static func cpuCopyGBps(bytes: Int = 268_435_456, repeats: Int = 3) -> Double {
+    /// Copy bandwidth from the fast 5th percentile of `repeats` timed copies, taken after a warm-up that ends only when BOTH
+    /// `warmupRepeats` copies AND `warmupSeconds` of wall time have passed. GB/s counts read plus write.
+    ///
+    /// Why, from docs/superpowers/research/2026-09-18-preflight-probe-characterization.md (one M3 Max, never fully idle):
+    /// a thread that was idle, blocked or waiting on subprocesses copies at as little as 0.52× its settled rate for up to 17
+    /// copies (111.5 ms), so the previous best-of-3 with no warm-up read 56–117 GB/s across ten readings 0.3 s apart. Settled
+    /// copy times are bimodal and alternate, which leaves the median in the valley between the modes. On identical data — ten
+    /// trials of ten readings with no other process above 60 % CPU — the range of the ten readings was at most 1.76 % of their
+    /// median for the 5th percentile of 100 copies (typically 1.08 %), against 1.89 % for the minimum, 2.11 % for the 10th
+    /// percentile and 3.57 % for the median. With another session compiling, every estimator spread 2–12 %: that is the
+    /// machine not being quiet, which the gate exists to report. Explicit, unverified contract on any other machine;
+    /// exercised only by the opt-in `PreflightInstrumentCheckTests`.
+    public static func cpuCopyGBps(bytes: Int = 268_435_456, repeats: Int = 100, warmupRepeats: Int = 20, warmupSeconds: Double = 0.2) -> Double {
         precondition(bytes > 0, "cpuCopyGBps needs at least one byte")
         let src = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 16_384)
         let dst = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 16_384)
         defer { src.deallocate(); dst.deallocate() }
         memset(src, 0x5A, bytes); memset(dst, 0, bytes)
-        var best = Double.infinity
         let clock = ContinuousClock()
+        let warmupStart = clock.now
+        var warmed = 0
+        while warmed < warmupRepeats || clock.now - warmupStart < .seconds(warmupSeconds) { memcpy(dst, src, bytes); warmed += 1 }
+        var seconds: [Double] = []
         for _ in 0..<max(repeats, 1) {
             let d = clock.measure { memcpy(dst, src, bytes) }
-            let seconds = Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18
-            best = min(best, seconds)
+            seconds.append(Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18)
         }
         blackHole(dst.load(as: UInt8.self))
-        return best > 0 ? 2.0 * Double(bytes) / best / 1e9 : 0
+        let fast = Stats.percentile(sorted: seconds.sorted(), p: 0.05)
+        return fast > 0 ? 2.0 * Double(bytes) / fast / 1e9 : 0
     }
 
     public static func evaluate(cpu: StartEnd, gpu: StartEnd?, thermalStart: String, thermalEnd: String,
@@ -2120,6 +2135,40 @@ public enum PreflightProbe {
         if thermalEnd != "nominal" { reasons.append("thermal state end=\(thermalEnd) (not nominal)") }
         if gpu == nil && gpuDeviceExists { reasons.append("GPU probe unavailable although a Metal device exists") }
         return PreflightRecord(cpuCopyGBps: cpu, gpuCopyGBps: gpu, driftPercent: d, quiet: reasons.isEmpty, reasons: reasons)
+    }
+}
+```
+
+`Tests/VectorAccelerateTests/Harness/PreflightInstrumentCheckTests.swift` — the opt-in instrument check (Task 15 review round 2; skipped unless `VA_INSTRUMENT_CHECK=1`, so it does not change the default counts below):
+
+```swift
+import XCTest
+import VectorTestKit
+
+/// Opt-in instrument check: skipped unless the environment has `VA_INSTRUMENT_CHECK=1`, so the default suite cannot flake on a
+/// loaded machine. It closes, for the CPU probe, the class "a preflight probe whose own repeatability is comparable to the 5 %
+/// quiet gate": ten readings separated by 0.3 s idle sleeps (the gaps that used to land the reading on the post-idle ramp) must
+/// span less than 2.5 % of their median, half the gate. A failure means either the instrument or the machine moved by that
+/// much during the ten readings; it does not say which.
+///
+/// It does NOT cover the GPU probe: `GPUProbe` lives in the executable target, which has no test target. That probe's
+/// repeatability rests only on the recorded runs in docs/superpowers/research/2026-09-18-preflight-probe-characterization.md.
+final class PreflightInstrumentCheckTests: XCTestCase {
+    func testCPUProbeReadingsSpanLessThanHalfTheQuietGate() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["VA_INSTRUMENT_CHECK"] == "1",
+                          "instrument check is opt-in: set VA_INSTRUMENT_CHECK=1")
+        var readings: [Double] = []
+        for _ in 0..<10 {
+            Thread.sleep(forTimeInterval: 0.3)
+            readings.append(PreflightProbe.cpuCopyGBps())
+        }
+        let sorted = readings.sorted()
+        let median = Stats.percentile(sorted: sorted, p: 0.5)
+        let spread = (sorted[sorted.count - 1] - sorted[0]) / median
+        print("VA_INSTRUMENT_CHECK cpuCopyGBps GB/s: " + readings.map { String(format: "%.1f", $0) }.joined(separator: " ")
+              + String(format: " | (max-min)/median = %.2f %%", spread * 100))
+        XCTAssertGreaterThan(median, 0)
+        XCTAssertLessThan(spread, 0.025, "ten CPU-probe readings spanned \(spread * 100) % of their median; the quiet gate is 5 %")
     }
 }
 ```
@@ -2793,6 +2842,9 @@ enum BenchMode: String {
 }
 
 struct RunOptions: Sendable {
+    /// The seed a run uses when `--seed` is absent; also the seed a seed-dependent case describes before `prepare` has run.
+    static let defaultSeed: UInt64 = 42
+
     var mode: BenchMode
     var samples: Int
     var iterations: Int
@@ -2852,6 +2904,7 @@ enum BenchError: Error, CustomStringConvertible {
     case usage(String)
     case registry(String)
     case probeSetup(String)
+    case outputExists(String)
     var description: String {
         switch self {
         case .metalUnavailable: return "Metal device unavailable"
@@ -2859,6 +2912,15 @@ enum BenchError: Error, CustomStringConvertible {
         case .usage(let m): return m
         case .registry(let m): return "registry error: \(m)"
         case .probeSetup(let m): return "GPU probe setup failed: \(m)"
+        case .outputExists(let path): return "output path already exists and is never overwritten: \(path)"
+        }
+    }
+
+    /// Spec §7: caller-input errors and startup errors (duplicate registry IDs) exit 2; every other failure exits 1.
+    var exitCode: Int32 {
+        switch self {
+        case .usage, .registry: return 2
+        case .metalUnavailable, .routeMismatch, .probeSetup, .outputExists: return 1
         }
     }
 }
@@ -2884,9 +2946,6 @@ enum Runner {
 
         do {
             let prepared = try await c.prepare(context)
-            // Contract (unverified until adapters exist): an adapter whose identity depends on the run seed must be a class that
-            // republishes `identity` after prepare() (the Task 15 distance case does this); struct adapters carry registration-time identity.
-            record.identity = c.identity
             var wall: [[Double]] = [], cb: [[Double]] = [], enc: [[Double]] = []
             var lastOutput: IterationOutput?
             var anyCorrectnessFailed = false
@@ -2899,6 +2958,12 @@ enum Runner {
                     warm.append(ns(clock.now - start))
                 } while !policy.shouldStop(after: warm)
                 record.warmupUsed.append(warm.count)
+                // Visibility only: the same policy with its maximum lifted says whether the CoV rule was met or the cap ended the warm-up.
+                var uncapped = policy
+                uncapped.maximum = .max
+                if !uncapped.shouldStop(after: warm) {
+                    record.notes.append("sample \(k + 1): warm-up ended at the policy maximum (\(warm.count)) with CoV ≥ \(policy.cov) over the last \(policy.window) iterations")
+                }
 
                 var w: [Double] = [], b: [Double] = [], e: [Double] = []
                 for _ in 0..<o.iterations {
@@ -2944,6 +3009,10 @@ enum Runner {
             record.correctness = nil
             record.timing = Timing(wall: nil, commandBuffer: nil, encoder: nil)
         }
+        // Re-read after `prepare` whatever its outcome. Contract on adapters (unverified, no test): one whose identity depends on the
+        // run seed is a class that publishes the seeded identity before anything in its `prepare` can throw (`L2BatchDistanceCase`
+        // does), so failed and unavailable records carry the run's seed and digest too; struct adapters return the same value as before.
+        record.identity = c.identity
         return record
     }
 }
@@ -3045,9 +3114,9 @@ do {
     case "compare": status = try CompareCommand.run(args)             // Task 16
     default: print(usage); status = args.command == "help" ? 0 : 2
     }
-} catch BenchError.usage(let message) {
-    FileHandle.standardError.write(Data("error: \(message)\n".utf8))
-    status = 2
+} catch let error as BenchError {
+    FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+    status = error.exitCode
 } catch {
     FileHandle.standardError.write(Data("error: \(error)\n".utf8))
     status = 1
@@ -3211,15 +3280,23 @@ final class GPUProbe: @unchecked Sendable {
     }
 
     /// GB/s counting read plus write, like `PreflightProbe.cpuCopyGBps`: 2 × bytes / median seconds / 1e9.
-    /// The warm-up is a fixed 50 dispatches rather than `WarmupPolicy`, and the median is over 50, because of what 81 recorded
-    /// series (13,500 dispatches, M3 Max) showed: after 0.25 s or more of GPU idle the first dispatches take about 1.9× the settled
-    /// time and the series needs up to 41 dispatches to settle; that slow plateau is steady enough (CoV < 5 %) for the policy to
-    /// stop on it at n = 3; and a median of 10 settled dispatches strays up to 4.66 % from its series' level against 1.85 % for a
-    /// median of 50, with a 5 % quiet gate on the difference of two readings. Numbers: plan Task 17 Step 7, spec §5.8 amendment.
-    /// Unverified on any other GPU, and no test exercises it.
-    func copyGBps(warmup: Int = 50, measured: Int = 50) throws -> Double {
+    /// Warm-up ends only when BOTH `warmup` dispatches AND `warmupSeconds` of wall time have passed; the reading is the median of
+    /// `measured` dispatches, which stays on the settled level as long as fewer than half of them (25 of 50) are slow.
+    ///
+    /// Why, from docs/superpowers/research/2026-09-18-preflight-probe-characterization.md (81 series, 13,500 dispatches, one
+    /// M3 Max): after GPU idle — seen at process start and after gaps from 0.1 s to 5 s, in 56 of the 81 series — the first
+    /// dispatches run slow (median 1.88×, range 1.08–2.40× the settled time) and reach the settled level after at most 41
+    /// dispatches, or 55.5 ms of wall time in the 36 wall-stamped series. `WarmupPolicy` cannot find that point: the slow plateau is itself steady (CoV < 5 %), so the
+    /// policy stopped on it at n = 3 in 3 of 45 series. A median of 10 settled dispatches strayed up to 4.66 % from its series'
+    /// level, a median of 50 up to 1.85 %, against a 5 % quiet gate on the difference of two readings. The ramp is a wall-time
+    /// effect, so the count alone would not carry to a GPU that finishes 50 dispatches much sooner; hence the time floor.
+    /// Explicit, unverified contract on any other machine: the executable has no test target, so nothing exercises this.
+    func copyGBps(warmup: Int = 50, warmupSeconds: Double = 0.1, measured: Int = 50) throws -> Double {
         precondition(measured >= 1, "copyGBps needs at least one measured dispatch")
-        for _ in 0..<warmup { _ = try dispatch(loops: 1) }
+        let clock = ContinuousClock()
+        let warmupStart = clock.now
+        var warmed = 0
+        while warmed < warmup || clock.now - warmupStart < .seconds(warmupSeconds) { _ = try dispatch(loops: 1); warmed += 1 }
         var secs: [Double] = []
         for _ in 0..<measured { let t = try dispatch(loops: 1); secs.append(t.endSeconds - t.startSeconds) }
         let median = Stats.percentile(sorted: secs.sorted(), p: 0.5)
@@ -3305,41 +3382,43 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift`, `Commands/RunCommand.swift`
-- Modify: `Cases/Registry.swift`, `main.swift` (remove the `RunCommand` stub). Folded back into the earlier tasks' blocks by this task's review rounds, so those blocks already carry them: `CLI/Arguments.swift` (`parsed` replaces `int`), `main.swift` (a thrown `BenchError.usage` exits 2), `Runner/BenchCase.swift` (`BenchError.probeSetup`), `Probe/GPUProbe.swift` (`probeSetup` throw; `copyGBps` warm-up 50, measured 50)
+- Modify: `Cases/Registry.swift`, `main.swift` (remove the `RunCommand` stub). Folded back into the earlier tasks' blocks by this task's review rounds, so those blocks already carry them: `CLI/Arguments.swift` (`parsed` replaces `int`), `main.swift` (`BenchError.exitCode`: usage and registry errors exit 2), `Runner/BenchCase.swift` (`BenchError.probeSetup`, `.outputExists`, `exitCode`; `RunOptions.defaultSeed`), `Runner/Runner.swift` (identity re-read after `prepare` whatever its outcome; note when a warm-up ends at the policy maximum without the CoV rule met), `Probe/GPUProbe.swift` (`probeSetup` throw; `copyGBps` warm-up ≥ 50 dispatches AND ≥ 0.1 s, median of 50), `Sources/VectorTestKit/PreflightProbe.swift` (Task 10: warm-up ≥ 20 copies AND ≥ 0.2 s, fast 5th percentile of 100), and the opt-in `PreflightInstrumentCheckTests`. Evidence: `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`
 
 **Interfaces:**
 - Consumes: `MetalComputeProvider(context:configuration:)`, `MetalComputeProvider.Configuration(preferGPU:fallbackToCPU:)`, `batchDistance(query:candidates:metric: .euclidean)`, `routingTelemetry().gpuKernel`, `Metal4Context()`, `Metal4Context.lastGPUTiming` (`GPUTimingInfo.gpuStartTime/gpuEndTime`, seconds), `DynamicVector([Float])` from VectorCore, `Tolerance.forSum`, `Comparator`, `PreflightProbe`, `HostFingerprint`, `MetalFingerprint`, `GPUProbe`, `RunStore`, `Runner`, `Registry`.
-- Produces: `enum DistanceCases { static var all: [any BenchCase] }`; `enum RunCommand { static func run(_ args: Arguments) async throws -> Int32 }`; `enum BenchVersion { static let package = "unreleased" }` (no version number is committed until the owner's release discussion concludes; `packageVersion` is an unvalidated free string that nothing compares on). Consumes from Task 13 as amended: `Arguments.parsed<T>(_ key: String, expecting: String, _ parse: (String) -> T?) throws -> T?` (absent → `nil`, present-but-unparseable → `BenchError.usage` naming the option and the value) and `main.swift` exiting 2 on a thrown `BenchError.usage`, 1 on any other error.
+- Produces: `enum DistanceCases { static var all: [any BenchCase] }`; `enum RunCommand { static func run(_ args: Arguments) async throws -> Int32 }`; `enum BenchVersion { static let package = "unreleased" }` (no version number is committed until the owner's release discussion concludes; `packageVersion` is an unvalidated free string that nothing compares on). Consumes from Task 13 as amended: `Arguments.parsed<T>(_ key: String, expecting: String, _ parse: (String) -> T?) throws -> T?` (absent → `nil`, present-but-unparseable → `BenchError.usage` naming the option and the value) and `main.swift` exiting with `BenchError.exitCode` (2 for usage and registry errors, 1 otherwise; 1 for any non-`BenchError`).
 
 - [ ] **Step 1: `Cases/Distance/DistanceCases.swift`**
 
 ```swift
 import Foundation
 import Metal
+import Synchronization
 import VectorCore
 import VectorAccelerate
 import VectorTestKit
 
-/// Batch L2 distance through the public façade at N=10,000, D=768 (spec §5.7). Route is verified per call via
-/// routing telemetry; `.commandBuffer` timing is the context's last GPU timing read immediately after the single submission.
+/// Batch L2 distance through the public façade at N=10,000, D=768 (spec §5.7). Route is verified per call via routing telemetry.
 ///
-/// `@unchecked Sendable` is a contract on the caller, not a verified property (no test exercises it). `cachedIdentity` is the
-/// only mutable stored property and it is unguarded: `prepare` writes it, `identity` reads it. `Runner.run` touches one case
-/// strictly in sequence inside one task — it reads `c.identity` to build the `CaseRecord`, then `try await c.prepare(context)`,
-/// then `record.identity = c.identity` — and `RunCommand` awaits each `Runner.run` before starting the next, on an instance that
-/// `DistanceCases.all` created for that `Registry.select` call alone. A caller that shares one instance between concurrent
-/// `Runner.run` calls, or reads `identity` while `prepare` is in flight, has a data race.
-final class L2BatchDistanceCase: BenchCase, @unchecked Sendable {
+/// `.commandBuffer` timing is `Metal4Context.lastGPUTiming` read right after the call. Contract, not derivable from this file:
+/// that value covers the whole call only while `L2KernelDistanceProvider.batchDistance` makes exactly one `executeAndWait`
+/// submission (Sources/VectorAccelerate/Integration/KernelDistanceProviders.swift:135) and `Metal4Context` sets or clears
+/// `_lastGPUTiming` once per submission (Core/Metal4Context.swift:435-441). If that path ever chunks into several submissions,
+/// this series silently reports only the last one. No test pins it.
+final class L2BatchDistanceCase: BenchCase {
     static let n = 10_000, d = 768
     static let candidateStream: UInt64 = 10, queryStream: UInt64 = 11
+    static let caseID = "distance.l2.batch.n=\(n).d=\(d)"
 
-    let id = try! CaseID(validating: "distance.l2.batch.n=\(L2BatchDistanceCase.n).d=\(L2BatchDistanceCase.d)")
+    let id = try! CaseID(validating: L2BatchDistanceCase.caseID)
     let providedTiming: Set<TimingKind> = [.wall, .commandBuffer]
     let unitCount = L2BatchDistanceCase.n
 
-    /// Finalized in `prepare` from the run seed; before that it describes the default seed 42 fixture.
-    private var cachedIdentity: CaseIdentity?
-    var identity: CaseIdentity { cachedIdentity ?? Self.makeIdentity(seed: 42, fixture: Self.fixture(seed: 42)) }
+    /// Published by `prepare` from the run seed before anything there can throw; until then `identity` describes the default-seed fixture.
+    private let publishedIdentity = Mutex<CaseIdentity?>(nil)
+    var identity: CaseIdentity {
+        publishedIdentity.withLock { $0 } ?? Self.makeIdentity(seed: RunOptions.defaultSeed, fixture: Self.fixture(seed: RunOptions.defaultSeed))
+    }
 
     static func fixture(seed: UInt64) -> (candidates: [[Float]], query: [Float]) {
         var g = VectorGenerator(seed: seed, stream: candidateStream)
@@ -3350,16 +3429,17 @@ final class L2BatchDistanceCase: BenchCase, @unchecked Sendable {
     }
 
     static func makeIdentity(seed: UInt64, fixture f: (candidates: [[Float]], query: [Float])) -> CaseIdentity {
-        CaseIdentity(id: "distance.l2.batch.n=\(n).d=\(d)",
+        CaseIdentity(id: caseID,
                      fixtureDigest: ContentDigest.sha256([.int(n), .int(d), .floats(f.candidates.flatMap { $0 }), .floats(f.query)]),
                      generatorVersion: VectorGenerator.version, seed: seed, stream: candidateStream,
                      route: "gpu.l2.batch", variant: nil, dataDescriptor: "uniform[-1,1]")
     }
 
     func prepare(_ ctx: BenchContext) async throws -> any PreparedCase {
-        guard ctx.device != nil else { throw BenchError.metalUnavailable }
         let f = Self.fixture(seed: ctx.options.seed)
-        cachedIdentity = Self.makeIdentity(seed: ctx.options.seed, fixture: f)
+        let seeded = Self.makeIdentity(seed: ctx.options.seed, fixture: f)
+        publishedIdentity.withLock { $0 = seeded }   // first: `Runner.run` re-reads `identity` after `prepare` even when the lines below throw
+        guard ctx.device != nil else { throw BenchError.metalUnavailable }
         let context = try await Metal4Context()
         let provider = try await MetalComputeProvider(context: context, configuration: .init(preferGPU: true, fallbackToCPU: false))
         return Prepared(context: context, provider: provider, query: DynamicVector(f.query), candidates: f.candidates.map { DynamicVector($0) },
@@ -3368,10 +3448,18 @@ final class L2BatchDistanceCase: BenchCase, @unchecked Sendable {
     }
 
     final class Prepared: PreparedCase {
+        static let comparator = "squared-distance vs Double oracle"
+
         let context: Metal4Context; let provider: MetalComputeProvider
         let query: DynamicVector; let candidates: [DynamicVector]; let oracleSquared: [Double]
-        // Reduction order inside the kernel is not documented, so the conservative sequential bound applies until SP2 derives
-        // per-kernel tolerances. Components are in [-1,1] ⇒ each squared difference ≤ 4 ⇒ Σ|xᵢ| ≤ 4·D.
+        // `verify` compares (Float distance)² in Double with the Double oracle Σ(qᵢ−cᵢ)². Components lie in [-1,1], so each term is ≤ 4
+        // and Σ ≤ 4·D = 3072. `forSum(.sequential)` gives 2·u·D·3072 = 0.28125 with u = 2⁻²⁴. Error budget it has to cover, assuming
+        // round-to-nearest fp32 operations in the kernel (unverified: the kernel's reduction order and fast-math setting are not
+        // documented, which is also why the sequential bound is used until SP2 derives per-kernel tolerances):
+        //   summation of D non-negative terms, any order   ≤ (D−1)·u·3072 = 767·u·3072
+        //   per-term rounding (one subtract, one square)   ≤ D·3u·4       =   3·u·3072
+        //   fp32 sqrt, then squaring that result in Double ≤ 2u·3072      =   2·u·3072
+        // Total ≤ 772·u·3072 ≈ 0.1414, about half of 0.28125. The Double oracle's own error (≈ 768·2⁻⁵³·3072 ≈ 2.6e-10) is negligible.
         let tolerance = Tolerance.forSum(terms: L2BatchDistanceCase.d, reduction: .sequential, magnitude: 4 * Double(L2BatchDistanceCase.d))
 
         init(context: Metal4Context, provider: MetalComputeProvider, query: DynamicVector, candidates: [DynamicVector], oracleSquared: [Double]) {
@@ -3393,21 +3481,26 @@ final class L2BatchDistanceCase: BenchCase, @unchecked Sendable {
 
         func verify(_ output: IterationOutput) throws -> Correctness {
             guard let distances = output.payload as? [Float], distances.count == oracleSquared.count else {
-                return Correctness(status: .fail, comparator: "squared-distance vs Double oracle", tolerance: tolerance, maxAbsError: nil, maxRelError: nil, recall: nil, recallPolicy: nil, notes: ["result count mismatch"])
+                return Correctness(status: .fail, comparator: Self.comparator, tolerance: tolerance, maxAbsError: nil, maxRelError: nil,
+                                   recall: nil, recallPolicy: nil, notes: ["result count mismatch"])
             }
-            var maxAbs = 0.0, maxRel = 0.0, failures = 0
+            // maxRelError uses the comparator's definition everywhere: |got − oracle| / max(|got|, |oracle|), 0 when both are 0.
+            var maxAbs = 0.0, maxRel = 0.0, failures = 0, invalid = 0
             for (i, dist) in distances.enumerated() {
-                let got = Double(dist) * Double(dist)
-                switch Comparator.compare(got, oracleSquared[i], tolerance: tolerance) {
-                case .equal, .withinTolerance:
-                    let abs = Swift.abs(got - oracleSquared[i]); maxAbs = max(maxAbs, abs); maxRel = max(maxRel, oracleSquared[i] > 0 ? abs / oracleSquared[i] : 0)
-                case .classMismatch: failures += 1
-                case .outOfTolerance(let a, let r): failures += 1; maxAbs = max(maxAbs, a); maxRel = max(maxRel, r)
+                // Squaring would hide a wrong sign, and a distance is never negative, NaN or infinite.
+                guard dist.isFinite, dist >= 0 else { failures += 1; invalid += 1; continue }
+                let got = Double(dist) * Double(dist), oracle = oracleSquared[i]
+                let absError = Swift.abs(got - oracle), scale = max(Swift.abs(got), Swift.abs(oracle))
+                maxAbs = max(maxAbs, absError); maxRel = max(maxRel, scale > 0 ? absError / scale : 0)
+                switch Comparator.compare(got, oracle, tolerance: tolerance) {
+                case .equal, .withinTolerance: break
+                case .classMismatch, .outOfTolerance: failures += 1
                 }
             }
-            return Correctness(status: failures == 0 ? .pass : .fail, comparator: "squared-distance vs Double oracle", tolerance: tolerance,
-                               maxAbsError: maxAbs, maxRelError: maxRel, recall: nil, recallPolicy: nil,
-                               notes: failures == 0 ? ["sequential fp32 sum bound, D=768, |x|≤1"] : ["\(failures) of \(distances.count) distances outside tolerance"])
+            let notes = failures == 0 ? ["sequential fp32 sum bound, D=768, |x|≤1"]
+                : ["\(failures) of \(distances.count) distances outside tolerance" + (invalid > 0 ? " (\(invalid) negative or non-finite)" : "")]
+            return Correctness(status: failures == 0 ? .pass : .fail, comparator: Self.comparator, tolerance: tolerance,
+                               maxAbsError: maxAbs, maxRelError: maxRel, recall: nil, recallPolicy: nil, notes: notes)
         }
 
         func resources() -> Resources? { nil }
@@ -3439,30 +3532,40 @@ enum BenchVersion { static let package = "unreleased" }   // set when a release 
 
 enum RunCommand {
     static func run(_ args: Arguments) async throws -> Int32 {
-        // The five typed options go through `Arguments.parsed`: absent takes the default, present-but-unparseable throws `BenchError.usage`.
-        let mode = try args.parsed("--mode", expecting: "smoke, quick or full", { BenchMode(rawValue: $0) }) ?? .quick
-        let options = try RunOptions(
-            mode: mode,
-            samples: args.parsed("--samples", expecting: "an integer", { Int($0) }) ?? mode.samples,
-            iterations: args.parsed("--iterations", expecting: "an integer", { Int($0) }) ?? mode.iterations,
-            seed: args.parsed("--seed", expecting: "an unsigned 64-bit integer", { UInt64($0) }) ?? 42,
-            validationLayers: args.has("--validation-layers"), requireGPU: args.has("--require-gpu"),
-            probeSlowdown: args.parsed("--probe-slowdown", expecting: "a non-negative integer", { Int($0).flatMap { $0 >= 0 ? $0 : nil } }) ?? 0,
-            label: args.value("--label"))
-        guard options.samples >= 1, options.iterations >= 1 else { throw BenchError.usage("--samples and --iterations must be >= 1") }
+        let options = try parseOptions(args)
         let include = args.value("--filter").map { [$0] } ?? [], exclude = args.value("--exclude").map { [$0] } ?? []
         let cases = try Registry.select(include: include, exclude: exclude)
+        guard !cases.isEmpty else {
+            throw BenchError.usage("no case selected: --filter \(include.first.map { "'\($0)'" } ?? "(none)") --exclude \(exclude.first.map { "'\($0)'" } ?? "(none)") "
+                                   + "matched 0 of \(Registry.all.count) registered case(s); see `list`")
+        }
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let out = args.value("--out").map { URL(fileURLWithPath: $0) }
+        // Spec §7: an existing path is an error and is never overwritten. Checked before the run so the measurements are not lost;
+        // `.withoutOverwriting` in `write` remains the backstop for a file that appears during the run.
+        if let out, FileManager.default.fileExists(atPath: out.path) { throw BenchError.outputExists(out.path) }
 
         let device = MTLCreateSystemDefaultDevice()
         let host = HostFingerprint.gather(packageRoot: root)
         let gpu = MetalFingerprint.gather(device: device)
         let context = BenchContext(device: device, host: host, gpu: gpu, options: options)
 
+        // Spec §4.10: a preflight GPU probe that cannot be set up or read makes the probe "unavailable" (quiet: false with the
+        // reason recorded); it never aborts the run, so the cases still run and the artifact is still written.
+        var gpuProbeFailures: [String] = []
+        func attempt<T>(_ step: String, _ body: () throws -> T) -> T? {
+            do { return try body() } catch {
+                let message = "preflight GPU probe (\(step)): \(error)"
+                gpuProbeFailures.append(message)
+                FileHandle.standardError.write(Data("warning: \(message)\n".utf8))
+                return nil
+            }
+        }
+
         let thermalStart = HostFingerprint.thermalStateName()
         let cpuStart = PreflightProbe.cpuCopyGBps()
-        let probe = try device.map { try GPUProbe(device: $0) }
-        let gpuStart = try probe?.copyGBps()
+        let probe = device.flatMap { d in attempt("setup") { try GPUProbe(device: d) } }
+        let gpuStart = probe.flatMap { p in attempt("start reading") { try p.copyGBps() } }
         print("preflight: cpu \(String(format: "%.1f", cpuStart)) GB/s" + (gpuStart.map { String(format: ", gpu %.1f GB/s", $0) } ?? ", gpu n/a"))
 
         var records: [CaseRecord] = []
@@ -3474,37 +3577,20 @@ enum RunCommand {
         }
 
         let cpuEnd = PreflightProbe.cpuCopyGBps()
-        let gpuEnd = try probe?.copyGBps()
+        let gpuEnd = gpuStart.flatMap { _ in probe.flatMap { p in attempt("end reading") { try p.copyGBps() } } }
         let thermalEnd = HostFingerprint.thermalStateName()
-        let preflight = PreflightProbe.evaluate(
+        var preflight = PreflightProbe.evaluate(
             cpu: StartEnd(start: cpuStart, end: cpuEnd),
             gpu: gpuStart.flatMap { s in gpuEnd.map { StartEnd(start: s, end: $0) } },
             thermalStart: thermalStart, thermalEnd: thermalEnd, gpuDeviceExists: device != nil)
+        preflight.reasons += gpuProbeFailures   // `evaluate` has already made this not quiet ("GPU probe unavailable ..."); these say why
 
-        let iso = ISO8601DateFormatter()
-        let metadata = Metadata(
-            packageVersion: BenchVersion.package, gitSHA: host.gitSHA, gitDirty: host.gitDirty, date: iso.string(from: Date()),
-            os: host.osVersion, osBuild: host.osBuild, arch: host.arch, cpuCores: host.cpuCores, performanceCores: host.performanceCores,
-            efficiencyCores: host.efficiencyCores, memoryBytes: host.memoryBytes, deviceModel: host.chip, modelIdentifier: host.modelIdentifier,
-            hostname: host.hostname, swiftVersion: host.swiftVersion, buildConfiguration: host.buildConfiguration,
-            deviceTag: HostFingerprint.deviceTag(arch: host.arch, osVersion: host.osVersion, hostname: host.hostname),
-            environmentKey: EnvironmentKey.make(chip: host.chip, gpuCores: gpu?.coreCount, osBuild: host.osBuild, metalToolchain: gpu?.metalToolchain,
-                                                swiftVersion: host.swiftVersion, buildConfiguration: host.buildConfiguration, validationLayers: options.validationLayers),
-            gpu: gpu, power: host.power, thermal: ThermalInfo(start: thermalStart, end: thermalEnd), preflight: preflight,
-            validationLayers: options.validationLayers, runSeed: options.seed, runLabel: options.label, mode: mode.rawValue,
-            filters: (include.isEmpty && exclude.isEmpty) ? nil : Filters(include: include.isEmpty ? nil : include, exclude: exclude.isEmpty ? nil : exclude),
-            flags: [:])
+        let filters = (include.isEmpty && exclude.isEmpty) ? nil : Filters(include: include.isEmpty ? nil : include, exclude: exclude.isEmpty ? nil : exclude)
+        let metadata = makeMetadata(host: host, gpu: gpu, options: options, thermal: ThermalInfo(start: thermalStart, end: thermalEnd),
+                                    preflight: preflight, filters: filters)
         let artifact = BenchArtifact(package: "VectorAccelerate", metadata: metadata, cases: records)
         try artifact.validate()
-
-        let url: URL
-        if let out = args.value("--out") {
-            url = URL(fileURLWithPath: out)
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try RunStore.encode(artifact).write(to: url, options: [.withoutOverwriting])
-        } else {
-            url = try RunStore(root: root.appendingPathComponent(".bench")).writeRun(artifact)
-        }
+        let url = try write(artifact, to: out, root: root)
         print("artifact: \(url.path)")
         print("key: \(metadata.environmentKey)  quiet: \(preflight.quiet)" + (preflight.reasons.isEmpty ? "" : "  reasons: \(preflight.reasons)"))
 
@@ -3512,12 +3598,52 @@ enum RunCommand {
         if options.requireGPU, records.contains(where: { $0.status == .unavailable }) { return 1 }
         return 0
     }
+
+    /// The five typed options go through `Arguments.parsed`: absent takes the default, present-but-rejected throws `BenchError.usage`
+    /// naming the option and the value.
+    private static func parseOptions(_ args: Arguments) throws -> RunOptions {
+        let positive: (String) -> Int? = { Int($0).flatMap { $0 >= 1 ? $0 : nil } }
+        let mode = try args.parsed("--mode", expecting: "smoke, quick or full", { BenchMode(rawValue: $0) }) ?? .quick
+        return try RunOptions(
+            mode: mode,
+            samples: args.parsed("--samples", expecting: "a positive integer", positive) ?? mode.samples,
+            iterations: args.parsed("--iterations", expecting: "a positive integer", positive) ?? mode.iterations,
+            seed: args.parsed("--seed", expecting: "an unsigned 64-bit integer", { UInt64($0) }) ?? RunOptions.defaultSeed,
+            validationLayers: args.has("--validation-layers"), requireGPU: args.has("--require-gpu"),
+            probeSlowdown: args.parsed("--probe-slowdown", expecting: "a non-negative integer", { Int($0).flatMap { $0 >= 0 ? $0 : nil } }) ?? 0,
+            label: args.value("--label"))
+    }
+
+    private static func makeMetadata(host: HostFingerprint, gpu: GPUInfo?, options: RunOptions, thermal: ThermalInfo,
+                                     preflight: PreflightRecord, filters: Filters?) -> Metadata {
+        Metadata(
+            packageVersion: BenchVersion.package, gitSHA: host.gitSHA, gitDirty: host.gitDirty, date: ISO8601DateFormatter().string(from: Date()),
+            os: host.osVersion, osBuild: host.osBuild, arch: host.arch, cpuCores: host.cpuCores, performanceCores: host.performanceCores,
+            efficiencyCores: host.efficiencyCores, memoryBytes: host.memoryBytes, deviceModel: host.chip, modelIdentifier: host.modelIdentifier,
+            hostname: host.hostname, swiftVersion: host.swiftVersion, buildConfiguration: host.buildConfiguration,
+            deviceTag: HostFingerprint.deviceTag(arch: host.arch, osVersion: host.osVersion, hostname: host.hostname),
+            environmentKey: EnvironmentKey.make(chip: host.chip, gpuCores: gpu?.coreCount, osBuild: host.osBuild, metalToolchain: gpu?.metalToolchain,
+                                                swiftVersion: host.swiftVersion, buildConfiguration: host.buildConfiguration,
+                                                validationLayers: options.validationLayers),
+            gpu: gpu, power: host.power, thermal: thermal, preflight: preflight,
+            validationLayers: options.validationLayers, runSeed: options.seed, runLabel: options.label, mode: options.mode.rawValue,
+            filters: filters, flags: [:])
+    }
+
+    private static func write(_ artifact: BenchArtifact, to out: URL?, root: URL) throws -> URL {
+        guard let out else { return try RunStore(root: root.appendingPathComponent(".bench")).writeRun(artifact) }
+        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try RunStore.encode(artifact).write(to: out, options: [.withoutOverwriting])
+        return out
+    }
 }
 ```
 
 Remove the `enum RunCommand { ... }` stub from `main.swift`.
 
-`RunCommand` closes the class "CLI input accepted without validation" for its five typed options (`--mode`, `--seed`, `--samples`, `--iterations`, `--probe-slowdown`) through `Arguments.parsed` (Task 13 Step 1; it replaced the silent-default `int(_:)`, which had no other caller). A thrown `BenchError.usage` exits 2 through the arm in Task 13 Step 5's `main.swift`. After this task the only `throw BenchError.usage` sites are `Arguments.parsed` and the `samples`/`iterations` guard above, both caller input; the probe's missing-kernel failure is `BenchError.probeSetup` (exit 1).
+`RunCommand` closes the class "CLI input accepted without validation" for its five typed options (`--mode`, `--seed`, `--samples`, `--iterations`, `--probe-slowdown`) through `Arguments.parsed` (Task 13 Step 1; it replaced the silent-default `int(_:)`, which had no other caller); `--samples` and `--iterations` reject anything below 1 in their parse closures. An empty selection is a usage error raised before any probe runs, so a run that measures nothing cannot write an artifact or exit 0. After this task the only `throw BenchError.usage` sites are `Arguments.parsed` and the empty-selection guard, both caller input. `BenchError.exitCode` (Task 13 Step 2) maps usage and registry errors to exit 2 and everything else to 1.
+
+Spec §4.10 / §7 behaviour that the block above implements: an existing `--out` path is refused before the run (exit 1), with `.withoutOverwriting` as the backstop; any preflight GPU probe failure (`GPUProbe.init`, the start reading, the end reading) degrades to "probe unavailable" — `gpu: nil` with `gpuDeviceExists: true`, which `PreflightProbe.evaluate` turns into `quiet: false`, plus the error text appended to `preflight.reasons` and written to stderr — and the cases still run and the artifact is still written. The probe case still fails in its own `prepare` (case `failed`, run continues, exit 1).
 
 - [ ] **Step 4: Smoke run and validate**
 
@@ -3768,7 +3894,10 @@ In `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`:
 - §4.8: the thermal-state list gains `"unknown"` (what `HostFingerprint.thermalStateName()` returns for `ProcessInfo.thermalState`'s `@unknown default`), matching the schema doc comment.
 - §5.7 (probe case): `dataDescriptor = "sequential_u32_pattern"` becomes `"sawtooth_f32_(i&0xFFFF)*0.5+1"` (the fill is a float32 sawtooth; the old label misdescribed it), and `resetForSample` re-zeroes the destination so a passing `memcmp` proves that at least one of that sample's dispatches wrote the whole destination (zeroing is once per sample, before warm-up; `verify` runs after the last measured iteration). The expectation `≈0.36 ms, ≈370 GB/s` did not reproduce: the Task 15 characterization measured a settled dispatch of ≈0.765 ms on the M3 Max, which reads ≈350 GB/s under the read-plus-write convention (the spec's figure also used the 1× convention: 134217728 B / 0.36 ms). Replace it with the figures the M0 acceptance run measures.
 - §5.8: `GPUProbe.copyGBps()` returns `2 × 128 MiB / median command-buffer seconds / 1e9` (read plus write), the same convention as §4.10's CPU probe, so the two preflight figures are comparable.
-- §5.8: `5 warm-up + 10 measured` becomes `50 warm-up + 50 measured`, still a median, with a fixed warm-up count rather than `WarmupPolicy`. Measured on the M3 Max over 81 recorded series (13,500 dispatches): after 0.25 s or more of GPU idle the first dispatches take ≈1.9× the settled ≈0.765 ms and the series settles only after up to 41 dispatches (median 10, p90 25); `WarmupPolicy.standard` stopped at n = 3 on that slow plateau in 3 of 45 series because the plateau's own CoV is under 5 % (one reading then came out +41 %); a median of 10 settled dispatches strays up to 4.66 % from its series' level (p99 2.38 %) against 1.85 % (p99 1.01 %) for a median of 50, with a 5 % gate on the difference of two readings. Before: 5 of 7 idle-machine runs read not quiet (GPU drift 7.7–63.9 % in those five). After: 10 of 10 quiet, GPU drift 0.11–1.30 %, and one `copyGBps()` call costs ≈0.12 s instead of ≈0.02–0.04 s. The 5 % gate of §4.10 is unchanged.
+- §5.8: `5 warm-up + 10 measured` becomes "warm-up until both 50 dispatches and 0.1 s of wall time have passed, then the median of 50", with a fixed floor rather than `WarmupPolicy`. Measured on the M3 Max over 81 recorded series (13,500 dispatches): after GPU idle 56 of the 81 series started slow (median 1.88×, range 1.08–2.40× the settled ≈0.765 ms) and settled only after up to 41 dispatches (median 10, p90 25), at most 55.5 ms of wall time; the ramp is a wall-time effect, hence the time floor; `WarmupPolicy.standard` stopped at n = 3 on that slow plateau in 3 of 45 series because the plateau's own CoV is under 5 % (one reading then came out +41 %); a median of 10 settled dispatches strays up to 4.66 % from its series' level (p99 2.38 %) against 1.85 % (p99 1.01 %) for a median of 50, with a 5 % gate on the difference of two readings. One `copyGBps()` call costs ≈0.16 s instead of ≈0.02–0.04 s. The 5 % gate of §4.10 is unchanged. Evidence and the before/after quiet tables: `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`.
+- §4.10 (CPU probe method): "best of 3 copies of 256 MiB" becomes "warm-up until both 20 copies and 0.2 s of wall time have passed, then the fast 5th percentile of 100 timed copies" (read plus write unchanged). Measured on the same machine: a thread that was idle, blocked or waiting on subprocesses copies at as little as 0.52× its settled rate for up to 17 copies (111.5 ms), and ten best-of-3 readings 0.3 s apart spanned 56–117 GB/s; settled copy times are bimodal and alternate, so on identical data (ten trials with no other process above 60 % CPU) ten readings spanned at most 1.76 % of their median for the 5th percentile of 100 against 1.89 % for the minimum and 3.57 % for the median. One call costs ≈0.71 s instead of ≈0.05 s. The opt-in `PreflightInstrumentCheckTests` (`VA_INSTRUMENT_CHECK=1`) asserts ten readings span under 2.5 %; there is no equivalent for the GPU probe because the executable has no test target. Same research note.
+- §7: add "empty selection (no case matches `--filter`/`--exclude`) → usage error before any probe runs, exit 2", and state that a preflight GPU probe failure at setup, at the start reading or at the end reading is the §4.10 "probe unavailable" state (`quiet: false`, the error text recorded in `preflight.reasons` and on stderr) and never aborts the run: the cases run and the artifact is written. `BenchError.registry` exits 2 as §7 already says (it exited 1 until Task 15's review).
+- §5.3 (sampling): when a sample's warm-up ends at the policy maximum without the CoV rule being met, the runner appends a note to the record with the count. The policy itself is unchanged; its weakness on a steady slow plateau (it can stop at n = 3) is recorded in the research note and deferred to the owner.
 - §5.7 and §11 item 5: `--probe-slowdown 4` becomes `--probe-slowdown 64`. The Task 14 review measured the probe's slowdown against `loops` on the M3 Max as ≈1.0× for loops ≤ 6, 1.5× at 8, 2.8× at 32 and ≈8× at 64 (bandwidth headroom absorbs the first extra passes), so 4 would not cross the alert boundary; the acceptance evidence records the ratio actually measured.
 
 - [ ] **Step 8: Full gates**
@@ -3805,6 +3934,7 @@ MSG
 
 ```bash
 swift test 2>&1 | grep -E "Executed [0-9]+ test" | tail -1;  swift test -c release 2>&1 | grep -E "Executed [0-9]+ test" | tail -1                                   # 1. counts
+VA_INSTRUMENT_CHECK=1 swift test --filter PreflightInstrumentCheckTests 2>&1 | grep -E "VA_INSTRUMENT_CHECK|Executed [0-9]+ test" | sort -u   # 1b. opt-in CPU-probe instrument check: ten readings span < 2.5 % (record the readings; a failure means the instrument or the machine moved)
 swift run -c release VectorAccelerateBench run --mode quick 2>&1 | tail -4                          # 2. artifact, quiet: true
 A=$(ls -t .bench/runs/*/*.json | head -1); swift run -q -c release VectorAccelerateBench validate-artifact "$A"
 swift run -q -c release VectorAccelerateBench baseline capture --from "$A" --approve                # 3. (fails with refusedDirty if tree is dirty → commit first or add --allow-dirty and say so)
