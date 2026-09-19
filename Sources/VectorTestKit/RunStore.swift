@@ -10,6 +10,35 @@ public enum RunStoreError: Error, Equatable {
     case unsafePathComponent(String)
 }
 
+/// Each message says what was refused or failed and, where the caller can act on it, what resolves it, so the error can
+/// be printed as it is. The payload and the key phrases of every case are checked by
+/// `RunStoreTests.testErrorDescriptionsSayWhatFailedAndCarryThePayload`.
+extension RunStoreError: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .runExists(let path):
+            return "run artifact path already exists and is never overwritten: \(path); run again to write under a new timestamp"
+        case .refusedValidationLayers:
+            return "baseline capture refused: the artifact was produced with Metal validation layers, and baselines are never "
+                + "captured from validation-layer runs; run again without --validation-layers"
+        case .refusedNotQuiet(let reasons):
+            let why = reasons.isEmpty ? "no reason recorded" : reasons.joined(separator: "; ")
+            return "baseline capture refused: the artifact's preflight was not quiet (\(why)); baselines are only captured from "
+                + "quiet runs, so run again once that no longer holds (drift and thermal reasons need an idle, cool machine)"
+        case .refusedDirty:
+            return "baseline capture refused: the artifact was produced from a dirty git tree; run again on a clean tree or pass --allow-dirty"
+        case .noMeasuredCases:
+            return "baseline capture refused: the artifact has no measured case, so there is nothing to store as a baseline"
+        case .badApprovedPointer(let detail):
+            return "approved baseline pointer is unusable (\(detail)): the `approved` file must hold a positive version number "
+                + "whose <n>.json exists beside it; capture again with --approve to rewrite it"
+        case .unsafePathComponent(let detail):
+            return "unsafe path component (\(detail)): the value names a directory or file under the store root, so it must be one "
+                + "path component that a file URL reproduces unchanged (not empty, `.` or `..`, and without `/` or NUL)"
+        }
+    }
+}
+
 /// Append-only artifact and baseline storage (spec §4.11).
 /// Runs: `<root>/runs/<environmentKey>/<yyyyMMdd'T'HHmmss'Z'>_<sha7|nogit>[_dirty].json`.
 /// Baselines: `<root>/baselines/<environmentKey>/<caseID>/<n>.json` plus an `approved` pointer file.

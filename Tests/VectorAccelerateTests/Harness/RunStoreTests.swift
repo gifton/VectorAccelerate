@@ -45,7 +45,9 @@ final class RunStoreTests: XCTestCase {
     func testCaptureRefusals() {
         let store = RunStore(root: root)
         XCTAssertThrowsError(try store.captureBaseline(from: artifact(validation: true), approve: false, allowDirty: false)) { XCTAssertEqual($0 as? RunStoreError, .refusedValidationLayers) }
-        XCTAssertThrowsError(try store.captureBaseline(from: artifact(quiet: false), approve: false, allowDirty: false)) { XCTAssertEqual($0 as? RunStoreError, .refusedNotQuiet(["drift 9.0% exceeds 5.0%"])) }
+        XCTAssertThrowsError(try store.captureBaseline(from: artifact(quiet: false), approve: false, allowDirty: false)) {
+            XCTAssertEqual($0 as? RunStoreError, .refusedNotQuiet(["drift 9.0% exceeds 5.0%"]))
+        }
         XCTAssertThrowsError(try store.captureBaseline(from: artifact(dirty: true), approve: false, allowDirty: false)) { XCTAssertEqual($0 as? RunStoreError, .refusedDirty) }
         XCTAssertNoThrow(try store.captureBaseline(from: artifact(dirty: true), approve: false, allowDirty: true))
         var empty = artifact(); empty.cases[0].status = .unavailable
@@ -80,5 +82,28 @@ final class RunStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.approvedVersion(environmentKey: key, caseID: id)) { XCTAssertEqual($0 as? RunStoreError, .badApprovedPointer("0")) }
         try "9\n".write(to: pointer, atomically: true, encoding: .utf8)
         XCTAssertThrowsError(try store.approvedBaseline(environmentKey: key, caseID: id)) { XCTAssertEqual($0 as? RunStoreError, .badApprovedPointer("version 9 missing")) }
+    }
+
+    /// `main.swift` prints a caught error by interpolating it as `any Error`; the same interpolation is checked here. A type
+    /// without a description interpolates as its reflected case (`refusedDirty`, `runExists("…")`), which starts with the case
+    /// name, hence the `hasPrefix` check.
+    func testErrorDescriptionsSayWhatFailedAndCarryThePayload() {
+        let table: [(error: RunStoreError, caseName: String, mustContain: [String])] = [
+            (.runExists("/tmp/store/runs/key/run.json"), "runExists", ["/tmp/store/runs/key/run.json", "never overwritten"]),
+            (.refusedValidationLayers, "refusedValidationLayers", ["refused", "validation layers"]),
+            (.refusedNotQuiet(["drift 9.0% exceeds 5.0%", "thermal state serious"]), "refusedNotQuiet",
+             ["refused", "not quiet", "drift 9.0% exceeds 5.0%", "thermal state serious", "quiet runs"]),
+            (.refusedNotQuiet([]), "refusedNotQuiet", ["refused", "not quiet", "no reason recorded"]),
+            (.refusedDirty, "refusedDirty", ["refused", "clean tree", "--allow-dirty"]),
+            (.noMeasuredCases, "noMeasuredCases", ["refused", "no measured case"]),
+            (.badApprovedPointer("version 9 missing"), "badApprovedPointer", ["version 9 missing", "approved"]),
+            (.unsafePathComponent("caseID: ../../escape"), "unsafePathComponent", ["caseID: ../../escape", "path component"])
+        ]
+        for row in table {
+            let message = "\(row.error as any Error)"
+            XCTAssertFalse(message.isEmpty, row.caseName)
+            XCTAssertFalse(message.hasPrefix(row.caseName), "\(row.caseName) renders as the raw case: \(message)")
+            for piece in row.mustContain { XCTAssertTrue(message.contains(piece), "\(row.caseName): '\(piece)' missing from: \(message)") }
+        }
     }
 }

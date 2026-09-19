@@ -2196,7 +2196,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `Tests/VectorAccelerateTests/Harness/RunStoreTests.swift`
 
 **Interfaces:**
-- Produces: `public enum RunStoreError: Error, Equatable { case runExists(String), refusedValidationLayers, refusedNotQuiet([String]), refusedDirty, noMeasuredCases, badApprovedPointer(String), unsafePathComponent(String) }`; `public struct RunStore { public let root: URL; public init(root: URL); public func runURL(for: BenchArtifact, at: Date) -> URL; public func writeRun(_: BenchArtifact, at: Date = Date()) throws -> URL; public func captureBaseline(from: BenchArtifact, approve: Bool, allowDirty: Bool) throws -> [String: Int]; public func baseline(environmentKey:caseID:version:) throws -> CaseRecord?; public func approvedVersion(environmentKey:caseID:) throws -> Int?; public func approvedBaseline(environmentKey:caseID:) throws -> CaseRecord?; public static func load(_ url: URL) throws -> BenchArtifact; public static func encode(_: some Encodable) throws -> Data }`.
+- Produces: `public enum RunStoreError: Error, Equatable { case runExists(String), refusedValidationLayers, refusedNotQuiet([String]), refusedDirty, noMeasuredCases, badApprovedPointer(String), unsafePathComponent(String) }`; `extension RunStoreError: CustomStringConvertible` (added by Task 16: each message says what was refused or failed and what resolves it, because the bench CLI prints these errors as they are); `public struct RunStore { public let root: URL; public init(root: URL); public func runURL(for: BenchArtifact, at: Date) -> URL; public func writeRun(_: BenchArtifact, at: Date = Date()) throws -> URL; public func captureBaseline(from: BenchArtifact, approve: Bool, allowDirty: Bool) throws -> [String: Int]; public func baseline(environmentKey:caseID:version:) throws -> CaseRecord?; public func approvedVersion(environmentKey:caseID:) throws -> Int?; public func approvedBaseline(environmentKey:caseID:) throws -> CaseRecord?; public static func load(_ url: URL) throws -> BenchArtifact; public static func encode(_: some Encodable) throws -> Data }`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2248,7 +2248,9 @@ final class RunStoreTests: XCTestCase {
     func testCaptureRefusals() {
         let store = RunStore(root: root)
         XCTAssertThrowsError(try store.captureBaseline(from: artifact(validation: true), approve: false, allowDirty: false)) { XCTAssertEqual($0 as? RunStoreError, .refusedValidationLayers) }
-        XCTAssertThrowsError(try store.captureBaseline(from: artifact(quiet: false), approve: false, allowDirty: false)) { XCTAssertEqual($0 as? RunStoreError, .refusedNotQuiet(["drift 9.0% exceeds 5.0%"])) }
+        XCTAssertThrowsError(try store.captureBaseline(from: artifact(quiet: false), approve: false, allowDirty: false)) {
+            XCTAssertEqual($0 as? RunStoreError, .refusedNotQuiet(["drift 9.0% exceeds 5.0%"]))
+        }
         XCTAssertThrowsError(try store.captureBaseline(from: artifact(dirty: true), approve: false, allowDirty: false)) { XCTAssertEqual($0 as? RunStoreError, .refusedDirty) }
         XCTAssertNoThrow(try store.captureBaseline(from: artifact(dirty: true), approve: false, allowDirty: true))
         var empty = artifact(); empty.cases[0].status = .unavailable
@@ -2284,6 +2286,29 @@ final class RunStoreTests: XCTestCase {
         try "9\n".write(to: pointer, atomically: true, encoding: .utf8)
         XCTAssertThrowsError(try store.approvedBaseline(environmentKey: key, caseID: id)) { XCTAssertEqual($0 as? RunStoreError, .badApprovedPointer("version 9 missing")) }
     }
+
+    /// `main.swift` prints a caught error by interpolating it as `any Error`; the same interpolation is checked here. A type
+    /// without a description interpolates as its reflected case (`refusedDirty`, `runExists("…")`), which starts with the case
+    /// name, hence the `hasPrefix` check.
+    func testErrorDescriptionsSayWhatFailedAndCarryThePayload() {
+        let table: [(error: RunStoreError, caseName: String, mustContain: [String])] = [
+            (.runExists("/tmp/store/runs/key/run.json"), "runExists", ["/tmp/store/runs/key/run.json", "never overwritten"]),
+            (.refusedValidationLayers, "refusedValidationLayers", ["refused", "validation layers"]),
+            (.refusedNotQuiet(["drift 9.0% exceeds 5.0%", "thermal state serious"]), "refusedNotQuiet",
+             ["refused", "not quiet", "drift 9.0% exceeds 5.0%", "thermal state serious", "quiet runs"]),
+            (.refusedNotQuiet([]), "refusedNotQuiet", ["refused", "not quiet", "no reason recorded"]),
+            (.refusedDirty, "refusedDirty", ["refused", "clean tree", "--allow-dirty"]),
+            (.noMeasuredCases, "noMeasuredCases", ["refused", "no measured case"]),
+            (.badApprovedPointer("version 9 missing"), "badApprovedPointer", ["version 9 missing", "approved"]),
+            (.unsafePathComponent("caseID: ../../escape"), "unsafePathComponent", ["caseID: ../../escape", "path component"])
+        ]
+        for row in table {
+            let message = "\(row.error as any Error)"
+            XCTAssertFalse(message.isEmpty, row.caseName)
+            XCTAssertFalse(message.hasPrefix(row.caseName), "\(row.caseName) renders as the raw case: \(message)")
+            for piece in row.mustContain { XCTAssertTrue(message.contains(piece), "\(row.caseName): '\(piece)' missing from: \(message)") }
+        }
+    }
 }
 ```
 
@@ -2305,6 +2330,35 @@ public enum RunStoreError: Error, Equatable {
     case noMeasuredCases
     case badApprovedPointer(String)
     case unsafePathComponent(String)
+}
+
+/// Each message says what was refused or failed and, where the caller can act on it, what resolves it, so the error can
+/// be printed as it is. The payload and the key phrases of every case are checked by
+/// `RunStoreTests.testErrorDescriptionsSayWhatFailedAndCarryThePayload`.
+extension RunStoreError: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .runExists(let path):
+            return "run artifact path already exists and is never overwritten: \(path); run again to write under a new timestamp"
+        case .refusedValidationLayers:
+            return "baseline capture refused: the artifact was produced with Metal validation layers, and baselines are never "
+                + "captured from validation-layer runs; run again without --validation-layers"
+        case .refusedNotQuiet(let reasons):
+            let why = reasons.isEmpty ? "no reason recorded" : reasons.joined(separator: "; ")
+            return "baseline capture refused: the artifact's preflight was not quiet (\(why)); baselines are only captured from "
+                + "quiet runs, so run again once that no longer holds (drift and thermal reasons need an idle, cool machine)"
+        case .refusedDirty:
+            return "baseline capture refused: the artifact was produced from a dirty git tree; run again on a clean tree or pass --allow-dirty"
+        case .noMeasuredCases:
+            return "baseline capture refused: the artifact has no measured case, so there is nothing to store as a baseline"
+        case .badApprovedPointer(let detail):
+            return "approved baseline pointer is unusable (\(detail)): the `approved` file must hold a positive version number "
+                + "whose <n>.json exists beside it; capture again with --approve to rewrite it"
+        case .unsafePathComponent(let detail):
+            return "unsafe path component (\(detail)): the value names a directory or file under the store root, so it must be one "
+                + "path component that a file URL reproduces unchanged (not empty, `.` or `..`, and without `/` or NUL)"
+        }
+    }
 }
 
 /// Append-only artifact and baseline storage (spec §4.11).
@@ -2428,7 +2482,7 @@ public struct RunStore: Sendable {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter RunStoreTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 5 tests, with 0 failures`
+Expected: `Executed 6 tests, with 0 failures`   (5 store tests + `testErrorDescriptionsSayWhatFailedAndCarryThePayload`, added by Task 16)
 
 - [ ] **Step 5: Commit**
 
@@ -3675,11 +3729,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `Sources/VectorAccelerateBench/Commands/BaselineCommand.swift`, `Commands/CompareCommand.swift`
-- Modify: `main.swift` (remove the two stubs)
+- Modify: `main.swift` (remove the two stubs); `Sources/VectorTestKit/RunStore.swift` (`RunStoreError: CustomStringConvertible`) and `Tests/VectorAccelerateTests/Harness/RunStoreTests.swift` (`testErrorDescriptionsSayWhatFailedAndCarryThePayload`, written first and seen failing; one over-long assertion wrapped). Task 11's blocks carry both files as committed.
 
 **Interfaces:**
-- Consumes: `RunStore`, `Compare`, `CompareResult`.
-- Produces: `enum BaselineCommand { static func run(_:) throws -> Int32 }`, `enum CompareCommand { static func run(_:) throws -> Int32 }`.
+- Consumes: `RunStore`, `RunStoreError` (its `description`), `Compare`, `CompareResult`; from Task 13 as amended, `Arguments.parsed` and the single error exit in `main.swift` (`BenchError.usage` → stderr, exit 2; any other error → stderr, exit 1).
+- Produces: `enum BaselineCommand { static func run(_:) throws -> Int32 }`, `enum CompareCommand { static func run(_:) throws -> Int32 }` with `CompareCommand.Against` (`.approved` / `.version(Int)`, positive versions only) and `CompareCommand.Format` (`text`, `json`, `markdown`).
+- Boundary rules: usage failures throw `BenchError.usage`; every option is validated before any file is read; warnings go to stderr so stdout is only the rendered report; refusals and store errors are not caught locally.
 
 - [ ] **Step 1: `Commands/BaselineCommand.swift`**
 
@@ -3688,19 +3743,21 @@ import Foundation
 import VectorTestKit
 
 enum BaselineCommand {
+    static let usage = "usage: baseline capture --from <artifact> [--approve] [--allow-dirty]"
+
+    /// Nothing is caught here. A missing subcommand or `--from` is thrown as `BenchError.usage`; load, validation and capture
+    /// errors (`RunStoreError` refusals included) propagate unchanged. Printing and exit codes belong to the `catch` arms in `main.swift`.
     static func run(_ args: Arguments) throws -> Int32 {
-        guard args.subcommand == "capture", let from = args.value("--from") else { print("usage: baseline capture --from <artifact> [--approve] [--allow-dirty]"); return 2 }
-        let store = RunStore(root: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".bench"))
+        guard args.subcommand == "capture", let from = args.value("--from") else { throw BenchError.usage(usage) }
+        let approve = args.has("--approve")
         let artifact = try RunStore.load(URL(fileURLWithPath: from))
         try artifact.validate()
-        do {
-            let written = try store.captureBaseline(from: artifact, approve: args.has("--approve"), allowDirty: args.has("--allow-dirty"))
-            for (id, n) in written.sorted(by: { $0.key < $1.key }) { print("captured \(id) -> version \(n)\(args.has("--approve") ? " (approved)" : "")") }
-            return 0
-        } catch let e as RunStoreError {
-            print("refused: \(e)")
-            return 1
+        let store = RunStore(root: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".bench"))
+        let written = try store.captureBaseline(from: artifact, approve: approve, allowDirty: args.has("--allow-dirty"))
+        for (id, version) in written.sorted(by: { $0.key < $1.key }) {
+            print("captured \(id) -> version \(version)\(approve ? " (approved)" : "")")
         }
+        return 0
     }
 }
 ```
@@ -3712,25 +3769,54 @@ import Foundation
 import VectorTestKit
 
 enum CompareCommand {
-    static func run(_ args: Arguments) throws -> Int32 {
-        guard let path = args.value("--artifact") else { print("usage: compare --artifact <path> [--against approved|<n>] [--strict-perf] [--format text|json|markdown]"); return 2 }
-        let store = RunStore(root: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".bench"))
-        let artifact = try RunStore.load(URL(fileURLWithPath: path))
-        let against = args.value("--against") ?? "approved"
-        let key = artifact.metadata.environmentKey
-        var results: [CompareResult] = []
-        for c in artifact.cases {
-            let baseline: CaseRecord?
-            if against == "approved" { baseline = try store.approvedBaseline(environmentKey: key, caseID: c.id) }
-            else if let n = Int(against) { baseline = try store.baseline(environmentKey: key, caseID: c.id, version: n) }
-            else { throw BenchError.usage("--against must be 'approved' or an integer version") }
-            results.append(Compare.compare(new: c, baseline: baseline, newKey: key, baselineKey: baseline == nil ? nil : key))
+    static let usage = "usage: compare --artifact <path> [--against approved|<n>] [--strict-perf] [--format text|json|markdown]"
+
+    /// Which stored baseline every case is compared against.
+    enum Against {
+        case approved
+        case version(Int)
+
+        /// `approved` or a positive integer; anything else is `nil`, which `Arguments.parsed` reports as a usage error.
+        init?(_ raw: String) {
+            if raw == "approved" { self = .approved; return }
+            guard let n = Int(raw), n >= 1 else { return nil }
+            self = .version(n)
         }
-        let format = args.value("--format") ?? "text"
-        guard ["text", "json", "markdown"].contains(format) else { throw BenchError.usage("--format must be text, json, or markdown") }
-        print(Compare.render(results, format: format))
-        if !artifact.metadata.preflight.quiet { print("warning: artifact was not quiet: \(artifact.metadata.preflight.reasons)") }
-        return Compare.exitCode(results, strictPerf: args.has("--strict-perf"))
+
+        func baseline(in store: RunStore, environmentKey: String, caseID: String) throws -> CaseRecord? {
+            switch self {
+            case .approved: return try store.approvedBaseline(environmentKey: environmentKey, caseID: caseID)
+            case .version(let n): return try store.baseline(environmentKey: environmentKey, caseID: caseID, version: n)
+            }
+        }
+    }
+
+    /// Unverified contract: each raw value must equal a format name `Compare.render` switches on; that function renders a name
+    /// it does not know as text instead of failing, so a mismatch here would go unreported.
+    enum Format: String { case text, json, markdown }
+
+    static func run(_ args: Arguments) throws -> Int32 {
+        // Every option is checked before the first file is read, so a usage error never depends on the artifact or the store.
+        guard let path = args.value("--artifact") else { throw BenchError.usage(usage) }
+        let against = try args.parsed("--against", expecting: "'approved' or a positive integer version", Against.init) ?? .approved
+        let format = try args.parsed("--format", expecting: "text, json or markdown", { Format(rawValue: $0) }) ?? .text
+        let strictPerf = args.has("--strict-perf")
+
+        let artifact = try RunStore.load(URL(fileURLWithPath: path))
+        let store = RunStore(root: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".bench"))
+        let key = artifact.metadata.environmentKey
+        let results: [CompareResult] = try artifact.cases.map { record in
+            let baseline = try against.baseline(in: store, environmentKey: key, caseID: record.id)
+            return Compare.compare(new: record, baseline: baseline, newKey: key, baselineKey: baseline == nil ? nil : key)
+        }
+        // One trailing newline on stdout whether or not the rendering already ends with one.
+        let report = Compare.render(results, format: format.rawValue)
+        print(report, terminator: report.hasSuffix("\n") ? "" : "\n")
+        // Spec §7: a not-quiet artifact is still compared, with a warning. The warning goes to stderr so stdout stays the rendered report.
+        if !artifact.metadata.preflight.quiet {
+            FileHandle.standardError.write(Data("warning: artifact was not quiet: \(artifact.metadata.preflight.reasons)\n".utf8))
+        }
+        return Compare.exitCode(results, strictPerf: strictPerf)
     }
 }
 ```
@@ -3744,12 +3830,16 @@ A=$(ls -t .bench/runs/*/*.json | head -1)
 swift run -q -c release VectorAccelerateBench compare --artifact "$A"; echo "exit=$?"      # both incomparable (no baseline), exit=0
 swift run -q -c release VectorAccelerateBench baseline capture --from "$A" --approve --allow-dirty; echo "exit=$?"   # two "captured ... version 1 (approved)", exit=0
 swift run -q -c release VectorAccelerateBench compare --artifact "$A"; echo "exit=$?"      # both ok (identical artifact), exit=0
+swift run -q -c release VectorAccelerateBench compare --artifact /nonexistent.json --against 0; echo "exit=$?"    # "error: --against expects ..." on stderr, exit=2 (checked before the file is read)
+swift run -q -c release VectorAccelerateBench compare --artifact "$A" --format json | python3 -c "import json,sys; json.load(sys.stdin)"; echo "exit=$?"   # exit=0, also for a not-quiet artifact (its warning is on stderr)
 ```
+
+`baseline capture` needs a quiet artifact: on a busy machine the capture is refused with `error: baseline capture refused: the artifact's preflight was not quiet (...)` on stderr, exit=1 — run the smoke again rather than working around the refusal.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add Sources/VectorAccelerateBench
+git add Sources/VectorAccelerateBench Sources/VectorTestKit/RunStore.swift Tests/VectorAccelerateTests/Harness/RunStoreTests.swift
 git commit -q -m "feat(bench): baseline capture and compare commands
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
