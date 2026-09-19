@@ -1,0 +1,17 @@
+import Foundation
+import VectorTestKit
+
+enum ValidateCommand {
+    static func run(_ args: Arguments) -> Int32 {
+        guard let path = args.subcommand else { print("usage: validate-artifact <path>"); return 2 }
+        do {
+            let a = try RunStore.load(URL(fileURLWithPath: path))
+            try a.validate()
+            print("valid: schemaVersion \(a.schemaVersion), \(a.cases.count) case(s), key \(a.metadata.environmentKey)")
+            return 0
+        } catch {
+            print("invalid: \(error)")
+            return 1
+        }
+    }
+}
