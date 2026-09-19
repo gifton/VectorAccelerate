@@ -4,6 +4,7 @@ import Foundation
 /// the executable because it needs Metal. GB/s counts read plus write: 2 × bytes / seconds / 1e9.
 public enum PreflightProbe {
     public static func cpuCopyGBps(bytes: Int = 268_435_456, repeats: Int = 3) -> Double {
+        precondition(bytes > 0, "cpuCopyGBps needs at least one byte")
         let src = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 16_384)
         let dst = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 16_384)
         defer { src.deallocate(); dst.deallocate() }

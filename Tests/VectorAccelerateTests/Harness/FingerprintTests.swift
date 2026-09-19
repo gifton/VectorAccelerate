@@ -16,6 +16,13 @@ final class FingerprintTests: XCTestCase {
         XCTAssertTrue(["ac", "battery", "unknown"].contains(f.power.source))
     }
 
+    /// Unknown tree state must never read as clean: outside any repository both git calls fail, so `gitSHA` is nil
+    /// and `gitDirty` is true (the fallback is dirty, not clean).
+    func testGatherOutsideRepositoryReportsUnknownAsDirty() {
+        let f = HostFingerprint.gather(packageRoot: FileManager.default.temporaryDirectory)
+        XCTAssertNil(f.gitSHA); XCTAssertTrue(f.gitDirty)
+    }
+
     func testEnvironmentKeyExcludesHostnameAndTracksValidationFlag() {
         let a = EnvironmentKey.make(chip: "Apple M3 Max", gpuCores: 40, osBuild: "25F84", metalToolchain: "32023.883", swiftVersion: "6.3.3", buildConfiguration: "release", validationLayers: false)
         XCTAssertEqual(a, "applem3max-g40-25F84-mtl32023.883-swift6.3.3-release-noval")

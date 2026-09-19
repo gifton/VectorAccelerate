@@ -1854,6 +1854,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 import XCTest
 import VectorTestKit
 
+/// Spec §4.9 (host fingerprint, environment key) and §4.10 (preflight probes): host facts populate on this machine,
+/// the environment key excludes the hostname and tracks the validation flag, and `evaluate` names every quiet-breaker.
 final class FingerprintTests: XCTestCase {
     func testGatherPopulatesHostFacts() {
         let f = HostFingerprint.gather(packageRoot: RepoPaths.root)
@@ -1865,6 +1867,13 @@ final class FingerprintTests: XCTestCase {
         XCTAssertNotNil(f.gitSHA, "tests run inside the repository; git rev-parse must succeed")
         XCTAssertTrue(["debug", "release"].contains(f.buildConfiguration))
         XCTAssertTrue(["ac", "battery", "unknown"].contains(f.power.source))
+    }
+
+    /// Unknown tree state must never read as clean: outside any repository both git calls fail, so `gitSHA` is nil
+    /// and `gitDirty` is true (the fallback is dirty, not clean).
+    func testGatherOutsideRepositoryReportsUnknownAsDirty() {
+        let f = HostFingerprint.gather(packageRoot: FileManager.default.temporaryDirectory)
+        XCTAssertNil(f.gitSHA); XCTAssertTrue(f.gitDirty)
     }
 
     func testEnvironmentKeyExcludesHostnameAndTracksValidationFlag() {
@@ -1935,7 +1944,9 @@ enum Sysctl {
     }
 }
 
-/// Runs a fixed executable with fixed arguments, no shell, bounded by `timeout`; nil on any failure.
+/// Runs a fixed executable with fixed arguments, no shell; nil on any failure. Two waits are each bounded by
+/// `timeout`: the child's exit, then the drain of its stdout, so a grandchild that inherits the write end cannot hold
+/// the caller past the second bound. A child that ignores SIGTERM after the exit bound is SIGKILLed one second later.
 public enum Subprocess {
     public static func run(_ executable: String, _ args: [String], cwd: URL? = nil, timeout: TimeInterval = 5) -> String? {
         let p = Process()
@@ -1950,8 +1961,12 @@ public enum Subprocess {
         final class Box: @unchecked Sendable { var data = Data() }
         let box = Box(); let drained = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async { box.data = pipe.fileHandleForReading.readDataToEndOfFile(); drained.signal() }
-        if done.wait(timeout: .now() + timeout) == .timedOut { p.terminate(); return nil }
-        drained.wait()
+        if done.wait(timeout: .now() + timeout) == .timedOut {
+            p.terminate()  // SIGTERM, then a bounded grace period before escalating.
+            if done.wait(timeout: .now() + 1) == .timedOut { _ = kill(p.processIdentifier, SIGKILL) }
+            return nil
+        }
+        guard drained.wait(timeout: .now() + timeout) != .timedOut else { return nil }
         guard p.terminationStatus == 0 else { return nil }
         return String(decoding: box.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -2003,6 +2018,10 @@ public struct HostFingerprint: Sendable, Equatable {
     public var swiftVersion: String
     public var buildConfiguration: String
     public var gitSHA: String?
+    /// True when the tree has uncommitted changes, and also whenever the tree state could not be determined (no
+    /// `packageRoot`, git unavailable, not a repository, `git status` failing or exceeding its timeout): unknown never
+    /// reads as clean. When git itself is unavailable `gitSHA` is nil as well (the tell); a `status`-only failure is
+    /// indistinguishable from a dirty tree by design. Pinned by `testGatherOutsideRepositoryReportsUnknownAsDirty`.
     public var gitDirty: Bool
     public var power: PowerInfo
 
@@ -2030,7 +2049,9 @@ public struct HostFingerprint: Sendable, Equatable {
         }
     }
 
-    /// VectorCore-compatible tag: `<arch>-<os>-<hostname>` (spaces → dashes) unless `VA_DEVICE_TAG` is set.
+    /// VectorCore-shaped tag `<arch>-<os>-<hostname>` (spaces → dashes) unless `VA_DEVICE_TAG` is set. The hostname
+    /// source differs from VectorCore (`ProcessInfo.hostName` here), so tags are not guaranteed to join across suites —
+    /// unverified contract.
     public static func deviceTag(arch: String, osVersion: String, hostname: String) -> String {
         if let tag = ProcessInfo.processInfo.environment["VA_DEVICE_TAG"], !tag.isEmpty { return tag }
         return "\(arch)-\(osVersion)-\(hostname.replacingOccurrences(of: " ", with: "-"))"
@@ -2044,7 +2065,7 @@ public struct HostFingerprint: Sendable, Equatable {
         let arch = "x86_64"
         #endif
         let sha = packageRoot.flatMap { Subprocess.run("/usr/bin/git", ["rev-parse", "HEAD"], cwd: $0) }
-        let dirty = packageRoot.flatMap { Subprocess.run("/usr/bin/git", ["status", "--porcelain"], cwd: $0) }.map { !$0.isEmpty } ?? false
+        let dirty = packageRoot.flatMap { Subprocess.run("/usr/bin/git", ["status", "--porcelain"], cwd: $0) }.map { !$0.isEmpty } ?? true
         return HostFingerprint(
             chip: Sysctl.string("machdep.cpu.brand_string") ?? "unknown",
             modelIdentifier: Sysctl.string("hw.model") ?? "unknown",
@@ -2073,6 +2094,7 @@ import Foundation
 /// the executable because it needs Metal. GB/s counts read plus write: 2 × bytes / seconds / 1e9.
 public enum PreflightProbe {
     public static func cpuCopyGBps(bytes: Int = 268_435_456, repeats: Int = 3) -> Double {
+        precondition(bytes > 0, "cpuCopyGBps needs at least one byte")
         let src = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 16_384)
         let dst = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 16_384)
         defer { src.deallocate(); dst.deallocate() }
@@ -2105,7 +2127,7 @@ public enum PreflightProbe {
 - [ ] **Step 5: Run to verify it passes**
 
 Run: `swift test --filter "FingerprintTests|KitImportLintTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 10 tests, with 0 failures`   (7 FingerprintTests + 3 KitImportLintTests)
+Expected: `Executed 11 tests, with 0 failures`   (8 FingerprintTests + 3 KitImportLintTests)
 
 - [ ] **Step 6: Commit**
 

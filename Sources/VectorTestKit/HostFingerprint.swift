@@ -17,7 +17,9 @@ enum Sysctl {
     }
 }
 
-/// Runs a fixed executable with fixed arguments, no shell, bounded by `timeout`; nil on any failure.
+/// Runs a fixed executable with fixed arguments, no shell; nil on any failure. Two waits are each bounded by
+/// `timeout`: the child's exit, then the drain of its stdout, so a grandchild that inherits the write end cannot hold
+/// the caller past the second bound. A child that ignores SIGTERM after the exit bound is SIGKILLed one second later.
 public enum Subprocess {
     public static func run(_ executable: String, _ args: [String], cwd: URL? = nil, timeout: TimeInterval = 5) -> String? {
         let p = Process()
@@ -32,8 +34,12 @@ public enum Subprocess {
         final class Box: @unchecked Sendable { var data = Data() }
         let box = Box(); let drained = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async { box.data = pipe.fileHandleForReading.readDataToEndOfFile(); drained.signal() }
-        if done.wait(timeout: .now() + timeout) == .timedOut { p.terminate(); return nil }
-        drained.wait()
+        if done.wait(timeout: .now() + timeout) == .timedOut {
+            p.terminate()  // SIGTERM, then a bounded grace period before escalating.
+            if done.wait(timeout: .now() + 1) == .timedOut { _ = kill(p.processIdentifier, SIGKILL) }
+            return nil
+        }
+        guard drained.wait(timeout: .now() + timeout) != .timedOut else { return nil }
         guard p.terminationStatus == 0 else { return nil }
         return String(decoding: box.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -85,6 +91,10 @@ public struct HostFingerprint: Sendable, Equatable {
     public var swiftVersion: String
     public var buildConfiguration: String
     public var gitSHA: String?
+    /// True when the tree has uncommitted changes, and also whenever the tree state could not be determined (no
+    /// `packageRoot`, git unavailable, not a repository, `git status` failing or exceeding its timeout): unknown never
+    /// reads as clean. When git itself is unavailable `gitSHA` is nil as well (the tell); a `status`-only failure is
+    /// indistinguishable from a dirty tree by design. Pinned by `testGatherOutsideRepositoryReportsUnknownAsDirty`.
     public var gitDirty: Bool
     public var power: PowerInfo
 
@@ -112,7 +122,9 @@ public struct HostFingerprint: Sendable, Equatable {
         }
     }
 
-    /// VectorCore-compatible tag: `<arch>-<os>-<hostname>` (spaces → dashes) unless `VA_DEVICE_TAG` is set.
+    /// VectorCore-shaped tag `<arch>-<os>-<hostname>` (spaces → dashes) unless `VA_DEVICE_TAG` is set. The hostname
+    /// source differs from VectorCore (`ProcessInfo.hostName` here), so tags are not guaranteed to join across suites —
+    /// unverified contract.
     public static func deviceTag(arch: String, osVersion: String, hostname: String) -> String {
         if let tag = ProcessInfo.processInfo.environment["VA_DEVICE_TAG"], !tag.isEmpty { return tag }
         return "\(arch)-\(osVersion)-\(hostname.replacingOccurrences(of: " ", with: "-"))"
@@ -126,7 +138,7 @@ public struct HostFingerprint: Sendable, Equatable {
         let arch = "x86_64"
         #endif
         let sha = packageRoot.flatMap { Subprocess.run("/usr/bin/git", ["rev-parse", "HEAD"], cwd: $0) }
-        let dirty = packageRoot.flatMap { Subprocess.run("/usr/bin/git", ["status", "--porcelain"], cwd: $0) }.map { !$0.isEmpty } ?? false
+        let dirty = packageRoot.flatMap { Subprocess.run("/usr/bin/git", ["status", "--porcelain"], cwd: $0) }.map { !$0.isEmpty } ?? true
         return HostFingerprint(
             chip: Sysctl.string("machdep.cpu.brand_string") ?? "unknown",
             modelIdentifier: Sysctl.string("hw.model") ?? "unknown",
