@@ -3525,7 +3525,9 @@ enum CompareCommand {
             else { throw BenchError.usage("--against must be 'approved' or an integer version") }
             results.append(Compare.compare(new: c, baseline: baseline, newKey: key, baselineKey: baseline == nil ? nil : key))
         }
-        print(Compare.render(results, format: args.value("--format") ?? "text"))
+        let format = args.value("--format") ?? "text"
+        guard ["text", "json", "markdown"].contains(format) else { throw BenchError.usage("--format must be text, json, or markdown") }
+        print(Compare.render(results, format: format))
         if !artifact.metadata.preflight.quiet { print("warning: artifact was not quiet: \(artifact.metadata.preflight.reasons)") }
         return Compare.exitCode(results, strictPerf: args.has("--strict-perf"))
     }
