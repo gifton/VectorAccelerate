@@ -67,12 +67,14 @@ enum BenchError: Error, CustomStringConvertible {
     case routeMismatch(expected: String, telemetry: String)
     case usage(String)
     case registry(String)
+    case probeSetup(String)
     var description: String {
         switch self {
         case .metalUnavailable: return "Metal device unavailable"
         case .routeMismatch(let e, let t): return "route mismatch: expected \(e); telemetry \(t)"
         case .usage(let m): return m
         case .registry(let m): return "registry error: \(m)"
+        case .probeSetup(let m): return "GPU probe setup failed: \(m)"
         }
     }
 }

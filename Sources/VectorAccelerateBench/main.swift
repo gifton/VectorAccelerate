@@ -35,6 +35,6 @@ do {
 }
 exit(status)
 
-// Temporary stubs so the executable links before Task 16 lands; each is deleted when its real file arrives.
+// Temporary stubs so the executable links before Tasks 15–16 land; each is deleted when its real file arrives.
 enum BaselineCommand { static func run(_ args: Arguments) throws -> Int32 { print("baseline: not implemented until Task 16"); return 2 } }
 enum CompareCommand { static func run(_ args: Arguments) throws -> Int32 { print("compare: not implemented until Task 16"); return 2 } }

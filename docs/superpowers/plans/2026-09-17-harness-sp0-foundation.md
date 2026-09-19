@@ -2768,7 +2768,14 @@ struct Arguments {
 
     func value(_ key: String) -> String? { options[key] }
     func has(_ flag: String) -> Bool { flags.contains(flag) }
-    func int(_ key: String) -> Int? { options[key].flatMap(Int.init) }
+
+    /// An absent option is `nil` (the caller supplies the default); a present value that `parse` rejects throws `BenchError.usage`
+    /// naming the option and the value.
+    func parsed<T>(_ key: String, expecting what: String, _ parse: (String) -> T?) throws -> T? {
+        guard let raw = options[key] else { return nil }
+        guard let parsedValue = parse(raw) else { throw BenchError.usage("\(key) expects \(what), got '\(raw)'") }
+        return parsedValue
+    }
 }
 ```
 
@@ -2844,12 +2851,14 @@ enum BenchError: Error, CustomStringConvertible {
     case routeMismatch(expected: String, telemetry: String)
     case usage(String)
     case registry(String)
+    case probeSetup(String)
     var description: String {
         switch self {
         case .metalUnavailable: return "Metal device unavailable"
         case .routeMismatch(let e, let t): return "route mismatch: expected \(e); telemetry \(t)"
         case .usage(let m): return m
         case .registry(let m): return "registry error: \(m)"
+        case .probeSetup(let m): return "GPU probe setup failed: \(m)"
         }
     }
 }
@@ -3036,6 +3045,9 @@ do {
     case "compare": status = try CompareCommand.run(args)             // Task 16
     default: print(usage); status = args.command == "help" ? 0 : 2
     }
+} catch BenchError.usage(let message) {
+    FileHandle.standardError.write(Data("error: \(message)\n".utf8))
+    status = 2
 } catch {
     FileHandle.standardError.write(Data("error: \(error)\n".utf8))
     status = 1
@@ -3164,7 +3176,7 @@ final class GPUProbe: @unchecked Sendable {
     init(device: any MTLDevice) throws {
         self.device = device
         let library = try device.makeLibrary(source: Self.source, options: MTLCompileOptions())
-        guard let function = library.makeFunction(name: "copy_f32x4") else { throw BenchError.usage("probe kernel missing") }
+        guard let function = library.makeFunction(name: "copy_f32x4") else { throw BenchError.probeSetup("kernel function copy_f32x4 not found in the compiled probe library") }
         pipeline = try device.makeComputePipelineState(function: function)
         guard let queue = device.makeCommandQueue(),
               let src = device.makeBuffer(length: Self.bytes, options: .storageModeShared),
@@ -3199,7 +3211,13 @@ final class GPUProbe: @unchecked Sendable {
     }
 
     /// GB/s counting read plus write, like `PreflightProbe.cpuCopyGBps`: 2 × bytes / median seconds / 1e9.
-    func copyGBps(warmup: Int = 5, measured: Int = 10) throws -> Double {
+    /// The warm-up is a fixed 50 dispatches rather than `WarmupPolicy`, and the median is over 50, because of what 81 recorded
+    /// series (13,500 dispatches, M3 Max) showed: after 0.25 s or more of GPU idle the first dispatches take about 1.9× the settled
+    /// time and the series needs up to 41 dispatches to settle; that slow plateau is steady enough (CoV < 5 %) for the policy to
+    /// stop on it at n = 3; and a median of 10 settled dispatches strays up to 4.66 % from its series' level against 1.85 % for a
+    /// median of 50, with a 5 % quiet gate on the difference of two readings. Numbers: plan Task 17 Step 7, spec §5.8 amendment.
+    /// Unverified on any other GPU, and no test exercises it.
+    func copyGBps(warmup: Int = 50, measured: Int = 50) throws -> Double {
         precondition(measured >= 1, "copyGBps needs at least one measured dispatch")
         for _ in 0..<warmup { _ = try dispatch(loops: 1) }
         var secs: [Double] = []
@@ -3287,11 +3305,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift`, `Commands/RunCommand.swift`
-- Modify: `Cases/Registry.swift`, `CLI/Arguments.swift` (add `parsed`), `main.swift` (remove the `RunCommand` stub; map a thrown `BenchError.usage` to exit 2)
+- Modify: `Cases/Registry.swift`, `main.swift` (remove the `RunCommand` stub). Folded back into the earlier tasks' blocks by this task's review rounds, so those blocks already carry them: `CLI/Arguments.swift` (`parsed` replaces `int`), `main.swift` (a thrown `BenchError.usage` exits 2), `Runner/BenchCase.swift` (`BenchError.probeSetup`), `Probe/GPUProbe.swift` (`probeSetup` throw; `copyGBps` warm-up 50, measured 50)
 
 **Interfaces:**
 - Consumes: `MetalComputeProvider(context:configuration:)`, `MetalComputeProvider.Configuration(preferGPU:fallbackToCPU:)`, `batchDistance(query:candidates:metric: .euclidean)`, `routingTelemetry().gpuKernel`, `Metal4Context()`, `Metal4Context.lastGPUTiming` (`GPUTimingInfo.gpuStartTime/gpuEndTime`, seconds), `DynamicVector([Float])` from VectorCore, `Tolerance.forSum`, `Comparator`, `PreflightProbe`, `HostFingerprint`, `MetalFingerprint`, `GPUProbe`, `RunStore`, `Runner`, `Registry`.
-- Produces: `enum DistanceCases { static var all: [any BenchCase] }`; `enum RunCommand { static func run(_ args: Arguments) async throws -> Int32 }`; `enum BenchVersion { static let package = "unreleased" }` (no version number is committed until the owner's release discussion concludes; `packageVersion` is an unvalidated free string that nothing compares on); `Arguments.parsed<T>(_ key: String, expecting: String, _ parse: (String) -> T?) throws -> T?` (absent → `nil`, present-but-unparseable → `BenchError.usage` naming the option and the value); `main.swift` exits 2 on a thrown `BenchError.usage`, 1 on any other error.
+- Produces: `enum DistanceCases { static var all: [any BenchCase] }`; `enum RunCommand { static func run(_ args: Arguments) async throws -> Int32 }`; `enum BenchVersion { static let package = "unreleased" }` (no version number is committed until the owner's release discussion concludes; `packageVersion` is an unvalidated free string that nothing compares on). Consumes from Task 13 as amended: `Arguments.parsed<T>(_ key: String, expecting: String, _ parse: (String) -> T?) throws -> T?` (absent → `nil`, present-but-unparseable → `BenchError.usage` naming the option and the value) and `main.swift` exiting 2 on a thrown `BenchError.usage`, 1 on any other error.
 
 - [ ] **Step 1: `Cases/Distance/DistanceCases.swift`**
 
@@ -3499,28 +3517,7 @@ enum RunCommand {
 
 Remove the `enum RunCommand { ... }` stub from `main.swift`.
 
-`RunCommand` closes the class "CLI input accepted without validation" for its five typed options (`--mode`, `--seed`, `--samples`, `--iterations`, `--probe-slowdown`) through one helper. In `CLI/Arguments.swift`, after `int(_:)` add:
-
-```swift
-
-    /// An absent option is `nil` (the caller supplies the default); a present value that `parse` rejects throws `BenchError.usage`
-    /// naming the option and the value. Contrast `int(_:)` above, which reads an unparseable value as `nil`, i.e. as absent.
-    func parsed<T>(_ key: String, expecting what: String, _ parse: (String) -> T?) throws -> T? {
-        guard let raw = options[key] else { return nil }
-        guard let parsedValue = parse(raw) else { throw BenchError.usage("\(key) expects \(what), got '\(raw)'") }
-        return parsedValue
-    }
-```
-
-In `main.swift`, a thrown `BenchError.usage` must exit 2 like the other usage paths; put this arm before the general `catch`:
-
-```swift
-} catch BenchError.usage(let message) {
-    FileHandle.standardError.write(Data("error: \(message)\n".utf8))
-    status = 2
-```
-
-`GPUProbe.init` also throws `BenchError.usage("probe kernel missing")` (Task 14); with this arm that path would exit 2 instead of 1 when thrown from `RunCommand`'s preflight. It needs `makeFunction` to miss a kernel whose source is a literal in the same file.
+`RunCommand` closes the class "CLI input accepted without validation" for its five typed options (`--mode`, `--seed`, `--samples`, `--iterations`, `--probe-slowdown`) through `Arguments.parsed` (Task 13 Step 1; it replaced the silent-default `int(_:)`, which had no other caller). A thrown `BenchError.usage` exits 2 through the arm in Task 13 Step 5's `main.swift`. After this task the only `throw BenchError.usage` sites are `Arguments.parsed` and the `samples`/`iterations` guard above, both caller input; the probe's missing-kernel failure is `BenchError.probeSetup` (exit 1).
 
 - [ ] **Step 4: Smoke run and validate**
 
@@ -3771,6 +3768,7 @@ In `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`:
 - §4.8: the thermal-state list gains `"unknown"` (what `HostFingerprint.thermalStateName()` returns for `ProcessInfo.thermalState`'s `@unknown default`), matching the schema doc comment.
 - §5.7 (probe case): `dataDescriptor = "sequential_u32_pattern"` becomes `"sawtooth_f32_(i&0xFFFF)*0.5+1"` (the fill is a float32 sawtooth; the old label misdescribed it), and `resetForSample` re-zeroes the destination so a passing `memcmp` proves that at least one of that sample's dispatches wrote the whole destination (zeroing is once per sample, before warm-up; `verify` runs after the last measured iteration). The expected figure `≈370 GB/s` was computed with the 1× convention (134217728 B / 0.36 ms); replace it with the read-plus-write figure the M0 acceptance run measures (the same 0.36 ms would read ≈745 GB/s).
 - §5.8: `GPUProbe.copyGBps()` returns `2 × 128 MiB / median command-buffer seconds / 1e9` (read plus write), the same convention as §4.10's CPU probe, so the two preflight figures are comparable.
+- §5.8: `5 warm-up + 10 measured` becomes `50 warm-up + 50 measured`, still a median, with a fixed warm-up count rather than `WarmupPolicy`. Measured on the M3 Max over 81 recorded series (13,500 dispatches): after 0.25 s or more of GPU idle the first dispatches take ≈1.9× the settled ≈0.765 ms and the series settles only after up to 41 dispatches (median 10, p90 25); `WarmupPolicy.standard` stopped at n = 3 on that slow plateau in 3 of 45 series because the plateau's own CoV is under 5 % (one reading then came out +41 %); a median of 10 settled dispatches strays up to 4.66 % from its series' level (p99 2.38 %) against 1.85 % (p99 1.01 %) for a median of 50, with a 5 % gate on the difference of two readings. Before: 5 of 7 idle-machine runs read not quiet (GPU drift 7.7–63.9 % in those five). After: 10 of 10 quiet, GPU drift 0.11–1.30 %, and one `copyGBps()` call costs ≈0.12 s instead of ≈0.02–0.04 s. The 5 % gate of §4.10 is unchanged.
 - §5.7 and §11 item 5: `--probe-slowdown 4` becomes `--probe-slowdown 64`. The Task 14 review measured the probe's slowdown against `loops` on the M3 Max as ≈1.0× for loops ≤ 6, 1.5× at 8, 2.8× at 32 and ≈8× at 64 (bandwidth headroom absorbs the first extra passes), so 4 would not cross the alert boundary; the acceptance evidence records the ratio actually measured.
 
 - [ ] **Step 8: Full gates**

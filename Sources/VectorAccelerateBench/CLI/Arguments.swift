@@ -26,10 +26,9 @@ struct Arguments {
 
     func value(_ key: String) -> String? { options[key] }
     func has(_ flag: String) -> Bool { flags.contains(flag) }
-    func int(_ key: String) -> Int? { options[key].flatMap(Int.init) }
 
     /// An absent option is `nil` (the caller supplies the default); a present value that `parse` rejects throws `BenchError.usage`
-    /// naming the option and the value. Contrast `int(_:)` above, which reads an unparseable value as `nil`, i.e. as absent.
+    /// naming the option and the value.
     func parsed<T>(_ key: String, expecting what: String, _ parse: (String) -> T?) throws -> T? {
         guard let raw = options[key] else { return nil }
         guard let parsedValue = parse(raw) else { throw BenchError.usage("\(key) expects \(what), got '\(raw)'") }

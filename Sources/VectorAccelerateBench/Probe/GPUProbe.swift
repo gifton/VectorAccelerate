@@ -39,7 +39,7 @@ final class GPUProbe: @unchecked Sendable {
     init(device: any MTLDevice) throws {
         self.device = device
         let library = try device.makeLibrary(source: Self.source, options: MTLCompileOptions())
-        guard let function = library.makeFunction(name: "copy_f32x4") else { throw BenchError.usage("probe kernel missing") }
+        guard let function = library.makeFunction(name: "copy_f32x4") else { throw BenchError.probeSetup("kernel function copy_f32x4 not found in the compiled probe library") }
         pipeline = try device.makeComputePipelineState(function: function)
         guard let queue = device.makeCommandQueue(),
               let src = device.makeBuffer(length: Self.bytes, options: .storageModeShared),
@@ -74,7 +74,13 @@ final class GPUProbe: @unchecked Sendable {
     }
 
     /// GB/s counting read plus write, like `PreflightProbe.cpuCopyGBps`: 2 × bytes / median seconds / 1e9.
-    func copyGBps(warmup: Int = 5, measured: Int = 10) throws -> Double {
+    /// The warm-up is a fixed 50 dispatches rather than `WarmupPolicy`, and the median is over 50, because of what 81 recorded
+    /// series (13,500 dispatches, M3 Max) showed: after 0.25 s or more of GPU idle the first dispatches take about 1.9× the settled
+    /// time and the series needs up to 41 dispatches to settle; that slow plateau is steady enough (CoV < 5 %) for the policy to
+    /// stop on it at n = 3; and a median of 10 settled dispatches strays up to 4.66 % from its series' level against 1.85 % for a
+    /// median of 50, with a 5 % quiet gate on the difference of two readings. Numbers: plan Task 17 Step 7, spec §5.8 amendment.
+    /// Unverified on any other GPU, and no test exercises it.
+    func copyGBps(warmup: Int = 50, measured: Int = 50) throws -> Double {
         precondition(measured >= 1, "copyGBps needs at least one measured dispatch")
         for _ in 0..<warmup { _ = try dispatch(loops: 1) }
         var secs: [Double] = []
