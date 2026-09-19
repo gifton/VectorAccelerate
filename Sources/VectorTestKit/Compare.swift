@@ -38,7 +38,8 @@ public struct CompareResult: Codable, Sendable, Equatable {
 /// Precedence invalidArtifact → correctnessFailed → resourceFailed → incomparable → alert → ok is pinned by
 /// `CompareTests.testInvalidArtifact`, `testCorrectnessAndResourceFailuresWinEvenWithoutBaseline`,
 /// `testIncomparableIdentityKeyAndMissing`, `testNonMeasuredNewRecordIsIncomparable`, `testZeroMedianBaselineIsIncomparable`,
-/// and `testAlertSlowerAndFaster`; blocking rules by `testExitCodes`.
+/// and `testAlertSlowerAndFaster`; blocking rules by `testExitCodes`. A timing kind that cannot be compared is skipped with
+/// a reason and the remaining kinds decide (`testUnusableKindIsSkippedWithAReasonAndTheRestDecide`).
 public enum Compare {
     public static let floorBoundary = 0.025
 
@@ -81,24 +82,31 @@ public enum Compare {
         // 5. deltas
         var deltas: [KindDelta] = []
         var alert: CompareStatus?
-        var unusable: [String] = []
+        var skipped: [String] = []
         for kind in TimingKind.allCases {
             guard let n = new.timing[kind], let b = base.timing[kind] else { continue }
-            // `validate()` does not bound the summary fields. A median that is not a positive finite number cannot anchor a
-            // ratio: on the baseline side it divides by zero or flips the sign, and on the new side it is finite garbage that
-            // would read as an alert (0 against 100 is delta −1). The same wording names the kind, the side and the value.
+            // A kind that cannot be compared is skipped with a reason and the remaining kinds decide the case, so a broken GPU
+            // timer cannot hide a wall regression (`CompareTests.testUnusableKindIsSkippedWithAReasonAndTheRestDecide`). Three
+            // conditions, one wording — `timing.<kind> not compared: <quantity> <value> is not …` — on either side.
+            let notCompared = "timing.\(kind.rawValue) not compared"
+            // 1–2. `validate()` does not bound the summary fields. A median that is not a positive finite number cannot anchor a
+            // ratio: as the baseline it divides by zero or flips the sign, and as the new value it is finite garbage that would
+            // read as an alert (0 against 100 is delta −1).
             let medians = [(side: "new", value: n.summary.median), (side: "baseline", value: b.summary.median)]
             let rejected = medians.filter { !($0.value > 0 && $0.value.isFinite) }
             guard rejected.isEmpty else {
-                unusable += rejected.map { "timing.\(kind.rawValue): \($0.side) median \($0.value) is not a positive finite number" }
+                skipped += rejected.map { "\(notCompared): \($0.side) median \($0.value) is not a positive finite number" }
                 continue
             }
             let delta = (n.summary.median - b.summary.median) / b.summary.median
             let boundary = max(floorBoundary, 2 * b.summary.rsd)
-            // Usable medians can still overflow here (a huge median over a tiny one; 2 × a huge rsd).
+            // 3. Usable medians can still overflow here (a huge median over a tiny one; 2 × a huge rsd).
             guard delta.isFinite, boundary.isFinite else {
-                unusable.append("timing.\(kind.rawValue): comparison is not finite (new median \(n.summary.median), "
-                                + "baseline median \(b.summary.median), baseline rsd \(b.summary.rsd))")
+                if !delta.isFinite {
+                    skipped.append("\(notCompared): delta \(delta) is not finite "
+                                   + "(new median \(n.summary.median), baseline median \(b.summary.median))")
+                }
+                if !boundary.isFinite { skipped.append("\(notCompared): boundary \(boundary) is not finite (baseline rsd \(b.summary.rsd))") }
                 continue
             }
             let alerting = delta > boundary || delta < -boundary
@@ -107,17 +115,17 @@ public enum Compare {
             // With several timing kinds the status reflects the first alerting kind in `TimingKind.allCases` order; each kind's own `alerting` is rendered.
             if alerting, alert == nil { alert = delta > 0 ? .alertSlower : .alertFaster }
         }
-        // One unusable kind makes the whole case incomparable, never an alert, and the result carries no deltas at all, not even
-        // the usable ones (`CompareTests.testNonPositiveMedianOnEitherSideIsIncomparable`, `testZeroMedianBaselineIsIncomparable`,
-        // `testNonFiniteDeltaOrBoundaryIsIncomparable`). A `KindDelta` is appended only after both guards above, which check
-        // all four of its Double fields, so every one this function returns holds finite values.
-        if !unusable.isEmpty {
-            return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons + unusable)
-        }
-        // A comparable pair with nothing to compare (non-measured record, no timing kind present on both sides) is incomparable,
-        // never ok (`CompareTests.testNonMeasuredNewRecordIsIncomparable`).
+        // Skip reasons stay on the result whatever its status; every format of `render` prints a result's reasons. A `KindDelta`
+        // is appended only after both guards above, which check all four of its Double fields, so every one this function
+        // returns holds finite values (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable`).
+        reasons += skipped
+        // Nothing left to judge by (non-measured record, no timing kind present on both sides, or every such kind skipped) is
+        // incomparable, never ok (`CompareTests.testNonMeasuredNewRecordIsIncomparable`, `testZeroMedianBaselineIsIncomparable`).
+        // The skip reasons, when there are any, are the explanation.
         if deltas.isEmpty {
-            reasons.append("no comparable timing kinds (new status \(new.status.rawValue), baseline status \(base.status.rawValue))")
+            if skipped.isEmpty {
+                reasons.append("no comparable timing kinds (new status \(new.status.rawValue), baseline status \(base.status.rawValue))")
+            }
             return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons)
         }
         return CompareResult(id: new.id, status: status ?? alert ?? .ok, deltas: deltas, reasons: reasons)

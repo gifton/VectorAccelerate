@@ -91,12 +91,12 @@ final class CompareTests: XCTestCase {
     func testZeroMedianBaselineIsIncomparable() {
         let r = Compare.compare(new: record(wall: [1, 1, 1]), baseline: record(wall: [0, 0, 0]), newKey: key, baselineKey: key)
         XCTAssertEqual(r.status, .incomparable); XCTAssertTrue(r.deltas.isEmpty)
-        XCTAssertEqual(r.reasons, ["timing.wall: baseline median 0.0 is not a positive finite number"])
+        XCTAssertEqual(r.reasons, ["timing.wall not compared: baseline median 0.0 is not a positive finite number"])
     }
 
-    /// Finite medians can still give a non-finite delta or boundary: (1e308 − 1e-300) / 1e-300 overflows, and so does 2 × rsd for
-    /// rsd = 1e308. A NaN median cannot come from a JSON file but can be built in memory. Each is incomparable for the whole case,
-    /// never an alert, and the JSON rendering of such results decodes (it used to trap on `inf`).
+    /// Usable medians can still give a non-finite delta or boundary: (1e308 − 1e-300) / 1e-300 overflows, and so does 2 × rsd for
+    /// rsd = 1e308. A NaN median cannot come from a JSON file but can be built in memory. When such a kind is the only one, the
+    /// case is incomparable, never an alert, and the JSON rendering decodes (it used to trap on `inf`).
     func testNonFiniteDeltaOrBoundaryIsIncomparable() throws {
         func withWall(median: Double? = nil, rsd: Double? = nil) -> CaseRecord {
             var edited = record(wall: [100, 100, 100])
@@ -106,11 +106,7 @@ final class CompareTests: XCTestCase {
         }
         let overflow = Compare.compare(new: withWall(median: 1e308), baseline: withWall(median: 1e-300), newKey: key, baselineKey: key)
         XCTAssertEqual(overflow.status, .incomparable); XCTAssertTrue(overflow.deltas.isEmpty)
-        XCTAssertEqual(overflow.reasons.count, 1, "\(overflow.reasons)")
-        let overflowReason = overflow.reasons.first ?? ""
-        for piece in ["timing.wall", "1e+308", "1e-300", "not finite"] {
-            XCTAssertTrue(overflowReason.contains(piece), "'\(piece)' missing from: \(overflow.reasons)")
-        }
+        XCTAssertEqual(overflow.reasons, ["timing.wall not compared: delta inf is not finite (new median 1e+308, baseline median 1e-300)"])
 
         let nan = Compare.compare(new: withWall(median: .nan), baseline: withWall(), newKey: key, baselineKey: key)
         XCTAssertEqual(nan.status, .incomparable); XCTAssertTrue(nan.deltas.isEmpty)
@@ -118,15 +114,7 @@ final class CompareTests: XCTestCase {
         XCTAssertEqual(infiniteBase.status, .incomparable); XCTAssertTrue(infiniteBase.deltas.isEmpty)
         let boundary = Compare.compare(new: withWall(), baseline: withWall(rsd: 1e308), newKey: key, baselineKey: key)
         XCTAssertEqual(boundary.status, .incomparable); XCTAssertTrue(boundary.deltas.isEmpty)
-        XCTAssertTrue(boundary.reasons.contains { $0.contains("baseline rsd 1e+308") }, "\(boundary.reasons)")
-
-        // One non-finite kind makes the whole case incomparable, even beside a kind that would alert on its own.
-        var mixedNew = withWall(median: 1e308), mixedBase = withWall(median: 1e-300)
-        mixedNew.timing.commandBuffer = record(wall: [200, 200, 200]).timing.wall
-        mixedBase.timing.commandBuffer = record(wall: [100, 100, 100]).timing.wall
-        let mixed = Compare.compare(new: mixedNew, baseline: mixedBase, newKey: key, baselineKey: key)
-        XCTAssertEqual(mixed.status, .incomparable); XCTAssertTrue(mixed.deltas.isEmpty)
-        XCTAssertEqual(Compare.exitCode([mixed], strictPerf: true), 0)
+        XCTAssertEqual(boundary.reasons, ["timing.wall not compared: boundary inf is not finite (baseline rsd 1e+308)"])
 
         // A correctness failure still wins, and keeps the comparison reason.
         var failing = withWall(median: 1e308); failing.correctness?.status = .fail
@@ -134,16 +122,16 @@ final class CompareTests: XCTestCase {
         XCTAssertEqual(failed.status, .correctnessFailed)
         XCTAssertTrue(failed.reasons.contains { $0.contains("not finite") }, "\(failed.reasons)")
 
-        let all = [overflow, nan, infiniteBase, boundary, mixed, failed]
+        let all = [overflow, nan, infiniteBase, boundary, failed]
         XCTAssertEqual(try JSONDecoder().decode([CompareResult].self, from: Data(Compare.render(all, format: "json").utf8)), all)
         // No delta line is rendered for these results (a reason may still quote an infinite median).
         let text = Compare.render(all, format: "text")
-        XCTAssertFalse(text.contains("inf%") || text.contains("nan%") || text.contains("boundary"), text)
+        XCTAssertFalse(text.contains("inf%") || text.contains("nan%") || text.contains("(boundary"), text)
     }
 
     /// A median that is not a positive finite number cannot anchor a ratio. On the NEW side that used to be finite garbage:
-    /// 0 against 100 gave delta −1 and `alert(faster)`. A GPU timing pair can come back 0 from a real run. Both sides now make
-    /// the whole case incomparable, in parallel wording that names the kind, the side and the value.
+    /// 0 against 100 gave delta −1 and `alert(faster)`. A GPU timing pair can come back 0 from a real run. When such a kind is
+    /// the only one, the case is incomparable; both sides use one wording that names the kind, the side and the value.
     func testNonPositiveMedianOnEitherSideIsIncomparable() {
         func withWall(median: Double) -> CaseRecord {
             var edited = record(wall: [100, 100, 100]); edited.timing.wall?.summary.median = median
@@ -153,40 +141,99 @@ final class CompareTests: XCTestCase {
         for value in [0.0, -5.0, -Double.infinity, Double.nan] {
             let newSide = Compare.compare(new: withWall(median: value), baseline: good, newKey: key, baselineKey: key)
             XCTAssertEqual(newSide.status, .incomparable, "new median \(value)"); XCTAssertTrue(newSide.deltas.isEmpty, "new median \(value)")
-            XCTAssertEqual(newSide.reasons, ["timing.wall: new median \(value) is not a positive finite number"])
+            XCTAssertEqual(newSide.reasons, ["timing.wall not compared: new median \(value) is not a positive finite number"])
             XCTAssertEqual(Compare.exitCode([newSide], strictPerf: true), 0)
             let baseSide = Compare.compare(new: good, baseline: withWall(median: value), newKey: key, baselineKey: key)
             XCTAssertEqual(baseSide.status, .incomparable, "baseline median \(value)")
             XCTAssertTrue(baseSide.deltas.isEmpty, "baseline median \(value)")
-            XCTAssertEqual(baseSide.reasons, ["timing.wall: baseline median \(value) is not a positive finite number"])
+            XCTAssertEqual(baseSide.reasons, ["timing.wall not compared: baseline median \(value) is not a positive finite number"])
         }
         // A measured run whose timings are all zero takes the same path (no hand-edited summary needed).
         let measuredZero = Compare.compare(new: record(wall: [0, 0, 0]), baseline: good, newKey: key, baselineKey: key)
         XCTAssertEqual(measuredZero.status, .incomparable)
-        XCTAssertEqual(measuredZero.reasons, ["timing.wall: new median 0.0 is not a positive finite number"])
+        XCTAssertEqual(measuredZero.reasons, ["timing.wall not compared: new median 0.0 is not a positive finite number"])
         // Both sides unusable: one reason per side, new first.
         let both = Compare.compare(new: withWall(median: 0), baseline: withWall(median: -1), newKey: key, baselineKey: key)
-        XCTAssertEqual(both.reasons, ["timing.wall: new median 0.0 is not a positive finite number",
-                                      "timing.wall: baseline median -1.0 is not a positive finite number"])
+        XCTAssertEqual(both.reasons, ["timing.wall not compared: new median 0.0 is not a positive finite number",
+                                      "timing.wall not compared: baseline median -1.0 is not a positive finite number"])
+    }
 
-        // One unusable kind makes the whole case incomparable on either side, even beside a kind that would alert on its own.
-        let alertingWall = record(wall: [200, 200, 200])
-        var zeroGPUNew = alertingWall, goodGPUBase = good
-        zeroGPUNew.timing.commandBuffer = record(wall: [0, 0, 0]).timing.wall
-        goodGPUBase.timing.commandBuffer = good.timing.wall
-        let mixedNew = Compare.compare(new: zeroGPUNew, baseline: goodGPUBase, newKey: key, baselineKey: key)
-        XCTAssertEqual(mixedNew.status, .incomparable); XCTAssertTrue(mixedNew.deltas.isEmpty)
-        XCTAssertEqual(mixedNew.reasons, ["timing.commandBuffer: new median 0.0 is not a positive finite number"])
-        var goodGPUNew = alertingWall, zeroGPUBase = good
-        goodGPUNew.timing.commandBuffer = good.timing.wall
-        zeroGPUBase.timing.commandBuffer = record(wall: [0, 0, 0]).timing.wall
-        let mixedBase = Compare.compare(new: goodGPUNew, baseline: zeroGPUBase, newKey: key, baselineKey: key)
-        XCTAssertEqual(mixedBase.status, .incomparable); XCTAssertTrue(mixedBase.deltas.isEmpty)
-        XCTAssertEqual(mixedBase.reasons, ["timing.commandBuffer: baseline median 0.0 is not a positive finite number"])
+    /// An unusable kind must not mask the others: a broken GPU timer (commandBuffer median 0) beside a genuine wall regression
+    /// is still `alert(slower)`, and `--strict-perf` still fails on it. The unusable kind contributes no delta and no verdict,
+    /// only a reason; the case is incomparable only when no kind is left. The same holds for all three unusable conditions and
+    /// for either side, and the reason is rendered in every format whatever the status.
+    func testUnusableKindIsSkippedWithAReasonAndTheRestDecide() throws {
+        /// `wall` from the given samples; `commandBuffer` from `gpu`, or with its median or rsd overwritten.
+        func pair(wall: [Double], gpu: [Double] = [100, 100, 100], gpuMedian: Double? = nil, gpuRSD: Double? = nil) -> CaseRecord {
+            var edited = record(wall: wall)
+            edited.timing.commandBuffer = record(wall: gpu).timing.wall
+            if let gpuMedian { edited.timing.commandBuffer?.summary.median = gpuMedian }
+            if let gpuRSD { edited.timing.commandBuffer?.summary.rsd = gpuRSD }
+            return edited
+        }
+        let base = pair(wall: [100, 100, 100])
+        let newZero = "timing.commandBuffer not compared: new median 0.0 is not a positive finite number"
+        let baseZero = "timing.commandBuffer not compared: baseline median 0.0 is not a positive finite number"
+        func expect(_ result: CompareResult, _ status: CompareStatus, reasons: [String], strictExit: Int32, _ what: String) {
+            XCTAssertEqual(result.status, status, what); XCTAssertEqual(result.reasons, reasons, what)
+            XCTAssertEqual(result.deltas.map(\.kind), status == .incomparable ? [] : [.wall], what)
+            XCTAssertEqual(Compare.exitCode([result], strictPerf: true), strictExit, what)
+            XCTAssertEqual(Compare.exitCode([result], strictPerf: false), 0, what)
+        }
 
-        // A kind present on one side only is still just not compared; the boundary rule is untouched for usable medians.
-        var wallOnlyBase = good; wallOnlyBase.timing.commandBuffer = nil
-        XCTAssertEqual(Compare.compare(new: zeroGPUNew, baseline: wallOnlyBase, newKey: key, baselineKey: key).status, .alertSlower)
+        // wall regresses beyond the boundary; commandBuffer is unusable on the new side, then on the baseline side.
+        let slowerNewSide = Compare.compare(new: pair(wall: [200, 200, 200], gpu: [0, 0, 0]), baseline: base, newKey: key, baselineKey: key)
+        expect(slowerNewSide, .alertSlower, reasons: [newZero], strictExit: 1, "regression, unusable on the new side")
+        let slowerBaseSide = Compare.compare(new: pair(wall: [200, 200, 200]), baseline: pair(wall: [100, 100, 100], gpu: [0, 0, 0]),
+                                             newKey: key, baselineKey: key)
+        expect(slowerBaseSide, .alertSlower, reasons: [baseZero], strictExit: 1, "regression, unusable on the baseline side")
+        // the usable kind is within the boundary: ok, and the reason is still recorded.
+        let okWithReason = Compare.compare(new: pair(wall: [101, 101, 101], gpu: [0, 0, 0]), baseline: base, newKey: key, baselineKey: key)
+        expect(okWithReason, .ok, reasons: [newZero], strictExit: 0, "within the boundary")
+        // every kind unusable: incomparable, and the per-kind reasons are the explanation.
+        let none = Compare.compare(new: pair(wall: [0, 0, 0], gpu: [0, 0, 0]), baseline: base, newKey: key, baselineKey: key)
+        expect(none, .incomparable, reasons: ["timing.wall not compared: new median 0.0 is not a positive finite number", newZero],
+               strictExit: 0, "no kind left")
+
+        // The overflow pair and the boundary overflow beside a healthy kind: judged on the healthy kind.
+        let overflowReason = "timing.commandBuffer not compared: delta inf is not finite (new median 1e+308, baseline median 1e-300)"
+        let tinyBase = pair(wall: [100, 100, 100], gpuMedian: 1e-300)
+        let overflowSlower = Compare.compare(new: pair(wall: [200, 200, 200], gpuMedian: 1e308), baseline: tinyBase, newKey: key, baselineKey: key)
+        expect(overflowSlower, .alertSlower, reasons: [overflowReason], strictExit: 1, "overflow beside a regression")
+        let overflowOK = Compare.compare(new: pair(wall: [101, 101, 101], gpuMedian: 1e308), baseline: tinyBase, newKey: key, baselineKey: key)
+        expect(overflowOK, .ok, reasons: [overflowReason], strictExit: 0, "overflow beside a healthy kind")
+        let wideBase = pair(wall: [100, 100, 100], gpuRSD: 1e308)
+        let boundaryFaster = Compare.compare(new: pair(wall: [50, 50, 50]), baseline: wideBase, newKey: key, baselineKey: key)
+        expect(boundaryFaster, .alertFaster, reasons: ["timing.commandBuffer not compared: boundary inf is not finite (baseline rsd 1e+308)"],
+               strictExit: 1, "boundary overflow beside an improvement")
+
+        // The other direction: wall unusable, commandBuffer decides.
+        var wallZero = pair(wall: [0, 0, 0], gpu: [200, 200, 200])
+        let gpuDecides = Compare.compare(new: wallZero, baseline: base, newKey: key, baselineKey: key)
+        XCTAssertEqual(gpuDecides.status, .alertSlower); XCTAssertEqual(gpuDecides.deltas.map(\.kind), [.commandBuffer])
+        XCTAssertEqual(gpuDecides.reasons, ["timing.wall not compared: new median 0.0 is not a positive finite number"])
+        // A correctness failure still wins; the comparable kind's delta and the skip reason are both kept.
+        wallZero.correctness?.status = .fail
+        let failed = Compare.compare(new: wallZero, baseline: base, newKey: key, baselineKey: key)
+        XCTAssertEqual(failed.status, .correctnessFailed); XCTAssertEqual(failed.deltas.map(\.kind), [.commandBuffer])
+        XCTAssertEqual(failed.reasons, ["correctness failed", "timing.wall not compared: new median 0.0 is not a positive finite number"])
+        // A kind present on one side only is still simply not compared, without a reason.
+        let oneSided = Compare.compare(new: pair(wall: [200, 200, 200], gpu: [0, 0, 0]), baseline: record(wall: [100, 100, 100]),
+                                       newKey: key, baselineKey: key)
+        XCTAssertEqual(oneSided.status, .alertSlower); XCTAssertEqual(oneSided.reasons, [])
+
+        // The reason is visible in every format when the status is ok or an alert, not only when it is incomparable.
+        for result in [okWithReason, slowerNewSide] {
+            let text = Compare.render([result], format: "text")
+            XCTAssertTrue(text.contains("    wall "), text); XCTAssertTrue(text.contains("    reason: \(newZero)\n"), text)
+            let markdown = Compare.render([result], format: "markdown")
+            XCTAssertTrue(markdown.contains("| \(result.id) | \(result.status.rawValue) | wall |"), markdown)
+            XCTAssertTrue(markdown.contains("\n\n- \(result.id): \(newZero)\n"), markdown)
+            let decoded = try JSONDecoder().decode([CompareResult].self, from: Data(Compare.render([result], format: "json").utf8))
+            XCTAssertEqual(decoded, [result]); XCTAssertEqual(decoded.first?.reasons, [newZero])
+        }
+        let everything = [slowerNewSide, slowerBaseSide, okWithReason, none, overflowSlower, overflowOK, boundaryFaster, gpuDecides, failed]
+        XCTAssertEqual(try JSONDecoder().decode([CompareResult].self, from: Data(Compare.render(everything, format: "json").utf8)), everything)
     }
 
     func testExitCodes() {
