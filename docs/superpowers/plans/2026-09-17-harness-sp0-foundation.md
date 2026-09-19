@@ -1757,7 +1757,8 @@ import Foundation
 
 public enum CaseIDError: Error, Equatable { case malformed(String) }
 
-/// Stable case identity per the grammar in spec §5.4 (amended: one or more bare op segments). Never contains seeds, digests, or timestamps.
+/// Stable case identity per the grammar in spec §5.4 (amended: one or more bare op segments). By contract, not enforced by
+/// the grammar, a registered ID never contains seeds, digests, or timestamps.
 public struct CaseID: Codable, Hashable, Sendable, CustomStringConvertible {
     public let rawValue: String
 
@@ -1773,10 +1774,10 @@ public struct CaseID: Codable, Hashable, Sendable, CustomStringConvertible {
     public var family: String { String(rawValue.split(separator: ".")[0]) }
     public var description: String { rawValue }
 
-    public init(from decoder: Decoder) throws {
+    public init(from decoder: any Decoder) throws {
         try self.init(validating: try decoder.singleValueContainer().decode(String.self))
     }
-    public func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: any Encoder) throws {
         var c = encoder.singleValueContainer(); try c.encode(rawValue)
     }
 }
@@ -3128,7 +3129,7 @@ final class L2BatchDistanceCase: BenchCase, @unchecked Sendable {
             if let t = await context.lastGPUTiming {
                 gpu.append(GPUSample(kind: .commandBuffer, startNs: t.gpuStartTime * 1e9, endNs: t.gpuEndTime * 1e9, label: "l2_batch"))
             }
-            blackHole(distances)
+            VectorTestKit.blackHole(distances)   // qualified: VectorAccelerate exports an identical blackHole until Task 17 deletes Benchmarking/
             return IterationOutput(gpu: gpu, payload: distances)
         }
 
@@ -3500,8 +3501,8 @@ In `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`:
 - [ ] **Step 8: Full gates**
 
 ```bash
-swift test 2>&1 | tail -3
-swift test -c release 2>&1 | tail -3
+swift test 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
+swift test -c release 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
 swiftlint lint --quiet 2>&1 | grep -c "error:"    # expected: 0
 ```
 Expected: 0 failures in both configurations; 2 skips (the IVF throughput placeholders) unchanged. Record the exact counts for Task 18.
