@@ -2423,6 +2423,14 @@ final class CompareTests: XCTestCase {
         return c
     }
 
+    /// A run that produced no timings: non-measured records may carry zero counts and no series (`CaseRecord.validate()`).
+    private func nonMeasured(_ status: CaseStatus, correctness: CorrectnessStatus = .pass) -> CaseRecord {
+        var c = record(wall: [1, 1, 1], correctness: correctness)
+        c.status = status; c.timing = Timing(wall: nil, commandBuffer: nil, encoder: nil)
+        c.warmupUsed = []; c.samples = 0; c.iterations = 0
+        return c
+    }
+
     func testOk() {
         let r = Compare.compare(new: record(wall: [101, 101, 101]), baseline: record(wall: [100, 100, 100]), newKey: key, baselineKey: key)
         XCTAssertEqual(r.status, .ok); XCTAssertEqual(r.deltas.count, 1)
@@ -2445,6 +2453,9 @@ final class CompareTests: XCTestCase {
         XCTAssertEqual(Compare.compare(new: record(wall: [1, 1, 1]), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: "k2").status, .incomparable)
         let missing = Compare.compare(new: record(wall: [1, 1, 1]), baseline: nil, newKey: key, baselineKey: nil)
         XCTAssertEqual(missing.status, .incomparable); XCTAssertEqual(missing.reasons, ["no baseline for probe.gpu_copy.bytes=8 under k1"])
+        // A present baseline whose environment key is unknown is reported as such, not as "no baseline".
+        let nilKey = Compare.compare(new: record(wall: [1, 1, 1]), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: nil)
+        XCTAssertEqual(nilKey.status, .incomparable); XCTAssertEqual(nilKey.reasons, ["baseline environment key missing"])
     }
 
     func testCorrectnessAndResourceFailuresWinEvenWithoutBaseline() {
@@ -2456,6 +2467,13 @@ final class CompareTests: XCTestCase {
         // A correctness failure with a mismatched baseline still reports correctnessFailed and keeps the mismatch reason.
         let both = Compare.compare(new: record(wall: [1, 1, 1], correctness: .fail, route: "cpu"), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: key)
         XCTAssertEqual(both.status, .correctnessFailed); XCTAssertTrue(both.reasons.contains { $0.hasPrefix("identity differs") })
+        // Correctness precedes resources and both reasons are kept; with no correctness notes the reason is bare.
+        let ordered = Compare.compare(new: record(wall: [1, 1, 1], correctness: .fail, resources: over), baseline: nil, newKey: key, baselineKey: nil)
+        XCTAssertEqual(ordered.status, .correctnessFailed)
+        XCTAssertTrue(ordered.reasons.contains("correctness failed"), "\(ordered.reasons)")
+        XCTAssertTrue(ordered.reasons.contains("resource limit exceeded: staticThreadgroupBytes 40000 > 32768"), "\(ordered.reasons)")
+        var withNotes = record(wall: [1, 1, 1], correctness: .fail); withNotes.correctness?.notes = ["row 3 differs", "row 7 differs"]
+        XCTAssertEqual(Compare.compare(new: withNotes, baseline: nil, newKey: key, baselineKey: nil).reasons.first, "correctness failed: row 3 differs; row 7 differs")
     }
 
     func testInvalidArtifact() {
@@ -2464,21 +2482,45 @@ final class CompareTests: XCTestCase {
         XCTAssertEqual(Compare.compare(new: record(wall: [1, 1, 1]), baseline: bad, newKey: key, baselineKey: key).status, .invalidArtifact)
     }
 
+    func testNonMeasuredNewRecordIsIncomparable() {
+        for status in [CaseStatus.failed, .unavailable] {
+            let r = Compare.compare(new: nonMeasured(status), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: key)
+            XCTAssertEqual(r.status, .incomparable, status.rawValue); XCTAssertTrue(r.deltas.isEmpty, status.rawValue)
+            XCTAssertEqual(r.reasons, ["no comparable timing kinds (new status \(status.rawValue), baseline status measured)"])
+        }
+        // A correctness failure on such a record still wins over incomparable.
+        let failed = Compare.compare(new: nonMeasured(.failed, correctness: .fail), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: key)
+        XCTAssertEqual(failed.status, .correctnessFailed)
+        XCTAssertTrue(failed.reasons.contains { $0.hasPrefix("no comparable timing kinds") }, "\(failed.reasons)")
+    }
+
+    func testZeroMedianBaselineIsIncomparable() {
+        let r = Compare.compare(new: record(wall: [1, 1, 1]), baseline: record(wall: [0, 0, 0]), newKey: key, baselineKey: key)
+        XCTAssertEqual(r.status, .incomparable); XCTAssertTrue(r.deltas.isEmpty)
+        XCTAssertEqual(r.reasons, ["no comparable timing kinds (new status measured, baseline status measured)"])
+    }
+
     func testExitCodes() {
         let ok = CompareResult(id: "a.b", status: .ok, deltas: [], reasons: [])
         let alert = CompareResult(id: "a.b", status: .alertSlower, deltas: [], reasons: [])
+        let faster = CompareResult(id: "a.b", status: .alertFaster, deltas: [], reasons: [])
         let fail = CompareResult(id: "a.b", status: .correctnessFailed, deltas: [], reasons: [])
         XCTAssertEqual(Compare.exitCode([ok, alert], strictPerf: false), 0)
         XCTAssertEqual(Compare.exitCode([ok, alert], strictPerf: true), 1)
+        XCTAssertEqual(Compare.exitCode([ok, faster], strictPerf: false), 0)
+        XCTAssertEqual(Compare.exitCode([ok, faster], strictPerf: true), 1)
         XCTAssertEqual(Compare.exitCode([ok, fail], strictPerf: false), 1)
+        XCTAssertEqual(Compare.exitCode([CompareResult(id: "a.b", status: .invalidArtifact, deltas: [], reasons: [])], strictPerf: false), 1)
+        XCTAssertEqual(Compare.exitCode([CompareResult(id: "a.b", status: .resourceFailed, deltas: [], reasons: [])], strictPerf: false), 1)
         XCTAssertEqual(Compare.exitCode([CompareResult(id: "a.b", status: .incomparable, deltas: [], reasons: [])], strictPerf: true), 0)
     }
 
-    func testRenderFormats() {
+    func testRenderFormats() throws {
         let r = Compare.compare(new: record(wall: [104, 104, 104]), baseline: record(wall: [100, 100, 100]), newKey: key, baselineKey: key)
         XCTAssertTrue(Compare.render([r], format: "text").contains("alert(slower)"))
         XCTAssertTrue(Compare.render([r], format: "markdown").contains("| probe.gpu_copy.bytes=8 |"))
-        XCTAssertNoThrow(try JSONDecoder().decode([CompareResult].self, from: Data(Compare.render([r], format: "json").utf8)))
+        let decoded = try JSONDecoder().decode([CompareResult].self, from: Data(Compare.render([r], format: "json").utf8))
+        XCTAssertEqual(decoded, [r])
     }
 
     func testMarkdownWithMultipleResultsKeepsTableContiguous() throws {
@@ -2560,7 +2602,8 @@ public struct CompareResult: Codable, Sendable, Equatable {
 /// unless strict; correctness, resource, and artifact failures block regardless of baseline availability.
 /// Precedence invalidArtifact → correctnessFailed → resourceFailed → incomparable → alert → ok is pinned by
 /// `CompareTests.testInvalidArtifact`, `testCorrectnessAndResourceFailuresWinEvenWithoutBaseline`,
-/// `testIncomparableIdentityKeyAndMissing`, and `testAlertSlowerAndFaster`; blocking rules by `testExitCodes`.
+/// `testIncomparableIdentityKeyAndMissing`, `testNonMeasuredNewRecordIsIncomparable`, `testZeroMedianBaselineIsIncomparable`,
+/// and `testAlertSlowerAndFaster`; blocking rules by `testExitCodes`.
 public enum Compare {
     public static let floorBoundary = 0.025
 
@@ -2574,18 +2617,26 @@ public enum Compare {
         if status == .invalidArtifact { return CompareResult(id: new.id, status: .invalidArtifact, deltas: [], reasons: reasons) }
 
         // 2. correctness, 3. resources — recorded regardless of baseline
-        if new.correctness?.status == .fail { reasons.append("correctness failed: \(new.correctness?.notes.joined(separator: "; ") ?? "")"); status = status ?? .correctnessFailed }
+        if new.correctness?.status == .fail {
+            let notes = new.correctness?.notes ?? []
+            reasons.append("correctness failed" + (notes.isEmpty ? "" : ": " + notes.joined(separator: "; ")))
+            status = status ?? .correctnessFailed
+        }
         if let r = new.resources {
             if let s = r.staticThreadgroupBytes, let m = r.maxThreadgroupBytes, s > m { reasons.append("resource limit exceeded: staticThreadgroupBytes \(s) > \(m)"); status = status ?? .resourceFailed }
             for n in r.notes where n.hasPrefix("LIMIT_EXCEEDED:") { reasons.append("resource limit exceeded: \(n)"); status = status ?? .resourceFailed }
         }
 
         // 4. comparability
-        var comparable = true
-        guard let base = baseline, let baseKey = baselineKey else {
+        guard let base = baseline else {
             reasons.append("no baseline for \(new.id) under \(newKey)")
             return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons)
         }
+        guard let baseKey = baselineKey else {
+            reasons.append("baseline environment key missing")
+            return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons)
+        }
+        var comparable = true
         if new.identity != base.identity { reasons.append("identity differs from baseline"); comparable = false }
         if newKey != baseKey { reasons.append("environment key differs: \(newKey) vs \(baseKey)"); comparable = false }
         if !comparable { return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons) }
@@ -2600,7 +2651,14 @@ public enum Compare {
             let alerting = delta > boundary || delta < -boundary
             deltas.append(KindDelta(kind: kind, newMedian: n.summary.median, baseMedian: b.summary.median, delta: delta,
                                     boundary: boundary, widened: boundary > floorBoundary, alerting: alerting))
+            // With several timing kinds the status reflects the first alerting kind in `TimingKind.allCases` order; each kind's own `alerting` is rendered.
             if alerting, alert == nil { alert = delta > 0 ? .alertSlower : .alertFaster }
+        }
+        // A comparable pair with nothing to compare (non-measured record, zero baseline median, no shared timing kind) is
+        // incomparable, never ok (`CompareTests.testNonMeasuredNewRecordIsIncomparable`, `testZeroMedianBaselineIsIncomparable`).
+        if deltas.isEmpty {
+            reasons.append("no comparable timing kinds (new status \(new.status.rawValue), baseline status \(base.status.rawValue))")
+            return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons)
         }
         return CompareResult(id: new.id, status: status ?? alert ?? .ok, deltas: deltas, reasons: reasons)
     }
@@ -2616,17 +2674,21 @@ public enum Compare {
     /// (`CompareTests.testTextRenderDoesNotTruncateLongIDs`).
     private static func pad(_ s: String, to width: Int) -> String { s + String(repeating: " ", count: max(0, width - s.count)) }
 
+    /// A ratio rendered as a percentage with two decimals, signed on request (`+4.00%`, `2.50%`).
+    private static func pct(_ value: Double, signed: Bool) -> String { String(format: signed ? "%+.2f%%" : "%.2f%%", value * 100) }
+
     public static func render(_ results: [CompareResult], format: String) -> String {
         switch format {
         case "json":
             let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-            return String(decoding: (try? enc.encode(results)) ?? Data("[]".utf8), as: UTF8.self)
+            // try!: encoding throws only for non-finite Doubles; medians and deltas derive from finite timings or a decoded baseline.
+            return String(decoding: try! enc.encode(results), as: UTF8.self)
         case "markdown":
             var out = "| case | status | kind | new median (ns) | base median (ns) | delta | boundary |\n|---|---|---|---|---|---|---|\n"
             for r in results {
                 if r.deltas.isEmpty { out += "| \(r.id) | \(r.status.rawValue) | — | — | — | — | — |\n" }
                 for d in r.deltas {
-                    out += "| \(r.id) | \(r.status.rawValue) | \(d.kind.rawValue) | \(String(format: "%.0f", d.newMedian)) | \(String(format: "%.0f", d.baseMedian)) | \(String(format: "%+.2f%%", d.delta * 100)) | \(String(format: "%.2f%%", d.boundary * 100))\(d.widened ? " (widened)" : "") |\n"
+                    out += "| \(r.id) | \(r.status.rawValue) | \(d.kind.rawValue) | \(String(format: "%.0f", d.newMedian)) | \(String(format: "%.0f", d.baseMedian)) | \(pct(d.delta, signed: true)) | \(pct(d.boundary, signed: false))\(d.widened ? " (widened)" : "") |\n"
                 }
             }
             // Reasons follow the whole table, after one blank line, so rows stay contiguous across results
@@ -2639,7 +2701,7 @@ public enum Compare {
             for r in results {
                 out += "\(pad(r.id, to: 44)) \(r.status.rawValue)\n"
                 for d in r.deltas {
-                    out += "    \(pad(d.kind.rawValue, to: 14)) \(String(format: "%+.2f%%", d.delta * 100)) (boundary \(String(format: "%.2f%%", d.boundary * 100))\(d.widened ? ", widened" : ""))\(d.alerting ? "  <-- alert" : "")\n"
+                    out += "    \(pad(d.kind.rawValue, to: 14)) \(pct(d.delta, signed: true)) (boundary \(pct(d.boundary, signed: false))\(d.widened ? ", widened" : ""))\(d.alerting ? "  <-- alert" : "")\n"
                 }
                 for reason in r.reasons { out += "    reason: \(reason)\n" }
             }
@@ -2652,7 +2714,7 @@ public enum Compare {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter CompareTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 10 tests, with 0 failures`
+Expected: `Executed 12 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
 

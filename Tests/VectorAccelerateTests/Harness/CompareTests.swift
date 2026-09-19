@@ -17,6 +17,14 @@ final class CompareTests: XCTestCase {
         return c
     }
 
+    /// A run that produced no timings: non-measured records may carry zero counts and no series (`CaseRecord.validate()`).
+    private func nonMeasured(_ status: CaseStatus, correctness: CorrectnessStatus = .pass) -> CaseRecord {
+        var c = record(wall: [1, 1, 1], correctness: correctness)
+        c.status = status; c.timing = Timing(wall: nil, commandBuffer: nil, encoder: nil)
+        c.warmupUsed = []; c.samples = 0; c.iterations = 0
+        return c
+    }
+
     func testOk() {
         let r = Compare.compare(new: record(wall: [101, 101, 101]), baseline: record(wall: [100, 100, 100]), newKey: key, baselineKey: key)
         XCTAssertEqual(r.status, .ok); XCTAssertEqual(r.deltas.count, 1)
@@ -39,6 +47,9 @@ final class CompareTests: XCTestCase {
         XCTAssertEqual(Compare.compare(new: record(wall: [1, 1, 1]), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: "k2").status, .incomparable)
         let missing = Compare.compare(new: record(wall: [1, 1, 1]), baseline: nil, newKey: key, baselineKey: nil)
         XCTAssertEqual(missing.status, .incomparable); XCTAssertEqual(missing.reasons, ["no baseline for probe.gpu_copy.bytes=8 under k1"])
+        // A present baseline whose environment key is unknown is reported as such, not as "no baseline".
+        let nilKey = Compare.compare(new: record(wall: [1, 1, 1]), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: nil)
+        XCTAssertEqual(nilKey.status, .incomparable); XCTAssertEqual(nilKey.reasons, ["baseline environment key missing"])
     }
 
     func testCorrectnessAndResourceFailuresWinEvenWithoutBaseline() {
@@ -50,6 +61,13 @@ final class CompareTests: XCTestCase {
         // A correctness failure with a mismatched baseline still reports correctnessFailed and keeps the mismatch reason.
         let both = Compare.compare(new: record(wall: [1, 1, 1], correctness: .fail, route: "cpu"), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: key)
         XCTAssertEqual(both.status, .correctnessFailed); XCTAssertTrue(both.reasons.contains { $0.hasPrefix("identity differs") })
+        // Correctness precedes resources and both reasons are kept; with no correctness notes the reason is bare.
+        let ordered = Compare.compare(new: record(wall: [1, 1, 1], correctness: .fail, resources: over), baseline: nil, newKey: key, baselineKey: nil)
+        XCTAssertEqual(ordered.status, .correctnessFailed)
+        XCTAssertTrue(ordered.reasons.contains("correctness failed"), "\(ordered.reasons)")
+        XCTAssertTrue(ordered.reasons.contains("resource limit exceeded: staticThreadgroupBytes 40000 > 32768"), "\(ordered.reasons)")
+        var withNotes = record(wall: [1, 1, 1], correctness: .fail); withNotes.correctness?.notes = ["row 3 differs", "row 7 differs"]
+        XCTAssertEqual(Compare.compare(new: withNotes, baseline: nil, newKey: key, baselineKey: nil).reasons.first, "correctness failed: row 3 differs; row 7 differs")
     }
 
     func testInvalidArtifact() {
@@ -58,21 +76,45 @@ final class CompareTests: XCTestCase {
         XCTAssertEqual(Compare.compare(new: record(wall: [1, 1, 1]), baseline: bad, newKey: key, baselineKey: key).status, .invalidArtifact)
     }
 
+    func testNonMeasuredNewRecordIsIncomparable() {
+        for status in [CaseStatus.failed, .unavailable] {
+            let r = Compare.compare(new: nonMeasured(status), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: key)
+            XCTAssertEqual(r.status, .incomparable, status.rawValue); XCTAssertTrue(r.deltas.isEmpty, status.rawValue)
+            XCTAssertEqual(r.reasons, ["no comparable timing kinds (new status \(status.rawValue), baseline status measured)"])
+        }
+        // A correctness failure on such a record still wins over incomparable.
+        let failed = Compare.compare(new: nonMeasured(.failed, correctness: .fail), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: key)
+        XCTAssertEqual(failed.status, .correctnessFailed)
+        XCTAssertTrue(failed.reasons.contains { $0.hasPrefix("no comparable timing kinds") }, "\(failed.reasons)")
+    }
+
+    func testZeroMedianBaselineIsIncomparable() {
+        let r = Compare.compare(new: record(wall: [1, 1, 1]), baseline: record(wall: [0, 0, 0]), newKey: key, baselineKey: key)
+        XCTAssertEqual(r.status, .incomparable); XCTAssertTrue(r.deltas.isEmpty)
+        XCTAssertEqual(r.reasons, ["no comparable timing kinds (new status measured, baseline status measured)"])
+    }
+
     func testExitCodes() {
         let ok = CompareResult(id: "a.b", status: .ok, deltas: [], reasons: [])
         let alert = CompareResult(id: "a.b", status: .alertSlower, deltas: [], reasons: [])
+        let faster = CompareResult(id: "a.b", status: .alertFaster, deltas: [], reasons: [])
         let fail = CompareResult(id: "a.b", status: .correctnessFailed, deltas: [], reasons: [])
         XCTAssertEqual(Compare.exitCode([ok, alert], strictPerf: false), 0)
         XCTAssertEqual(Compare.exitCode([ok, alert], strictPerf: true), 1)
+        XCTAssertEqual(Compare.exitCode([ok, faster], strictPerf: false), 0)
+        XCTAssertEqual(Compare.exitCode([ok, faster], strictPerf: true), 1)
         XCTAssertEqual(Compare.exitCode([ok, fail], strictPerf: false), 1)
+        XCTAssertEqual(Compare.exitCode([CompareResult(id: "a.b", status: .invalidArtifact, deltas: [], reasons: [])], strictPerf: false), 1)
+        XCTAssertEqual(Compare.exitCode([CompareResult(id: "a.b", status: .resourceFailed, deltas: [], reasons: [])], strictPerf: false), 1)
         XCTAssertEqual(Compare.exitCode([CompareResult(id: "a.b", status: .incomparable, deltas: [], reasons: [])], strictPerf: true), 0)
     }
 
-    func testRenderFormats() {
+    func testRenderFormats() throws {
         let r = Compare.compare(new: record(wall: [104, 104, 104]), baseline: record(wall: [100, 100, 100]), newKey: key, baselineKey: key)
         XCTAssertTrue(Compare.render([r], format: "text").contains("alert(slower)"))
         XCTAssertTrue(Compare.render([r], format: "markdown").contains("| probe.gpu_copy.bytes=8 |"))
-        XCTAssertNoThrow(try JSONDecoder().decode([CompareResult].self, from: Data(Compare.render([r], format: "json").utf8)))
+        let decoded = try JSONDecoder().decode([CompareResult].self, from: Data(Compare.render([r], format: "json").utf8))
+        XCTAssertEqual(decoded, [r])
     }
 
     func testMarkdownWithMultipleResultsKeepsTableContiguous() throws {
