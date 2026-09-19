@@ -4,8 +4,8 @@ import VectorTestKit
 /// One line per family (spec §5.4). Families never import each other.
 enum Registry {
     static var all: [any BenchCase] {
-        let cases: [any BenchCase] = []   // Task 14 changes this to `var` when the first family is appended
-        // families are appended in Tasks 14 and 15
+        var cases: [any BenchCase] = []
+        cases += ProbeCases.all
         return cases
     }
 
