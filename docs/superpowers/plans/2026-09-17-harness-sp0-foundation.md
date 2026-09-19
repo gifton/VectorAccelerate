@@ -3907,7 +3907,7 @@ swift test 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
 swift test -c release 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
 swiftlint lint --quiet 2>&1 | grep -c "error:"    # expected: 0
 ```
-Expected: 0 failures in both configurations; 2 skips (the IVF throughput placeholders) unchanged. Record the exact counts for Task 18.
+Expected: 0 failures in both configurations; 3 skips — the two IVF throughput placeholders, unchanged, plus `PreflightInstrumentCheckTests`, which skips unless `VA_INSTRUMENT_CHECK=1`. Record the exact counts for Task 18.
 
 - [ ] **Step 9: Commit**
 
