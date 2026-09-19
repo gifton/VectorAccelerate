@@ -3291,7 +3291,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `MetalComputeProvider(context:configuration:)`, `MetalComputeProvider.Configuration(preferGPU:fallbackToCPU:)`, `batchDistance(query:candidates:metric: .euclidean)`, `routingTelemetry().gpuKernel`, `Metal4Context()`, `Metal4Context.lastGPUTiming` (`GPUTimingInfo.gpuStartTime/gpuEndTime`, seconds), `DynamicVector([Float])` from VectorCore, `Tolerance.forSum`, `Comparator`, `PreflightProbe`, `HostFingerprint`, `MetalFingerprint`, `GPUProbe`, `RunStore`, `Runner`, `Registry`.
-- Produces: `enum DistanceCases { static var all: [any BenchCase] }`; `enum RunCommand { static func run(_ args: Arguments) async throws -> Int32 }`; `enum BenchVersion { static let package = "0.7.0" }`.
+- Produces: `enum DistanceCases { static var all: [any BenchCase] }`; `enum RunCommand { static func run(_ args: Arguments) async throws -> Int32 }`; `enum BenchVersion { static let package = "unreleased" }` (no version number is committed until the owner's release discussion concludes; `packageVersion` is an unvalidated free string that nothing compares on).
 
 - [ ] **Step 1: `Cases/Distance/DistanceCases.swift`**
 
@@ -3410,7 +3410,7 @@ import Foundation
 import Metal
 import VectorTestKit
 
-enum BenchVersion { static let package = "0.7.0" }   // bump with Package.swift's version-history header
+enum BenchVersion { static let package = "unreleased" }   // set when a release is cut; until then gitSHA identifies the build
 
 enum RunCommand {
     static func run(_ args: Arguments) async throws -> Int32 {
@@ -3734,6 +3734,9 @@ In `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`:
 - §5.4: replace the grammar line with `<family>(.<op>)+(.<param>=<value>)*(.<variant>)?` and note that the M0 ID `distance.l2.batch.n=10000.d=768` requires more than one bare op segment.
 - §5.3 (sampling): state that an adapter returns exactly one `GPUSample` per declared timing kind per iteration; a kind produced in any other shape is omitted from the artifact and noted on the record (Task 13 runner behaviour).
 - §4.8: the thermal-state list gains `"unknown"` (what `HostFingerprint.thermalStateName()` returns for `ProcessInfo.thermalState`'s `@unknown default`), matching the schema doc comment.
+- §5.7 (probe case): `dataDescriptor = "sequential_u32_pattern"` becomes `"sawtooth_f32_(i&0xFFFF)*0.5+1"` (the fill is a float32 sawtooth; the old label misdescribed it), and `resetForSample` re-zeroes the destination so each sample's `memcmp` proves that sample's dispatch.
+- §5.8: `GPUProbe.copyGBps()` returns `2 × 128 MiB / median command-buffer seconds / 1e9` (read plus write), the same convention as §4.10's CPU probe, so the two preflight figures are comparable.
+- §5.7 and §11 item 5: `--probe-slowdown 4` becomes `--probe-slowdown 64`. The Task 14 review measured the probe's slowdown against `loops` on the M3 Max as ≈1.0× for loops ≤ 6, 1.5× at 8, 2.8× at 32 and ≈8× at 64 (bandwidth headroom absorbs the first extra passes), so 4 would not cross the alert boundary; the acceptance evidence records the ratio actually measured.
 
 - [ ] **Step 8: Full gates**
 
@@ -3774,7 +3777,7 @@ A=$(ls -t .bench/runs/*/*.json | head -1); swift run -q -c release VectorAcceler
 swift run -q -c release VectorAccelerateBench baseline capture --from "$A" --approve                # 3. (fails with refusedDirty if tree is dirty → commit first or add --allow-dirty and say so)
 swift run -c release VectorAccelerateBench run --mode quick 2>&1 | tail -2                          # 4. second run
 B=$(ls -t .bench/runs/*/*.json | head -1); swift run -q -c release VectorAccelerateBench compare --artifact "$B"
-swift run -c release VectorAccelerateBench run --mode quick --filter 'probe.*' --probe-slowdown 4 2>&1 | tail -2   # 5. slowdown
+swift run -c release VectorAccelerateBench run --mode quick --filter 'probe.*' --probe-slowdown 64 2>&1 | tail -2   # 5. slowdown (64, not the spec's 4: measured ≈1.0× at 4 on the M3 Max — see Task 17 Step 7)
 C=$(ls -t .bench/runs/*/*.json | head -1); swift run -q -c release VectorAccelerateBench compare --artifact "$C"; echo "exit=$?"           # alert(slower), exit=0
 swift run -q -c release VectorAccelerateBench compare --artifact "$C" --strict-perf; echo "exit=$?"                                      # exit=1
 touch README.md.tmp && swift run -c release VectorAccelerateBench run --mode smoke 2>&1 | grep artifact; rm README.md.tmp               # 6. _dirty suffix
@@ -3785,7 +3788,7 @@ E=$(ls -t .bench/runs/*-val/*.json | head -1); swift run -q -c release VectorAcc
 
 - [ ] **Step 2: Write the evidence file**
 
-`docs/superpowers/research/2026-09-17-sp0-m0-acceptance.md` contains: date, machine fingerprint (chip, OS build, Swift, Xcode, power, thermal), the exact test counts from step 1 with the reconciliation against the previous 1764/0/2 gate (deleted suites, added suites, trimmed test), the artifact paths, the compare outputs for steps 4 and 5 (verbatim), the two refusals, and one paragraph of observations (probe GB/s, distance-case command-buffer median, whether the boundary widened and why). No number is rounded away from what the tool printed.
+`docs/superpowers/research/2026-09-17-sp0-m0-acceptance.md` contains: date, machine fingerprint (chip, OS build, Swift, Xcode, power, thermal), the exact test counts from step 1 with the reconciliation against the previous 1764/0/2 gate (deleted suites, added suites, trimmed test), the artifact paths, the compare outputs for steps 4 and 5 (verbatim), the probe's measured slowdown ratio at `--probe-slowdown 64` (step 5 wall and command-buffer medians over step 4's), the two refusals, and one paragraph of observations (probe GB/s, distance-case command-buffer median, whether the boundary widened and why). No number is rounded away from what the tool printed.
 
 - [ ] **Step 3: Commit**
 
