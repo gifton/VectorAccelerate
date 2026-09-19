@@ -2804,9 +2804,9 @@ struct GPUSample: Sendable {
     var durationNs: Double { endNs - startNs }
 }
 
-struct IterationOutput: @unchecked Sendable {
+struct IterationOutput: Sendable {
     var gpu: [GPUSample]
-    var payload: Any?
+    var payload: (any Sendable)?
 }
 
 /// Adapter seam (spec §5.1 / interface contract §4).
@@ -2825,6 +2825,7 @@ protocol PreparedCase: AnyObject {
     func resetForSample() async throws
 }
 
+/// `@unchecked Sendable` is sound because every stored property is `let`, `MTLDevice` is documented thread-safe, and the remaining fields are `Sendable` value types.
 final class BenchContext: @unchecked Sendable {
     let device: (any MTLDevice)?
     let host: HostFingerprint
@@ -2842,11 +2843,13 @@ enum BenchError: Error, CustomStringConvertible {
     case metalUnavailable
     case routeMismatch(expected: String, telemetry: String)
     case usage(String)
+    case registry(String)
     var description: String {
         switch self {
         case .metalUnavailable: return "Metal device unavailable"
         case .routeMismatch(let e, let t): return "route mismatch: expected \(e); telemetry \(t)"
         case .usage(let m): return m
+        case .registry(let m): return "registry error: \(m)"
         }
     }
 }
@@ -2872,10 +2875,13 @@ enum Runner {
 
         do {
             let prepared = try await c.prepare(context)
-            record.identity = c.identity   // cases whose fixture depends on the run seed finalize identity in prepare()
+            // Contract (unverified until adapters exist): an adapter whose identity depends on the run seed must be a class that
+            // republishes `identity` after prepare() (the Task 15 distance case does this); struct adapters carry registration-time identity.
+            record.identity = c.identity
             var wall: [[Double]] = [], cb: [[Double]] = [], enc: [[Double]] = []
             var lastOutput: IterationOutput?
-            for _ in 0..<o.samples {
+            var anyCorrectnessFailed = false
+            for k in 0..<o.samples {
                 try await prepared.resetForSample()
                 var warm: [Double] = []
                 repeat {
@@ -2895,23 +2901,38 @@ enum Runner {
                     }
                     lastOutput = out
                 }
-                wall.append(w); if !b.isEmpty { cb.append(b) }; if !e.isEmpty { enc.append(e) }
-                if let last = lastOutput { record.correctness = try prepared.verify(last) }
+                wall.append(w); cb.append(b); enc.append(e)   // every sample contributes a row, so `declared` below sees the true per-sample counts
+                if let last = lastOutput {
+                    // Worst status wins across samples: the latest details are kept, but a `.fail` in any sample is sticky.
+                    var verified = try prepared.verify(last)
+                    if verified.status == .fail { anyCorrectnessFailed = true; record.notes.append("correctness failed in sample \(k + 1)") }
+                    if anyCorrectnessFailed { verified.status = .fail }
+                    record.correctness = verified
+                }
             }
             func series(_ raw: [[Double]], bias: String?, stream: UInt64) -> Series? {
                 guard raw.count == o.samples, raw.allSatisfy({ $0.count == o.iterations }) else { return nil }
                 return Series(raw: raw, summary: Stats.summarize(raw.flatMap { $0 }, bootstrapSeed: o.seed &+ stream), bias: bias)
             }
+            /// A declared kind that arrived in the wrong shape is dropped whole (no partial series) and the per-sample counts are recorded in `notes`.
+            func declared(_ kind: TimingKind, _ raw: [[Double]], bias: String?, stream: UInt64) -> Series? {
+                if let s = series(raw, bias: bias, stream: stream) { return s }
+                record.notes.append("\(kind.rawValue): declared but produced \(raw.map(\.count)) samples per sample against \(o.iterations) iterations; series omitted")
+                return nil
+            }
             record.timing.wall = series(wall, bias: nil, stream: 1)
-            if c.providedTiming.contains(.commandBuffer) { record.timing.commandBuffer = series(cb, bias: commandBufferBias, stream: 2) }
-            if c.providedTiming.contains(.encoder) { record.timing.encoder = series(enc, bias: nil, stream: 3) }
+            if c.providedTiming.contains(.commandBuffer) { record.timing.commandBuffer = declared(.commandBuffer, cb, bias: commandBufferBias, stream: 2) }
+            if c.providedTiming.contains(.encoder) { record.timing.encoder = declared(.encoder, enc, bias: nil, stream: 3) }
             record.resources = prepared.resources()
         } catch BenchError.metalUnavailable {
             record.status = .unavailable; record.failureReason = "Metal device unavailable"
             record.warmupUsed = Array(repeating: 0, count: o.samples)
+            record.correctness = nil
+            record.timing = Timing(wall: nil, commandBuffer: nil, encoder: nil)
         } catch {
             record.status = .failed; record.failureReason = "\(error)"
             record.warmupUsed = Array(repeating: 0, count: o.samples)
+            record.correctness = nil
             record.timing = Timing(wall: nil, commandBuffer: nil, encoder: nil)
         }
         return record
@@ -2921,8 +2942,9 @@ enum Runner {
 
 - [ ] **Step 4: `Cases/Registry.swift`, `Commands/ListCommand.swift`, `Commands/ValidateCommand.swift`**
 
+**`Cases/Registry.swift`**
+
 ```swift
-// Cases/Registry.swift
 import Foundation
 import VectorTestKit
 
@@ -2938,16 +2960,18 @@ enum Registry {
     static func select(include: [String], exclude: [String]) throws -> [any BenchCase] {
         let all = Self.all
         let dups = CaseRegistryCheck.duplicates(all.map(\.id))
-        guard dups.isEmpty else { throw BenchError.usage("duplicate case IDs in registry: \(dups.map(\.rawValue))") }
+        guard dups.isEmpty else { throw BenchError.registry("duplicate case IDs: \(dups.map(\.rawValue))") }
         func matches(_ id: String, _ globs: [String]) -> Bool { globs.contains { fnmatch($0, id, 0) == 0 } }
         return all.filter { (include.isEmpty || matches($0.id.rawValue, include)) && !matches($0.id.rawValue, exclude) }
     }
 }
 ```
 
+**`Commands/ListCommand.swift`**
+
 ```swift
-// Commands/ListCommand.swift
 import Foundation
+import VectorTestKit
 
 enum ListCommand {
     static func run(_ args: Arguments) throws -> Int32 {
@@ -2959,8 +2983,9 @@ enum ListCommand {
 }
 ```
 
+**`Commands/ValidateCommand.swift`**
+
 ```swift
-// Commands/ValidateCommand.swift
 import Foundation
 import VectorTestKit
 
@@ -2996,6 +3021,11 @@ VectorAccelerateBench <command>
 """
 
 let args = Arguments(Array(CommandLine.arguments.dropFirst()))
+if args.has("--help") || args.has("-h") { print(usage); exit(0) }
+if let key = args.options.filter({ $0.value.isEmpty }).keys.sorted().first {
+    FileHandle.standardError.write(Data("error: option \(key) requires a value\n".utf8))
+    exit(2)
+}
 var status: Int32 = 2
 do {
     switch args.command {
@@ -3016,6 +3046,7 @@ exit(status)
 Until Tasks 15–16 exist, add these three stubs at the bottom of `main.swift` so the executable compiles; each is deleted when its real file lands:
 
 ```swift
+// Temporary stubs so the executable links before Tasks 15–16 land; each is deleted when its real file arrives.
 enum RunCommand { static func run(_ args: Arguments) async throws -> Int32 { print("run: not implemented until Task 15"); return 2 } }
 enum BaselineCommand { static func run(_ args: Arguments) throws -> Int32 { print("baseline: not implemented until Task 16"); return 2 } }
 enum CompareCommand { static func run(_ args: Arguments) throws -> Int32 { print("compare: not implemented until Task 16"); return 2 } }
@@ -3028,6 +3059,8 @@ swift build 2>&1 | tail -2                                              # Build 
 swift run -q VectorAccelerateBench list; echo "exit=$?"                  # "0 case(s)", exit=0
 swift run -q VectorAccelerateBench nonsense; echo "exit=$?"              # usage, exit=2
 swift run -q VectorAccelerateBench validate-artifact /nonexistent; echo "exit=$?"   # "invalid: ...", exit=1
+swift run -q VectorAccelerateBench list --help; echo "exit=$?"           # usage, exit=0
+swift run -q VectorAccelerateBench list --filter; echo "exit=$?"         # "error: option --filter requires a value" on stderr, exit=2
 ```
 
 - [ ] **Step 7: Commit**

@@ -11,6 +11,11 @@ VectorAccelerateBench <command>
 """
 
 let args = Arguments(Array(CommandLine.arguments.dropFirst()))
+if args.has("--help") || args.has("-h") { print(usage); exit(0) }
+if let key = args.options.filter({ $0.value.isEmpty }).keys.sorted().first {
+    FileHandle.standardError.write(Data("error: option \(key) requires a value\n".utf8))
+    exit(2)
+}
 var status: Int32 = 2
 do {
     switch args.command {

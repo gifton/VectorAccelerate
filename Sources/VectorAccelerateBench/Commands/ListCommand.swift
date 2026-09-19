@@ -1,4 +1,5 @@
 import Foundation
+import VectorTestKit
 
 enum ListCommand {
     static func run(_ args: Arguments) throws -> Int32 {

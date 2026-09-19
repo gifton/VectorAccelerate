@@ -27,9 +27,9 @@ struct GPUSample: Sendable {
     var durationNs: Double { endNs - startNs }
 }
 
-struct IterationOutput: @unchecked Sendable {
+struct IterationOutput: Sendable {
     var gpu: [GPUSample]
-    var payload: Any?
+    var payload: (any Sendable)?
 }
 
 /// Adapter seam (spec §5.1 / interface contract §4).
@@ -48,6 +48,7 @@ protocol PreparedCase: AnyObject {
     func resetForSample() async throws
 }
 
+/// `@unchecked Sendable` is sound because every stored property is `let`, `MTLDevice` is documented thread-safe, and the remaining fields are `Sendable` value types.
 final class BenchContext: @unchecked Sendable {
     let device: (any MTLDevice)?
     let host: HostFingerprint
@@ -65,11 +66,13 @@ enum BenchError: Error, CustomStringConvertible {
     case metalUnavailable
     case routeMismatch(expected: String, telemetry: String)
     case usage(String)
+    case registry(String)
     var description: String {
         switch self {
         case .metalUnavailable: return "Metal device unavailable"
         case .routeMismatch(let e, let t): return "route mismatch: expected \(e); telemetry \(t)"
         case .usage(let m): return m
+        case .registry(let m): return "registry error: \(m)"
         }
     }
 }
