@@ -81,16 +81,24 @@ public enum Compare {
         // 5. deltas
         var deltas: [KindDelta] = []
         var alert: CompareStatus?
-        var nonFinite: [String] = []
+        var unusable: [String] = []
         for kind in TimingKind.allCases {
-            guard let n = new.timing[kind], let b = base.timing[kind], b.summary.median > 0 else { continue }
+            guard let n = new.timing[kind], let b = base.timing[kind] else { continue }
+            // `validate()` does not bound the summary fields. A median that is not a positive finite number cannot anchor a
+            // ratio: on the baseline side it divides by zero or flips the sign, and on the new side it is finite garbage that
+            // would read as an alert (0 against 100 is delta −1). The same wording names the kind, the side and the value.
+            let medians = [(side: "new", value: n.summary.median), (side: "baseline", value: b.summary.median)]
+            let rejected = medians.filter { !($0.value > 0 && $0.value.isFinite) }
+            guard rejected.isEmpty else {
+                unusable += rejected.map { "timing.\(kind.rawValue): \($0.side) median \($0.value) is not a positive finite number" }
+                continue
+            }
             let delta = (n.summary.median - b.summary.median) / b.summary.median
             let boundary = max(floorBoundary, 2 * b.summary.rsd)
-            // `validate()` does not bound the summary fields, and finite inputs can still overflow here (a huge median over a
-            // tiny one; 2 × a huge rsd). Such a kind cannot be compared; it must not read as an alert.
-            guard [n.summary.median, b.summary.median, delta, boundary].allSatisfy(\.isFinite) else {
-                nonFinite.append("timing.\(kind.rawValue): comparison is not finite (new median \(n.summary.median), "
-                                 + "baseline median \(b.summary.median), baseline rsd \(b.summary.rsd))")
+            // Usable medians can still overflow here (a huge median over a tiny one; 2 × a huge rsd).
+            guard delta.isFinite, boundary.isFinite else {
+                unusable.append("timing.\(kind.rawValue): comparison is not finite (new median \(n.summary.median), "
+                                + "baseline median \(b.summary.median), baseline rsd \(b.summary.rsd))")
                 continue
             }
             let alerting = delta > boundary || delta < -boundary
@@ -99,14 +107,15 @@ public enum Compare {
             // With several timing kinds the status reflects the first alerting kind in `TimingKind.allCases` order; each kind's own `alerting` is rendered.
             if alerting, alert == nil { alert = delta > 0 ? .alertSlower : .alertFaster }
         }
-        // One non-finite kind makes the whole case incomparable and the result carries no deltas at all, not even the finite
-        // ones. A `KindDelta` is appended only after the guard above, so every one this function returns holds finite values
-        // (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable`).
-        if !nonFinite.isEmpty {
-            return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons + nonFinite)
+        // One unusable kind makes the whole case incomparable, never an alert, and the result carries no deltas at all, not even
+        // the usable ones (`CompareTests.testNonPositiveMedianOnEitherSideIsIncomparable`, `testZeroMedianBaselineIsIncomparable`,
+        // `testNonFiniteDeltaOrBoundaryIsIncomparable`). A `KindDelta` is appended only after both guards above, which check
+        // all four of its Double fields, so every one this function returns holds finite values.
+        if !unusable.isEmpty {
+            return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons + unusable)
         }
-        // A comparable pair with nothing to compare (non-measured record, zero baseline median, no shared timing kind) is
-        // incomparable, never ok (`CompareTests.testNonMeasuredNewRecordIsIncomparable`, `testZeroMedianBaselineIsIncomparable`).
+        // A comparable pair with nothing to compare (non-measured record, no timing kind present on both sides) is incomparable,
+        // never ok (`CompareTests.testNonMeasuredNewRecordIsIncomparable`).
         if deltas.isEmpty {
             reasons.append("no comparable timing kinds (new status \(new.status.rawValue), baseline status \(base.status.rawValue))")
             return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons)

@@ -2695,7 +2695,7 @@ final class CompareTests: XCTestCase {
     func testZeroMedianBaselineIsIncomparable() {
         let r = Compare.compare(new: record(wall: [1, 1, 1]), baseline: record(wall: [0, 0, 0]), newKey: key, baselineKey: key)
         XCTAssertEqual(r.status, .incomparable); XCTAssertTrue(r.deltas.isEmpty)
-        XCTAssertEqual(r.reasons, ["no comparable timing kinds (new status measured, baseline status measured)"])
+        XCTAssertEqual(r.reasons, ["timing.wall: baseline median 0.0 is not a positive finite number"])
     }
 
     /// Finite medians can still give a non-finite delta or boundary: (1e308 − 1e-300) / 1e-300 overflows, and so does 2 × rsd for
@@ -2743,6 +2743,54 @@ final class CompareTests: XCTestCase {
         // No delta line is rendered for these results (a reason may still quote an infinite median).
         let text = Compare.render(all, format: "text")
         XCTAssertFalse(text.contains("inf%") || text.contains("nan%") || text.contains("boundary"), text)
+    }
+
+    /// A median that is not a positive finite number cannot anchor a ratio. On the NEW side that used to be finite garbage:
+    /// 0 against 100 gave delta −1 and `alert(faster)`. A GPU timing pair can come back 0 from a real run. Both sides now make
+    /// the whole case incomparable, in parallel wording that names the kind, the side and the value.
+    func testNonPositiveMedianOnEitherSideIsIncomparable() {
+        func withWall(median: Double) -> CaseRecord {
+            var edited = record(wall: [100, 100, 100]); edited.timing.wall?.summary.median = median
+            return edited
+        }
+        let good = record(wall: [100, 100, 100])
+        for value in [0.0, -5.0, -Double.infinity, Double.nan] {
+            let newSide = Compare.compare(new: withWall(median: value), baseline: good, newKey: key, baselineKey: key)
+            XCTAssertEqual(newSide.status, .incomparable, "new median \(value)"); XCTAssertTrue(newSide.deltas.isEmpty, "new median \(value)")
+            XCTAssertEqual(newSide.reasons, ["timing.wall: new median \(value) is not a positive finite number"])
+            XCTAssertEqual(Compare.exitCode([newSide], strictPerf: true), 0)
+            let baseSide = Compare.compare(new: good, baseline: withWall(median: value), newKey: key, baselineKey: key)
+            XCTAssertEqual(baseSide.status, .incomparable, "baseline median \(value)")
+            XCTAssertTrue(baseSide.deltas.isEmpty, "baseline median \(value)")
+            XCTAssertEqual(baseSide.reasons, ["timing.wall: baseline median \(value) is not a positive finite number"])
+        }
+        // A measured run whose timings are all zero takes the same path (no hand-edited summary needed).
+        let measuredZero = Compare.compare(new: record(wall: [0, 0, 0]), baseline: good, newKey: key, baselineKey: key)
+        XCTAssertEqual(measuredZero.status, .incomparable)
+        XCTAssertEqual(measuredZero.reasons, ["timing.wall: new median 0.0 is not a positive finite number"])
+        // Both sides unusable: one reason per side, new first.
+        let both = Compare.compare(new: withWall(median: 0), baseline: withWall(median: -1), newKey: key, baselineKey: key)
+        XCTAssertEqual(both.reasons, ["timing.wall: new median 0.0 is not a positive finite number",
+                                      "timing.wall: baseline median -1.0 is not a positive finite number"])
+
+        // One unusable kind makes the whole case incomparable on either side, even beside a kind that would alert on its own.
+        let alertingWall = record(wall: [200, 200, 200])
+        var zeroGPUNew = alertingWall, goodGPUBase = good
+        zeroGPUNew.timing.commandBuffer = record(wall: [0, 0, 0]).timing.wall
+        goodGPUBase.timing.commandBuffer = good.timing.wall
+        let mixedNew = Compare.compare(new: zeroGPUNew, baseline: goodGPUBase, newKey: key, baselineKey: key)
+        XCTAssertEqual(mixedNew.status, .incomparable); XCTAssertTrue(mixedNew.deltas.isEmpty)
+        XCTAssertEqual(mixedNew.reasons, ["timing.commandBuffer: new median 0.0 is not a positive finite number"])
+        var goodGPUNew = alertingWall, zeroGPUBase = good
+        goodGPUNew.timing.commandBuffer = good.timing.wall
+        zeroGPUBase.timing.commandBuffer = record(wall: [0, 0, 0]).timing.wall
+        let mixedBase = Compare.compare(new: goodGPUNew, baseline: zeroGPUBase, newKey: key, baselineKey: key)
+        XCTAssertEqual(mixedBase.status, .incomparable); XCTAssertTrue(mixedBase.deltas.isEmpty)
+        XCTAssertEqual(mixedBase.reasons, ["timing.commandBuffer: baseline median 0.0 is not a positive finite number"])
+
+        // A kind present on one side only is still just not compared; the boundary rule is untouched for usable medians.
+        var wallOnlyBase = good; wallOnlyBase.timing.commandBuffer = nil
+        XCTAssertEqual(Compare.compare(new: zeroGPUNew, baseline: wallOnlyBase, newKey: key, baselineKey: key).status, .alertSlower)
     }
 
     func testExitCodes() {
@@ -2891,16 +2939,24 @@ public enum Compare {
         // 5. deltas
         var deltas: [KindDelta] = []
         var alert: CompareStatus?
-        var nonFinite: [String] = []
+        var unusable: [String] = []
         for kind in TimingKind.allCases {
-            guard let n = new.timing[kind], let b = base.timing[kind], b.summary.median > 0 else { continue }
+            guard let n = new.timing[kind], let b = base.timing[kind] else { continue }
+            // `validate()` does not bound the summary fields. A median that is not a positive finite number cannot anchor a
+            // ratio: on the baseline side it divides by zero or flips the sign, and on the new side it is finite garbage that
+            // would read as an alert (0 against 100 is delta −1). The same wording names the kind, the side and the value.
+            let medians = [(side: "new", value: n.summary.median), (side: "baseline", value: b.summary.median)]
+            let rejected = medians.filter { !($0.value > 0 && $0.value.isFinite) }
+            guard rejected.isEmpty else {
+                unusable += rejected.map { "timing.\(kind.rawValue): \($0.side) median \($0.value) is not a positive finite number" }
+                continue
+            }
             let delta = (n.summary.median - b.summary.median) / b.summary.median
             let boundary = max(floorBoundary, 2 * b.summary.rsd)
-            // `validate()` does not bound the summary fields, and finite inputs can still overflow here (a huge median over a
-            // tiny one; 2 × a huge rsd). Such a kind cannot be compared; it must not read as an alert.
-            guard [n.summary.median, b.summary.median, delta, boundary].allSatisfy(\.isFinite) else {
-                nonFinite.append("timing.\(kind.rawValue): comparison is not finite (new median \(n.summary.median), "
-                                 + "baseline median \(b.summary.median), baseline rsd \(b.summary.rsd))")
+            // Usable medians can still overflow here (a huge median over a tiny one; 2 × a huge rsd).
+            guard delta.isFinite, boundary.isFinite else {
+                unusable.append("timing.\(kind.rawValue): comparison is not finite (new median \(n.summary.median), "
+                                + "baseline median \(b.summary.median), baseline rsd \(b.summary.rsd))")
                 continue
             }
             let alerting = delta > boundary || delta < -boundary
@@ -2909,14 +2965,15 @@ public enum Compare {
             // With several timing kinds the status reflects the first alerting kind in `TimingKind.allCases` order; each kind's own `alerting` is rendered.
             if alerting, alert == nil { alert = delta > 0 ? .alertSlower : .alertFaster }
         }
-        // One non-finite kind makes the whole case incomparable and the result carries no deltas at all, not even the finite
-        // ones. A `KindDelta` is appended only after the guard above, so every one this function returns holds finite values
-        // (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable`).
-        if !nonFinite.isEmpty {
-            return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons + nonFinite)
+        // One unusable kind makes the whole case incomparable, never an alert, and the result carries no deltas at all, not even
+        // the usable ones (`CompareTests.testNonPositiveMedianOnEitherSideIsIncomparable`, `testZeroMedianBaselineIsIncomparable`,
+        // `testNonFiniteDeltaOrBoundaryIsIncomparable`). A `KindDelta` is appended only after both guards above, which check
+        // all four of its Double fields, so every one this function returns holds finite values.
+        if !unusable.isEmpty {
+            return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons + unusable)
         }
-        // A comparable pair with nothing to compare (non-measured record, zero baseline median, no shared timing kind) is
-        // incomparable, never ok (`CompareTests.testNonMeasuredNewRecordIsIncomparable`, `testZeroMedianBaselineIsIncomparable`).
+        // A comparable pair with nothing to compare (non-measured record, no timing kind present on both sides) is incomparable,
+        // never ok (`CompareTests.testNonMeasuredNewRecordIsIncomparable`).
         if deltas.isEmpty {
             reasons.append("no comparable timing kinds (new status \(new.status.rawValue), baseline status \(base.status.rawValue))")
             return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons)
@@ -2979,9 +3036,9 @@ public enum Compare {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter CompareTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 13 tests, with 0 failures`
+Expected: `Executed 14 tests, with 0 failures`
 
-A timing kind whose delta or boundary is not finite makes the case `incomparable` (reason names the kind and both medians), never an alert: finite medians can overflow the ratio and 2 × rsd can overflow, and `validate()` does not bound summary fields. That is what makes the `try!` in the JSON rendering a contract rather than a hope (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable`); a hand-built `CompareResult` holding NaN or an infinity still traps there and is the caller's responsibility.
+A timing kind present on both sides whose new or baseline median is not a positive finite number makes the case `incomparable`, never an alert, with the same wording for either side (`timing.<kind>: <new|baseline> median <value> is not a positive finite number`): a GPU timing pair can come back 0 from a real run, and 0 against 100 would otherwise read `alert(faster)` (`CompareTests.testNonPositiveMedianOnEitherSideIsIncomparable`). So does a kind whose delta or boundary is not finite (reason names the kind and both medians): usable medians can overflow the ratio and 2 × rsd can overflow, and `validate()` does not bound summary fields. The boundary rule itself is untouched. That is what makes the `try!` in the JSON rendering a contract rather than a hope (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable`); a hand-built `CompareResult` holding NaN or an infinity still traps there and is the caller's responsibility.
 
 - [ ] **Step 5: Commit**
 
@@ -3370,7 +3427,7 @@ let usage = """
 VectorAccelerateBench <command>
   list [--filter <glob>] [--exclude <glob>]
   run  [--filter <glob>] [--exclude <glob>] [--mode smoke|quick|full] [--samples N] [--iterations N] [--seed S]
-       [--out <path>] [--label <text>] [--require-gpu] [--validation-layers] [--allow-dirty] [--probe-slowdown N]
+       [--out <path>] [--label <text>] [--require-gpu] [--validation-layers] [--probe-slowdown N]
   baseline capture --from <artifact> [--approve] [--allow-dirty]
   compare --artifact <path> [--against approved|<n>] [--strict-perf] [--format text|json|markdown]
   validate-artifact <path>
@@ -3929,11 +3986,12 @@ import VectorTestKit
 enum BenchVersion { static let package = "unreleased" }   // set when a release is cut; until then gitSHA identifies the build
 
 enum RunCommand {
-    /// What `run` reads: `--filter`, `--exclude` and `--out` in `run`, the rest in `parseOptions`. `--allow-dirty` is accepted
-    /// because spec §5.5 lists it for `run`; nothing here reads it (`run` never refuses a dirty tree, it only records it).
+    /// What `run` reads: `--filter`, `--exclude` and `--out` in `run`, the rest in `parseOptions`. `--allow-dirty` is not here:
+    /// `run` never refuses a dirty tree (it records `gitDirty` and the store suffixes the file `_dirty`), so the flag would do
+    /// nothing; it belongs to `baseline capture`.
     static let allowedOptions: Set<String> = ["--filter", "--exclude", "--mode", "--samples", "--iterations", "--seed", "--out", "--label",
                                               "--probe-slowdown"]
-    static let allowedFlags: Set<String> = ["--require-gpu", "--validation-layers", "--allow-dirty"]
+    static let allowedFlags: Set<String> = ["--require-gpu", "--validation-layers"]
 
     static func run(_ args: Arguments) async throws -> Int32 {
         try args.validate(options: allowedOptions, flags: allowedFlags, operands: 0)
@@ -4046,7 +4104,7 @@ enum RunCommand {
 
 Remove the `enum RunCommand { ... }` stub from `main.swift`.
 
-`RunCommand` closes the class "CLI input accepted without validation" for its five typed options (`--mode`, `--seed`, `--samples`, `--iterations`, `--probe-slowdown`) through `Arguments.parsed` (Task 13 Step 1; it replaced the silent-default `int(_:)`, which had no other caller); `--samples` and `--iterations` reject anything below 1 in their parse closures. An empty selection is a usage error raised before any probe runs, so a run that measures nothing cannot write an artifact or exit 0. After this task the only `throw BenchError.usage` sites are `Arguments.validate`, `Arguments.parsed` and the empty-selection guard, all caller input. `RunCommand.allowedOptions` / `allowedFlags` are what `validate` accepts for `run`; `--allow-dirty` is in the set because spec §5.5 lists it, although `run` has nothing to refuse and does not read it. `BenchError.exitCode` (Task 13 Step 2) maps usage and registry errors to exit 2 and everything else to 1.
+`RunCommand` closes the class "CLI input accepted without validation" for its five typed options (`--mode`, `--seed`, `--samples`, `--iterations`, `--probe-slowdown`) through `Arguments.parsed` (Task 13 Step 1; it replaced the silent-default `int(_:)`, which had no other caller); `--samples` and `--iterations` reject anything below 1 in their parse closures. An empty selection is a usage error raised before any probe runs, so a run that measures nothing cannot write an artifact or exit 0. After this task the only `throw BenchError.usage` sites are `Arguments.validate`, `Arguments.parsed` and the empty-selection guard, all caller input. `RunCommand.allowedOptions` / `allowedFlags` are what `validate` accepts for `run`. `--allow-dirty` is not among them although spec §5.5's synopsis lists it on `run`: §7 gives the flag meaning only for `baseline capture` (`run` never refuses a dirty tree, it records `gitDirty` and the file is suffixed `_dirty`), and a flag that does nothing misleads, so `run --allow-dirty` is a usage error (Task 17 Step 7 amends the synopsis). `BenchError.exitCode` (Task 13 Step 2) maps usage and registry errors to exit 2 and everything else to 1.
 
 Spec §4.10 / §7 behaviour that the block above implements: an existing `--out` path is refused before the run (exit 1), with `.withoutOverwriting` as the backstop; any preflight GPU probe failure (`GPUProbe.init`, the start reading, the end reading) degrades to "probe unavailable" — `gpu: nil` with `gpuDeviceExists: true`, which `PreflightProbe.evaluate` turns into `quiet: false`, plus the error text appended to `preflight.reasons` and written to stderr — and the cases still run and the artifact is still written. The probe case still fails in its own `prepare` (case `failed`, run continues, exit 1).
 
@@ -4363,7 +4421,8 @@ In `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`:
 - §5.8: `5 warm-up + 10 measured` becomes "warm-up until both 50 dispatches and 0.1 s of wall time have passed, then the median of 50", with a fixed floor rather than `WarmupPolicy`. Measured on the M3 Max over 81 recorded series (13,500 dispatches): after GPU idle 56 of the 81 series started slow (median 1.88×, range 1.08–2.40× the settled ≈0.765 ms) and settled only after up to 41 dispatches (median 10, p90 25), at most 55.5 ms of wall time; the ramp is a wall-time effect, hence the time floor; `WarmupPolicy.standard` stopped at n = 3 on that slow plateau in 3 of 45 series because the plateau's own CoV is under 5 % (one reading then came out +41 %); a median of 10 settled dispatches strays up to 4.66 % from its series' level (p99 2.38 %) against 1.85 % (p99 1.01 %) for a median of 50, with a 5 % gate on the difference of two readings. One `copyGBps()` call costs ≈0.16 s instead of ≈0.02–0.04 s. The 5 % gate of §4.10 is unchanged. Evidence and the before/after quiet tables: `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`.
 - §4.10 (CPU probe method): "best of 3 copies of 256 MiB" becomes "warm-up until both 20 copies and 0.2 s of wall time have passed, then the fast 5th percentile of 100 timed copies" (read plus write unchanged). Measured on the same machine: a thread that was idle, blocked or waiting on subprocesses copies at as little as 0.52× its settled rate for up to 17 copies (111.5 ms), and ten best-of-3 readings 0.3 s apart spanned 56–117 GB/s; settled copy times are bimodal and alternate, so on identical data (ten trials with no other process above 60 % CPU) ten readings spanned at most 1.76 % of their median for the 5th percentile of 100 against 1.89 % for the minimum and 3.57 % for the median. One call costs ≈0.71 s instead of ≈0.05 s. The opt-in `PreflightInstrumentCheckTests` (`VA_INSTRUMENT_CHECK=1`) asserts ten readings span under 2.5 %; there is no equivalent for the GPU probe because the executable has no test target. Same research note.
 - §7: add "empty selection (no case matches `--filter`/`--exclude`) → usage error before any probe runs, exit 2", and state that a preflight GPU probe failure at setup, at the start reading or at the end reading is the §4.10 "probe unavailable" state (`quiet: false`, the error text recorded in `preflight.reasons` and on stderr) and never aborts the run: the cases run and the artifact is written. `BenchError.registry` exits 2 as §7 already says (it exited 1 until Task 15's review).
-- §5.5, §5.6 step 4 and §7 (Task 16 review): every command rejects an option, flag or operand it does not declare — a usage error naming it, exit 2, before the command does any work (new §7 row: "unknown option, flag or operand → usage error, exit 2"). §5.6 step 4 gains a cause of `incomparable`: a timing kind whose `delta` or `boundary` is not finite (finite medians can overflow the ratio, and `2 × base.rsd` can overflow; `validate()` does not bound summary fields) makes the case `incomparable` with a reason naming the kind and both medians, never an alert (new §7 row: "non-finite comparison → `incomparable` for that case; exit 0").
+- §5.5, §5.6 step 4 and §7 (Task 16 review): every command rejects an option, flag or operand it does not declare — a usage error naming it, exit 2, before the command does any work (new §7 row: "unknown option, flag or operand → usage error, exit 2"). §5.6 step 4 gains two causes of `incomparable`, neither of which may read as an alert: a timing kind present on both sides whose new or baseline median is not a positive finite number (a GPU timing pair can come back 0; the reason names the kind, the side and the value), and a kind whose `delta` or `boundary` is not finite (usable medians can overflow the ratio, and `2 × base.rsd` can overflow; `validate()` does not bound summary fields; the reason names the kind and both medians) (new §7 row: "unusable median or non-finite comparison → `incomparable` for that case; exit 0").
+- §5.5: the `run` synopsis drops `[--allow-dirty]`. `run` never refuses a dirty tree (§7: it suffixes the artifact `_dirty` and records `gitDirty: true`), so the flag had no effect there; it stays on `baseline capture`, the one command §7 gives it meaning for, and `run --allow-dirty` is now a usage error like any other undeclared flag.
 - §5.3 (sampling): when a sample's warm-up ends at the policy maximum without the CoV rule being met, the runner appends a note to the record with the count. The policy itself is unchanged; its weakness on a steady slow plateau (it can stop at n = 3) is recorded in the research note and deferred to the owner.
 - §5.7 and §11 item 5: `--probe-slowdown 4` becomes `--probe-slowdown 64`. The Task 14 review measured the probe's slowdown against `loops` on the M3 Max as ≈1.0× for loops ≤ 6, 1.5× at 8, 2.8× at 32 and ≈8× at 64 (bandwidth headroom absorbs the first extra passes), so 4 would not cross the alert boundary; the acceptance evidence records the ratio actually measured.
 

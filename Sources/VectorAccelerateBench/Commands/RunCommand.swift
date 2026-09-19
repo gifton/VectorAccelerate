@@ -5,11 +5,12 @@ import VectorTestKit
 enum BenchVersion { static let package = "unreleased" }   // set when a release is cut; until then gitSHA identifies the build
 
 enum RunCommand {
-    /// What `run` reads: `--filter`, `--exclude` and `--out` in `run`, the rest in `parseOptions`. `--allow-dirty` is accepted
-    /// because spec §5.5 lists it for `run`; nothing here reads it (`run` never refuses a dirty tree, it only records it).
+    /// What `run` reads: `--filter`, `--exclude` and `--out` in `run`, the rest in `parseOptions`. `--allow-dirty` is not here:
+    /// `run` never refuses a dirty tree (it records `gitDirty` and the store suffixes the file `_dirty`), so the flag would do
+    /// nothing; it belongs to `baseline capture`.
     static let allowedOptions: Set<String> = ["--filter", "--exclude", "--mode", "--samples", "--iterations", "--seed", "--out", "--label",
                                               "--probe-slowdown"]
-    static let allowedFlags: Set<String> = ["--require-gpu", "--validation-layers", "--allow-dirty"]
+    static let allowedFlags: Set<String> = ["--require-gpu", "--validation-layers"]
 
     static func run(_ args: Arguments) async throws -> Int32 {
         try args.validate(options: allowedOptions, flags: allowedFlags, operands: 0)

@@ -4,7 +4,7 @@ let usage = """
 VectorAccelerateBench <command>
   list [--filter <glob>] [--exclude <glob>]
   run  [--filter <glob>] [--exclude <glob>] [--mode smoke|quick|full] [--samples N] [--iterations N] [--seed S]
-       [--out <path>] [--label <text>] [--require-gpu] [--validation-layers] [--allow-dirty] [--probe-slowdown N]
+       [--out <path>] [--label <text>] [--require-gpu] [--validation-layers] [--probe-slowdown N]
   baseline capture --from <artifact> [--approve] [--allow-dirty]
   compare --artifact <path> [--against approved|<n>] [--strict-perf] [--format text|json|markdown]
   validate-artifact <path>

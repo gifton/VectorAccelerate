@@ -91,7 +91,7 @@ final class CompareTests: XCTestCase {
     func testZeroMedianBaselineIsIncomparable() {
         let r = Compare.compare(new: record(wall: [1, 1, 1]), baseline: record(wall: [0, 0, 0]), newKey: key, baselineKey: key)
         XCTAssertEqual(r.status, .incomparable); XCTAssertTrue(r.deltas.isEmpty)
-        XCTAssertEqual(r.reasons, ["no comparable timing kinds (new status measured, baseline status measured)"])
+        XCTAssertEqual(r.reasons, ["timing.wall: baseline median 0.0 is not a positive finite number"])
     }
 
     /// Finite medians can still give a non-finite delta or boundary: (1e308 − 1e-300) / 1e-300 overflows, and so does 2 × rsd for
@@ -139,6 +139,54 @@ final class CompareTests: XCTestCase {
         // No delta line is rendered for these results (a reason may still quote an infinite median).
         let text = Compare.render(all, format: "text")
         XCTAssertFalse(text.contains("inf%") || text.contains("nan%") || text.contains("boundary"), text)
+    }
+
+    /// A median that is not a positive finite number cannot anchor a ratio. On the NEW side that used to be finite garbage:
+    /// 0 against 100 gave delta −1 and `alert(faster)`. A GPU timing pair can come back 0 from a real run. Both sides now make
+    /// the whole case incomparable, in parallel wording that names the kind, the side and the value.
+    func testNonPositiveMedianOnEitherSideIsIncomparable() {
+        func withWall(median: Double) -> CaseRecord {
+            var edited = record(wall: [100, 100, 100]); edited.timing.wall?.summary.median = median
+            return edited
+        }
+        let good = record(wall: [100, 100, 100])
+        for value in [0.0, -5.0, -Double.infinity, Double.nan] {
+            let newSide = Compare.compare(new: withWall(median: value), baseline: good, newKey: key, baselineKey: key)
+            XCTAssertEqual(newSide.status, .incomparable, "new median \(value)"); XCTAssertTrue(newSide.deltas.isEmpty, "new median \(value)")
+            XCTAssertEqual(newSide.reasons, ["timing.wall: new median \(value) is not a positive finite number"])
+            XCTAssertEqual(Compare.exitCode([newSide], strictPerf: true), 0)
+            let baseSide = Compare.compare(new: good, baseline: withWall(median: value), newKey: key, baselineKey: key)
+            XCTAssertEqual(baseSide.status, .incomparable, "baseline median \(value)")
+            XCTAssertTrue(baseSide.deltas.isEmpty, "baseline median \(value)")
+            XCTAssertEqual(baseSide.reasons, ["timing.wall: baseline median \(value) is not a positive finite number"])
+        }
+        // A measured run whose timings are all zero takes the same path (no hand-edited summary needed).
+        let measuredZero = Compare.compare(new: record(wall: [0, 0, 0]), baseline: good, newKey: key, baselineKey: key)
+        XCTAssertEqual(measuredZero.status, .incomparable)
+        XCTAssertEqual(measuredZero.reasons, ["timing.wall: new median 0.0 is not a positive finite number"])
+        // Both sides unusable: one reason per side, new first.
+        let both = Compare.compare(new: withWall(median: 0), baseline: withWall(median: -1), newKey: key, baselineKey: key)
+        XCTAssertEqual(both.reasons, ["timing.wall: new median 0.0 is not a positive finite number",
+                                      "timing.wall: baseline median -1.0 is not a positive finite number"])
+
+        // One unusable kind makes the whole case incomparable on either side, even beside a kind that would alert on its own.
+        let alertingWall = record(wall: [200, 200, 200])
+        var zeroGPUNew = alertingWall, goodGPUBase = good
+        zeroGPUNew.timing.commandBuffer = record(wall: [0, 0, 0]).timing.wall
+        goodGPUBase.timing.commandBuffer = good.timing.wall
+        let mixedNew = Compare.compare(new: zeroGPUNew, baseline: goodGPUBase, newKey: key, baselineKey: key)
+        XCTAssertEqual(mixedNew.status, .incomparable); XCTAssertTrue(mixedNew.deltas.isEmpty)
+        XCTAssertEqual(mixedNew.reasons, ["timing.commandBuffer: new median 0.0 is not a positive finite number"])
+        var goodGPUNew = alertingWall, zeroGPUBase = good
+        goodGPUNew.timing.commandBuffer = good.timing.wall
+        zeroGPUBase.timing.commandBuffer = record(wall: [0, 0, 0]).timing.wall
+        let mixedBase = Compare.compare(new: goodGPUNew, baseline: zeroGPUBase, newKey: key, baselineKey: key)
+        XCTAssertEqual(mixedBase.status, .incomparable); XCTAssertTrue(mixedBase.deltas.isEmpty)
+        XCTAssertEqual(mixedBase.reasons, ["timing.commandBuffer: baseline median 0.0 is not a positive finite number"])
+
+        // A kind present on one side only is still just not compared; the boundary rule is untouched for usable medians.
+        var wallOnlyBase = good; wallOnlyBase.timing.commandBuffer = nil
+        XCTAssertEqual(Compare.compare(new: zeroGPUNew, baseline: wallOnlyBase, newKey: key, baselineKey: key).status, .alertSlower)
     }
 
     func testExitCodes() {
