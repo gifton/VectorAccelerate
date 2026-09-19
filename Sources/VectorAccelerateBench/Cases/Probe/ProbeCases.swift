@@ -8,7 +8,7 @@ struct GPUCopyProbeCase: BenchCase {
         CaseIdentity(id: id.rawValue,
                      fixtureDigest: ContentDigest.sha256([.int(GPUProbe.bytes), .string("pattern:(i&0xFFFF)*0.5+1")]),
                      generatorVersion: VectorGenerator.version, seed: 0, stream: 0,
-                     route: "gpu.probe_copy", variant: nil, dataDescriptor: "sequential_u32_pattern")
+                     route: "gpu.probe_copy", variant: nil, dataDescriptor: "sawtooth_f32_(i&0xFFFF)*0.5+1")
     }
     let providedTiming: Set<TimingKind> = [.wall, .commandBuffer]
     let unitCount = GPUProbe.bytes
@@ -33,7 +33,7 @@ struct GPUCopyProbeCase: BenchCase {
         func resources() -> Resources? {
             Resources(staticThreadgroupBytes: probe.staticThreadgroupBytes, maxThreadgroupBytes: probe.maxThreadgroupBytes, poolHighWaterBytes: nil, notes: [])
         }
-        func resetForSample() async throws {}
+        func resetForSample() async throws { probe.resetDestination() }
     }
 }
 

@@ -20,7 +20,8 @@ enum MetalFingerprint {
         return (value as? NSNumber)?.intValue
     }
 
-    /// First line of `xcrun -sdk macosx metal --version`, e.g. "Apple metal version 32023.883 (metalfe-32023.883)".
+    /// The parsed version token from the first line of `xcrun -sdk macosx metal --version`: "32023.883" out of
+    /// "Apple metal version 32023.883 (metalfe-32023.883)"; nil when xcrun fails or the line has no `version` token.
     static func metalToolchainVersion() -> String? {
         guard let out = Subprocess.run("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"], timeout: 10),
               let line = out.split(separator: "\n").first,

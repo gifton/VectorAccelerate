@@ -3082,7 +3082,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `GPUInfo`, `Subprocess`, `BenchCase`, `PreparedCase`, `BenchContext`, `GPUSample`, `Correctness`, `Resources`, `ContentDigest`, `VectorGenerator.version`.
-- Produces: `enum MetalFingerprint { static func gather(device: (any MTLDevice)?) -> GPUInfo? ; static func gpuCoreCount() -> Int?; static func metalToolchainVersion() -> String? }`; `final class GPUProbe { init(device:) throws; static let bytes = 134_217_728; func dispatch(loops: Int) throws -> (startSeconds: Double, endSeconds: Double); func copyGBps(warmup: Int = 5, measured: Int = 10) throws -> Double; func outputMatchesInput() -> Bool; var staticThreadgroupBytes: Int; var maxThreadgroupBytes: Int }`; `enum ProbeCases { static var all: [any BenchCase] }`.
+- Produces: `enum MetalFingerprint { static func gather(device: (any MTLDevice)?) -> GPUInfo? ; static func gpuCoreCount() -> Int?; static func metalToolchainVersion() -> String? }`; `final class GPUProbe { init(device:) throws; static let bytes = 134_217_728; func dispatch(loops: Int) throws -> (startSeconds: Double, endSeconds: Double); func copyGBps(warmup: Int = 5, measured: Int = 10) throws -> Double; func outputMatchesInput() -> Bool; func resetDestination(); var staticThreadgroupBytes: Int; var maxThreadgroupBytes: Int }`; `enum ProbeCases { static var all: [any BenchCase] }`.
 
 - [ ] **Step 1: `Fingerprint/MetalFingerprint.swift`**
 
@@ -3109,7 +3109,8 @@ enum MetalFingerprint {
         return (value as? NSNumber)?.intValue
     }
 
-    /// First line of `xcrun -sdk macosx metal --version`, e.g. "Apple metal version 32023.883 (metalfe-32023.883)".
+    /// The parsed version token from the first line of `xcrun -sdk macosx metal --version`: "32023.883" out of
+    /// "Apple metal version 32023.883 (metalfe-32023.883)"; nil when xcrun fails or the line has no `version` token.
     static func metalToolchainVersion() -> String? {
         guard let out = Subprocess.run("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"], timeout: 10),
               let line = out.split(separator: "\n").first,
@@ -3128,6 +3129,7 @@ import VectorTestKit
 
 /// 128 MiB float4 copy on a legacy command queue; `.commandBuffer` timing from gpuStartTime/gpuEndTime.
 /// Also the preflight GPU calibration and the M0 deliberate-slowdown vehicle (spec §5.7, §5.8).
+/// `@unchecked Sendable`: every stored property is `let` and `MTLDevice`/`MTLCommandQueue`/`MTLComputePipelineState` are documented thread-safe; the buffer contents are unguarded, so this is an unverified contract (no test) that one probe is driven sequentially — `Runner.run` awaits each `runOnce` before the next.
 final class GPUProbe: @unchecked Sendable {
     static let bytes = 134_217_728
     static let floatCount = bytes / 4
@@ -3145,7 +3147,7 @@ final class GPUProbe: @unchecked Sendable {
         float4 v = src[gid];
         float4 sink = float4(0.0f);
         for (uint i = 1; i < p.loops; ++i) { sink += src[(gid + i * 4099u) % p.n4]; }
-        dst[gid] = v + sink * p.zero;   // p.zero is 0.0f from the CPU; the compiler cannot fold it
+        dst[gid] = v + sink * p.zero;   // p.zero is 0.0f from the CPU; the compiler cannot fold it (exercised by the M0 slowdown run in Task 18)
     }
     """
 
@@ -3171,14 +3173,19 @@ final class GPUProbe: @unchecked Sendable {
         self.queue = queue; self.src = src; self.dst = dst; self.params = params
         src.label = "probe.src"; dst.label = "probe.dst"; params.label = "probe.params"
         let p = src.contents().bindMemory(to: Float32.self, capacity: Self.floatCount)
+        // This fill pattern is the case identity: `GPUCopyProbeCase.identity` (ProbeCases.swift) digests the string "pattern:(i&0xFFFF)*0.5+1" and labels the data "sawtooth_f32_(i&0xFFFF)*0.5+1"; change all three together.
         for i in 0..<Self.floatCount { p[i] = Float32(i & 0xFFFF) * 0.5 + 1.0 }
-        memset(dst.contents(), 0, Self.bytes)
+        resetDestination()
     }
+
+    /// Zeroes `dst` so a later sample's `outputMatchesInput()` proves that sample's dispatch wrote it, not an earlier one.
+    func resetDestination() { memset(dst.contents(), 0, Self.bytes) }
 
     /// One command buffer, one dispatch, synchronous wait. Returns the buffer's GPU start/end in host seconds.
     func dispatch(loops: Int) throws -> (startSeconds: Double, endSeconds: Double) {
         struct ProbeParams { var n4: UInt32; var loops: UInt32; var zero: Float }
         var pp = ProbeParams(n4: UInt32(Self.float4Count), loops: UInt32(max(loops, 1)), zero: 0)
+        precondition(MemoryLayout<ProbeParams>.size == 12, "ProbeParams must match the MSL struct")
         memcpy(params.contents(), &pp, MemoryLayout<ProbeParams>.size)
         guard let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { throw BenchError.metalUnavailable }
         enc.setComputePipelineState(pipeline)
@@ -3191,12 +3198,14 @@ final class GPUProbe: @unchecked Sendable {
         return (cb.gpuStartTime, cb.gpuEndTime)
     }
 
+    /// GB/s counting read plus write, like `PreflightProbe.cpuCopyGBps`: 2 × bytes / median seconds / 1e9.
     func copyGBps(warmup: Int = 5, measured: Int = 10) throws -> Double {
+        precondition(measured >= 1, "copyGBps needs at least one measured dispatch")
         for _ in 0..<warmup { _ = try dispatch(loops: 1) }
         var secs: [Double] = []
         for _ in 0..<measured { let t = try dispatch(loops: 1); secs.append(t.endSeconds - t.startSeconds) }
         let median = Stats.percentile(sorted: secs.sorted(), p: 0.5)
-        return median > 0 ? Double(Self.bytes) / median / 1e9 : 0
+        return median > 0 ? 2.0 * Double(Self.bytes) / median / 1e9 : 0
     }
 
     func outputMatchesInput() -> Bool { memcmp(src.contents(), dst.contents(), Self.bytes) == 0 }
@@ -3216,7 +3225,7 @@ struct GPUCopyProbeCase: BenchCase {
         CaseIdentity(id: id.rawValue,
                      fixtureDigest: ContentDigest.sha256([.int(GPUProbe.bytes), .string("pattern:(i&0xFFFF)*0.5+1")]),
                      generatorVersion: VectorGenerator.version, seed: 0, stream: 0,
-                     route: "gpu.probe_copy", variant: nil, dataDescriptor: "sequential_u32_pattern")
+                     route: "gpu.probe_copy", variant: nil, dataDescriptor: "sawtooth_f32_(i&0xFFFF)*0.5+1")
     }
     let providedTiming: Set<TimingKind> = [.wall, .commandBuffer]
     let unitCount = GPUProbe.bytes
@@ -3241,7 +3250,7 @@ struct GPUCopyProbeCase: BenchCase {
         func resources() -> Resources? {
             Resources(staticThreadgroupBytes: probe.staticThreadgroupBytes, maxThreadgroupBytes: probe.maxThreadgroupBytes, poolHighWaterBytes: nil, notes: [])
         }
-        func resetForSample() async throws {}
+        func resetForSample() async throws { probe.resetDestination() }
     }
 }
 
