@@ -3287,11 +3287,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift`, `Commands/RunCommand.swift`
-- Modify: `Cases/Registry.swift`, `main.swift` (remove the `RunCommand` stub)
+- Modify: `Cases/Registry.swift`, `CLI/Arguments.swift` (add `parsed`), `main.swift` (remove the `RunCommand` stub; map a thrown `BenchError.usage` to exit 2)
 
 **Interfaces:**
 - Consumes: `MetalComputeProvider(context:configuration:)`, `MetalComputeProvider.Configuration(preferGPU:fallbackToCPU:)`, `batchDistance(query:candidates:metric: .euclidean)`, `routingTelemetry().gpuKernel`, `Metal4Context()`, `Metal4Context.lastGPUTiming` (`GPUTimingInfo.gpuStartTime/gpuEndTime`, seconds), `DynamicVector([Float])` from VectorCore, `Tolerance.forSum`, `Comparator`, `PreflightProbe`, `HostFingerprint`, `MetalFingerprint`, `GPUProbe`, `RunStore`, `Runner`, `Registry`.
-- Produces: `enum DistanceCases { static var all: [any BenchCase] }`; `enum RunCommand { static func run(_ args: Arguments) async throws -> Int32 }`; `enum BenchVersion { static let package = "unreleased" }` (no version number is committed until the owner's release discussion concludes; `packageVersion` is an unvalidated free string that nothing compares on).
+- Produces: `enum DistanceCases { static var all: [any BenchCase] }`; `enum RunCommand { static func run(_ args: Arguments) async throws -> Int32 }`; `enum BenchVersion { static let package = "unreleased" }` (no version number is committed until the owner's release discussion concludes; `packageVersion` is an unvalidated free string that nothing compares on); `Arguments.parsed<T>(_ key: String, expecting: String, _ parse: (String) -> T?) throws -> T?` (absent → `nil`, present-but-unparseable → `BenchError.usage` naming the option and the value); `main.swift` exits 2 on a thrown `BenchError.usage`, 1 on any other error.
 
 - [ ] **Step 1: `Cases/Distance/DistanceCases.swift`**
 
@@ -3304,6 +3304,13 @@ import VectorTestKit
 
 /// Batch L2 distance through the public façade at N=10,000, D=768 (spec §5.7). Route is verified per call via
 /// routing telemetry; `.commandBuffer` timing is the context's last GPU timing read immediately after the single submission.
+///
+/// `@unchecked Sendable` is a contract on the caller, not a verified property (no test exercises it). `cachedIdentity` is the
+/// only mutable stored property and it is unguarded: `prepare` writes it, `identity` reads it. `Runner.run` touches one case
+/// strictly in sequence inside one task — it reads `c.identity` to build the `CaseRecord`, then `try await c.prepare(context)`,
+/// then `record.identity = c.identity` — and `RunCommand` awaits each `Runner.run` before starting the next, on an instance that
+/// `DistanceCases.all` created for that `Registry.select` call alone. A caller that shares one instance between concurrent
+/// `Runner.run` calls, or reads `identity` while `prepare` is in flight, has a data race.
 final class L2BatchDistanceCase: BenchCase, @unchecked Sendable {
     static let n = 10_000, d = 768
     static let candidateStream: UInt64 = 10, queryStream: UInt64 = 11
@@ -3414,11 +3421,16 @@ enum BenchVersion { static let package = "unreleased" }   // set when a release 
 
 enum RunCommand {
     static func run(_ args: Arguments) async throws -> Int32 {
-        let mode = BenchMode(rawValue: args.value("--mode") ?? "quick") ?? .quick
-        let options = RunOptions(
-            mode: mode, samples: args.int("--samples") ?? mode.samples, iterations: args.int("--iterations") ?? mode.iterations,
-            seed: args.value("--seed").flatMap(UInt64.init) ?? 42, validationLayers: args.has("--validation-layers"),
-            requireGPU: args.has("--require-gpu"), probeSlowdown: args.int("--probe-slowdown") ?? 0, label: args.value("--label"))
+        // The five typed options go through `Arguments.parsed`: absent takes the default, present-but-unparseable throws `BenchError.usage`.
+        let mode = try args.parsed("--mode", expecting: "smoke, quick or full", { BenchMode(rawValue: $0) }) ?? .quick
+        let options = try RunOptions(
+            mode: mode,
+            samples: args.parsed("--samples", expecting: "an integer", { Int($0) }) ?? mode.samples,
+            iterations: args.parsed("--iterations", expecting: "an integer", { Int($0) }) ?? mode.iterations,
+            seed: args.parsed("--seed", expecting: "an unsigned 64-bit integer", { UInt64($0) }) ?? 42,
+            validationLayers: args.has("--validation-layers"), requireGPU: args.has("--require-gpu"),
+            probeSlowdown: args.parsed("--probe-slowdown", expecting: "a non-negative integer", { Int($0).flatMap { $0 >= 0 ? $0 : nil } }) ?? 0,
+            label: args.value("--label"))
         guard options.samples >= 1, options.iterations >= 1 else { throw BenchError.usage("--samples and --iterations must be >= 1") }
         let include = args.value("--filter").map { [$0] } ?? [], exclude = args.value("--exclude").map { [$0] } ?? []
         let cases = try Registry.select(include: include, exclude: exclude)
@@ -3486,6 +3498,29 @@ enum RunCommand {
 ```
 
 Remove the `enum RunCommand { ... }` stub from `main.swift`.
+
+`RunCommand` closes the class "CLI input accepted without validation" for its five typed options (`--mode`, `--seed`, `--samples`, `--iterations`, `--probe-slowdown`) through one helper. In `CLI/Arguments.swift`, after `int(_:)` add:
+
+```swift
+
+    /// An absent option is `nil` (the caller supplies the default); a present value that `parse` rejects throws `BenchError.usage`
+    /// naming the option and the value. Contrast `int(_:)` above, which reads an unparseable value as `nil`, i.e. as absent.
+    func parsed<T>(_ key: String, expecting what: String, _ parse: (String) -> T?) throws -> T? {
+        guard let raw = options[key] else { return nil }
+        guard let parsedValue = parse(raw) else { throw BenchError.usage("\(key) expects \(what), got '\(raw)'") }
+        return parsedValue
+    }
+```
+
+In `main.swift`, a thrown `BenchError.usage` must exit 2 like the other usage paths; put this arm before the general `catch`:
+
+```swift
+} catch BenchError.usage(let message) {
+    FileHandle.standardError.write(Data("error: \(message)\n".utf8))
+    status = 2
+```
+
+`GPUProbe.init` also throws `BenchError.usage("probe kernel missing")` (Task 14); with this arm that path would exit 2 instead of 1 when thrown from `RunCommand`'s preflight. It needs `makeFunction` to miss a kernel whose source is a literal in the same file.
 
 - [ ] **Step 4: Smoke run and validate**
 

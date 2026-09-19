@@ -6,6 +6,7 @@ enum Registry {
     static var all: [any BenchCase] {
         var cases: [any BenchCase] = []
         cases += ProbeCases.all
+        cases += DistanceCases.all
         return cases
     }
 
