@@ -4023,11 +4023,13 @@ MSG
 - [ ] **Step 1: Run the acceptance sequence (spec §11) on the M3 Max, AC power, idle desktop; paste every command and its tail output into the evidence file**
 
 ```bash
+uptime                                                                                              # 0. the machine must be idle: no other session building or testing (every Task 15/16 measurement ran under load 3–8 from a parallel session; record the load averages)
+[ -d .bench/baselines ] && mv .bench/baselines ".bench/baselines.pre-m0.$(date +%s)"                # 0b. start from an empty baseline store (Task 16's exercise left version 1 + approved from a smoke, dirty-tree artifact); moved aside, not deleted
 swift test 2>&1 | grep -E "Executed [0-9]+ test" | tail -1;  swift test -c release 2>&1 | grep -E "Executed [0-9]+ test" | tail -1                                   # 1. counts
 VA_INSTRUMENT_CHECK=1 swift test --filter PreflightInstrumentCheckTests 2>&1 | grep -E "VA_INSTRUMENT_CHECK|Executed [0-9]+ test" | sort -u   # 1b. opt-in CPU-probe instrument check: ten readings span < 2.5 % (record the readings; a failure means the instrument or the machine moved)
 swift run -c release VectorAccelerateBench run --mode quick 2>&1 | tail -4                          # 2. artifact, quiet: true
 A=$(ls -t .bench/runs/*/*.json | head -1); swift run -q -c release VectorAccelerateBench validate-artifact "$A"
-swift run -q -c release VectorAccelerateBench baseline capture --from "$A" --approve                # 3. (fails with refusedDirty if tree is dirty → commit first or add --allow-dirty and say so)
+swift run -q -c release VectorAccelerateBench baseline capture --from "$A" --approve                # 3. (refused with exit 1 and a "dirty tree" message on stderr if the tree is dirty → commit first or add --allow-dirty and say so)
 swift run -c release VectorAccelerateBench run --mode quick 2>&1 | tail -2                          # 4. second run
 B=$(ls -t .bench/runs/*/*.json | head -1); swift run -q -c release VectorAccelerateBench compare --artifact "$B"
 swift run -c release VectorAccelerateBench run --mode quick --filter 'probe.*' --probe-slowdown 64 2>&1 | tail -2   # 5. slowdown (64, not the spec's 4: measured ≈1.0× at 4 on the M3 Max — see Task 17 Step 7)
