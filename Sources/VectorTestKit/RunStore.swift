@@ -11,8 +11,8 @@ public enum RunStoreError: Error, Equatable {
 }
 
 /// Each message says what was refused or failed and, where the caller can act on it, what resolves it, so the error can
-/// be printed as it is. The payload and the key phrases of every case are checked by
-/// `RunStoreTests.testErrorDescriptionsSayWhatFailedAndCarryThePayload`.
+/// be printed as it is. The `switch` is exhaustive, so the compiler requires a message for a new case; the payloads and key
+/// phrases are checked by `RunStoreTests.testErrorDescriptionsSayWhatFailedAndCarryThePayload`, whose table is maintained by hand.
 extension RunStoreError: CustomStringConvertible {
     public var description: String {
         switch self {
@@ -102,10 +102,11 @@ public struct RunStore: Sendable {
     }
 
     /// Existing version numbers, ascending. A listing error propagates (no `try?`), so a failed listing is never
-    /// mistaken for an empty directory; non-positive names are not versions.
+    /// mistaken for an empty directory; non-positive names are not versions. Neither is `Int.max`: every value returned is
+    /// below it, so the caller's `last + 1` cannot overflow (`RunStoreTests.testVersionNumberingNeverOverflows`).
     private func versions(in dir: URL) throws -> [Int] {
         try FileManager.default.contentsOfDirectory(atPath: dir.path)
-            .compactMap { $0.hasSuffix(".json") ? Int($0.dropLast(5)) : nil }.filter { $0 > 0 }.sorted()
+            .compactMap { $0.hasSuffix(".json") ? Int($0.dropLast(5)) : nil }.filter { $0 > 0 && $0 < Int.max }.sorted()
     }
 
     /// Writes every measured case as the next version; never overwrites (`.withoutOverwriting`); moves `approved` only

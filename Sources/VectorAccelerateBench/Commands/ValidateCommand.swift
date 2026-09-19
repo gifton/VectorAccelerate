@@ -2,7 +2,8 @@ import Foundation
 import VectorTestKit
 
 enum ValidateCommand {
-    static func run(_ args: Arguments) -> Int32 {
+    static func run(_ args: Arguments) throws -> Int32 {
+        try args.validate(options: [], flags: [], operands: 1)
         guard let path = args.subcommand else { print("usage: validate-artifact <path>"); return 2 }
         do {
             let a = try RunStore.load(URL(fileURLWithPath: path))

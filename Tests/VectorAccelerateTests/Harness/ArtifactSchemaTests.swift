@@ -108,6 +108,22 @@ final class ArtifactSchemaTests: XCTestCase {
         XCTAssertThrowsError(try b.validate()) { XCTAssertEqual($0 as? ArtifactValidationError, .missing("metadata.deviceModel")) }
     }
 
+    /// Checked through the interpolation the CLI applies to a caught error; without a description these are the reflected
+    /// cases (`unsupportedSchemaVersion(7)`, `invalid("…")`).
+    func testValidationErrorDescriptionsCarryThePayloadAndSayWhatToDo() {
+        let table: [(error: ArtifactValidationError, caseName: String, mustContain: [String])] = [
+            (.unsupportedSchemaVersion(7), "unsupportedSchemaVersion", ["schemaVersion 7", "reads schemaVersion 1", "run"]),
+            (.missing("metadata.environmentKey"), "missing", ["artifact is missing", "metadata.environmentKey"]),
+            (.invalid("case a.b: warmupUsed.count must equal samples"), "invalid",
+             ["artifact check failed", "case a.b: warmupUsed.count must equal samples"])
+        ]
+        for row in table {
+            let message = "\(row.error as any Error)"
+            XCTAssertFalse(message.hasPrefix(row.caseName), "\(row.caseName) renders as the raw case: \(message)")
+            for piece in row.mustContain { XCTAssertTrue(message.contains(piece), "\(row.caseName): '\(piece)' missing from: \(message)") }
+        }
+    }
+
     func testUInt64FieldsRoundTripAtFullRange() throws {
         var a = Self.sampleArtifact()
         a.cases[0].identity.seed = 0x9E3779B97F4A7C15

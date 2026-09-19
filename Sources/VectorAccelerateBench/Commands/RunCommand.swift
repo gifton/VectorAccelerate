@@ -5,7 +5,14 @@ import VectorTestKit
 enum BenchVersion { static let package = "unreleased" }   // set when a release is cut; until then gitSHA identifies the build
 
 enum RunCommand {
+    /// What `run` reads: `--filter`, `--exclude` and `--out` in `run`, the rest in `parseOptions`. `--allow-dirty` is accepted
+    /// because spec §5.5 lists it for `run`; nothing here reads it (`run` never refuses a dirty tree, it only records it).
+    static let allowedOptions: Set<String> = ["--filter", "--exclude", "--mode", "--samples", "--iterations", "--seed", "--out", "--label",
+                                              "--probe-slowdown"]
+    static let allowedFlags: Set<String> = ["--require-gpu", "--validation-layers", "--allow-dirty"]
+
     static func run(_ args: Arguments) async throws -> Int32 {
+        try args.validate(options: allowedOptions, flags: allowedFlags, operands: 0)
         let options = try parseOptions(args)
         let include = args.value("--filter").map { [$0] } ?? [], exclude = args.value("--exclude").map { [$0] } ?? []
         let cases = try Registry.select(include: include, exclude: exclude)
@@ -13,7 +20,7 @@ enum RunCommand {
             throw BenchError.usage("no case selected: --filter \(include.first.map { "'\($0)'" } ?? "(none)") --exclude \(exclude.first.map { "'\($0)'" } ?? "(none)") "
                                    + "matched 0 of \(Registry.all.count) registered case(s); see `list`")
         }
-        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let root = Workspace.root
         let out = args.value("--out").map { URL(fileURLWithPath: $0) }
         // Spec §7: an existing path is an error and is never overwritten. Checked before the run so the measurements are not lost;
         // `.withoutOverwriting` in `write` remains the backstop for a file that appears during the run.
@@ -31,7 +38,7 @@ enum RunCommand {
             do { return try body() } catch {
                 let message = "preflight GPU probe (\(step)): \(error)"
                 gpuProbeFailures.append(message)
-                FileHandle.standardError.write(Data("warning: \(message)\n".utf8))
+                Diagnostics.line("warning: \(message)")
                 return nil
             }
         }
@@ -64,7 +71,7 @@ enum RunCommand {
                                     preflight: preflight, filters: filters)
         let artifact = BenchArtifact(package: "VectorAccelerate", metadata: metadata, cases: records)
         try artifact.validate()
-        let url = try write(artifact, to: out, root: root)
+        let url = try write(artifact, to: out)
         print("artifact: \(url.path)")
         print("key: \(metadata.environmentKey)  quiet: \(preflight.quiet)" + (preflight.reasons.isEmpty ? "" : "  reasons: \(preflight.reasons)"))
 
@@ -104,8 +111,8 @@ enum RunCommand {
             filters: filters, flags: [:])
     }
 
-    private static func write(_ artifact: BenchArtifact, to out: URL?, root: URL) throws -> URL {
-        guard let out else { return try RunStore(root: root.appendingPathComponent(".bench")).writeRun(artifact) }
+    private static func write(_ artifact: BenchArtifact, to out: URL?) throws -> URL {
+        guard let out else { return try Workspace.store.writeRun(artifact) }
         try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
         try RunStore.encode(artifact).write(to: out, options: [.withoutOverwriting])
         return out

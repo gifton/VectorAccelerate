@@ -49,7 +49,8 @@
 
 **Created — `Sources/VectorAccelerateBench/` (executable target, no declared product)**
 - `main.swift` — argument parsing and command dispatch.
-- `CLI/Arguments.swift` — `Arguments` (flags and values).
+- `CLI/Arguments.swift` — `Arguments` (flags and values; `validate` rejects what a command does not declare).
+- `CLI/CommandSupport.swift` — `Workspace` (working directory, `.bench` store, artifact loading that names the file), `ContextError`, `Diagnostics` (stderr lines).
 - `Runner/BenchCase.swift` — `GPUSample`, `IterationOutput`, `BenchCase`, `PreparedCase`, `BenchContext`, `RunOptions`, `BenchMode`.
 - `Runner/Runner.swift` — `Runner.run(case:context:options:)` → `CaseRecord`.
 - `Fingerprint/MetalFingerprint.swift` — `MetalFingerprint.gather()` → `GPUInfo?`.
@@ -60,7 +61,7 @@
 - `Commands/ListCommand.swift`, `Commands/RunCommand.swift`, `Commands/BaselineCommand.swift`, `Commands/CompareCommand.swift`, `Commands/ValidateCommand.swift`.
 
 **Created — `Tests/VectorAccelerateTests/Harness/`**
-- `RepoPaths.swift` (helper), `KitImportLintTests.swift`, `OrphanPublicTypeTests.swift`, `SeededRNGGoldenTests.swift` (generated), `VectorGeneratorGoldenTests.swift` (generated), `ContentDigestGoldenTests.swift`, `ComparatorTests.swift`, `RecallTests.swift`, `StatsTests.swift`, `ArtifactSchemaTests.swift`, `CaseIDTests.swift`, `WarmupPolicyTests.swift`, `FingerprintTests.swift`, `RunStoreTests.swift`, `CompareTests.swift`.
+- `RepoPaths.swift` (helper), `KitImportLintTests.swift`, `ErrorDescriptionLintTests.swift` (Task 13), `OrphanPublicTypeTests.swift`, `SeededRNGGoldenTests.swift` (generated), `VectorGeneratorGoldenTests.swift` (generated), `ContentDigestGoldenTests.swift`, `ComparatorTests.swift`, `RecallTests.swift`, `StatsTests.swift`, `ArtifactSchemaTests.swift`, `CaseIDTests.swift`, `WarmupPolicyTests.swift`, `FingerprintTests.swift`, `RunStoreTests.swift`, `CompareTests.swift`.
 - `Tests/VectorAccelerateTests/Utilities/RequireMetal.swift` — `requireMetalDevice()`.
 
 **Modified**
@@ -976,7 +977,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `Tests/VectorAccelerateTests/Harness/RecallTests.swift`
 
 **Interfaces:**
-- Produces: `public struct RecallPolicy: Codable, Sendable, Equatable { public var k: Int; public var epsilon: Double; public init(k:epsilon:) }`; `public struct Neighbor: Sendable, Equatable { public var id: Int; public var distance: Double; public init(id:distance:) }`; `public enum RecallError: Error, Equatable { case insufficientGroundTruth(have: Int, need: Int), invalidK }`; `public enum Recall { public static func atK(returned: [Neighbor], groundTruth: [Neighbor], policy: RecallPolicy) throws -> Double }`.
+- Produces: `public struct RecallPolicy: Codable, Sendable, Equatable { public var k: Int; public var epsilon: Double; public init(k:epsilon:) }`; `public struct Neighbor: Sendable, Equatable { public var id: Int; public var distance: Double; public init(id:distance:) }`; `public enum RecallError: Error, Equatable { case insufficientGroundTruth(have: Int, need: Int), invalidK }` with `extension RecallError: CustomStringConvertible` (each kit error enum is `CustomStringConvertible`: the bench CLI prints errors as they are, and `ErrorDescriptionLintTests` in Task 13 fails for an `Error` type without that conformance); `public enum Recall { public static func atK(returned: [Neighbor], groundTruth: [Neighbor], policy: RecallPolicy) throws -> Double }`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1026,6 +1027,19 @@ final class RecallTests: XCTestCase {
         }
     }
 
+    /// Checked through the interpolation the CLI applies to a caught error; without a description these are the reflected cases.
+    func testErrorDescriptionsStateTheRequirementAndTheRemedy() {
+        let table: [(error: RecallError, caseName: String, mustContain: [String])] = [
+            (.insufficientGroundTruth(have: 2, need: 3), "insufficientGroundTruth", ["at least 3", "got 2", "min(requestedK, eligibleCount)"]),
+            (.invalidK, "invalidK", ["k >= 1", "min(requestedK, eligibleCount)"])
+        ]
+        for row in table {
+            let message = "\(row.error as any Error)"
+            XCTAssertFalse(message.hasPrefix(row.caseName), "\(row.caseName) renders as the raw case: \(message)")
+            for piece in row.mustContain { XCTAssertTrue(message.contains(piece), "\(row.caseName): '\(piece)' missing from: \(message)") }
+        }
+    }
+
     func testClampedToUnitInterval() throws {
         // Every returned neighbour within threshold and k distinct IDs → exactly 1.0, never above.
         let returned = [Neighbor(id: 1, distance: 0.5), Neighbor(id: 2, distance: 0.5), Neighbor(id: 3, distance: 0.5)]
@@ -1061,6 +1075,19 @@ public enum RecallError: Error, Equatable {
     case invalidK
 }
 
+/// The payloads and key phrases are checked by `RecallTests.testErrorDescriptionsStateTheRequirementAndTheRemedy`.
+extension RecallError: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .insufficientGroundTruth(let have, let need):
+            return "recall@k needs at least \(need) ground-truth neighbours (k = \(need)), got \(have); "
+                + "for a small corpus pass k = min(requestedK, eligibleCount)"
+        case .invalidK:
+            return "recall@k needs k >= 1; for a small corpus pass k = min(requestedK, eligibleCount), never 0"
+        }
+    }
+}
+
 /// Distance-threshold recall@k (spec §4.6). The caller supplies independently recomputed distances for
 /// valid, eligible IDs and, for small corpora, passes `k = min(requestedK, eligibleCount)` (never 0).
 /// Precondition (unverified here): `groundTruth` is sorted ascending by distance — the k-th distance is
@@ -1086,7 +1113,7 @@ public enum Recall {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter RecallTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 7 tests, with 0 failures`
+Expected: `Executed 8 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
 
@@ -1263,6 +1290,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `Tests/VectorAccelerateTests/Harness/ArtifactSchemaTests.swift`
 
 **Interfaces:**
+- Produces: `public enum ArtifactValidationError: Error, Equatable { case unsupportedSchemaVersion(Int), missing(String), invalid(String) }` with `extension ArtifactValidationError: CustomStringConvertible` (each kit error enum is `CustomStringConvertible`: the bench CLI prints errors as they are, and `ErrorDescriptionLintTests` in Task 13 fails for an `Error` type without that conformance).
 - Produces (all `Codable, Sendable, Equatable`, JSON keys = property names): `BenchArtifact { schemaVersion: Int; package: String; metadata: Metadata; cases: [CaseRecord]; func validate() throws }`, `Metadata`, `GPUInfo`, `PowerInfo`, `ThermalInfo`, `PreflightRecord`, `StartEnd`, `Filters`, `CaseRecord`, `CaseIdentity`, `CaseStatus` (`measured|unavailable|failed`), `Timing { wall, commandBuffer, encoder: Series? }`, `TimingKind` (`wall|commandBuffer|encoder`), `Series { unit: String; raw: [[Double]]; summary: Summary; bias: String? }`, `Correctness`, `CorrectnessStatus` (`pass|fail|notMeasured`), `Resources`, `ArtifactValidationError: Error, Equatable { case unsupportedSchemaVersion(Int), missing(String), invalid(String) }`. Also `public extension Timing { subscript(kind: TimingKind) -> Series? }` and `public extension CaseRecord { func validate() throws }` (per-case checks, reused by `Compare`).
 
 - [ ] **Step 1: Write the failing tests**
@@ -1378,6 +1406,22 @@ final class ArtifactSchemaTests: XCTestCase {
         XCTAssertThrowsError(try b.validate()) { XCTAssertEqual($0 as? ArtifactValidationError, .missing("metadata.deviceModel")) }
     }
 
+    /// Checked through the interpolation the CLI applies to a caught error; without a description these are the reflected
+    /// cases (`unsupportedSchemaVersion(7)`, `invalid("…")`).
+    func testValidationErrorDescriptionsCarryThePayloadAndSayWhatToDo() {
+        let table: [(error: ArtifactValidationError, caseName: String, mustContain: [String])] = [
+            (.unsupportedSchemaVersion(7), "unsupportedSchemaVersion", ["schemaVersion 7", "reads schemaVersion 1", "run"]),
+            (.missing("metadata.environmentKey"), "missing", ["artifact is missing", "metadata.environmentKey"]),
+            (.invalid("case a.b: warmupUsed.count must equal samples"), "invalid",
+             ["artifact check failed", "case a.b: warmupUsed.count must equal samples"])
+        ]
+        for row in table {
+            let message = "\(row.error as any Error)"
+            XCTAssertFalse(message.hasPrefix(row.caseName), "\(row.caseName) renders as the raw case: \(message)")
+            for piece in row.mustContain { XCTAssertTrue(message.contains(piece), "\(row.caseName): '\(piece)' missing from: \(message)") }
+        }
+    }
+
     func testUInt64FieldsRoundTripAtFullRange() throws {
         var a = Self.sampleArtifact()
         a.cases[0].identity.seed = 0x9E3779B97F4A7C15
@@ -1410,6 +1454,21 @@ public enum ArtifactValidationError: Error, Equatable {
     case unsupportedSchemaVersion(Int)
     case missing(String)
     case invalid(String)
+}
+
+/// The payloads and key phrases are checked by `ArtifactSchemaTests.testValidationErrorDescriptionsCarryThePayloadAndSayWhatToDo`.
+extension ArtifactValidationError: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .unsupportedSchemaVersion(let version):
+            return "unsupported artifact schemaVersion \(version): this build reads schemaVersion 1 only; "
+                + "produce the artifact again with this build's `run`, or read it with the build that wrote it"
+        case .missing(let what):
+            return "artifact is missing a required value: \(what)"
+        case .invalid(let what):
+            return "artifact check failed: \(what)"
+        }
+    }
 }
 
 public struct StartEnd: Codable, Sendable, Equatable {
@@ -1651,7 +1710,7 @@ public extension CaseRecord {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter ArtifactSchemaTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 14 tests, with 0 failures`
+Expected: `Executed 15 tests, with 0 failures`
 
 - [ ] **Step 5: Commit**
 
@@ -1671,7 +1730,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `Tests/VectorAccelerateTests/Harness/CaseIDTests.swift`, `Tests/VectorAccelerateTests/Harness/WarmupPolicyTests.swift`
 
 **Interfaces:**
-- Produces: `public struct CaseID: Codable, Hashable, Sendable, CustomStringConvertible { public let rawValue: String; public init(validating: String) throws; public var family: String }`; `public enum CaseIDError: Error, Equatable { case malformed(String) }`; `public enum CaseRegistryCheck { public static func duplicates(_ ids: [CaseID]) -> [CaseID] }`; `public struct WarmupPolicy: Sendable { public var window: Int; public var cov: Double; public var minimum: Int; public var maximum: Int; public static let standard: WarmupPolicy; public func shouldStop(after wallNs: [Double]) -> Bool }`.
+- Produces: `public struct CaseID: Codable, Hashable, Sendable, CustomStringConvertible { public let rawValue: String; public init(validating: String) throws; public var family: String }`; `public enum CaseIDError: Error, Equatable { case malformed(String) }` with `extension CaseIDError: CustomStringConvertible` (each kit error enum is `CustomStringConvertible`: the bench CLI prints errors as they are, and `ErrorDescriptionLintTests` in Task 13 fails for an `Error` type without that conformance); `public enum CaseRegistryCheck { public static func duplicates(_ ids: [CaseID]) -> [CaseID] }`; `public struct WarmupPolicy: Sendable { public var window: Int; public var cov: Double; public var minimum: Int; public var maximum: Int; public static let standard: WarmupPolicy; public func shouldStop(after wallNs: [Double]) -> Bool }`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1698,6 +1757,15 @@ final class CaseIDTests: XCTestCase {
         // "probe.x\n": ICU `$` matches before a final line terminator, so the pattern must anchor with `\z`.
         for bad in ["Probe.gpu_copy", "probe", "probe.gpu copy", "probe.gpu_copy.seed=42x!", "probe..x", ".probe.x", "probe.x.", "probe.x\n"] {
             XCTAssertThrowsError(try CaseID(validating: bad), bad)
+        }
+    }
+
+    /// Checked through the interpolation the CLI applies to a caught error; without a description it is `malformed("…")`.
+    func testMalformedDescriptionQuotesTheIDAndStatesTheGrammar() {
+        let message = "\(CaseIDError.malformed("Probe.gpu copy") as any Error)"
+        XCTAssertFalse(message.hasPrefix("malformed("), message)
+        for piece in ["'Probe.gpu copy'", "<family>.<op>", "lowercase"] {
+            XCTAssertTrue(message.contains(piece), "'\(piece)' missing from: \(message)")
         }
     }
 
@@ -1756,6 +1824,17 @@ Expected: `cannot find 'CaseID' in scope`.
 import Foundation
 
 public enum CaseIDError: Error, Equatable { case malformed(String) }
+
+/// The quoted ID and the key phrases are checked by `CaseIDTests.testMalformedDescriptionQuotesTheIDAndStatesTheGrammar`.
+extension CaseIDError: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .malformed(let raw):
+            return "malformed case ID '\(raw)': expected <family>.<op>[.<op>…][.<param>=<value>…][.<variant>], "
+                + "each segment made of lowercase letters, digits and `_` only"
+        }
+    }
+}
 
 /// Stable case identity per the grammar in spec §5.4 (amended: one or more bare op segments). By contract, not enforced by
 /// the grammar, a registered ID never contains seeds, digests, or timestamps.
@@ -1826,7 +1905,7 @@ public struct WarmupPolicy: Sendable {
 - [ ] **Step 4: Run to verify they pass**
 
 Run: `swift test --filter "CaseIDTests|WarmupPolicyTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 8 tests, with 0 failures`
+Expected: `Executed 9 tests, with 0 failures`   (5 CaseIDTests + 4 WarmupPolicyTests)
 
 - [ ] **Step 5: Commit**
 
@@ -2287,19 +2366,34 @@ final class RunStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.approvedBaseline(environmentKey: key, caseID: id)) { XCTAssertEqual($0 as? RunStoreError, .badApprovedPointer("version 9 missing")) }
     }
 
+    /// A file named `Int.max`.json in a baseline directory once made `last + 1` trap on overflow. It is not a version now, and
+    /// a directory that is genuinely full ends in a thrown create-only write error rather than a trap.
+    func testVersionNumberingNeverOverflows() throws {
+        let store = RunStore(root: root)
+        let key = artifact().metadata.environmentKey, id = "probe.gpu_copy.bytes=8"
+        let dir = root.appendingPathComponent("baselines/\(key)/\(id)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: dir.appendingPathComponent("\(Int.max).json"))
+        XCTAssertEqual(try store.captureBaseline(from: artifact(), approve: false, allowDirty: false), [id: 1])
+        try Data("{}".utf8).write(to: dir.appendingPathComponent("\(Int.max - 1).json"))
+        XCTAssertThrowsError(try store.captureBaseline(from: artifact(), approve: false, allowDirty: false))
+    }
+
     /// `main.swift` prints a caught error by interpolating it as `any Error`; the same interpolation is checked here. A type
     /// without a description interpolates as its reflected case (`refusedDirty`, `runExists("…")`), which starts with the case
-    /// name, hence the `hasPrefix` check.
+    /// name, hence the `hasPrefix` check. Payloads aside (the reflected rendering carries those too), every expected phrase
+    /// contains a space or punctuation, which a case name cannot. The table is maintained by hand: a new `RunStoreError` case
+    /// needs a row here.
     func testErrorDescriptionsSayWhatFailedAndCarryThePayload() {
         let table: [(error: RunStoreError, caseName: String, mustContain: [String])] = [
             (.runExists("/tmp/store/runs/key/run.json"), "runExists", ["/tmp/store/runs/key/run.json", "never overwritten"]),
-            (.refusedValidationLayers, "refusedValidationLayers", ["refused", "validation layers"]),
+            (.refusedValidationLayers, "refusedValidationLayers", ["baseline capture refused:", "validation layers"]),
             (.refusedNotQuiet(["drift 9.0% exceeds 5.0%", "thermal state serious"]), "refusedNotQuiet",
-             ["refused", "not quiet", "drift 9.0% exceeds 5.0%", "thermal state serious", "quiet runs"]),
-            (.refusedNotQuiet([]), "refusedNotQuiet", ["refused", "not quiet", "no reason recorded"]),
-            (.refusedDirty, "refusedDirty", ["refused", "clean tree", "--allow-dirty"]),
-            (.noMeasuredCases, "noMeasuredCases", ["refused", "no measured case"]),
-            (.badApprovedPointer("version 9 missing"), "badApprovedPointer", ["version 9 missing", "approved"]),
+             ["baseline capture refused:", "not quiet", "drift 9.0% exceeds 5.0%; thermal state serious", "quiet runs"]),
+            (.refusedNotQuiet([]), "refusedNotQuiet", ["baseline capture refused:", "not quiet", "no reason recorded"]),
+            (.refusedDirty, "refusedDirty", ["baseline capture refused:", "clean tree", "--allow-dirty"]),
+            (.noMeasuredCases, "noMeasuredCases", ["baseline capture refused:", "no measured case"]),
+            (.badApprovedPointer("version 9 missing"), "badApprovedPointer", ["version 9 missing", "`approved` file"]),
             (.unsafePathComponent("caseID: ../../escape"), "unsafePathComponent", ["caseID: ../../escape", "path component"])
         ]
         for row in table {
@@ -2333,8 +2427,8 @@ public enum RunStoreError: Error, Equatable {
 }
 
 /// Each message says what was refused or failed and, where the caller can act on it, what resolves it, so the error can
-/// be printed as it is. The payload and the key phrases of every case are checked by
-/// `RunStoreTests.testErrorDescriptionsSayWhatFailedAndCarryThePayload`.
+/// be printed as it is. The `switch` is exhaustive, so the compiler requires a message for a new case; the payloads and key
+/// phrases are checked by `RunStoreTests.testErrorDescriptionsSayWhatFailedAndCarryThePayload`, whose table is maintained by hand.
 extension RunStoreError: CustomStringConvertible {
     public var description: String {
         switch self {
@@ -2424,10 +2518,11 @@ public struct RunStore: Sendable {
     }
 
     /// Existing version numbers, ascending. A listing error propagates (no `try?`), so a failed listing is never
-    /// mistaken for an empty directory; non-positive names are not versions.
+    /// mistaken for an empty directory; non-positive names are not versions. Neither is `Int.max`: every value returned is
+    /// below it, so the caller's `last + 1` cannot overflow (`RunStoreTests.testVersionNumberingNeverOverflows`).
     private func versions(in dir: URL) throws -> [Int] {
         try FileManager.default.contentsOfDirectory(atPath: dir.path)
-            .compactMap { $0.hasSuffix(".json") ? Int($0.dropLast(5)) : nil }.filter { $0 > 0 }.sorted()
+            .compactMap { $0.hasSuffix(".json") ? Int($0.dropLast(5)) : nil }.filter { $0 > 0 && $0 < Int.max }.sorted()
     }
 
     /// Writes every measured case as the next version; never overwrites (`.withoutOverwriting`); moves `approved` only
@@ -2482,7 +2577,7 @@ public struct RunStore: Sendable {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter RunStoreTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 6 tests, with 0 failures`   (5 store tests + `testErrorDescriptionsSayWhatFailedAndCarryThePayload`, added by Task 16)
+Expected: `Executed 7 tests, with 0 failures`   (5 store tests + `testErrorDescriptionsSayWhatFailedAndCarryThePayload` and `testVersionNumberingNeverOverflows`, added by Task 16 and its review)
 
 - [ ] **Step 5: Commit**
 
@@ -2601,6 +2696,53 @@ final class CompareTests: XCTestCase {
         let r = Compare.compare(new: record(wall: [1, 1, 1]), baseline: record(wall: [0, 0, 0]), newKey: key, baselineKey: key)
         XCTAssertEqual(r.status, .incomparable); XCTAssertTrue(r.deltas.isEmpty)
         XCTAssertEqual(r.reasons, ["no comparable timing kinds (new status measured, baseline status measured)"])
+    }
+
+    /// Finite medians can still give a non-finite delta or boundary: (1e308 − 1e-300) / 1e-300 overflows, and so does 2 × rsd for
+    /// rsd = 1e308. A NaN median cannot come from a JSON file but can be built in memory. Each is incomparable for the whole case,
+    /// never an alert, and the JSON rendering of such results decodes (it used to trap on `inf`).
+    func testNonFiniteDeltaOrBoundaryIsIncomparable() throws {
+        func withWall(median: Double? = nil, rsd: Double? = nil) -> CaseRecord {
+            var edited = record(wall: [100, 100, 100])
+            if let median { edited.timing.wall?.summary.median = median }
+            if let rsd { edited.timing.wall?.summary.rsd = rsd }
+            return edited
+        }
+        let overflow = Compare.compare(new: withWall(median: 1e308), baseline: withWall(median: 1e-300), newKey: key, baselineKey: key)
+        XCTAssertEqual(overflow.status, .incomparable); XCTAssertTrue(overflow.deltas.isEmpty)
+        XCTAssertEqual(overflow.reasons.count, 1, "\(overflow.reasons)")
+        let overflowReason = overflow.reasons.first ?? ""
+        for piece in ["timing.wall", "1e+308", "1e-300", "not finite"] {
+            XCTAssertTrue(overflowReason.contains(piece), "'\(piece)' missing from: \(overflow.reasons)")
+        }
+
+        let nan = Compare.compare(new: withWall(median: .nan), baseline: withWall(), newKey: key, baselineKey: key)
+        XCTAssertEqual(nan.status, .incomparable); XCTAssertTrue(nan.deltas.isEmpty)
+        let infiniteBase = Compare.compare(new: withWall(), baseline: withWall(median: .infinity), newKey: key, baselineKey: key)
+        XCTAssertEqual(infiniteBase.status, .incomparable); XCTAssertTrue(infiniteBase.deltas.isEmpty)
+        let boundary = Compare.compare(new: withWall(), baseline: withWall(rsd: 1e308), newKey: key, baselineKey: key)
+        XCTAssertEqual(boundary.status, .incomparable); XCTAssertTrue(boundary.deltas.isEmpty)
+        XCTAssertTrue(boundary.reasons.contains { $0.contains("baseline rsd 1e+308") }, "\(boundary.reasons)")
+
+        // One non-finite kind makes the whole case incomparable, even beside a kind that would alert on its own.
+        var mixedNew = withWall(median: 1e308), mixedBase = withWall(median: 1e-300)
+        mixedNew.timing.commandBuffer = record(wall: [200, 200, 200]).timing.wall
+        mixedBase.timing.commandBuffer = record(wall: [100, 100, 100]).timing.wall
+        let mixed = Compare.compare(new: mixedNew, baseline: mixedBase, newKey: key, baselineKey: key)
+        XCTAssertEqual(mixed.status, .incomparable); XCTAssertTrue(mixed.deltas.isEmpty)
+        XCTAssertEqual(Compare.exitCode([mixed], strictPerf: true), 0)
+
+        // A correctness failure still wins, and keeps the comparison reason.
+        var failing = withWall(median: 1e308); failing.correctness?.status = .fail
+        let failed = Compare.compare(new: failing, baseline: withWall(median: 1e-300), newKey: key, baselineKey: key)
+        XCTAssertEqual(failed.status, .correctnessFailed)
+        XCTAssertTrue(failed.reasons.contains { $0.contains("not finite") }, "\(failed.reasons)")
+
+        let all = [overflow, nan, infiniteBase, boundary, mixed, failed]
+        XCTAssertEqual(try JSONDecoder().decode([CompareResult].self, from: Data(Compare.render(all, format: "json").utf8)), all)
+        // No delta line is rendered for these results (a reason may still quote an infinite median).
+        let text = Compare.render(all, format: "text")
+        XCTAssertFalse(text.contains("inf%") || text.contains("nan%") || text.contains("boundary"), text)
     }
 
     func testExitCodes() {
@@ -2726,7 +2868,9 @@ public enum Compare {
             status = status ?? .correctnessFailed
         }
         if let r = new.resources {
-            if let s = r.staticThreadgroupBytes, let m = r.maxThreadgroupBytes, s > m { reasons.append("resource limit exceeded: staticThreadgroupBytes \(s) > \(m)"); status = status ?? .resourceFailed }
+            if let s = r.staticThreadgroupBytes, let m = r.maxThreadgroupBytes, s > m {
+                reasons.append("resource limit exceeded: staticThreadgroupBytes \(s) > \(m)"); status = status ?? .resourceFailed
+            }
             for n in r.notes where n.hasPrefix("LIMIT_EXCEEDED:") { reasons.append("resource limit exceeded: \(n)"); status = status ?? .resourceFailed }
         }
 
@@ -2747,15 +2891,29 @@ public enum Compare {
         // 5. deltas
         var deltas: [KindDelta] = []
         var alert: CompareStatus?
+        var nonFinite: [String] = []
         for kind in TimingKind.allCases {
             guard let n = new.timing[kind], let b = base.timing[kind], b.summary.median > 0 else { continue }
             let delta = (n.summary.median - b.summary.median) / b.summary.median
             let boundary = max(floorBoundary, 2 * b.summary.rsd)
+            // `validate()` does not bound the summary fields, and finite inputs can still overflow here (a huge median over a
+            // tiny one; 2 × a huge rsd). Such a kind cannot be compared; it must not read as an alert.
+            guard [n.summary.median, b.summary.median, delta, boundary].allSatisfy(\.isFinite) else {
+                nonFinite.append("timing.\(kind.rawValue): comparison is not finite (new median \(n.summary.median), "
+                                 + "baseline median \(b.summary.median), baseline rsd \(b.summary.rsd))")
+                continue
+            }
             let alerting = delta > boundary || delta < -boundary
             deltas.append(KindDelta(kind: kind, newMedian: n.summary.median, baseMedian: b.summary.median, delta: delta,
                                     boundary: boundary, widened: boundary > floorBoundary, alerting: alerting))
             // With several timing kinds the status reflects the first alerting kind in `TimingKind.allCases` order; each kind's own `alerting` is rendered.
             if alerting, alert == nil { alert = delta > 0 ? .alertSlower : .alertFaster }
+        }
+        // One non-finite kind makes the whole case incomparable and the result carries no deltas at all, not even the finite
+        // ones. A `KindDelta` is appended only after the guard above, so every one this function returns holds finite values
+        // (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable`).
+        if !nonFinite.isEmpty {
+            return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons + nonFinite)
         }
         // A comparable pair with nothing to compare (non-measured record, zero baseline median, no shared timing kind) is
         // incomparable, never ok (`CompareTests.testNonMeasuredNewRecordIsIncomparable`, `testZeroMedianBaselineIsIncomparable`).
@@ -2784,14 +2942,17 @@ public enum Compare {
         switch format {
         case "json":
             let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-            // try!: encoding throws only for non-finite Doubles; medians and deltas derive from finite timings or a decoded baseline.
+            // try!, as a contract: `JSONEncoder` throws here only for a non-finite Double. Results produced by `Compare.compare`
+            // carry finite values only (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable`). A hand-built `CompareResult`
+            // holding NaN or an infinity is the caller's responsibility and traps here.
             return String(decoding: try! enc.encode(results), as: UTF8.self)
         case "markdown":
             var out = "| case | status | kind | new median (ns) | base median (ns) | delta | boundary |\n|---|---|---|---|---|---|---|\n"
             for r in results {
                 if r.deltas.isEmpty { out += "| \(r.id) | \(r.status.rawValue) | — | — | — | — | — |\n" }
                 for d in r.deltas {
-                    out += "| \(r.id) | \(r.status.rawValue) | \(d.kind.rawValue) | \(String(format: "%.0f", d.newMedian)) | \(String(format: "%.0f", d.baseMedian)) | \(pct(d.delta, signed: true)) | \(pct(d.boundary, signed: false))\(d.widened ? " (widened)" : "") |\n"
+                    out += "| \(r.id) | \(r.status.rawValue) | \(d.kind.rawValue) | \(String(format: "%.0f", d.newMedian)) | \(String(format: "%.0f", d.baseMedian)) "
+                        + "| \(pct(d.delta, signed: true)) | \(pct(d.boundary, signed: false))\(d.widened ? " (widened)" : "") |\n"
                 }
             }
             // Reasons follow the whole table, after one blank line, so rows stay contiguous across results
@@ -2804,7 +2965,8 @@ public enum Compare {
             for r in results {
                 out += "\(pad(r.id, to: 44)) \(r.status.rawValue)\n"
                 for d in r.deltas {
-                    out += "    \(pad(d.kind.rawValue, to: 14)) \(pct(d.delta, signed: true)) (boundary \(pct(d.boundary, signed: false))\(d.widened ? ", widened" : ""))\(d.alerting ? "  <-- alert" : "")\n"
+                    out += "    \(pad(d.kind.rawValue, to: 14)) \(pct(d.delta, signed: true)) "
+                        + "(boundary \(pct(d.boundary, signed: false))\(d.widened ? ", widened" : ""))\(d.alerting ? "  <-- alert" : "")\n"
                 }
                 for reason in r.reasons { out += "    reason: \(reason)\n" }
             }
@@ -2817,7 +2979,9 @@ public enum Compare {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `swift test --filter CompareTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 12 tests, with 0 failures`
+Expected: `Executed 13 tests, with 0 failures`
+
+A timing kind whose delta or boundary is not finite makes the case `incomparable` (reason names the kind and both medians), never an alert: finite medians can overflow the ratio and 2 × rsd can overflow, and `validate()` does not bound summary fields. That is what makes the `try!` in the JSON rendering a contract rather than a hope (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable`); a hand-built `CompareResult` holding NaN or an infinity still traps there and is the caller's responsibility.
 
 - [ ] **Step 5: Commit**
 
@@ -2833,14 +2997,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 13: Executable skeleton — arguments, adapter types, sampling loop, `list`, `validate-artifact`
 
 **Files:**
-- Create: `Sources/VectorAccelerateBench/CLI/Arguments.swift`, `Runner/BenchCase.swift`, `Runner/Runner.swift`, `Cases/Registry.swift`, `Commands/ListCommand.swift`, `Commands/ValidateCommand.swift`
+- Create: `Sources/VectorAccelerateBench/CLI/Arguments.swift`, `CLI/CommandSupport.swift`, `Runner/BenchCase.swift`, `Runner/Runner.swift`, `Cases/Registry.swift`, `Commands/ListCommand.swift`, `Commands/ValidateCommand.swift`
 - Modify: `Sources/VectorAccelerateBench/main.swift`
+- Test: `Tests/VectorAccelerateTests/Harness/ErrorDescriptionLintTests.swift` (owned here: this is the first task at which every type the lint names exists — the four kit error enums from Tasks 6, 8, 9, 11 and the executable's `BenchError` and `ContextError` — and it is the task that introduces the `error: \(error)` printing the lint protects)
 
 **Interfaces:**
 - Consumes: `CaseID`, `CaseIdentity`, `CaseRecord`, `Timing`, `Series`, `Stats`, `Correctness`, `Resources`, `WarmupPolicy`, `VectorGenerator`, `HostFingerprint`, `GPUInfo`, `RunStore`, `BenchArtifact`.
-- Produces (executable-internal): `Arguments { command, subcommand, options: [String: String], flags: Set<String>; func value(_:) -> String?; func has(_:) -> Bool }`; `BenchMode` (`smoke|quick|full` with `samples`, `iterations`); `RunOptions { mode, samples, iterations, seed, validationLayers, requireGPU, probeSlowdown, label }`; `GPUSample { kind: TimingKind; startNs, endNs: Double; label: String }`; `IterationOutput { gpu: [GPUSample]; payload: (any Sendable)? }`; `protocol BenchCase { id: CaseID; identity: CaseIdentity; providedTiming: Set<TimingKind>; unitCount: Int; func prepare(_: BenchContext) async throws -> any PreparedCase }`; `protocol PreparedCase: AnyObject { runOnce() async throws -> IterationOutput; verify(_:) throws -> Correctness; resources() -> Resources?; resetForSample() async throws }`; `final class BenchContext { device: (any MTLDevice)?; host: HostFingerprint; gpu: GPUInfo?; options: RunOptions; func makeGenerator(stream:) -> VectorGenerator }`; `enum Runner { static func run(_ c: any BenchCase, context:, policy:) async -> CaseRecord }`; `enum Registry { static var all: [any BenchCase] }`.
+- Produces (executable-internal): `Arguments { command, subcommand, positionals: [String], options: [String: String], flags: Set<String>; func validate(options:flags:operands:) throws; func value(_:) -> String?; func has(_:) -> Bool; func parsed<T>(_:expecting:_:) throws -> T? }` — every command calls `validate` first with the options and flags it reads and its operand count, so an undeclared option, flag or operand, or a declared option without a value, is a usage error (exit 2) before any work; `enum Workspace { static var root: URL; static var store: RunStore; static func loadArtifact(_:validating:) throws -> BenchArtifact }`, `struct ContextError: Error, CustomStringConvertible`, `enum Diagnostics { static func line(_:) }`; `BenchMode` (`smoke|quick|full` with `samples`, `iterations`); `RunOptions { mode, samples, iterations, seed, validationLayers, requireGPU, probeSlowdown, label }`; `GPUSample { kind: TimingKind; startNs, endNs: Double; label: String }`; `IterationOutput { gpu: [GPUSample]; payload: (any Sendable)? }`; `protocol BenchCase { id: CaseID; identity: CaseIdentity; providedTiming: Set<TimingKind>; unitCount: Int; func prepare(_: BenchContext) async throws -> any PreparedCase }`; `protocol PreparedCase: AnyObject { runOnce() async throws -> IterationOutput; verify(_:) throws -> Correctness; resources() -> Resources?; resetForSample() async throws }`; `final class BenchContext { device: (any MTLDevice)?; host: HostFingerprint; gpu: GPUInfo?; options: RunOptions; func makeGenerator(stream:) -> VectorGenerator }`; `enum Runner { static func run(_ c: any BenchCase, context:, policy:) async -> CaseRecord }`; `enum Registry { static var all: [any BenchCase] }`.
 
-- [ ] **Step 1: `CLI/Arguments.swift`**
+- [ ] **Step 1: `CLI/Arguments.swift` and `CLI/CommandSupport.swift`**
 
 ```swift
 import Foundation
@@ -2851,6 +3016,8 @@ struct Arguments {
 
     let command: String
     let subcommand: String?
+    /// Every positional in order, the command name first when one was given.
+    let positionals: [String]
     let options: [String: String]
     let flags: Set<String>
 
@@ -2866,7 +3033,24 @@ struct Arguments {
         }
         command = positionals.first ?? "help"
         subcommand = positionals.count > 1 ? positionals[1] : nil
-        self.options = options; self.flags = flags
+        self.positionals = positionals; self.options = options; self.flags = flags
+    }
+
+    /// Contract for commands (not enforced here): call this before anything else, with the options and flags the command reads
+    /// and the number of operands (positionals after the command name) it takes. Anything else given on the command line is a
+    /// `BenchError.usage` naming the offender and the command. Unknown names are reported before missing values: the parser
+    /// takes an undeclared `--name` for an option, so a mistyped flag at the end of the line would otherwise be reported as
+    /// "requires a value".
+    func validate(options allowedOptions: Set<String>, flags allowedFlags: Set<String>, operands: Int) throws {
+        let given = Set(options.keys).union(flags), allowed = allowedOptions.union(allowedFlags)
+        if let unknown = given.subtracting(allowed).min() {
+            let takes = allowed.isEmpty ? "it takes no options" : "it takes: \(allowed.sorted().joined(separator: ", "))"
+            throw BenchError.usage("unknown option \(unknown) for `\(command)`; \(takes)")
+        }
+        if let key = options.filter({ $0.value.isEmpty }).keys.min() { throw BenchError.usage("option \(key) requires a value") }
+        if let extra = positionals.dropFirst(1 + operands).first {
+            throw BenchError.usage("unexpected argument '\(extra)' for `\(command)`; see --help")
+        }
     }
 
     func value(_ key: String) -> String? { options[key] }
@@ -2879,6 +3063,44 @@ struct Arguments {
         guard let parsedValue = parse(raw) else { throw BenchError.usage("\(key) expects \(what), got '\(raw)'") }
         return parsedValue
     }
+}
+```
+
+**`CLI/CommandSupport.swift`**
+
+```swift
+import Foundation
+import VectorTestKit
+
+/// The one place the bench spells its working directory and the `.bench` store under it. `run` writes there and
+/// `baseline capture` / `compare` read there; two spellings that drifted apart would show up as "incomparable, exit 0",
+/// not as an error.
+enum Workspace {
+    static var root: URL { URL(fileURLWithPath: FileManager.default.currentDirectoryPath) }
+    static var store: RunStore { RunStore(root: root.appendingPathComponent(".bench")) }
+
+    /// A failure names the file, which a bare `DecodingError` or `ArtifactValidationError` does not.
+    static func loadArtifact(_ path: String, validating: Bool) throws -> BenchArtifact {
+        do {
+            let artifact = try RunStore.load(URL(fileURLWithPath: path))
+            if validating { try artifact.validate() }
+            return artifact
+        } catch { throw ContextError("artifact \(path)", error) }
+    }
+}
+
+/// An underlying error plus where it happened. It is not a `BenchError`, so `main.swift`'s general `catch` arm prints it and
+/// exits 1: wrap only errors that would have taken that arm anyway.
+struct ContextError: Error, CustomStringConvertible {
+    let context: String
+    let underlying: any Error
+    init(_ context: String, _ underlying: any Error) { self.context = context; self.underlying = underlying }
+    var description: String { "\(context): \(underlying)" }
+}
+
+/// Warnings, notes and errors go to stderr, so stdout carries only what a command was asked to produce.
+enum Diagnostics {
+    static func line(_ text: String) { FileHandle.standardError.write(Data((text + "\n").utf8)) }
 }
 ```
 
@@ -3107,6 +3329,7 @@ import VectorTestKit
 
 enum ListCommand {
     static func run(_ args: Arguments) throws -> Int32 {
+        try args.validate(options: ["--filter", "--exclude"], flags: [], operands: 0)
         let cases = try Registry.select(include: args.value("--filter").map { [$0] } ?? [], exclude: args.value("--exclude").map { [$0] } ?? [])
         for c in cases { print("\(c.id.rawValue)  route=\(c.identity.route)  timing=\(c.providedTiming.map(\.rawValue).sorted().joined(separator: ","))") }
         print("\(cases.count) case(s)")
@@ -3122,7 +3345,8 @@ import Foundation
 import VectorTestKit
 
 enum ValidateCommand {
-    static func run(_ args: Arguments) -> Int32 {
+    static func run(_ args: Arguments) throws -> Int32 {
+        try args.validate(options: [], flags: [], operands: 1)
         guard let path = args.subcommand else { print("usage: validate-artifact <path>"); return 2 }
         do {
             let a = try RunStore.load(URL(fileURLWithPath: path))
@@ -3154,25 +3378,21 @@ VectorAccelerateBench <command>
 
 let args = Arguments(Array(CommandLine.arguments.dropFirst()))
 if args.has("--help") || args.has("-h") { print(usage); exit(0) }
-if let key = args.options.filter({ $0.value.isEmpty }).keys.sorted().first {
-    FileHandle.standardError.write(Data("error: option \(key) requires a value\n".utf8))
-    exit(2)
-}
 var status: Int32 = 2
 do {
     switch args.command {
     case "list": status = try ListCommand.run(args)
-    case "validate-artifact": status = ValidateCommand.run(args)
+    case "validate-artifact": status = try ValidateCommand.run(args)
     case "run": status = try await RunCommand.run(args)              // Task 15
     case "baseline": status = try BaselineCommand.run(args)           // Task 16
     case "compare": status = try CompareCommand.run(args)             // Task 16
     default: print(usage); status = args.command == "help" ? 0 : 2
     }
 } catch let error as BenchError {
-    FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+    Diagnostics.line("error: \(error)")
     status = error.exitCode
 } catch {
-    FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+    Diagnostics.line("error: \(error)")
     status = 1
 }
 exit(status)
@@ -3187,7 +3407,129 @@ enum BaselineCommand { static func run(_ args: Arguments) throws -> Int32 { prin
 enum CompareCommand { static func run(_ args: Arguments) throws -> Int32 { print("compare: not implemented until Task 16"); return 2 } }
 ```
 
-- [ ] **Step 6: Build and exercise**
+- [ ] **Step 6: `Tests/VectorAccelerateTests/Harness/ErrorDescriptionLintTests.swift`**
+
+```swift
+import XCTest
+
+/// Error-rendering rule: the bench CLI prints a caught error by interpolating it (`"error: \(error)"`), so an `Error` type
+/// without a description reaches the user as its reflected case (`unsupportedSchemaVersion(7)`). Every type declared as
+/// conforming to `Error` in `Sources/VectorTestKit`, and likewise in `Sources/VectorAccelerateBench`, must be declared
+/// `CustomStringConvertible` somewhere in the same directory.
+///
+/// `LocalizedError` is deliberately not accepted as a description: interpolation does not consult `errorDescription`
+/// (`testInterpolationIgnoresLocalizedErrorDescription` pins that), so such a type would still print as its reflected case.
+///
+/// Contract — the declaration shapes the scanner recognises; anything outside this list is not seen:
+/// - a nominal head `enum|struct|class|actor Name[<…>]: A, B, … {` whose inheritance clause lists `Error`, `Swift.Error` or
+///   `LocalizedError`; the clause may span lines and ends at the first `{` or at a `where`;
+/// - an extension head `extension [Outer.]Name: A, B, … {` that adds one of those, or that adds `CustomStringConvertible`;
+/// - a type is keyed by the last component of its name, so two types sharing a simple name are not told apart;
+/// - `//` comments are removed before matching. `/* */` blocks and string literals are scanned as code, and a `//` inside a
+///   string literal truncates that line.
+/// Not recognised: `Error` inherited through another protocol (`protocol KitError: Error`), through a typealias, or declared in
+/// another module. A `description` property without the `CustomStringConvertible` conformance is not accepted either, because
+/// interpolation ignores it. `testScannerFixtures` pins each shape named above.
+final class ErrorDescriptionLintTests: XCTestCase {
+    struct Scan: Equatable {
+        var errorTypes: Set<String> = []
+        var describedTypes: Set<String> = []
+        var undescribed: [String] { errorTypes.subtracting(describedTypes).sorted() }
+    }
+
+    // Group 1: the type's name, possibly qualified (`Outer.Inner`). Group 2: the inheritance clause, up to the first `{`.
+    private static let head = try! NSRegularExpression(
+        pattern: #"\b(?:enum|struct|class|actor|extension)\s+([A-Za-z_][A-Za-z0-9_.]*)\s*(?:<[^>{]*>)?\s*:\s*([^{]*)\{"#)
+
+    /// The simple names listed in an inheritance clause: `where` clause cut off, attributes (`@unchecked`) and module
+    /// qualifiers (`Swift.`) dropped.
+    static func conformances(in clause: String) -> Set<String> {
+        let list = clause.range(of: #"\bwhere\b"#, options: .regularExpression).map { String(clause[..<$0.lowerBound]) } ?? clause
+        return Set(list.split(separator: ",").compactMap { entry in
+            entry.split(whereSeparator: \.isWhitespace).last { !$0.hasPrefix("@") }?.split(separator: ".").last.map(String.init)
+        })
+    }
+
+    static func scan(_ sources: [String]) -> Scan {
+        var result = Scan()
+        for source in sources {
+            let code = source.split(separator: "\n", omittingEmptySubsequences: false)
+                .map { line in line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? String(line) }
+                .joined(separator: "\n")
+            for match in head.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
+                // Both groups are mandatory in `head`, so a match always has both ranges and this never skips one.
+                guard let nameRange = Range(match.range(at: 1), in: code), let clauseRange = Range(match.range(at: 2), in: code) else { continue }
+                let qualified = String(code[nameRange])
+                let name = qualified.split(separator: ".").last.map(String.init) ?? qualified
+                let listed = conformances(in: String(code[clauseRange]))
+                if !listed.isDisjoint(with: ["Error", "LocalizedError"]) { result.errorTypes.insert(name) }
+                if listed.contains("CustomStringConvertible") { result.describedTypes.insert(name) }
+            }
+        }
+        return result
+    }
+
+    /// Pins the scanner on fixture sources, so a pattern change that stops seeing a violation fails here.
+    func testScannerFixtures() {
+        let cases: [(sources: [String], errorTypes: Set<String>, undescribed: [String])] = [
+            (["enum A: Error { case x }"], ["A"], ["A"]),
+            (["public enum B: Error, Equatable {\n    case x\n}\n\nextension B: CustomStringConvertible {\n}"], ["B"], []),
+            (["struct C: Error, CustomStringConvertible { var description: String { \"c\" } }"], ["C"], []),
+            (["final class D: Swift.Error {}"], ["D"], ["D"]),
+            (["struct E {}\nextension E: Error {}"], ["E"], ["E"]),
+            (["enum F: LocalizedError { case x }"], ["F"], ["F"]),
+            (["public enum G:\n    Error,\n    Equatable {\n    case x\n}"], ["G"], ["G"]),
+            (["enum H: Error { case x }", "extension H: CustomStringConvertible { var description: String { \"h\" } }"], ["H"], []),
+            (["enum Outer { enum I: Error { case x } }\nextension Outer.I: CustomStringConvertible { }"], ["I"], []),
+            (["struct J<T>: Error where T: Sendable { }"], ["J"], ["J"]),
+            (["final class K: @unchecked Sendable, Error { }"], ["K"], ["K"]),
+            (["enum L: Error { case x; var description: String { \"l\" } }"], ["L"], ["L"]),
+            (["// enum M: Error { case x }\n/// enum N: Error { case x }"], [], []),
+            (["enum ErrorKind: String, Codable { case error }"], [], []),
+            (["struct P: CustomStringConvertible { var description: String { \"p\" } }"], [], []),
+            (["final class Q { class var shared: Q { Q() }\n    class func make() -> Q { Q() } }"], [], [])
+        ]
+        for (sources, errorTypes, undescribed) in cases {
+            let scan = Self.scan(sources)
+            XCTAssertEqual(scan.errorTypes, errorTypes, "error types in: \(sources)")
+            XCTAssertEqual(scan.undescribed, undescribed, "undescribed in: \(sources)")
+        }
+    }
+
+    private enum LocalizedOnly: LocalizedError {
+        case broken
+        var errorDescription: String? { "a readable message" }
+    }
+
+    /// Why `LocalizedError` is not accepted: the interpolation the CLI uses prints the reflected case, not `errorDescription`.
+    func testInterpolationIgnoresLocalizedErrorDescription() {
+        let message = "\(LocalizedOnly.broken as any Error)"
+        XCTAssertEqual(message, "broken")
+        XCTAssertFalse(message.contains("a readable message"))
+    }
+
+    func testEveryErrorTypeHasADescription() throws {
+        // The known types prove the scan is not vacuous: a scanner change that stops seeing one of these real declarations
+        // fails here. Renaming or removing one of them means updating this table.
+        let directories: [(path: String, known: Set<String>)] = [
+            ("Sources/VectorTestKit", ["ArtifactValidationError", "CaseIDError", "RecallError", "RunStoreError"]),
+            ("Sources/VectorAccelerateBench", ["BenchError", "ContextError"])
+        ]
+        for (path, known) in directories {
+            let files = RepoPaths.swiftFiles(under: path)
+            XCTAssertFalse(files.isEmpty, "\(path) must contain Swift files")
+            let scan = Self.scan(try files.map { try String(contentsOf: $0, encoding: .utf8) })
+            XCTAssertTrue(scan.errorTypes.isSuperset(of: known), "\(path): the scanner no longer sees \(known.subtracting(scan.errorTypes).sorted())")
+            XCTAssertEqual(scan.undescribed, [], "\(path): Error types without a CustomStringConvertible conformance print as raw cases in the CLI")
+        }
+    }
+}
+```
+
+Run: `swift test --filter ErrorDescriptionLintTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
+Expected: `Executed 3 tests, with 0 failures`. To see it bite, delete one kit `extension …Error: CustomStringConvertible` and rerun: `testEveryErrorTypeHasADescription` names the type.
+
+- [ ] **Step 7: Build and exercise**
 
 ```bash
 swift build 2>&1 | tail -2                                              # Build complete!
@@ -3196,12 +3538,14 @@ swift run -q VectorAccelerateBench nonsense; echo "exit=$?"              # usage
 swift run -q VectorAccelerateBench validate-artifact /nonexistent; echo "exit=$?"   # "invalid: ...", exit=1
 swift run -q VectorAccelerateBench list --help; echo "exit=$?"           # usage, exit=0
 swift run -q VectorAccelerateBench list --filter; echo "exit=$?"         # "error: option --filter requires a value" on stderr, exit=2
+swift run -q VectorAccelerateBench list --fliter 'probe.*'; echo "exit=$?"   # "error: unknown option --fliter for `list`; it takes: --exclude, --filter" on stderr, exit=2
+swift run -q VectorAccelerateBench list extra; echo "exit=$?"            # "error: unexpected argument 'extra' for `list`; see --help" on stderr, exit=2
 ```
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add Sources/VectorAccelerateBench
+git add Sources/VectorAccelerateBench Tests/VectorAccelerateTests/Harness/ErrorDescriptionLintTests.swift
 git commit -q -m "feat(bench): CLI skeleton, adapter protocols, sampling loop, list and validate-artifact
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -3585,7 +3929,14 @@ import VectorTestKit
 enum BenchVersion { static let package = "unreleased" }   // set when a release is cut; until then gitSHA identifies the build
 
 enum RunCommand {
+    /// What `run` reads: `--filter`, `--exclude` and `--out` in `run`, the rest in `parseOptions`. `--allow-dirty` is accepted
+    /// because spec §5.5 lists it for `run`; nothing here reads it (`run` never refuses a dirty tree, it only records it).
+    static let allowedOptions: Set<String> = ["--filter", "--exclude", "--mode", "--samples", "--iterations", "--seed", "--out", "--label",
+                                              "--probe-slowdown"]
+    static let allowedFlags: Set<String> = ["--require-gpu", "--validation-layers", "--allow-dirty"]
+
     static func run(_ args: Arguments) async throws -> Int32 {
+        try args.validate(options: allowedOptions, flags: allowedFlags, operands: 0)
         let options = try parseOptions(args)
         let include = args.value("--filter").map { [$0] } ?? [], exclude = args.value("--exclude").map { [$0] } ?? []
         let cases = try Registry.select(include: include, exclude: exclude)
@@ -3593,7 +3944,7 @@ enum RunCommand {
             throw BenchError.usage("no case selected: --filter \(include.first.map { "'\($0)'" } ?? "(none)") --exclude \(exclude.first.map { "'\($0)'" } ?? "(none)") "
                                    + "matched 0 of \(Registry.all.count) registered case(s); see `list`")
         }
-        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let root = Workspace.root
         let out = args.value("--out").map { URL(fileURLWithPath: $0) }
         // Spec §7: an existing path is an error and is never overwritten. Checked before the run so the measurements are not lost;
         // `.withoutOverwriting` in `write` remains the backstop for a file that appears during the run.
@@ -3611,7 +3962,7 @@ enum RunCommand {
             do { return try body() } catch {
                 let message = "preflight GPU probe (\(step)): \(error)"
                 gpuProbeFailures.append(message)
-                FileHandle.standardError.write(Data("warning: \(message)\n".utf8))
+                Diagnostics.line("warning: \(message)")
                 return nil
             }
         }
@@ -3644,7 +3995,7 @@ enum RunCommand {
                                     preflight: preflight, filters: filters)
         let artifact = BenchArtifact(package: "VectorAccelerate", metadata: metadata, cases: records)
         try artifact.validate()
-        let url = try write(artifact, to: out, root: root)
+        let url = try write(artifact, to: out)
         print("artifact: \(url.path)")
         print("key: \(metadata.environmentKey)  quiet: \(preflight.quiet)" + (preflight.reasons.isEmpty ? "" : "  reasons: \(preflight.reasons)"))
 
@@ -3684,8 +4035,8 @@ enum RunCommand {
             filters: filters, flags: [:])
     }
 
-    private static func write(_ artifact: BenchArtifact, to out: URL?, root: URL) throws -> URL {
-        guard let out else { return try RunStore(root: root.appendingPathComponent(".bench")).writeRun(artifact) }
+    private static func write(_ artifact: BenchArtifact, to out: URL?) throws -> URL {
+        guard let out else { return try Workspace.store.writeRun(artifact) }
         try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
         try RunStore.encode(artifact).write(to: out, options: [.withoutOverwriting])
         return out
@@ -3695,7 +4046,7 @@ enum RunCommand {
 
 Remove the `enum RunCommand { ... }` stub from `main.swift`.
 
-`RunCommand` closes the class "CLI input accepted without validation" for its five typed options (`--mode`, `--seed`, `--samples`, `--iterations`, `--probe-slowdown`) through `Arguments.parsed` (Task 13 Step 1; it replaced the silent-default `int(_:)`, which had no other caller); `--samples` and `--iterations` reject anything below 1 in their parse closures. An empty selection is a usage error raised before any probe runs, so a run that measures nothing cannot write an artifact or exit 0. After this task the only `throw BenchError.usage` sites are `Arguments.parsed` and the empty-selection guard, both caller input. `BenchError.exitCode` (Task 13 Step 2) maps usage and registry errors to exit 2 and everything else to 1.
+`RunCommand` closes the class "CLI input accepted without validation" for its five typed options (`--mode`, `--seed`, `--samples`, `--iterations`, `--probe-slowdown`) through `Arguments.parsed` (Task 13 Step 1; it replaced the silent-default `int(_:)`, which had no other caller); `--samples` and `--iterations` reject anything below 1 in their parse closures. An empty selection is a usage error raised before any probe runs, so a run that measures nothing cannot write an artifact or exit 0. After this task the only `throw BenchError.usage` sites are `Arguments.validate`, `Arguments.parsed` and the empty-selection guard, all caller input. `RunCommand.allowedOptions` / `allowedFlags` are what `validate` accepts for `run`; `--allow-dirty` is in the set because spec §5.5 lists it, although `run` has nothing to refuse and does not read it. `BenchError.exitCode` (Task 13 Step 2) maps usage and registry errors to exit 2 and everything else to 1.
 
 Spec §4.10 / §7 behaviour that the block above implements: an existing `--out` path is refused before the run (exit 1), with `.withoutOverwriting` as the backstop; any preflight GPU probe failure (`GPUProbe.init`, the start reading, the end reading) degrades to "probe unavailable" — `gpu: nil` with `gpuDeviceExists: true`, which `PreflightProbe.evaluate` turns into `quiet: false`, plus the error text appended to `preflight.reasons` and written to stderr — and the cases still run and the artifact is still written. The probe case still fails in its own `prepare` (case `failed`, run continues, exit 1).
 
@@ -3732,9 +4083,10 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `main.swift` (remove the two stubs); `Sources/VectorTestKit/RunStore.swift` (`RunStoreError: CustomStringConvertible`) and `Tests/VectorAccelerateTests/Harness/RunStoreTests.swift` (`testErrorDescriptionsSayWhatFailedAndCarryThePayload`, written first and seen failing; one over-long assertion wrapped). Task 11's blocks carry both files as committed.
 
 **Interfaces:**
-- Consumes: `RunStore`, `RunStoreError` (its `description`), `Compare`, `CompareResult`; from Task 13 as amended, `Arguments.parsed` and the single error exit in `main.swift` (`BenchError.usage` → stderr, exit 2; any other error → stderr, exit 1).
+- Consumes: `RunStore`, `RunStoreError` (its `description`), `Compare`, `CompareResult`; from Task 13 as amended, `Arguments.validate` and `Arguments.parsed`, `Workspace` (store location; artifact loading that names the file), `ContextError`, `Diagnostics`, and the single error exit in `main.swift` (`BenchError.usage` → stderr, exit 2; any other error → stderr, exit 1).
 - Produces: `enum BaselineCommand { static func run(_:) throws -> Int32 }`, `enum CompareCommand { static func run(_:) throws -> Int32 }` with `CompareCommand.Against` (`.approved` / `.version(Int)`, positive versions only) and `CompareCommand.Format` (`text`, `json`, `markdown`).
-- Boundary rules: usage failures throw `BenchError.usage`; every option is validated before any file is read; warnings go to stderr so stdout is only the rendered report; refusals and store errors are not caught locally.
+- Boundary rules: usage failures throw `BenchError.usage`; every option is validated before any file is read, and an undeclared option, flag or operand is a usage error (`Arguments.validate`); warnings and notes go to stderr so stdout is only the rendered report; refusals are not caught locally. The two catches that exist add what the underlying error cannot say: the artifact's path (`Workspace.loadArtifact`), and the case and baseline being read when the store is corrupt (`ContextError` in `compare`), which still aborts the comparison, exit 1.
+- Things said on stderr rather than left silent: `baseline capture` without `--approve` notes that `compare` reads the approved pointer by default; a partial capture prints `skipped <id> (<status>)` per non-measured case; `compare` warns when the artifact has no cases and when it was not quiet (reasons joined with `; `).
 
 - [ ] **Step 1: `Commands/BaselineCommand.swift`**
 
@@ -3745,17 +4097,26 @@ import VectorTestKit
 enum BaselineCommand {
     static let usage = "usage: baseline capture --from <artifact> [--approve] [--allow-dirty]"
 
-    /// Nothing is caught here. A missing subcommand or `--from` is thrown as `BenchError.usage`; load, validation and capture
-    /// errors (`RunStoreError` refusals included) propagate unchanged. Printing and exit codes belong to the `catch` arms in `main.swift`.
+    /// A missing subcommand or `--from` is thrown as `BenchError.usage`. A load or validation failure is rethrown with the file
+    /// named (`Workspace.loadArtifact`); capture errors (`RunStoreError` refusals included) propagate unchanged. Printing and
+    /// exit codes belong to the `catch` arms in `main.swift`.
     static func run(_ args: Arguments) throws -> Int32 {
+        try args.validate(options: ["--from"], flags: ["--approve", "--allow-dirty"], operands: 1)
         guard args.subcommand == "capture", let from = args.value("--from") else { throw BenchError.usage(usage) }
         let approve = args.has("--approve")
-        let artifact = try RunStore.load(URL(fileURLWithPath: from))
-        try artifact.validate()
-        let store = RunStore(root: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".bench"))
-        let written = try store.captureBaseline(from: artifact, approve: approve, allowDirty: args.has("--allow-dirty"))
+        let artifact = try Workspace.loadArtifact(from, validating: true)
+        let written = try Workspace.store.captureBaseline(from: artifact, approve: approve, allowDirty: args.has("--allow-dirty"))
         for (id, version) in written.sorted(by: { $0.key < $1.key }) {
             print("captured \(id) -> version \(version)\(approve ? " (approved)" : "")")
+        }
+        // `captureBaseline` stores measured cases only; say which ones it left out instead of leaving a partial capture silent.
+        for record in artifact.cases where record.status != .measured {
+            Diagnostics.line("skipped \(record.id) (\(record.status.rawValue)): only measured cases are captured"
+                             + (approve ? "; its approved pointer, if any, is unchanged" : ""))
+        }
+        if !approve {
+            Diagnostics.line("note: captured without --approve, so no approved pointer moved. `compare` reads the approved pointer by "
+                             + "default: capture with --approve, or compare with --against <n> using a version printed above")
         }
         return 0
     }
@@ -3772,7 +4133,7 @@ enum CompareCommand {
     static let usage = "usage: compare --artifact <path> [--against approved|<n>] [--strict-perf] [--format text|json|markdown]"
 
     /// Which stored baseline every case is compared against.
-    enum Against {
+    enum Against: CustomStringConvertible {
         case approved
         case version(Int)
 
@@ -3781,6 +4142,13 @@ enum CompareCommand {
             if raw == "approved" { self = .approved; return }
             guard let n = Int(raw), n >= 1 else { return nil }
             self = .version(n)
+        }
+
+        var description: String {
+            switch self {
+            case .approved: return "approved"
+            case .version(let n): return "version \(n)"
+            }
         }
 
         func baseline(in store: RunStore, environmentKey: String, caseID: String) throws -> CaseRecord? {
@@ -3797,24 +4165,31 @@ enum CompareCommand {
 
     static func run(_ args: Arguments) throws -> Int32 {
         // Every option is checked before the first file is read, so a usage error never depends on the artifact or the store.
+        try args.validate(options: ["--artifact", "--against", "--format"], flags: ["--strict-perf"], operands: 0)
         guard let path = args.value("--artifact") else { throw BenchError.usage(usage) }
         let against = try args.parsed("--against", expecting: "'approved' or a positive integer version", Against.init) ?? .approved
         let format = try args.parsed("--format", expecting: "text, json or markdown", { Format(rawValue: $0) }) ?? .text
         let strictPerf = args.has("--strict-perf")
 
-        let artifact = try RunStore.load(URL(fileURLWithPath: path))
-        let store = RunStore(root: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".bench"))
+        let artifact = try Workspace.loadArtifact(path, validating: false)   // each record is validated by `Compare.compare`
+        let store = Workspace.store
         let key = artifact.metadata.environmentKey
         let results: [CompareResult] = try artifact.cases.map { record in
-            let baseline = try against.baseline(in: store, environmentKey: key, caseID: record.id)
+            let baseline: CaseRecord?
+            // A corrupt store aborts the comparison; the error says which case and which baseline, which the store's error cannot.
+            do { baseline = try against.baseline(in: store, environmentKey: key, caseID: record.id) } catch {
+                throw ContextError("case \(record.id): reading its \(against) baseline failed (store \(store.root.path), key \(key))", error)
+            }
             return Compare.compare(new: record, baseline: baseline, newKey: key, baselineKey: baseline == nil ? nil : key)
         }
         // One trailing newline on stdout whether or not the rendering already ends with one.
         let report = Compare.render(results, format: format.rawValue)
         print(report, terminator: report.hasSuffix("\n") ? "" : "\n")
-        // Spec §7: a not-quiet artifact is still compared, with a warning. The warning goes to stderr so stdout stays the rendered report.
+        // Warnings go to stderr so stdout stays the rendered report. Spec §7: a not-quiet artifact is still compared, with a warning.
+        if artifact.cases.isEmpty { Diagnostics.line("warning: the artifact has no cases, so nothing was compared") }
         if !artifact.metadata.preflight.quiet {
-            FileHandle.standardError.write(Data("warning: artifact was not quiet: \(artifact.metadata.preflight.reasons)\n".utf8))
+            let reasons = artifact.metadata.preflight.reasons
+            Diagnostics.line("warning: artifact was not quiet: \(reasons.isEmpty ? "no reason recorded" : reasons.joined(separator: "; "))")
         }
         return Compare.exitCode(results, strictPerf: strictPerf)
     }
@@ -3832,6 +4207,7 @@ swift run -q -c release VectorAccelerateBench baseline capture --from "$A" --app
 swift run -q -c release VectorAccelerateBench compare --artifact "$A"; echo "exit=$?"      # both ok (identical artifact), exit=0
 swift run -q -c release VectorAccelerateBench compare --artifact /nonexistent.json --against 0; echo "exit=$?"    # "error: --against expects ..." on stderr, exit=2 (checked before the file is read)
 swift run -q -c release VectorAccelerateBench compare --artifact "$A" --format json | python3 -c "import json,sys; json.load(sys.stdin)"; echo "exit=$?"   # exit=0, also for a not-quiet artifact (its warning is on stderr)
+swift run -q -c release VectorAccelerateBench compare --artifact "$A" --agianst 1; echo "exit=$?"   # "error: unknown option --agianst for `compare`; it takes: ..." on stderr, exit=2
 ```
 
 `baseline capture` needs a quiet artifact: on a busy machine the capture is refused with `error: baseline capture refused: the artifact's preflight was not quiet (...)` on stderr, exit=1 — run the smoke again rather than working around the refusal.
@@ -3987,6 +4363,7 @@ In `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`:
 - §5.8: `5 warm-up + 10 measured` becomes "warm-up until both 50 dispatches and 0.1 s of wall time have passed, then the median of 50", with a fixed floor rather than `WarmupPolicy`. Measured on the M3 Max over 81 recorded series (13,500 dispatches): after GPU idle 56 of the 81 series started slow (median 1.88×, range 1.08–2.40× the settled ≈0.765 ms) and settled only after up to 41 dispatches (median 10, p90 25), at most 55.5 ms of wall time; the ramp is a wall-time effect, hence the time floor; `WarmupPolicy.standard` stopped at n = 3 on that slow plateau in 3 of 45 series because the plateau's own CoV is under 5 % (one reading then came out +41 %); a median of 10 settled dispatches strays up to 4.66 % from its series' level (p99 2.38 %) against 1.85 % (p99 1.01 %) for a median of 50, with a 5 % gate on the difference of two readings. One `copyGBps()` call costs ≈0.16 s instead of ≈0.02–0.04 s. The 5 % gate of §4.10 is unchanged. Evidence and the before/after quiet tables: `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`.
 - §4.10 (CPU probe method): "best of 3 copies of 256 MiB" becomes "warm-up until both 20 copies and 0.2 s of wall time have passed, then the fast 5th percentile of 100 timed copies" (read plus write unchanged). Measured on the same machine: a thread that was idle, blocked or waiting on subprocesses copies at as little as 0.52× its settled rate for up to 17 copies (111.5 ms), and ten best-of-3 readings 0.3 s apart spanned 56–117 GB/s; settled copy times are bimodal and alternate, so on identical data (ten trials with no other process above 60 % CPU) ten readings spanned at most 1.76 % of their median for the 5th percentile of 100 against 1.89 % for the minimum and 3.57 % for the median. One call costs ≈0.71 s instead of ≈0.05 s. The opt-in `PreflightInstrumentCheckTests` (`VA_INSTRUMENT_CHECK=1`) asserts ten readings span under 2.5 %; there is no equivalent for the GPU probe because the executable has no test target. Same research note.
 - §7: add "empty selection (no case matches `--filter`/`--exclude`) → usage error before any probe runs, exit 2", and state that a preflight GPU probe failure at setup, at the start reading or at the end reading is the §4.10 "probe unavailable" state (`quiet: false`, the error text recorded in `preflight.reasons` and on stderr) and never aborts the run: the cases run and the artifact is written. `BenchError.registry` exits 2 as §7 already says (it exited 1 until Task 15's review).
+- §5.5, §5.6 step 4 and §7 (Task 16 review): every command rejects an option, flag or operand it does not declare — a usage error naming it, exit 2, before the command does any work (new §7 row: "unknown option, flag or operand → usage error, exit 2"). §5.6 step 4 gains a cause of `incomparable`: a timing kind whose `delta` or `boundary` is not finite (finite medians can overflow the ratio, and `2 × base.rsd` can overflow; `validate()` does not bound summary fields) makes the case `incomparable` with a reason naming the kind and both medians, never an alert (new §7 row: "non-finite comparison → `incomparable` for that case; exit 0").
 - §5.3 (sampling): when a sample's warm-up ends at the policy maximum without the CoV rule being met, the runner appends a note to the record with the count. The policy itself is unchanged; its weakness on a steady slow plateau (it can stop at n = 3) is recorded in the research note and deferred to the owner.
 - §5.7 and §11 item 5: `--probe-slowdown 4` becomes `--probe-slowdown 64`. The Task 14 review measured the probe's slowdown against `loops` on the M3 Max as ≈1.0× for loops ≤ 6, 1.5× at 8, 2.8× at 32 and ≈8× at 64 (bandwidth headroom absorbs the first extra passes), so 4 would not cross the alert boundary; the acceptance evidence records the ratio actually measured.
 

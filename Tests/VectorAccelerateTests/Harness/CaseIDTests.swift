@@ -21,6 +21,15 @@ final class CaseIDTests: XCTestCase {
         }
     }
 
+    /// Checked through the interpolation the CLI applies to a caught error; without a description it is `malformed("…")`.
+    func testMalformedDescriptionQuotesTheIDAndStatesTheGrammar() {
+        let message = "\(CaseIDError.malformed("Probe.gpu copy") as any Error)"
+        XCTAssertFalse(message.hasPrefix("malformed("), message)
+        for piece in ["'Probe.gpu copy'", "<family>.<op>", "lowercase"] {
+            XCTAssertTrue(message.contains(piece), "'\(piece)' missing from: \(message)")
+        }
+    }
+
     func testDuplicatesDetected() throws {
         let a = try CaseID(validating: "a.b"), b = try CaseID(validating: "a.c")
         XCTAssertEqual(CaseRegistryCheck.duplicates([a, b, a]), [a])

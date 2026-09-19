@@ -2,6 +2,17 @@ import Foundation
 
 public enum CaseIDError: Error, Equatable { case malformed(String) }
 
+/// The quoted ID and the key phrases are checked by `CaseIDTests.testMalformedDescriptionQuotesTheIDAndStatesTheGrammar`.
+extension CaseIDError: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .malformed(let raw):
+            return "malformed case ID '\(raw)': expected <family>.<op>[.<op>…][.<param>=<value>…][.<variant>], "
+                + "each segment made of lowercase letters, digits and `_` only"
+        }
+    }
+}
+
 /// Stable case identity per the grammar in spec §5.4 (amended: one or more bare op segments). By contract, not enforced by
 /// the grammar, a registered ID never contains seeds, digests, or timestamps.
 public struct CaseID: Codable, Hashable, Sendable, CustomStringConvertible {

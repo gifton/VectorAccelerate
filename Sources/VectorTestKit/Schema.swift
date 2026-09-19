@@ -12,6 +12,21 @@ public enum ArtifactValidationError: Error, Equatable {
     case invalid(String)
 }
 
+/// The payloads and key phrases are checked by `ArtifactSchemaTests.testValidationErrorDescriptionsCarryThePayloadAndSayWhatToDo`.
+extension ArtifactValidationError: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .unsupportedSchemaVersion(let version):
+            return "unsupported artifact schemaVersion \(version): this build reads schemaVersion 1 only; "
+                + "produce the artifact again with this build's `run`, or read it with the build that wrote it"
+        case .missing(let what):
+            return "artifact is missing a required value: \(what)"
+        case .invalid(let what):
+            return "artifact check failed: \(what)"
+        }
+    }
+}
+
 public struct StartEnd: Codable, Sendable, Equatable {
     public var start: Double
     public var end: Double

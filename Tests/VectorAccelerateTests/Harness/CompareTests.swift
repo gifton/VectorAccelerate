@@ -94,6 +94,53 @@ final class CompareTests: XCTestCase {
         XCTAssertEqual(r.reasons, ["no comparable timing kinds (new status measured, baseline status measured)"])
     }
 
+    /// Finite medians can still give a non-finite delta or boundary: (1e308 − 1e-300) / 1e-300 overflows, and so does 2 × rsd for
+    /// rsd = 1e308. A NaN median cannot come from a JSON file but can be built in memory. Each is incomparable for the whole case,
+    /// never an alert, and the JSON rendering of such results decodes (it used to trap on `inf`).
+    func testNonFiniteDeltaOrBoundaryIsIncomparable() throws {
+        func withWall(median: Double? = nil, rsd: Double? = nil) -> CaseRecord {
+            var edited = record(wall: [100, 100, 100])
+            if let median { edited.timing.wall?.summary.median = median }
+            if let rsd { edited.timing.wall?.summary.rsd = rsd }
+            return edited
+        }
+        let overflow = Compare.compare(new: withWall(median: 1e308), baseline: withWall(median: 1e-300), newKey: key, baselineKey: key)
+        XCTAssertEqual(overflow.status, .incomparable); XCTAssertTrue(overflow.deltas.isEmpty)
+        XCTAssertEqual(overflow.reasons.count, 1, "\(overflow.reasons)")
+        let overflowReason = overflow.reasons.first ?? ""
+        for piece in ["timing.wall", "1e+308", "1e-300", "not finite"] {
+            XCTAssertTrue(overflowReason.contains(piece), "'\(piece)' missing from: \(overflow.reasons)")
+        }
+
+        let nan = Compare.compare(new: withWall(median: .nan), baseline: withWall(), newKey: key, baselineKey: key)
+        XCTAssertEqual(nan.status, .incomparable); XCTAssertTrue(nan.deltas.isEmpty)
+        let infiniteBase = Compare.compare(new: withWall(), baseline: withWall(median: .infinity), newKey: key, baselineKey: key)
+        XCTAssertEqual(infiniteBase.status, .incomparable); XCTAssertTrue(infiniteBase.deltas.isEmpty)
+        let boundary = Compare.compare(new: withWall(), baseline: withWall(rsd: 1e308), newKey: key, baselineKey: key)
+        XCTAssertEqual(boundary.status, .incomparable); XCTAssertTrue(boundary.deltas.isEmpty)
+        XCTAssertTrue(boundary.reasons.contains { $0.contains("baseline rsd 1e+308") }, "\(boundary.reasons)")
+
+        // One non-finite kind makes the whole case incomparable, even beside a kind that would alert on its own.
+        var mixedNew = withWall(median: 1e308), mixedBase = withWall(median: 1e-300)
+        mixedNew.timing.commandBuffer = record(wall: [200, 200, 200]).timing.wall
+        mixedBase.timing.commandBuffer = record(wall: [100, 100, 100]).timing.wall
+        let mixed = Compare.compare(new: mixedNew, baseline: mixedBase, newKey: key, baselineKey: key)
+        XCTAssertEqual(mixed.status, .incomparable); XCTAssertTrue(mixed.deltas.isEmpty)
+        XCTAssertEqual(Compare.exitCode([mixed], strictPerf: true), 0)
+
+        // A correctness failure still wins, and keeps the comparison reason.
+        var failing = withWall(median: 1e308); failing.correctness?.status = .fail
+        let failed = Compare.compare(new: failing, baseline: withWall(median: 1e-300), newKey: key, baselineKey: key)
+        XCTAssertEqual(failed.status, .correctnessFailed)
+        XCTAssertTrue(failed.reasons.contains { $0.contains("not finite") }, "\(failed.reasons)")
+
+        let all = [overflow, nan, infiniteBase, boundary, mixed, failed]
+        XCTAssertEqual(try JSONDecoder().decode([CompareResult].self, from: Data(Compare.render(all, format: "json").utf8)), all)
+        // No delta line is rendered for these results (a reason may still quote an infinite median).
+        let text = Compare.render(all, format: "text")
+        XCTAssertFalse(text.contains("inf%") || text.contains("nan%") || text.contains("boundary"), text)
+    }
+
     func testExitCodes() {
         let ok = CompareResult(id: "a.b", status: .ok, deltas: [], reasons: [])
         let alert = CompareResult(id: "a.b", status: .alertSlower, deltas: [], reasons: [])

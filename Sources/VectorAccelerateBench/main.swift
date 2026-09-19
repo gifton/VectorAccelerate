@@ -12,25 +12,21 @@ VectorAccelerateBench <command>
 
 let args = Arguments(Array(CommandLine.arguments.dropFirst()))
 if args.has("--help") || args.has("-h") { print(usage); exit(0) }
-if let key = args.options.filter({ $0.value.isEmpty }).keys.sorted().first {
-    FileHandle.standardError.write(Data("error: option \(key) requires a value\n".utf8))
-    exit(2)
-}
 var status: Int32 = 2
 do {
     switch args.command {
     case "list": status = try ListCommand.run(args)
-    case "validate-artifact": status = ValidateCommand.run(args)
+    case "validate-artifact": status = try ValidateCommand.run(args)
     case "run": status = try await RunCommand.run(args)              // Task 15
     case "baseline": status = try BaselineCommand.run(args)           // Task 16
     case "compare": status = try CompareCommand.run(args)             // Task 16
     default: print(usage); status = args.command == "help" ? 0 : 2
     }
 } catch let error as BenchError {
-    FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+    Diagnostics.line("error: \(error)")
     status = error.exitCode
 } catch {
-    FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+    Diagnostics.line("error: \(error)")
     status = 1
 }
 exit(status)

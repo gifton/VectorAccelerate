@@ -17,6 +17,19 @@ public enum RecallError: Error, Equatable {
     case invalidK
 }
 
+/// The payloads and key phrases are checked by `RecallTests.testErrorDescriptionsStateTheRequirementAndTheRemedy`.
+extension RecallError: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .insufficientGroundTruth(let have, let need):
+            return "recall@k needs at least \(need) ground-truth neighbours (k = \(need)), got \(have); "
+                + "for a small corpus pass k = min(requestedK, eligibleCount)"
+        case .invalidK:
+            return "recall@k needs k >= 1; for a small corpus pass k = min(requestedK, eligibleCount), never 0"
+        }
+    }
+}
+
 /// Distance-threshold recall@k (spec §4.6). The caller supplies independently recomputed distances for
 /// valid, eligible IDs and, for small corpora, passes `k = min(requestedK, eligibleCount)` (never 0).
 /// Precondition (unverified here): `groundTruth` is sorted ascending by distance — the k-th distance is

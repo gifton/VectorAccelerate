@@ -58,7 +58,9 @@ public enum Compare {
             status = status ?? .correctnessFailed
         }
         if let r = new.resources {
-            if let s = r.staticThreadgroupBytes, let m = r.maxThreadgroupBytes, s > m { reasons.append("resource limit exceeded: staticThreadgroupBytes \(s) > \(m)"); status = status ?? .resourceFailed }
+            if let s = r.staticThreadgroupBytes, let m = r.maxThreadgroupBytes, s > m {
+                reasons.append("resource limit exceeded: staticThreadgroupBytes \(s) > \(m)"); status = status ?? .resourceFailed
+            }
             for n in r.notes where n.hasPrefix("LIMIT_EXCEEDED:") { reasons.append("resource limit exceeded: \(n)"); status = status ?? .resourceFailed }
         }
 
@@ -79,15 +81,29 @@ public enum Compare {
         // 5. deltas
         var deltas: [KindDelta] = []
         var alert: CompareStatus?
+        var nonFinite: [String] = []
         for kind in TimingKind.allCases {
             guard let n = new.timing[kind], let b = base.timing[kind], b.summary.median > 0 else { continue }
             let delta = (n.summary.median - b.summary.median) / b.summary.median
             let boundary = max(floorBoundary, 2 * b.summary.rsd)
+            // `validate()` does not bound the summary fields, and finite inputs can still overflow here (a huge median over a
+            // tiny one; 2 × a huge rsd). Such a kind cannot be compared; it must not read as an alert.
+            guard [n.summary.median, b.summary.median, delta, boundary].allSatisfy(\.isFinite) else {
+                nonFinite.append("timing.\(kind.rawValue): comparison is not finite (new median \(n.summary.median), "
+                                 + "baseline median \(b.summary.median), baseline rsd \(b.summary.rsd))")
+                continue
+            }
             let alerting = delta > boundary || delta < -boundary
             deltas.append(KindDelta(kind: kind, newMedian: n.summary.median, baseMedian: b.summary.median, delta: delta,
                                     boundary: boundary, widened: boundary > floorBoundary, alerting: alerting))
             // With several timing kinds the status reflects the first alerting kind in `TimingKind.allCases` order; each kind's own `alerting` is rendered.
             if alerting, alert == nil { alert = delta > 0 ? .alertSlower : .alertFaster }
+        }
+        // One non-finite kind makes the whole case incomparable and the result carries no deltas at all, not even the finite
+        // ones. A `KindDelta` is appended only after the guard above, so every one this function returns holds finite values
+        // (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable`).
+        if !nonFinite.isEmpty {
+            return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons + nonFinite)
         }
         // A comparable pair with nothing to compare (non-measured record, zero baseline median, no shared timing kind) is
         // incomparable, never ok (`CompareTests.testNonMeasuredNewRecordIsIncomparable`, `testZeroMedianBaselineIsIncomparable`).
@@ -116,14 +132,17 @@ public enum Compare {
         switch format {
         case "json":
             let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-            // try!: encoding throws only for non-finite Doubles; medians and deltas derive from finite timings or a decoded baseline.
+            // try!, as a contract: `JSONEncoder` throws here only for a non-finite Double. Results produced by `Compare.compare`
+            // carry finite values only (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable`). A hand-built `CompareResult`
+            // holding NaN or an infinity is the caller's responsibility and traps here.
             return String(decoding: try! enc.encode(results), as: UTF8.self)
         case "markdown":
             var out = "| case | status | kind | new median (ns) | base median (ns) | delta | boundary |\n|---|---|---|---|---|---|---|\n"
             for r in results {
                 if r.deltas.isEmpty { out += "| \(r.id) | \(r.status.rawValue) | — | — | — | — | — |\n" }
                 for d in r.deltas {
-                    out += "| \(r.id) | \(r.status.rawValue) | \(d.kind.rawValue) | \(String(format: "%.0f", d.newMedian)) | \(String(format: "%.0f", d.baseMedian)) | \(pct(d.delta, signed: true)) | \(pct(d.boundary, signed: false))\(d.widened ? " (widened)" : "") |\n"
+                    out += "| \(r.id) | \(r.status.rawValue) | \(d.kind.rawValue) | \(String(format: "%.0f", d.newMedian)) | \(String(format: "%.0f", d.baseMedian)) "
+                        + "| \(pct(d.delta, signed: true)) | \(pct(d.boundary, signed: false))\(d.widened ? " (widened)" : "") |\n"
                 }
             }
             // Reasons follow the whole table, after one blank line, so rows stay contiguous across results
@@ -136,7 +155,8 @@ public enum Compare {
             for r in results {
                 out += "\(pad(r.id, to: 44)) \(r.status.rawValue)\n"
                 for d in r.deltas {
-                    out += "    \(pad(d.kind.rawValue, to: 14)) \(pct(d.delta, signed: true)) (boundary \(pct(d.boundary, signed: false))\(d.widened ? ", widened" : ""))\(d.alerting ? "  <-- alert" : "")\n"
+                    out += "    \(pad(d.kind.rawValue, to: 14)) \(pct(d.delta, signed: true)) "
+                        + "(boundary \(pct(d.boundary, signed: false))\(d.widened ? ", widened" : ""))\(d.alerting ? "  <-- alert" : "")\n"
                 }
                 for reason in r.reasons { out += "    reason: \(reason)\n" }
             }

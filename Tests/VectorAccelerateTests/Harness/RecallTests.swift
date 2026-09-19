@@ -43,6 +43,19 @@ final class RecallTests: XCTestCase {
         }
     }
 
+    /// Checked through the interpolation the CLI applies to a caught error; without a description these are the reflected cases.
+    func testErrorDescriptionsStateTheRequirementAndTheRemedy() {
+        let table: [(error: RecallError, caseName: String, mustContain: [String])] = [
+            (.insufficientGroundTruth(have: 2, need: 3), "insufficientGroundTruth", ["at least 3", "got 2", "min(requestedK, eligibleCount)"]),
+            (.invalidK, "invalidK", ["k >= 1", "min(requestedK, eligibleCount)"])
+        ]
+        for row in table {
+            let message = "\(row.error as any Error)"
+            XCTAssertFalse(message.hasPrefix(row.caseName), "\(row.caseName) renders as the raw case: \(message)")
+            for piece in row.mustContain { XCTAssertTrue(message.contains(piece), "\(row.caseName): '\(piece)' missing from: \(message)") }
+        }
+    }
+
     func testClampedToUnitInterval() throws {
         // Every returned neighbour within threshold and k distinct IDs → exactly 1.0, never above.
         let returned = [Neighbor(id: 1, distance: 0.5), Neighbor(id: 2, distance: 0.5), Neighbor(id: 3, distance: 0.5)]

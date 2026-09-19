@@ -84,19 +84,34 @@ final class RunStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.approvedBaseline(environmentKey: key, caseID: id)) { XCTAssertEqual($0 as? RunStoreError, .badApprovedPointer("version 9 missing")) }
     }
 
+    /// A file named `Int.max`.json in a baseline directory once made `last + 1` trap on overflow. It is not a version now, and
+    /// a directory that is genuinely full ends in a thrown create-only write error rather than a trap.
+    func testVersionNumberingNeverOverflows() throws {
+        let store = RunStore(root: root)
+        let key = artifact().metadata.environmentKey, id = "probe.gpu_copy.bytes=8"
+        let dir = root.appendingPathComponent("baselines/\(key)/\(id)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: dir.appendingPathComponent("\(Int.max).json"))
+        XCTAssertEqual(try store.captureBaseline(from: artifact(), approve: false, allowDirty: false), [id: 1])
+        try Data("{}".utf8).write(to: dir.appendingPathComponent("\(Int.max - 1).json"))
+        XCTAssertThrowsError(try store.captureBaseline(from: artifact(), approve: false, allowDirty: false))
+    }
+
     /// `main.swift` prints a caught error by interpolating it as `any Error`; the same interpolation is checked here. A type
     /// without a description interpolates as its reflected case (`refusedDirty`, `runExists("…")`), which starts with the case
-    /// name, hence the `hasPrefix` check.
+    /// name, hence the `hasPrefix` check. Payloads aside (the reflected rendering carries those too), every expected phrase
+    /// contains a space or punctuation, which a case name cannot. The table is maintained by hand: a new `RunStoreError` case
+    /// needs a row here.
     func testErrorDescriptionsSayWhatFailedAndCarryThePayload() {
         let table: [(error: RunStoreError, caseName: String, mustContain: [String])] = [
             (.runExists("/tmp/store/runs/key/run.json"), "runExists", ["/tmp/store/runs/key/run.json", "never overwritten"]),
-            (.refusedValidationLayers, "refusedValidationLayers", ["refused", "validation layers"]),
+            (.refusedValidationLayers, "refusedValidationLayers", ["baseline capture refused:", "validation layers"]),
             (.refusedNotQuiet(["drift 9.0% exceeds 5.0%", "thermal state serious"]), "refusedNotQuiet",
-             ["refused", "not quiet", "drift 9.0% exceeds 5.0%", "thermal state serious", "quiet runs"]),
-            (.refusedNotQuiet([]), "refusedNotQuiet", ["refused", "not quiet", "no reason recorded"]),
-            (.refusedDirty, "refusedDirty", ["refused", "clean tree", "--allow-dirty"]),
-            (.noMeasuredCases, "noMeasuredCases", ["refused", "no measured case"]),
-            (.badApprovedPointer("version 9 missing"), "badApprovedPointer", ["version 9 missing", "approved"]),
+             ["baseline capture refused:", "not quiet", "drift 9.0% exceeds 5.0%; thermal state serious", "quiet runs"]),
+            (.refusedNotQuiet([]), "refusedNotQuiet", ["baseline capture refused:", "not quiet", "no reason recorded"]),
+            (.refusedDirty, "refusedDirty", ["baseline capture refused:", "clean tree", "--allow-dirty"]),
+            (.noMeasuredCases, "noMeasuredCases", ["baseline capture refused:", "no measured case"]),
+            (.badApprovedPointer("version 9 missing"), "badApprovedPointer", ["version 9 missing", "`approved` file"]),
             (.unsafePathComponent("caseID: ../../escape"), "unsafePathComponent", ["caseID: ../../escape", "path component"])
         ]
         for row in table {
