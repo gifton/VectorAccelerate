@@ -3,151 +3,151 @@
 # Seeded 2026-09-22 from the ratchet's first run under the Task 18 triage rules, in order: used by a sibling VSK package;
 # named in README.md or docs/ as API; a leftover of code Task 18 deleted (deleted instead, not listed); otherwise kept
 # pending an owner decision. New orphans fail the test.
-AcceleratedVectorFactory  # public API, no user in the VSK suite; deletion is an owner decision
+AcceleratedVectorFactory  # public API, no named user in the VSK suite; deletion is an owner decision
 AcceleratedVectorOperations  # named in docs/ADD/KERNEL_API_EXPOSURE_PLAN.md
 AccelerationError  # named in docs/ADD/metal4_migration_guide.md
-AccelerationMonitor  # public API, no user in the VSK suite; deletion is an owner decision
-AccelerationStatistics  # public API, no user in the VSK suite; deletion is an owner decision
-AccessType  # public API, no user in the VSK suite; deletion is an owner decision
-AdaptiveMethod  # public API, no user in the VSK suite; deletion is an owner decision
+AccelerationMonitor  # public API, no named user in the VSK suite; deletion is an owner decision
+AccelerationStatistics  # public API, no named user in the VSK suite; deletion is an owner decision
+AccessType  # public API, no named user in the VSK suite; deletion is an owner decision
+AdaptiveMethod  # public API, no named user in the VSK suite; deletion is an owner decision
 BackendPreference  # named in docs/ADD/metal4/01-foundation/PHASE_OVERVIEW.md
 BarrierDescriptor  # named in docs/superpowers/specs/2026-09-17-metal4-command-model-adoption-design.md
 BarrierHelper  # named in docs/superpowers/specs/2026-09-17-metal4-command-model-adoption-design.md
 BarrierType  # named in docs/superpowers/specs/2026-09-17-metal4-command-model-adoption-design.md
-BatchMaxResult  # public API, no user in the VSK suite; deletion is an owner decision
-BatchResult  # public API, no user in the VSK suite; deletion is an owner decision
+BatchMaxResult  # public API, no named user in the VSK suite; deletion is an owner decision
+BatchResult  # public API, no named user in the VSK suite; deletion is an owner decision
 BatchStatistics  # named in docs/ADD/SWIFT_WRAPPER_SPECIFICATIONS.md
-BatchStrategy  # public API, no user in the VSK suite; deletion is an owner decision
+BatchStrategy  # public API, no named user in the VSK suite; deletion is an owner decision
 CTFIDFResult  # named in docs/ADD/kernel-specs/06-SparseLogTFIDFKernel.md
-CTFIDFTopKResult  # public API, no user in the VSK suite; deletion is an owner decision
-CacheManifest  # public API, no user in the VSK suite; deletion is an owner decision
+CTFIDFTopKResult  # public API, no named user in the VSK suite; deletion is an owner decision
+CacheManifest  # public API, no named user in the VSK suite; deletion is an owner decision
 ComparisonReport  # named in docs/ADD/SWIFT_WRAPPER_SPECIFICATIONS.md
-ComputationMode  # public API, no user in the VSK suite; deletion is an owner decision
-ContextObserver  # public API, no user in the VSK suite; deletion is an owner decision
-DegradationThresholds  # public API, no user in the VSK suite; deletion is an owner decision
+ComputationMode  # public API, no named user in the VSK suite; deletion is an owner decision
+ContextObserver  # public API, no named user in the VSK suite; deletion is an owner decision
+DegradationThresholds  # public API, no named user in the VSK suite; deletion is an owner decision
 ElementwiseParameters  # named in docs/stability/ELEMENTWISE-MATH-CONTRACT.md
 FeatureFlags  # named in docs/ADD/metal4/03-shader-compilation/PHASE_OVERVIEW.md
 FusedPipelineBuilder  # named in docs/superpowers/specs/2026-09-17-metal4-command-model-adoption-design.md
-FusedTopKResult  # public API, no user in the VSK suite; deletion is an owner decision
-GPUAccelerationError  # public API, no user in the VSK suite; deletion is an owner decision
+FusedTopKResult  # public API, no named user in the VSK suite; deletion is an owner decision
+GPUAccelerationError  # public API, no named user in the VSK suite; deletion is an owner decision
 GPUBackend  # named in docs/ADD/metal4/01-foundation/PHASE_OVERVIEW.md
-GPUCapabilities  # public API, no user in the VSK suite; deletion is an owner decision
+GPUCapabilities  # public API, no named user in the VSK suite; deletion is an owner decision
 GPUPerformanceStats  # used by EmbedKit (Sources/EmbedKit/Acceleration/AccelerationManager.swift re-exports it as PerformanceStats)
 GPUTimingInfo  # used by EmbedKit (Tests/EmbedKitTests/AccelerationManagerGPUTimingTests.swift)
 HDBSCANDistanceResult  # named in docs/ADD/handoffs/BoruvkaMSTKernel-Phase3-Handoff.md
-HammingResult  # public API, no user in the VSK suite; deletion is an owner decision
-HarvestResult  # public API, no user in the VSK suite; deletion is an owner decision
-HistogramResult  # public API, no user in the VSK suite; deletion is an owner decision
+HammingResult  # public API, no named user in the VSK suite; deletion is an owner decision
+HarvestResult  # public API, no named user in the VSK suite; deletion is an owner decision
+HistogramResult  # public API, no named user in the VSK suite; deletion is an owner decision
 HybridExecutionStrategy  # named in docs/ADD/VIA_MIGRATION_PLAN.md
-IVFCandidateBuildParameters  # public API, no user in the VSK suite; deletion is an owner decision
-IVFCandidateCountParameters  # public API, no user in the VSK suite; deletion is an owner decision
-IVFGPUCandidateResult  # public API, no user in the VSK suite; deletion is an owner decision
+IVFCandidateBuildParameters  # public API, no named user in the VSK suite; deletion is an owner decision
+IVFCandidateCountParameters  # public API, no named user in the VSK suite; deletion is an owner decision
+IVFGPUCandidateResult  # public API, no named user in the VSK suite; deletion is an owner decision
 IVFIndirectionDistanceKernel  # named in docs/ADD/QUALITY_IMPROVEMENT_ROADMAP.md
-IVFIndirectionDistanceParameters  # public API, no user in the VSK suite; deletion is an owner decision
-IVFIndirectionDistanceResult  # public API, no user in the VSK suite; deletion is an owner decision
+IVFIndirectionDistanceParameters  # public API, no named user in the VSK suite; deletion is an owner decision
+IVFIndirectionDistanceResult  # public API, no named user in the VSK suite; deletion is an owner decision
 IVFListStructure  # named in docs/superpowers/specs/2026-09-17-metal4-command-model-adoption-design.md
 IndexAccelerationError  # named in docs/ADD/CLEAN_API_REDESIGN.md
-IntegrationError  # public API, no user in the VSK suite; deletion is an owner decision
+IntegrationError  # public API, no named user in the VSK suite; deletion is an owner decision
 JaccardResult  # named in docs/ADD/SWIFT_WRAPPER_SPECIFICATIONS.md
-KMeansInitialization  # public API, no user in the VSK suite; deletion is an owner decision
-LogLevel  # public API, no user in the VSK suite; deletion is an owner decision
-LogSumExpReduceResult  # public API, no user in the VSK suite; deletion is an owner decision
-LogSumExpRowResult  # public API, no user in the VSK suite; deletion is an owner decision
-LoggerConfiguration  # public API, no user in the VSK suite; deletion is an owner decision
-LoggerPerformanceStats  # public API, no user in the VSK suite; deletion is an owner decision
-MTLResidencySetDescriptor  # public API, no user in the VSK suite; deletion is an owner decision (the docs name Metal's own MTLResidencySetDescriptor, not this shim in Core/ResidencyManager.swift)
-MatrixLayout  # public API, no user in the VSK suite; deletion is an owner decision
-MatrixMultiplyParameters  # public API, no user in the VSK suite; deletion is an owner decision
-MatrixVectorParameters  # public API, no user in the VSK suite; deletion is an owner decision
+KMeansInitialization  # public API, no named user in the VSK suite; deletion is an owner decision
+LogLevel  # public API, no named user in the VSK suite; deletion is an owner decision
+LogSumExpReduceResult  # public API, no named user in the VSK suite; deletion is an owner decision
+LogSumExpRowResult  # public API, no named user in the VSK suite; deletion is an owner decision
+LoggerConfiguration  # public API, no named user in the VSK suite; deletion is an owner decision
+LoggerPerformanceStats  # public API, no named user in the VSK suite; deletion is an owner decision
+MTLResidencySetDescriptor  # public API, no named user in the VSK suite; deletion is an owner decision (the docs name Metal's own MTLResidencySetDescriptor, not this shim in Core/ResidencyManager.swift)
+MatrixLayout  # public API, no named user in the VSK suite; deletion is an owner decision
+MatrixMultiplyParameters  # public API, no named user in the VSK suite; deletion is an owner decision
+MatrixVectorParameters  # public API, no named user in the VSK suite; deletion is an owner decision
 MeasureToken  # named in docs/ADD/metal4_migration_guide.md
-Metal4AttentionSimilarityResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4BasicStatistics  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4BatchHistogramResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4BatchJaccardResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4BatchMatrixResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4BatchStatisticsResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4BinaryQuantizationConfig  # public API, no user in the VSK suite; deletion is an owner decision
+Metal4AttentionSimilarityResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4BasicStatistics  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4BatchHistogramResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4BatchJaccardResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4BatchMatrixResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4BatchStatisticsResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4BinaryQuantizationConfig  # public API, no named user in the VSK suite; deletion is an owner decision
 Metal4BinaryQuantizationResult  # used by EmbedKit (Sources/EmbedKit/Optimization/Quantization.swift)
 Metal4BinaryVector  # used by EmbedKit (Sources/EmbedKit/Optimization/Quantization.swift)
-Metal4BinaryVectorBatch  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4BinningStrategy  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4CompilationStatistics  # public API, no user in the VSK suite; deletion is an owner decision
+Metal4BinaryVectorBatch  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4BinningStrategy  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4CompilationStatistics  # public API, no named user in the VSK suite; deletion is an owner decision
 Metal4ComputeEngineConfiguration  # named in docs/ADD/METAL4_ONLY_MIGRATION_PLAN.md
-Metal4ContextFactory  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4CorrelationResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4ElementwiseOperation  # public API, no user in the VSK suite; deletion is an owner decision
+Metal4ContextFactory  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4CorrelationResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4ElementwiseOperation  # public API, no named user in the VSK suite; deletion is an owner decision
 Metal4ElementwiseResult  # named in docs/ADD/KERNEL_API_EXPOSURE_PLAN.md
 Metal4EngineStatistics  # named in docs/superpowers/specs/2026-09-17-metal4-command-model-adoption-design.md
-Metal4HammingConfig  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4HammingDistanceResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4HigherMoments  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4HistogramStatistics  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4JaccardConfig  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4KernelStatistics  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4L2NormalizationResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4MatrixMultiplyResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4MatrixVectorConfig  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4MatrixVectorResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4NeuralQuantizationMetrics  # public API, no user in the VSK suite; deletion is an owner decision
+Metal4HammingConfig  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4HammingDistanceResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4HigherMoments  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4HistogramStatistics  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4JaccardConfig  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4KernelStatistics  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4L2NormalizationResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4MatrixMultiplyResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4MatrixVectorConfig  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4MatrixVectorResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4NeuralQuantizationMetrics  # public API, no named user in the VSK suite; deletion is an owner decision
 Metal4QuantilesResult  # named in docs/ADD/KERNEL_API_EXPOSURE_PLAN.md
-Metal4QuantizationMetrics  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4QuantizationType  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4ReductionOperation  # public API, no user in the VSK suite; deletion is an owner decision
+Metal4QuantizationMetrics  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4QuantizationType  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4ReductionOperation  # public API, no named user in the VSK suite; deletion is an owner decision
 Metal4ReductionResult  # named in docs/ADD/KERNEL_API_EXPOSURE_PLAN.md
-Metal4SelectionMode  # public API, no user in the VSK suite; deletion is an owner decision
+Metal4SelectionMode  # public API, no named user in the VSK suite; deletion is an owner decision
 Metal4Statistics  # named in docs/ADD/KERNEL_API_EXPOSURE_PLAN.md
-Metal4StreamingResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4StreamingState  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4TransposeResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4WarpBatchResult  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4WarpSelectionConfig  # public API, no user in the VSK suite; deletion is an owner decision
-Metal4WarpSelectionResult  # public API, no user in the VSK suite; deletion is an owner decision
-MetalAccelerable  # public API, no user in the VSK suite; deletion is an owner decision
+Metal4StreamingResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4StreamingState  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4TransposeResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4WarpBatchResult  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4WarpSelectionConfig  # public API, no named user in the VSK suite; deletion is an owner decision
+Metal4WarpSelectionResult  # public API, no named user in the VSK suite; deletion is an owner decision
+MetalAccelerable  # public API, no named user in the VSK suite; deletion is an owner decision
 MetalDeviceCapabilities  # named in docs/ADD/metal4/00-context/architecture.md
-MetalSubsystemConfigurationError  # public API, no user in the VSK suite; deletion is an owner decision
-MinkowskiResult  # public API, no user in the VSK suite; deletion is an owner decision
+MetalSubsystemConfigurationError  # public API, no named user in the VSK suite; deletion is an owner decision
+MinkowskiResult  # public API, no named user in the VSK suite; deletion is an owner decision
 MutualReachabilityParams  # named in docs/ADD/handoffs/MutualReachabilityKernel-Phase2-Handoff.md
 OptimizationLevel  # named in docs/ADD/METAL4_LIFECYCLE_PLAN.md
 ParameterBinding  # named in docs/superpowers/specs/2026-09-17-metal4-command-model-adoption-design.md
-PipelineCacheEntry  # public API, no user in the VSK suite; deletion is an owner decision
-PipelineCacheStatistics  # public API, no user in the VSK suite; deletion is an owner decision
+PipelineCacheEntry  # public API, no named user in the VSK suite; deletion is an owner decision
+PipelineCacheStatistics  # public API, no named user in the VSK suite; deletion is an owner decision
 PipelineStage  # named in docs/superpowers/specs/2026-09-17-metal4-command-model-adoption-design.md
 PoolStatistics  # named in docs/superpowers/specs/2026-09-17-metal4-command-model-adoption-design.md
-PreferredDevice  # public API, no user in the VSK suite; deletion is an owner decision
-PrefixSumParameters  # public API, no user in the VSK suite; deletion is an owner decision
-ProductCodebook  # public API, no user in the VSK suite; deletion is an owner decision
-ProjectionMetadata  # public API, no user in the VSK suite; deletion is an owner decision
-ProjectionParameters  # public API, no user in the VSK suite; deletion is an owner decision
-QualityClass  # public API, no user in the VSK suite; deletion is an owner decision
+PreferredDevice  # public API, no named user in the VSK suite; deletion is an owner decision
+PrefixSumParameters  # public API, no named user in the VSK suite; deletion is an owner decision
+ProductCodebook  # public API, no named user in the VSK suite; deletion is an owner decision
+ProjectionMetadata  # public API, no named user in the VSK suite; deletion is an owner decision
+ProjectionParameters  # public API, no named user in the VSK suite; deletion is an owner decision
+QualityClass  # public API, no named user in the VSK suite; deletion is an owner decision
 QualityMonitor  # named in docs/ADD/SWIFT_WRAPPER_SPECIFICATIONS.md
-QuantizationMethod  # public API, no user in the VSK suite; deletion is an owner decision
+QuantizationMethod  # public API, no named user in the VSK suite; deletion is an owner decision
 QuantizationMode  # named in docs/ADD/metal4/03-shader-compilation/PHASE_OVERVIEW.md
 QuantizationResult  # named in docs/ADD/KERNEL_API_EXPOSURE_PLAN.md
-QuantizationScheme  # public API, no user in the VSK suite; deletion is an owner decision
+QuantizationScheme  # public API, no named user in the VSK suite; deletion is an owner decision
 ResidencyMode  # named in docs/superpowers/specs/2026-09-17-metal4-command-model-adoption-design.md
-ResidencyStatistics  # public API, no user in the VSK suite; deletion is an owner decision
-RoutingTelemetry  # public API, no user in the VSK suite; deletion is an owner decision
-ScalarQuantizationParameters  # public API, no user in the VSK suite; deletion is an owner decision
-ServiceStatistics  # public API, no user in the VSK suite; deletion is an owner decision
-SoACosineParams  # public API, no user in the VSK suite; deletion is an owner decision
-SoAL2Params  # public API, no user in the VSK suite; deletion is an owner decision
-SoftmaxResult  # public API, no user in the VSK suite; deletion is an owner decision
+ResidencyStatistics  # public API, no named user in the VSK suite; deletion is an owner decision
+RoutingTelemetry  # public API, no named user in the VSK suite; deletion is an owner decision
+ScalarQuantizationParameters  # public API, no named user in the VSK suite; deletion is an owner decision
+ServiceStatistics  # public API, no named user in the VSK suite; deletion is an owner decision
+SoACosineParams  # public API, no named user in the VSK suite; deletion is an owner decision
+SoAL2Params  # public API, no named user in the VSK suite; deletion is an owner decision
+SoftmaxResult  # public API, no named user in the VSK suite; deletion is an owner decision
 StatisticsConfig  # named in docs/ADD/StatisticsKernel_Specification.md
 StatisticsResult  # named in docs/ADD/StatisticsKernel_Specification.md
 Tailedness  # named in docs/ADD/StatisticsKernel_Specification.md
-TensorDataType  # public API, no user in the VSK suite; deletion is an owner decision
-TensorMetadata  # public API, no user in the VSK suite; deletion is an owner decision
+TensorDataType  # public API, no named user in the VSK suite; deletion is an owner decision
+TensorMetadata  # public API, no named user in the VSK suite; deletion is an owner decision
 TopKResult  # named in docs/ADD/KERNEL_API_EXPOSURE_PLAN.md
-TransposeParameters  # public API, no user in the VSK suite; deletion is an owner decision
-VectorAccelerateDistanceMetric  # public API, no user in the VSK suite; deletion is an owner decision
-VectorIterator  # public API, no user in the VSK suite; deletion is an owner decision
+TransposeParameters  # public API, no named user in the VSK suite; deletion is an owner decision
+VectorAccelerateDistanceMetric  # public API, no named user in the VSK suite; deletion is an owner decision
+VectorIterator  # public API, no named user in the VSK suite; deletion is an owner decision
 VectorMetrics  # named in docs/ADD/SWIFT_WRAPPER_SPECIFICATIONS.md
 WALConfiguration  # used by EmbedKit (Sources/EmbedKit/Storage/IndexConfiguration.swift, qualified VectorAccelerate.WALConfiguration)
 WALEntry  # named in docs/migrations/AGENT_PROMPTS_INTEGRATION.md
-WALError  # public API, no user in the VSK suite; deletion is an owner decision
+WALError  # public API, no named user in the VSK suite; deletion is an owner decision
 WALSegment  # named in docs/migrations/AGENT_PROMPT_TIER1_FOUNDATION.md
 WALStatistics  # named in docs/migrations/VIA_MIGRATION_PLAN.md
-WALSyncMode  # public API, no user in the VSK suite; deletion is an owner decision
-WarmupStateObserver  # public API, no user in the VSK suite; deletion is an owner decision
-WeightFileManifest  # public API, no user in the VSK suite; deletion is an owner decision
-WeightFileUtils  # public API, no user in the VSK suite; deletion is an owner decision
+WALSyncMode  # public API, no named user in the VSK suite; deletion is an owner decision
+WarmupStateObserver  # public API, no named user in the VSK suite; deletion is an owner decision
+WeightFileManifest  # public API, no named user in the VSK suite; deletion is an owner decision
+WeightFileUtils  # public API, no named user in the VSK suite; deletion is an owner decision

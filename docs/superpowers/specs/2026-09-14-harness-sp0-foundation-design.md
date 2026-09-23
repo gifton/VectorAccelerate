@@ -237,7 +237,7 @@ Exit status: 1 if any case is `invalidArtifact`, `correctnessFailed`, or `resour
 | `Sources/VectorAccelerateBenchmarks/` (5 files) and the `VectorAccelerateBenchmarks` product | delete | yes (product removed) |
 | `Sources/VectorAccelerate/Configuration/PerformanceMonitor.swift` | delete | yes (public, unused) |
 | `IndexAccelerationConfiguration.logDecisions` | delete field and its init parameter | yes |
-| `QuantizationStatisticsKernel.benchmark()` + nested `BenchmarkResult`, `WarpOptimizedSelectionKernel.benchmark()` + nested `PerformanceMetrics` | delete (no caller anywhere; the orphan ratchet would have flagged the struct) | no |
+| `QuantizationStatisticsKernel.benchmark()` + nested `BenchmarkResult`, `WarpOptimizedSelectionKernel.benchmark()` + nested `PerformanceMetrics` | delete (no caller anywhere; the orphan ratchet would have flagged the struct) | yes (public methods and nested public types removed) |
 | `ExecutionPath`, `OperationType` (`AccelerationConfiguration.swift`) | delete (the orphan ratchet reported them; `PerformanceMonitor` was their only user) | yes (public, unused) |
 | `Tests/.../PerformanceBenchmarks.swift` | delete | no |
 | private `SeededRNG` in `GPUCandidateBuilderValidationTests.swift` | replace with kit `SeededRNG`; the test must still pass (it asserts properties, not a specific sequence). The other private copy, in `IndexBenchmarkRecallValidationTests.swift`, is replaced the same way (row above). | no |

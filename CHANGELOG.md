@@ -15,7 +15,7 @@ Benchmark harness foundation (SP0 of the observability program) and the removal 
 - Mechanical guards: kit import allowlist, orphan public-type ratchet, golden streams/digests.
 
 ### Removed (breaking)
-- `Sources/VectorAccelerate/Benchmarking/` and all its public types (`BenchmarkSuite`, `BenchmarkResult`, `BenchmarkConfiguration`, `BenchmarkReport`, `PerformanceComparison`, `IndexBenchmarkHarness`, `IndexBenchmarkConfiguration`, `IndexBenchmarkResult`, `LatencyStats`, `BenchmarkWorkload`, `SeededRandomNumberGenerator`, `blackHole` — the last now lives in `VectorTestKit`).
+- `Sources/VectorAccelerate/Benchmarking/` and all its public types (`BenchmarkSuite`, `BenchmarkResult`, `BenchmarkConfiguration`, `BenchmarkReport`, `PerformanceComparison`, `IndexBenchmarkHarness`, `IndexBenchmarkConfiguration`, `IndexBenchmarkResult`, `LatencyStats`, `BenchmarkWorkload`, `blackHole` — the last now lives in `VectorTestKit`), and the internal `SeededRandomNumberGenerator`.
 - The `VectorAccelerateBenchmarks` executable product (crossover sweep returns as a harness mode in SP4).
 - `PerformanceMonitor` (unused), `IndexAccelerationConfiguration.logDecisions` (never read).
 - `QuantizationStatisticsKernel.benchmark()` with its nested `BenchmarkResult`, and `WarpOptimizedSelectionKernel.benchmark()` with its nested `PerformanceMetrics` (no callers).
