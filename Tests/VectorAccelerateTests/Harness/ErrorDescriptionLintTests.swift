@@ -8,16 +8,27 @@ import XCTest
 /// `LocalizedError` is deliberately not accepted as a description: interpolation does not consult `errorDescription`
 /// (`testInterpolationIgnoresLocalizedErrorDescription` pins that), so such a type would still print as its reflected case.
 ///
-/// Contract — the declaration shapes the scanner recognises; anything outside this list is not seen:
+/// Contract — the declaration shapes the scanner recognises; anything outside this list is not seen. Each bullet cites the rows
+/// of `testScannerFixtures` that pin it, and `testContractCitesExactlyTheFixtureRows` checks that every cited label is a row
+/// and every row is cited (`FixtureCitations`):
 /// - a nominal head `enum|struct|class|actor Name[<…>]: A, B, … {` whose inheritance clause lists `Error`, `Swift.Error` or
-///   `LocalizedError`; the clause may span lines and ends at the first `{` or at a `where`;
-/// - an extension head `extension [Outer.]Name: A, B, … {` that adds one of those, or that adds `CustomStringConvertible`;
-/// - a type is keyed by the last component of its name, so two types sharing a simple name are not told apart;
-/// - `//` comments are removed before matching. `/* */` blocks and string literals are scanned as code, and a `//` inside a
-///   string literal truncates that line.
-/// Not recognised: `Error` inherited through another protocol (`protocol KitError: Error`), through a typealias, or declared in
-/// another module. A `description` property without the `CustomStringConvertible` conformance is not accepted either, because
-/// interpolation ignores it. `testScannerFixtures` pins each shape named above.
+///   `LocalizedError` [pins: enum-error-flagged, struct-inline-description, class-swift-error-flagged, actor-flagged,
+///   actor-described, localized-error-flagged]; the clause may span lines, ends at the first `{` or at a `where`, and drops
+///   attributes such as `@unchecked` [pins: multiline-clause-flagged, generic-where-flagged, unchecked-attribute-flagged];
+/// - an extension head `extension [Outer.]Name: A, B, … {` that adds one of those, or that adds `CustomStringConvertible`, in
+///   the same file or another [pins: extension-adds-error-flagged, extension-adds-description, nested-extension-described,
+///   description-in-other-file];
+/// - a type is keyed by the last component of its name, so two types sharing a simple name are not told apart [pins:
+///   nested-extension-described, shared-simple-name-merged];
+/// - `//` comments are removed before matching [pins: comments-unseen]; `/* */` blocks are scanned as code
+///   [pins: block-comment-scanned]; string literals are scanned as code and a `//` inside one truncates that line, hiding what
+///   follows it [pins: string-slash-truncates];
+/// - not recognised: `Error` inherited through another protocol (`protocol KitError: Error`) or through a typealias [pins:
+///   protocol-inherited-unseen, typealias-unseen]; a type declared in another module [pins: none — a fixture is one source
+///   string, so another module cannot appear in a scan]; a `description` property without the `CustomStringConvertible`
+///   conformance, because interpolation ignores it [pins: description-without-conformance]; and, as non-matches, a name that
+///   merely contains `Error`, a `CustomStringConvertible` that is not an `Error`, and the `class` keyword on members [pins:
+///   error-in-name-unseen, described-not-error, class-keyword-members-unseen].
 final class ErrorDescriptionLintTests: XCTestCase {
     struct Scan: Equatable {
         var errorTypes: Set<String> = []
@@ -57,33 +68,46 @@ final class ErrorDescriptionLintTests: XCTestCase {
         return result
     }
 
+    /// The fixture rows, keyed by the labels the doc comment's `[pins: …]` citations name.
+    static let fixtures: [(label: String, sources: [String], errorTypes: Set<String>, undescribed: [String])] = [
+        ("enum-error-flagged", ["enum A: Error { case x }"], ["A"], ["A"]),
+        ("extension-adds-description", ["public enum B: Error, Equatable {\n    case x\n}\n\nextension B: CustomStringConvertible {\n}"], ["B"], []),
+        ("struct-inline-description", ["struct C: Error, CustomStringConvertible { var description: String { \"c\" } }"], ["C"], []),
+        ("class-swift-error-flagged", ["final class D: Swift.Error {}"], ["D"], ["D"]),
+        ("extension-adds-error-flagged", ["struct E {}\nextension E: Error {}"], ["E"], ["E"]),
+        ("localized-error-flagged", ["enum F: LocalizedError { case x }"], ["F"], ["F"]),
+        ("multiline-clause-flagged", ["public enum G:\n    Error,\n    Equatable {\n    case x\n}"], ["G"], ["G"]),
+        ("description-in-other-file", ["enum H: Error { case x }", "extension H: CustomStringConvertible { var description: String { \"h\" } }"], ["H"], []),
+        ("nested-extension-described", ["enum Outer { enum I: Error { case x } }\nextension Outer.I: CustomStringConvertible { }"], ["I"], []),
+        ("generic-where-flagged", ["struct J<T>: Error where T: Sendable { }"], ["J"], ["J"]),
+        ("unchecked-attribute-flagged", ["final class K: @unchecked Sendable, Error { }"], ["K"], ["K"]),
+        ("description-without-conformance", ["enum L: Error { case x; var description: String { \"l\" } }"], ["L"], ["L"]),
+        ("actor-flagged", ["actor Boom: Error {}"], ["Boom"], ["Boom"]),
+        ("actor-described", ["actor Calm: Error, CustomStringConvertible { var description: String { \"calm\" } }"], ["Calm"], []),
+        ("shared-simple-name-merged", ["enum Outer { enum Dup: Error { case x } }\nstruct Dup: CustomStringConvertible { var description: String { \"\" } }"], ["Dup"], []),
+        ("comments-unseen", ["// enum M: Error { case x }\n/// enum N: Error { case x }"], [], []),
+        ("block-comment-scanned", ["/* enum Z: Error { case x } */"], ["Z"], ["Z"]),
+        ("string-slash-truncates", ["let url = \"http://x\"; enum W: Error { case x }"], [], []),
+        ("protocol-inherited-unseen", ["protocol KitError: Error {}\nenum X: KitError { case x }"], [], []),
+        ("typealias-unseen", ["typealias Failure = Error\nenum Y: Failure { case x }"], [], []),
+        ("error-in-name-unseen", ["enum ErrorKind: String, Codable { case error }"], [], []),
+        ("described-not-error", ["struct P: CustomStringConvertible { var description: String { \"p\" } }"], [], []),
+        ("class-keyword-members-unseen", ["final class Q { class var shared: Q { Q() }\n    class func make() -> Q { Q() } }"], [], [])
+    ]
+
     /// Pins the scanner on fixture sources, so a pattern change that stops seeing a violation fails here.
     func testScannerFixtures() {
-        let cases: [(sources: [String], errorTypes: Set<String>, undescribed: [String])] = [
-            (["enum A: Error { case x }"], ["A"], ["A"]),
-            (["public enum B: Error, Equatable {\n    case x\n}\n\nextension B: CustomStringConvertible {\n}"], ["B"], []),
-            (["struct C: Error, CustomStringConvertible { var description: String { \"c\" } }"], ["C"], []),
-            (["final class D: Swift.Error {}"], ["D"], ["D"]),
-            (["struct E {}\nextension E: Error {}"], ["E"], ["E"]),
-            (["enum F: LocalizedError { case x }"], ["F"], ["F"]),
-            (["public enum G:\n    Error,\n    Equatable {\n    case x\n}"], ["G"], ["G"]),
-            (["enum H: Error { case x }", "extension H: CustomStringConvertible { var description: String { \"h\" } }"], ["H"], []),
-            (["enum Outer { enum I: Error { case x } }\nextension Outer.I: CustomStringConvertible { }"], ["I"], []),
-            (["struct J<T>: Error where T: Sendable { }"], ["J"], ["J"]),
-            (["final class K: @unchecked Sendable, Error { }"], ["K"], ["K"]),
-            (["enum L: Error { case x; var description: String { \"l\" } }"], ["L"], ["L"]),
-            (["actor Boom: Error {}"], ["Boom"], ["Boom"]),
-            (["actor Calm: Error, CustomStringConvertible { var description: String { \"calm\" } }"], ["Calm"], []),
-            (["// enum M: Error { case x }\n/// enum N: Error { case x }"], [], []),
-            (["enum ErrorKind: String, Codable { case error }"], [], []),
-            (["struct P: CustomStringConvertible { var description: String { \"p\" } }"], [], []),
-            (["final class Q { class var shared: Q { Q() }\n    class func make() -> Q { Q() } }"], [], [])
-        ]
-        for (sources, errorTypes, undescribed) in cases {
-            let scan = Self.scan(sources)
-            XCTAssertEqual(scan.errorTypes, errorTypes, "error types in: \(sources)")
-            XCTAssertEqual(scan.undescribed, undescribed, "undescribed in: \(sources)")
+        for row in Self.fixtures {
+            let scan = Self.scan(row.sources)
+            XCTAssertEqual(scan.errorTypes, row.errorTypes, "\(row.label): error types in: \(row.sources)")
+            XCTAssertEqual(scan.undescribed, row.undescribed, "\(row.label): undescribed in: \(row.sources)")
         }
+    }
+
+    /// The doc comment above cannot claim a pin that does not exist: its `[pins: …]` labels are exactly the fixture rows.
+    func testContractCitesExactlyTheFixtureRows() throws {
+        try FixtureCitations.assertContractCitesExactlyTheFixtureRows(ofHarnessFile: "ErrorDescriptionLintTests.swift",
+                                                                       fixtureLabels: Self.fixtures.map(\.label))
     }
 
     private enum LocalizedOnly: LocalizedError {

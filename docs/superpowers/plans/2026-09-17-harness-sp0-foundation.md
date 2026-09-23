@@ -64,7 +64,7 @@
 - `Commands/ListCommand.swift`, `Commands/RunCommand.swift`, `Commands/BaselineCommand.swift`, `Commands/CompareCommand.swift`, `Commands/ValidateCommand.swift`.
 
 **Created — `Tests/VectorAccelerateTests/Harness/`**
-- `RepoPaths.swift` (helper), `KitImportLintTests.swift`, `ErrorDescriptionLintTests.swift` (Task 13), `CollectionInterpolationLintTests.swift` (Task 13 Step 6b; added by Task 17's fix round to close the collection-debug-literal class), `OrphanPublicTypeTests.swift`, `SeededRNGGoldenTests.swift` (generated), `VectorGeneratorGoldenTests.swift` (generated), `ContentDigestGoldenTests.swift`, `ComparatorTests.swift`, `RecallTests.swift`, `StatsTests.swift`, `ArtifactSchemaTests.swift`, `CaseIDTests.swift`, `WarmupPolicyTests.swift`, `FingerprintTests.swift`, `PreflightInstrumentCheckTests.swift` (Task 15; opt-in via `VA_INSTRUMENT_CHECK=1`, skipped otherwise), `RunStoreTests.swift`, `CompareTests.swift`.
+- `RepoPaths.swift` (helper), `KitImportLintTests.swift`, `ErrorDescriptionLintTests.swift` (Task 13), `CollectionInterpolationLintTests.swift` (Task 13 Step 6b; added by Task 17's fix round to close the collection-debug-literal class), `FixtureCitations.swift` (helper shared by the two scanner lints plus its own `FixtureCitationsTests`; Task 13 Step 6c, added by Task 17's fix round 1 so a lint's contract cannot cite a fixture row that does not exist), `OrphanPublicTypeTests.swift`, `SeededRNGGoldenTests.swift` (generated), `VectorGeneratorGoldenTests.swift` (generated), `ContentDigestGoldenTests.swift`, `ComparatorTests.swift`, `RecallTests.swift`, `StatsTests.swift`, `ArtifactSchemaTests.swift`, `CaseIDTests.swift`, `WarmupPolicyTests.swift`, `FingerprintTests.swift`, `PreflightInstrumentCheckTests.swift` (Task 15; opt-in via `VA_INSTRUMENT_CHECK=1`, skipped otherwise), `RunStoreTests.swift`, `CompareTests.swift`.
 - `Tests/VectorAccelerateTests/Utilities/RequireMetal.swift` — `requireMetalDevice()`.
 - `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md` — tracked evidence for both preflight probes (Task 15; accuracy fixes in Task 17).
 
@@ -3219,7 +3219,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Files:**
 - Create: `Sources/VectorAccelerateBench/CLI/Arguments.swift`, `CLI/CommandSupport.swift`, `Runner/BenchCase.swift`, `Runner/Runner.swift`, `Cases/Registry.swift`, `Commands/ListCommand.swift`, `Commands/ValidateCommand.swift`
 - Modify: `Sources/VectorAccelerateBench/main.swift`
-- Test: `Tests/VectorAccelerateTests/Harness/ErrorDescriptionLintTests.swift` (owned here: this is the first task at which every type the lint names exists — the four kit error enums from Tasks 6, 8, 9, 11 and the executable's `BenchError` and `ContextError` — and it is the task that introduces the `error: \(error)` printing the lint protects); `Tests/VectorAccelerateTests/Harness/CollectionInterpolationLintTests.swift` (Step 6b, added by Task 17's fix round)
+- Test: `Tests/VectorAccelerateTests/Harness/ErrorDescriptionLintTests.swift` (owned here: this is the first task at which every type the lint names exists — the four kit error enums from Tasks 6, 8, 9, 11 and the executable's `BenchError` and `ContextError` — and it is the task that introduces the `error: \(error)` printing the lint protects); `Tests/VectorAccelerateTests/Harness/CollectionInterpolationLintTests.swift` (Step 6b, added by Task 17's fix round); `Tests/VectorAccelerateTests/Harness/FixtureCitations.swift` (Step 6c, added by Task 17's fix round 1)
 
 **Interfaces:**
 - Consumes: `CaseID`, `CaseIdentity`, `CaseRecord`, `Timing`, `Series`, `Stats`, `Correctness`, `Resources`, `WarmupPolicy`, `VectorGenerator`, `HostFingerprint`, `GPUInfo`, `RunStore`, `BenchArtifact`.
@@ -3642,16 +3642,27 @@ import XCTest
 /// `LocalizedError` is deliberately not accepted as a description: interpolation does not consult `errorDescription`
 /// (`testInterpolationIgnoresLocalizedErrorDescription` pins that), so such a type would still print as its reflected case.
 ///
-/// Contract — the declaration shapes the scanner recognises; anything outside this list is not seen:
+/// Contract — the declaration shapes the scanner recognises; anything outside this list is not seen. Each bullet cites the rows
+/// of `testScannerFixtures` that pin it, and `testContractCitesExactlyTheFixtureRows` checks that every cited label is a row
+/// and every row is cited (`FixtureCitations`):
 /// - a nominal head `enum|struct|class|actor Name[<…>]: A, B, … {` whose inheritance clause lists `Error`, `Swift.Error` or
-///   `LocalizedError`; the clause may span lines and ends at the first `{` or at a `where`;
-/// - an extension head `extension [Outer.]Name: A, B, … {` that adds one of those, or that adds `CustomStringConvertible`;
-/// - a type is keyed by the last component of its name, so two types sharing a simple name are not told apart;
-/// - `//` comments are removed before matching. `/* */` blocks and string literals are scanned as code, and a `//` inside a
-///   string literal truncates that line.
-/// Not recognised: `Error` inherited through another protocol (`protocol KitError: Error`), through a typealias, or declared in
-/// another module. A `description` property without the `CustomStringConvertible` conformance is not accepted either, because
-/// interpolation ignores it. `testScannerFixtures` pins each shape named above.
+///   `LocalizedError` [pins: enum-error-flagged, struct-inline-description, class-swift-error-flagged, actor-flagged,
+///   actor-described, localized-error-flagged]; the clause may span lines, ends at the first `{` or at a `where`, and drops
+///   attributes such as `@unchecked` [pins: multiline-clause-flagged, generic-where-flagged, unchecked-attribute-flagged];
+/// - an extension head `extension [Outer.]Name: A, B, … {` that adds one of those, or that adds `CustomStringConvertible`, in
+///   the same file or another [pins: extension-adds-error-flagged, extension-adds-description, nested-extension-described,
+///   description-in-other-file];
+/// - a type is keyed by the last component of its name, so two types sharing a simple name are not told apart [pins:
+///   nested-extension-described, shared-simple-name-merged];
+/// - `//` comments are removed before matching [pins: comments-unseen]; `/* */` blocks are scanned as code
+///   [pins: block-comment-scanned]; string literals are scanned as code and a `//` inside one truncates that line, hiding what
+///   follows it [pins: string-slash-truncates];
+/// - not recognised: `Error` inherited through another protocol (`protocol KitError: Error`) or through a typealias [pins:
+///   protocol-inherited-unseen, typealias-unseen]; a type declared in another module [pins: none — a fixture is one source
+///   string, so another module cannot appear in a scan]; a `description` property without the `CustomStringConvertible`
+///   conformance, because interpolation ignores it [pins: description-without-conformance]; and, as non-matches, a name that
+///   merely contains `Error`, a `CustomStringConvertible` that is not an `Error`, and the `class` keyword on members [pins:
+///   error-in-name-unseen, described-not-error, class-keyword-members-unseen].
 final class ErrorDescriptionLintTests: XCTestCase {
     struct Scan: Equatable {
         var errorTypes: Set<String> = []
@@ -3691,33 +3702,46 @@ final class ErrorDescriptionLintTests: XCTestCase {
         return result
     }
 
+    /// The fixture rows, keyed by the labels the doc comment's `[pins: …]` citations name.
+    static let fixtures: [(label: String, sources: [String], errorTypes: Set<String>, undescribed: [String])] = [
+        ("enum-error-flagged", ["enum A: Error { case x }"], ["A"], ["A"]),
+        ("extension-adds-description", ["public enum B: Error, Equatable {\n    case x\n}\n\nextension B: CustomStringConvertible {\n}"], ["B"], []),
+        ("struct-inline-description", ["struct C: Error, CustomStringConvertible { var description: String { \"c\" } }"], ["C"], []),
+        ("class-swift-error-flagged", ["final class D: Swift.Error {}"], ["D"], ["D"]),
+        ("extension-adds-error-flagged", ["struct E {}\nextension E: Error {}"], ["E"], ["E"]),
+        ("localized-error-flagged", ["enum F: LocalizedError { case x }"], ["F"], ["F"]),
+        ("multiline-clause-flagged", ["public enum G:\n    Error,\n    Equatable {\n    case x\n}"], ["G"], ["G"]),
+        ("description-in-other-file", ["enum H: Error { case x }", "extension H: CustomStringConvertible { var description: String { \"h\" } }"], ["H"], []),
+        ("nested-extension-described", ["enum Outer { enum I: Error { case x } }\nextension Outer.I: CustomStringConvertible { }"], ["I"], []),
+        ("generic-where-flagged", ["struct J<T>: Error where T: Sendable { }"], ["J"], ["J"]),
+        ("unchecked-attribute-flagged", ["final class K: @unchecked Sendable, Error { }"], ["K"], ["K"]),
+        ("description-without-conformance", ["enum L: Error { case x; var description: String { \"l\" } }"], ["L"], ["L"]),
+        ("actor-flagged", ["actor Boom: Error {}"], ["Boom"], ["Boom"]),
+        ("actor-described", ["actor Calm: Error, CustomStringConvertible { var description: String { \"calm\" } }"], ["Calm"], []),
+        ("shared-simple-name-merged", ["enum Outer { enum Dup: Error { case x } }\nstruct Dup: CustomStringConvertible { var description: String { \"\" } }"], ["Dup"], []),
+        ("comments-unseen", ["// enum M: Error { case x }\n/// enum N: Error { case x }"], [], []),
+        ("block-comment-scanned", ["/* enum Z: Error { case x } */"], ["Z"], ["Z"]),
+        ("string-slash-truncates", ["let url = \"http://x\"; enum W: Error { case x }"], [], []),
+        ("protocol-inherited-unseen", ["protocol KitError: Error {}\nenum X: KitError { case x }"], [], []),
+        ("typealias-unseen", ["typealias Failure = Error\nenum Y: Failure { case x }"], [], []),
+        ("error-in-name-unseen", ["enum ErrorKind: String, Codable { case error }"], [], []),
+        ("described-not-error", ["struct P: CustomStringConvertible { var description: String { \"p\" } }"], [], []),
+        ("class-keyword-members-unseen", ["final class Q { class var shared: Q { Q() }\n    class func make() -> Q { Q() } }"], [], [])
+    ]
+
     /// Pins the scanner on fixture sources, so a pattern change that stops seeing a violation fails here.
     func testScannerFixtures() {
-        let cases: [(sources: [String], errorTypes: Set<String>, undescribed: [String])] = [
-            (["enum A: Error { case x }"], ["A"], ["A"]),
-            (["public enum B: Error, Equatable {\n    case x\n}\n\nextension B: CustomStringConvertible {\n}"], ["B"], []),
-            (["struct C: Error, CustomStringConvertible { var description: String { \"c\" } }"], ["C"], []),
-            (["final class D: Swift.Error {}"], ["D"], ["D"]),
-            (["struct E {}\nextension E: Error {}"], ["E"], ["E"]),
-            (["enum F: LocalizedError { case x }"], ["F"], ["F"]),
-            (["public enum G:\n    Error,\n    Equatable {\n    case x\n}"], ["G"], ["G"]),
-            (["enum H: Error { case x }", "extension H: CustomStringConvertible { var description: String { \"h\" } }"], ["H"], []),
-            (["enum Outer { enum I: Error { case x } }\nextension Outer.I: CustomStringConvertible { }"], ["I"], []),
-            (["struct J<T>: Error where T: Sendable { }"], ["J"], ["J"]),
-            (["final class K: @unchecked Sendable, Error { }"], ["K"], ["K"]),
-            (["enum L: Error { case x; var description: String { \"l\" } }"], ["L"], ["L"]),
-            (["actor Boom: Error {}"], ["Boom"], ["Boom"]),
-            (["actor Calm: Error, CustomStringConvertible { var description: String { \"calm\" } }"], ["Calm"], []),
-            (["// enum M: Error { case x }\n/// enum N: Error { case x }"], [], []),
-            (["enum ErrorKind: String, Codable { case error }"], [], []),
-            (["struct P: CustomStringConvertible { var description: String { \"p\" } }"], [], []),
-            (["final class Q { class var shared: Q { Q() }\n    class func make() -> Q { Q() } }"], [], [])
-        ]
-        for (sources, errorTypes, undescribed) in cases {
-            let scan = Self.scan(sources)
-            XCTAssertEqual(scan.errorTypes, errorTypes, "error types in: \(sources)")
-            XCTAssertEqual(scan.undescribed, undescribed, "undescribed in: \(sources)")
+        for row in Self.fixtures {
+            let scan = Self.scan(row.sources)
+            XCTAssertEqual(scan.errorTypes, row.errorTypes, "\(row.label): error types in: \(row.sources)")
+            XCTAssertEqual(scan.undescribed, row.undescribed, "\(row.label): undescribed in: \(row.sources)")
         }
+    }
+
+    /// The doc comment above cannot claim a pin that does not exist: its `[pins: …]` labels are exactly the fixture rows.
+    func testContractCitesExactlyTheFixtureRows() throws {
+        try FixtureCitations.assertContractCitesExactlyTheFixtureRows(ofHarnessFile: "ErrorDescriptionLintTests.swift",
+                                                                       fixtureLabels: Self.fixtures.map(\.label))
     }
 
     private enum LocalizedOnly: LocalizedError {
@@ -3766,27 +3790,39 @@ import XCTest
 /// `Sources/VectorAccelerateBench`, no string-interpolation segment may consist of a bare or dotted reference to a name
 /// declared with an explicit array or dictionary type. Render the elements instead (`.joined(separator: "; ")`).
 ///
-/// Contract — what the scanner recognises; anything outside this list is not seen:
-/// - a collection name is the `name` in `let name: [` or `var name: [` (stored, computed and local), or in a parameter
-///   `[label ]name: [` of a `func` or `init` parameter clause (the clause is the parenthesised text after the name, balanced,
-///   so multi-line clauses and defaults with parentheses are read); the type must START with `[`, so `[T]`, `[[T]]`,
-///   `[K: V]` and `[T]?` count, while `Set<T>`, `Array<T>`, `Dictionary<K, V>`, `inout [T]` and every inferred type do not;
+/// Contract — what the scanner recognises; anything outside this list is not seen. Each bullet cites the rows of
+/// `testScannerFixtures` that pin it, and `testContractCitesExactlyTheFixtureRows` checks that every cited label is a row and
+/// every row is cited (`FixtureCitations`):
+/// - a collection name is the `name` in `let name: [` or `var name: [` (stored, computed and local) [pins: let-array-flagged,
+///   var-dict-flagged, self-dotted-flagged], or in a parameter `[label ]name: [` of a `func` or `init` declaration's parameter
+///   clause — the balanced parenthesised text after the name, so multi-line clauses and defaults with parentheses are read
+///   [pins: func-params-flagged, init-multiline-default-flagged]; a call-site `.init(` is not a declaration and contributes
+///   nothing [pins: call-site-init-unseen];
+/// - the type must START with `[`: `[T]`, `[[T]]`, `[K: V]` and `[T]?` count [pins: let-array-flagged, nested-optional-flagged,
+///   var-dict-flagged], while `Set<T>`, `Array<T>`, `Dictionary<K, V>`, `inout [T]`, every inferred type and every scalar do
+///   not [pins: set-array-generic-unseen, dict-generic-unseen, inout-unseen, inferred-unseen, scalar-unflagged];
 /// - a violation is a segment `\(chain)` whose whole content is an identifier chain — `reasons`, `preflight.reasons`,
-///   `self.a.b` — with a collection name as its LAST component. A chain that ends in a call, a subscript or another member
-///   (`.joined(…)`, `.map(…)`, `[0]`, `.count`, `.first`) is not one, nor is an inline literal (`\([a, b])`);
-/// - a bare chain resolves against the names declared in the SAME file (locals, parameters, properties of types declared
-///   there); a dotted chain's last component resolves against every `let`/`var` collection name in all scanned files, since a
-///   member may be declared anywhere. Within a file two declarations sharing a name are not told apart, so a scalar that
-///   shares its name with a collection declared in the same file is flagged too (rename one of them);
-/// - closure parameters, subscript parameters, enum associated values and tuple-type elements are not seen;
-/// - `//` comments are removed before matching; `/* */` blocks and string literals are scanned as code, and a `//` inside a
-///   string literal truncates that line.
-/// `testScannerFixtures` pins each shape named above; `testNoCollectionIsInterpolatedWhole` runs the scan on the real sources.
+///   `self.deltas`, `o.i.zs` — with a collection name as its LAST component; whitespace inside the parentheses is allowed
+///   [pins: let-array-flagged, prefix-runcommand-flagged, self-dotted-flagged, dotted-three-flagged, padded-segment-flagged].
+///   A chain that ends in a call, a subscript or another member (`.joined(…)`, `.map(…)`, `[0]`, `.count`, `.first`,
+///   `.isEmpty`) is not one, nor is an inline literal or a call result [pins: operations-unflagged, literal-call-unflagged];
+/// - a bare chain resolves against the names declared in the SAME file; a dotted chain's last component resolves against every
+///   `let`/`var` collection name in all scanned files, since a member may be declared anywhere [pins: bare-same-file-only,
+///   dotted-any-file-flagged]. Within a file two declarations sharing a name are not told apart, so a scalar that shares its
+///   name with a collection declared in the same file is flagged too (rename one of them) [pins: shared-name-both-flagged];
+/// - not seen: closure parameters, subscript parameters, enum associated values and tuple-type elements [pins:
+///   closure-param-unseen, subscript-param-unseen, enum-case-unseen, tuple-element-unseen]; the parameters of operator
+///   functions (`func == (`) and of functions whose generic clause nests angle brackets (`func g<T: P<U>>(`) [pins:
+///   operator-func-unseen, nested-generic-unseen];
+/// - `//` comments are removed before matching, for declarations and for uses [pins: comments-unseen]; `/* */` blocks are
+///   scanned as code [pins: block-comment-scanned]; string literals are scanned as code and a `//` inside one truncates that
+///   line, hiding what follows it [pins: string-slash-truncates].
 final class CollectionInterpolationLintTests: XCTestCase {
     /// Group 1: the name, in `let name: [` / `var name: [`.
     private static let declared = try! NSRegularExpression(pattern: #"\b(?:let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\["#)
-    /// Opens a `func` or `init` parameter clause; the clause ends at the parenthesis that balances this one.
-    private static let clauseHead = try! NSRegularExpression(pattern: #"\b(?:func\s+[A-Za-z_][A-Za-z0-9_]*|init[?!]?)\s*(?:<[^>]*>)?\s*\("#)
+    /// Opens a `func` or `init` declaration's parameter clause (an `init` preceded by `.` is a call); the clause ends at the
+    /// parenthesis that balances this one.
+    private static let clauseHead = try! NSRegularExpression(pattern: #"\b(?:func\s+[A-Za-z_][A-Za-z0-9_]*|(?<!\.)init[?!]?)\s*(?:<[^>]*>)?\s*\("#)
     /// Group 1: the name, in `[label ]name: [` at the start of a clause or after a comma.
     private static let parameter = try! NSRegularExpression(pattern: #"(?:^|,)\s*(?:[A-Za-z_][A-Za-z0-9_]*\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\["#)
     /// Group 1: the identifier chain in `\(chain)`, with optional whitespace inside the parentheses.
@@ -3848,50 +3884,67 @@ final class CollectionInterpolationLintTests: XCTestCase {
         return (Set(files.flatMap { collectionNames(in: $0.code) }), findings(in: files))
     }
 
+    /// The fixture rows, keyed by the labels the doc comment's `[pins: …]` citations name. `names` is the union of the
+    /// collection names found in the row's files; `findings` the violations, `f<n>.swift:<line>: \(chain)`.
+    static let fixtures: [(label: String, sources: [String], names: Set<String>, findings: [String])] = [
+        ("let-array-flagged", ["let reasons: [String] = []\nprint(\"reasons: \\(reasons)\")"], ["reasons"], ["f0.swift:2: \\(reasons)"]),
+        ("var-dict-flagged", ["var flags: [String: String] = [:]\n_ = \"\\(flags)\""], ["flags"], ["f0.swift:2: \\(flags)"]),
+        ("nested-optional-flagged", ["let raw: [[Double]] = []\nvar extra: [Int]? = nil\n_ = \"\\(raw) \\(extra)\""], ["raw", "extra"],
+         ["f0.swift:3: \\(raw)", "f0.swift:3: \\(extra)"]),
+        ("func-params-flagged", ["func f(_ items: [Int], with list: [Int], n: Int) -> String { \"\\(items) \\(list) \\(n)\" }"], ["items", "list"],
+         ["f0.swift:1: \\(items)", "f0.swift:1: \\(list)"]),
+        ("init-multiline-default-flagged",
+         ["struct S {\n    init(\n        a: [Int] = Array(repeating: 0, count: 2),\n        b: [String: Int]\n    ) { _ = \"\\(a) \\(b)\" }\n}"],
+         ["a", "b"], ["f0.swift:5: \\(a)", "f0.swift:5: \\(b)"]),
+        ("padded-segment-flagged", ["let ids: [Int] = []\n_ = \"\\( ids )\""], ["ids"], ["f0.swift:2: \\(ids)"]),
+        ("self-dotted-flagged", ["struct S { var deltas: [Int] = []; var text: String { \"\\(self.deltas)\" } }"], ["deltas"], ["f0.swift:1: \\(self.deltas)"]),
+        ("dotted-three-flagged", ["struct O { var i: I }\nstruct I { var zs: [Int] }", "func show(_ o: O) -> String { \"\\(o.i.zs)\" }"], ["zs"],
+         ["f1.swift:1: \\(o.i.zs)"]),
+        // The pre-fix `RunCommand` line verbatim, with the declaration in another file as in the real tree.
+        ("prefix-runcommand-flagged",
+         ["public struct PreflightRecord { public var reasons: [String] }",
+          "print(\"key: \\(metadata.environmentKey)  quiet: \\(preflight.quiet)\" + (preflight.reasons.isEmpty ? \"\" : \"  reasons: \\(preflight.reasons)\"))"],
+         ["reasons"], ["f1.swift:1: \\(preflight.reasons)"]),
+        ("operations-unflagged",
+         ["var notes: [String] = []\n_ = \"\\(notes.joined(separator: \"; \")) \\(notes.count) \\(notes[0]) \\(notes.first) \\(notes.map(\\.count)) \\(notes.isEmpty)\""],
+         ["notes"], []),
+        ("literal-call-unflagged", ["let xs: [Int] = []\n_ = \"\\([1, 2]) \\(f()) \\(xs.map { $0 })\""], ["xs"], []),
+        ("bare-same-file-only", ["struct Series { var raw: [[Double]] }", "func parse(_ raw: String) -> String { \"bad: \\(raw)\" }"], ["raw"], []),
+        ("dotted-any-file-flagged", ["struct Series { var raw: [[Double]] }", "func show(_ s: Series) -> String { \"\\(s.raw)\" }"], ["raw"],
+         ["f1.swift:1: \\(s.raw)"]),
+        ("shared-name-both-flagged", ["func a(_ values: [Int]) -> String { \"\\(values)\" }\nfunc b(_ values: Int) -> String { \"\\(values)\" }"], ["values"],
+         ["f0.swift:1: \\(values)", "f0.swift:2: \\(values)"]),
+        ("set-array-generic-unseen", ["let s: Set<String> = []\nlet g: Array<Int> = []\n_ = \"\\(s) \\(g)\""], [], []),
+        ("dict-generic-unseen", ["let d: Dictionary<String, Int> = [:]\n_ = \"\\(d)\""], [], []),
+        ("inferred-unseen", ["let inferred = [1, 2]\n_ = \"\\(inferred)\""], [], []),
+        ("scalar-unflagged", ["let none: Int = 0\n_ = \"\\(none)\""], [], []),
+        ("inout-unseen", ["func k(_ ys: inout [Int]) -> String { \"\\(ys)\" }"], [], []),
+        ("closure-param-unseen", ["let c: ([Int]) -> String = { (zs: [Int]) in \"\\(zs)\" }"], [], []),
+        ("subscript-param-unseen", ["struct Table { subscript(keys: [String]) -> String { \"\\(keys)\" } }"], [], []),
+        ("enum-case-unseen", ["enum E { case list(items: [Int]) }\n_ = \"\\(items)\""], [], []),
+        ("tuple-element-unseen", ["let t: (xs: [Int], n: Int) = ([], 0)\n_ = \"\\(t.xs)\""], [], []),
+        ("operator-func-unseen", ["func == (lhs: [Int], rhs: [Int]) -> Bool { \"\\(lhs)\" == \"\\(rhs)\" }"], [], []),
+        ("nested-generic-unseen", ["func g<T: P<U>>(xs: [T]) -> String { \"\\(xs)\" }"], [], []),
+        ("call-site-init-unseen", ["let made = Maker.init(items: [1, 2])\nself.init(items: [])\n_ = \"\\(items)\""], [], []),
+        ("comments-unseen", ["// let hidden: [Int] = []\n/// \\(hidden)\nlet shown: [Int] = [] // trailing \\(shown)"], ["shown"], []),
+        ("block-comment-scanned", ["/* let hidden: [Int] = [] */\n_ = \"\\(hidden)\""], ["hidden"], ["f0.swift:2: \\(hidden)"]),
+        ("string-slash-truncates", ["let urls: [String] = [\"http://x\"]; _ = \"\\(urls)\""], ["urls"], [])
+    ]
+
     /// Pins the scanner on fixture sources, so a pattern change that stops seeing a violation, or starts seeing a false one,
     /// fails here.
     func testScannerFixtures() {
-        let cases: [(sources: [String], names: Set<String>, findings: [String])] = [
-            // Recognised declaration shapes, bare use in the same file.
-            (["let reasons: [String] = []\nprint(\"reasons: \\(reasons)\")"], ["reasons"], ["f0.swift:2: \\(reasons)"]),
-            (["var flags: [String: String] = [:]\n_ = \"\\(flags)\""], ["flags"], ["f0.swift:2: \\(flags)"]),
-            (["let raw: [[Double]] = []\nvar extra: [Int]? = nil\n_ = \"\\(raw) \\(extra)\""], ["raw", "extra"],
-             ["f0.swift:3: \\(raw)", "f0.swift:3: \\(extra)"]),
-            (["func f(_ items: [Int], with list: [Int], n: Int) -> String { \"\\(items) \\(list) \\(n)\" }"], ["items", "list"],
-             ["f0.swift:1: \\(items)", "f0.swift:1: \\(list)"]),
-            (["struct S {\n    init(\n        a: [Int] = Array(repeating: 0, count: 2),\n        b: [String: Int]\n    ) { _ = \"\\(a) \\(b)\" }\n}"],
-             ["a", "b"], ["f0.swift:5: \\(a)", "f0.swift:5: \\(b)"]),
-            (["let ids: [Int] = []\n_ = \"\\( ids )\""], ["ids"], ["f0.swift:2: \\(ids)"]),
-            // Dotted use: the member may be declared in another file. The second is the pre-fix `RunCommand` line verbatim.
-            (["struct S { var deltas: [Int] = []; var text: String { \"\\(self.deltas)\" } }"], ["deltas"], ["f0.swift:1: \\(self.deltas)"]),
-            (["public struct PreflightRecord { public var reasons: [String] }",
-              "print(\"key: \\(metadata.environmentKey)  quiet: \\(preflight.quiet)\" + (preflight.reasons.isEmpty ? \"\" : \"  reasons: \\(preflight.reasons)\"))"],
-             ["reasons"], ["f1.swift:1: \\(preflight.reasons)"]),
-            // Rendering the elements, or any other operation on the name, is not a violation.
-            (["var notes: [String] = []\n_ = \"\\(notes.joined(separator: \"; \")) \\(notes.count) \\(notes[0]) \\(notes.first) \\(notes.map(\\.count)) \\(notes.isEmpty)\""],
-             ["notes"], []),
-            // A bare name resolves in its own file: a `String` named `raw` in one file is not the `[[Double]]` of another …
-            (["struct Series { var raw: [[Double]] }", "func parse(_ raw: String) -> String { \"bad: \\(raw)\" }"], ["raw"], []),
-            // … while a dotted `raw` still is.
-            (["struct Series { var raw: [[Double]] }", "func show(_ s: Series) -> String { \"\\(s.raw)\" }"], ["raw"], ["f1.swift:1: \\(s.raw)"]),
-            // Within one file, two declarations sharing a name are not told apart: both uses are flagged.
-            (["func a(_ values: [Int]) -> String { \"\\(values)\" }\nfunc b(_ values: Int) -> String { \"\\(values)\" }"], ["values"],
-             ["f0.swift:1: \\(values)", "f0.swift:2: \\(values)"]),
-            // Not recognised: generic spellings, inferred types, inline literals, call results, closure parameters, tuple
-            // elements, `inout`, subscript parameters, enum associated values.
-            (["let s: Set<String> = []\nlet g: Array<Int> = []\nlet inferred = [1, 2]\nlet t: (xs: [Int], n: Int) = ([], 0)\n"
-              + "func k(_ ys: inout [Int]) -> String { \"\\(ys)\" }\nlet c: ([Int]) -> String = { (zs: [Int]) in \"\\(zs)\" }\n"
-              + "_ = \"\\(s) \\(g) \\(inferred) \\([1, 2]) \\(f()) \\(t.xs)\"",
-              "struct Table { subscript(keys: [String]) -> String { \"\\(keys)\" } }\nenum E { case list(items: [Int]) }"], [], []),
-            // Comments are not scanned, for declarations or for uses.
-            (["// let hidden: [Int] = []\n/// \\(hidden)\nlet shown: [Int] = [] // trailing \\(shown)"], ["shown"], []),
-            (["let none: Int = 0\n_ = \"\\(none)\""], [], [])
-        ]
-        for (sources, names, findings) in cases {
-            let scan = Self.scan(sources)
-            XCTAssertEqual(scan.names, names, "collection names in: \(sources)")
-            XCTAssertEqual(scan.findings, findings, "findings in: \(sources)")
+        for row in Self.fixtures {
+            let scan = Self.scan(row.sources)
+            XCTAssertEqual(scan.names, row.names, "\(row.label): collection names in: \(row.sources)")
+            XCTAssertEqual(scan.findings, row.findings, "\(row.label): findings in: \(row.sources)")
         }
+    }
+
+    /// The doc comment above cannot claim a pin that does not exist: its `[pins: …]` labels are exactly the fixture rows.
+    func testContractCitesExactlyTheFixtureRows() throws {
+        try FixtureCitations.assertContractCitesExactlyTheFixtureRows(ofHarnessFile: "CollectionInterpolationLintTests.swift",
+                                                                       fixtureLabels: Self.fixtures.map(\.label))
     }
 
     func testNoCollectionIsInterpolatedWhole() throws {
@@ -3907,6 +3960,119 @@ final class CollectionInterpolationLintTests: XCTestCase {
         XCTAssertTrue(declaredAnywhere.isSuperset(of: known), "the scanner no longer sees \(known.subtracting(declaredAnywhere).sorted())")
         let violations = Self.findings(in: files)
         XCTAssertEqual(violations, [], "a collection interpolated whole prints its debug literal; render its elements:\n" + violations.joined(separator: "\n"))
+    }
+}
+```
+
+- [ ] **Step 6c: `Tests/VectorAccelerateTests/Harness/FixtureCitations.swift`** (added by Task 17's fix round 1)
+
+Shared by the two scanner lints above. Their doc comments are contracts, and a contract bullet that claims a fixture pin which does not exist was found three times (the `actor` shape in the error-description lint; then two shapes and then two more in the collection-interpolation lint). This closes the class: every `- ` bullet of a lint's leading doc comment ends in `[pins: label-a, label-b]` naming the fixture rows that exercise it (or exactly `[pins: none — <why>]`), every fixture row carries a unique label, and each lint's `testContractCitesExactlyTheFixtureRows` reads its own source and asserts the cited set equals the row set. The parsing lives here once; `FixtureCitationsTests` pins the `none` form and the bullet joining.
+
+```swift
+import Foundation
+import XCTest
+
+/// The pins contract of the scanner lints (`ErrorDescriptionLintTests`, `CollectionInterpolationLintTests`): every `- ` bullet
+/// of a lint's leading doc comment ends in `[pins: label-a, label-b]`, naming the rows of its fixture table that exercise the
+/// bullet, or in exactly `[pins: none — <why>]` when no fixture can. `assertContractCitesExactlyTheFixtureRows` reads the
+/// lint's own source and fails when a cited label has no row, a row is never cited, a bullet ends without a citation, or a
+/// citation is malformed — so a doc comment cannot claim a pin that does not exist. `FixtureCitationsTests` pins the parser.
+enum FixtureCitations {
+    struct Malformed: Error, CustomStringConvertible { var description: String }
+
+    /// A label: a lowercase letter, then lowercase letters and digits, groups joined by single hyphens (`actor-flagged`).
+    static func isLabel(_ text: String) -> Bool {
+        text.range(of: #"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"#, options: .regularExpression) != nil
+    }
+
+    /// The first run of `///` lines in `source`, with the `///` removed and nothing else changed (indentation is what tells a
+    /// bullet's continuation line from a new paragraph).
+    static func leadingDocComment(inSource source: String) -> [String] {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .drop { !$0.hasPrefix("///") }.prefix { $0.hasPrefix("///") }
+            .map { String($0.dropFirst(3)) }
+    }
+
+    /// The `- ` bullets of a leading doc comment, each joined with its continuation lines (indented by three or more spaces);
+    /// any other line ends the bullet.
+    static func contractBullets(inLeadingDocComment lines: [String]) -> [String] {
+        var bullets: [String] = []
+        var current: String?
+        for line in lines {
+            if line.hasPrefix(" - ") {
+                if let open = current { bullets.append(open) }
+                current = String(line.dropFirst(3))
+            } else if let open = current, line.hasPrefix("   ") {
+                current = open + " " + line.trimmingCharacters(in: .whitespaces)
+            } else {
+                if let open = current { bullets.append(open) }
+                current = nil
+            }
+        }
+        if let open = current { bullets.append(open) }
+        return bullets
+    }
+
+    /// The labels cited by every `[pins: …]` in `text`. `[pins: none — <why>]` with a non-empty why cites nothing; any other
+    /// content must be a comma-separated list of labels. Anything else throws `Malformed`.
+    static func citedLabels(in text: String) throws -> Set<String> {
+        let citation = try NSRegularExpression(pattern: #"\[pins: ([^\]]*)\]"#)
+        var labels: Set<String> = []
+        for match in citation.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let range = Range(match.range(at: 1), in: text) else { continue }
+            let body = String(text[range])
+            if body.hasPrefix("none — "), !body.dropFirst("none — ".count).trimmingCharacters(in: .whitespaces).isEmpty { continue }
+            if body.split(separator: " ").first == "none" || body.hasPrefix("none—") || body.hasPrefix("none-") {
+                throw Malformed(description: "the no-fixture form is exactly `[pins: none — <why>]`, got `[pins: \(body)]`")
+            }
+            for part in body.split(separator: ",", omittingEmptySubsequences: false) {
+                let label = part.trimmingCharacters(in: .whitespaces)
+                guard isLabel(label) else { throw Malformed(description: "`\(label)` is not a label, in `[pins: \(body)]`") }
+                labels.insert(label)
+            }
+        }
+        return labels
+    }
+
+    /// Reads `Tests/VectorAccelerateTests/Harness/<fileName>`; every contract bullet must end with a citation, and the labels
+    /// cited anywhere in the leading doc comment must equal `fixtureLabels` as sets (which must be well-formed and unique).
+    static func assertContractCitesExactlyTheFixtureRows(ofHarnessFile fileName: String, fixtureLabels: [String],
+                                                         file: StaticString = #filePath, line: UInt = #line) throws {
+        let url = RepoPaths.root.appendingPathComponent("Tests/VectorAccelerateTests/Harness/\(fileName)")
+        let doc = leadingDocComment(inSource: try String(contentsOf: url, encoding: .utf8))
+        let bullets = contractBullets(inLeadingDocComment: doc)
+        XCTAssertFalse(bullets.isEmpty, "\(fileName): no `- ` bullet in the leading doc comment", file: file, line: line)
+        for bullet in bullets where bullet.range(of: #"\[pins: [^\]]*\][;.]?$"#, options: .regularExpression) == nil {
+            XCTFail("\(fileName): a contract bullet does not end with a [pins: …] citation: \(bullet.prefix(90))…", file: file, line: line)
+        }
+        let cited = try citedLabels(in: doc.joined(separator: " "))
+        for label in fixtureLabels where !isLabel(label) { XCTFail("\(fileName): fixture label `\(label)` is not a label", file: file, line: line) }
+        let rows = Set(fixtureLabels)
+        XCTAssertEqual(rows.count, fixtureLabels.count, "\(fileName): duplicate fixture labels", file: file, line: line)
+        XCTAssertEqual(cited.subtracting(rows).sorted(), [], "\(fileName): cited in the contract but no fixture row", file: file, line: line)
+        XCTAssertEqual(rows.subtracting(cited).sorted(), [], "\(fileName): fixture rows the contract never cites", file: file, line: line)
+    }
+}
+
+/// Pins the parser above on strings, so a change that loosens the `none` form or the bullet joining fails here.
+final class FixtureCitationsTests: XCTestCase {
+    func testCitedLabelsAcceptsListsAndTheNoneFormOnly() throws {
+        XCTAssertEqual(try FixtureCitations.citedLabels(in: "x [pins: actor-flagged, dict2-unseen] y [pins: a1]"), ["actor-flagged", "dict2-unseen", "a1"])
+        XCTAssertEqual(try FixtureCitations.citedLabels(in: "[pins: none — a fixture is one source string]"), [])
+        XCTAssertEqual(try FixtureCitations.citedLabels(in: "no citation here"), [])
+        for malformed in ["[pins: none]", "[pins: none —]", "[pins: none — ]", "[pins: none - why]", "[pins: None — why]", "[pins: none—why]",
+                          "[pins: Actor-Flagged]", "[pins: a, ]", "[pins: ]", "[pins: a b]", "[pins: a--b]", "[pins: -a]", "[pins: 1a]"] {
+            XCTAssertThrowsError(try FixtureCitations.citedLabels(in: malformed), malformed)
+        }
+    }
+
+    func testContractBulletsJoinContinuationLinesAndStopAtParagraphs() throws {
+        let source = "import XCTest\n\n/// Intro line.\n///\n/// Contract:\n/// - first bullet [pins: a]\n///   continued [pins: b];\n"
+            + "/// - second\n///   [pins: none — why].\n/// Trailing paragraph [pins: c].\nfinal class T {}\n/// - after the class [pins: d]\n"
+        let doc = FixtureCitations.leadingDocComment(inSource: source)
+        XCTAssertEqual(FixtureCitations.contractBullets(inLeadingDocComment: doc), ["first bullet [pins: a] continued [pins: b];", "second [pins: none — why]."])
+        // Citations anywhere in the leading block count; the block ends at the first non-`///` line.
+        XCTAssertEqual(try FixtureCitations.citedLabels(in: doc.joined(separator: " ")), ["a", "b", "c"])
     }
 }
 ```
@@ -4844,8 +5010,9 @@ The same class — a pointer from shipped source into this plan's task numbering
 Resync the plan's code blocks to the committed files, byte-identical (`cmp` on extracted blocks; say so in the report): Task 3 (`SeededRNG.swift` — remove the typealias lines from the block AND from the Step grep that names `typealias TestRNG`), Task 4 (the generator script appends the `TestDataGenerator` typealias — remove that append line and the grep expectation, so a re-run of the recipe reproduces the committed file), Task 8 (`ArtifactSchemaTests` fixture string), Task 10 (`PreflightProbe.swift`), Task 12 (`Compare.swift`, `CompareTests.swift`), Task 13 (`Runner.swift`, `ValidateCommand.swift`, `ErrorDescriptionLintTests.swift`), Task 14 (`GPUProbe.swift`), Task 15 (`RunCommand.swift`), whichever task's block last defines `main.swift` (the labels), and Task 0 — its `.swiftlint.yml` step text gains the two exclusions, its `Package.swift` header block becomes the committed `// Unreleased —` entry, and its Step 2 heading becomes `Add the Unreleased entry to the version-history header in Package.swift` (the Step's anchor line `// 0.6.0 — …` is the last tagged release and stays). The plan's **Architecture** paragraph ends `Deletions of dead benchmark code land at the end as a breaking change recorded under CHANGELOG \`[Unreleased]\`.` instead of naming a version. Afterwards `grep -n "0\.7\.0\|0\.8\.0" docs/superpowers/plans/2026-09-17-harness-sp0-foundation.md` prints only lines that quote text being replaced (this task's Step 8, Task 18 Step 7, the self-review notes); list them in the report.
 
 ```bash
-swift test --filter "ArtifactSchemaTests|CaseIDTests|ComparatorTests|CompareTests|ContentDigestGoldenTests|ErrorDescriptionLintTests|FingerprintTests|KitImportLintTests|PreflightInstrumentCheckTests|RecallTests|RunStoreTests|SeededRNGGoldenTests|StatsTests|VectorGeneratorGoldenTests|WarmupPolicyTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
-# the 15 harness classes: 107 tests, 1 skipped (the opt-in instrument check), 0 failures — the count at a46acb1; this task adds no test method.
+swift test --filter "ArtifactSchemaTests|CaseIDTests|CollectionInterpolationLintTests|ComparatorTests|CompareTests|ContentDigestGoldenTests|ErrorDescriptionLintTests|FingerprintTests|FixtureCitationsTests|KitImportLintTests|PreflightInstrumentCheckTests|RecallTests|RunStoreTests|SeededRNGGoldenTests|StatsTests|VectorGeneratorGoldenTests|WarmupPolicyTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
+# the 17 harness classes: 113 tests, 1 skipped (the opt-in instrument check), 0 failures — the 107 at a46acb1 plus the six this task's fix rounds
+# added (CollectionInterpolationLintTests 3, FixtureCitationsTests 2, ErrorDescriptionLintTests.testContractCitesExactlyTheFixtureRows 1).
 # (A bare `--filter "Harness"` matches none of them: it selects the legacy IndexBenchmarkHarnessTests only.)
 swift build -c release 2>&1 | grep -cE "warning:|error:"                          # expected: 0
 git add .swiftlint.yml Package.swift Sources/VectorTestKit Sources/VectorAccelerateBench Tests/VectorAccelerateTests/Harness \

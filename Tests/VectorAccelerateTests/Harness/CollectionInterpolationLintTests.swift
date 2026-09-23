@@ -6,27 +6,39 @@ import XCTest
 /// `Sources/VectorAccelerateBench`, no string-interpolation segment may consist of a bare or dotted reference to a name
 /// declared with an explicit array or dictionary type. Render the elements instead (`.joined(separator: "; ")`).
 ///
-/// Contract — what the scanner recognises; anything outside this list is not seen:
-/// - a collection name is the `name` in `let name: [` or `var name: [` (stored, computed and local), or in a parameter
-///   `[label ]name: [` of a `func` or `init` parameter clause (the clause is the parenthesised text after the name, balanced,
-///   so multi-line clauses and defaults with parentheses are read); the type must START with `[`, so `[T]`, `[[T]]`,
-///   `[K: V]` and `[T]?` count, while `Set<T>`, `Array<T>`, `Dictionary<K, V>`, `inout [T]` and every inferred type do not;
+/// Contract — what the scanner recognises; anything outside this list is not seen. Each bullet cites the rows of
+/// `testScannerFixtures` that pin it, and `testContractCitesExactlyTheFixtureRows` checks that every cited label is a row and
+/// every row is cited (`FixtureCitations`):
+/// - a collection name is the `name` in `let name: [` or `var name: [` (stored, computed and local) [pins: let-array-flagged,
+///   var-dict-flagged, self-dotted-flagged], or in a parameter `[label ]name: [` of a `func` or `init` declaration's parameter
+///   clause — the balanced parenthesised text after the name, so multi-line clauses and defaults with parentheses are read
+///   [pins: func-params-flagged, init-multiline-default-flagged]; a call-site `.init(` is not a declaration and contributes
+///   nothing [pins: call-site-init-unseen];
+/// - the type must START with `[`: `[T]`, `[[T]]`, `[K: V]` and `[T]?` count [pins: let-array-flagged, nested-optional-flagged,
+///   var-dict-flagged], while `Set<T>`, `Array<T>`, `Dictionary<K, V>`, `inout [T]`, every inferred type and every scalar do
+///   not [pins: set-array-generic-unseen, dict-generic-unseen, inout-unseen, inferred-unseen, scalar-unflagged];
 /// - a violation is a segment `\(chain)` whose whole content is an identifier chain — `reasons`, `preflight.reasons`,
-///   `self.a.b` — with a collection name as its LAST component. A chain that ends in a call, a subscript or another member
-///   (`.joined(…)`, `.map(…)`, `[0]`, `.count`, `.first`) is not one, nor is an inline literal (`\([a, b])`);
-/// - a bare chain resolves against the names declared in the SAME file (locals, parameters, properties of types declared
-///   there); a dotted chain's last component resolves against every `let`/`var` collection name in all scanned files, since a
-///   member may be declared anywhere. Within a file two declarations sharing a name are not told apart, so a scalar that
-///   shares its name with a collection declared in the same file is flagged too (rename one of them);
-/// - closure parameters, subscript parameters, enum associated values and tuple-type elements are not seen;
-/// - `//` comments are removed before matching; `/* */` blocks and string literals are scanned as code, and a `//` inside a
-///   string literal truncates that line.
-/// `testScannerFixtures` pins each shape named above; `testNoCollectionIsInterpolatedWhole` runs the scan on the real sources.
+///   `self.deltas`, `o.i.zs` — with a collection name as its LAST component; whitespace inside the parentheses is allowed
+///   [pins: let-array-flagged, prefix-runcommand-flagged, self-dotted-flagged, dotted-three-flagged, padded-segment-flagged].
+///   A chain that ends in a call, a subscript or another member (`.joined(…)`, `.map(…)`, `[0]`, `.count`, `.first`,
+///   `.isEmpty`) is not one, nor is an inline literal or a call result [pins: operations-unflagged, literal-call-unflagged];
+/// - a bare chain resolves against the names declared in the SAME file; a dotted chain's last component resolves against every
+///   `let`/`var` collection name in all scanned files, since a member may be declared anywhere [pins: bare-same-file-only,
+///   dotted-any-file-flagged]. Within a file two declarations sharing a name are not told apart, so a scalar that shares its
+///   name with a collection declared in the same file is flagged too (rename one of them) [pins: shared-name-both-flagged];
+/// - not seen: closure parameters, subscript parameters, enum associated values and tuple-type elements [pins:
+///   closure-param-unseen, subscript-param-unseen, enum-case-unseen, tuple-element-unseen]; the parameters of operator
+///   functions (`func == (`) and of functions whose generic clause nests angle brackets (`func g<T: P<U>>(`) [pins:
+///   operator-func-unseen, nested-generic-unseen];
+/// - `//` comments are removed before matching, for declarations and for uses [pins: comments-unseen]; `/* */` blocks are
+///   scanned as code [pins: block-comment-scanned]; string literals are scanned as code and a `//` inside one truncates that
+///   line, hiding what follows it [pins: string-slash-truncates].
 final class CollectionInterpolationLintTests: XCTestCase {
     /// Group 1: the name, in `let name: [` / `var name: [`.
     private static let declared = try! NSRegularExpression(pattern: #"\b(?:let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\["#)
-    /// Opens a `func` or `init` parameter clause; the clause ends at the parenthesis that balances this one.
-    private static let clauseHead = try! NSRegularExpression(pattern: #"\b(?:func\s+[A-Za-z_][A-Za-z0-9_]*|init[?!]?)\s*(?:<[^>]*>)?\s*\("#)
+    /// Opens a `func` or `init` declaration's parameter clause (an `init` preceded by `.` is a call); the clause ends at the
+    /// parenthesis that balances this one.
+    private static let clauseHead = try! NSRegularExpression(pattern: #"\b(?:func\s+[A-Za-z_][A-Za-z0-9_]*|(?<!\.)init[?!]?)\s*(?:<[^>]*>)?\s*\("#)
     /// Group 1: the name, in `[label ]name: [` at the start of a clause or after a comma.
     private static let parameter = try! NSRegularExpression(pattern: #"(?:^|,)\s*(?:[A-Za-z_][A-Za-z0-9_]*\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\["#)
     /// Group 1: the identifier chain in `\(chain)`, with optional whitespace inside the parentheses.
@@ -88,50 +100,67 @@ final class CollectionInterpolationLintTests: XCTestCase {
         return (Set(files.flatMap { collectionNames(in: $0.code) }), findings(in: files))
     }
 
+    /// The fixture rows, keyed by the labels the doc comment's `[pins: …]` citations name. `names` is the union of the
+    /// collection names found in the row's files; `findings` the violations, `f<n>.swift:<line>: \(chain)`.
+    static let fixtures: [(label: String, sources: [String], names: Set<String>, findings: [String])] = [
+        ("let-array-flagged", ["let reasons: [String] = []\nprint(\"reasons: \\(reasons)\")"], ["reasons"], ["f0.swift:2: \\(reasons)"]),
+        ("var-dict-flagged", ["var flags: [String: String] = [:]\n_ = \"\\(flags)\""], ["flags"], ["f0.swift:2: \\(flags)"]),
+        ("nested-optional-flagged", ["let raw: [[Double]] = []\nvar extra: [Int]? = nil\n_ = \"\\(raw) \\(extra)\""], ["raw", "extra"],
+         ["f0.swift:3: \\(raw)", "f0.swift:3: \\(extra)"]),
+        ("func-params-flagged", ["func f(_ items: [Int], with list: [Int], n: Int) -> String { \"\\(items) \\(list) \\(n)\" }"], ["items", "list"],
+         ["f0.swift:1: \\(items)", "f0.swift:1: \\(list)"]),
+        ("init-multiline-default-flagged",
+         ["struct S {\n    init(\n        a: [Int] = Array(repeating: 0, count: 2),\n        b: [String: Int]\n    ) { _ = \"\\(a) \\(b)\" }\n}"],
+         ["a", "b"], ["f0.swift:5: \\(a)", "f0.swift:5: \\(b)"]),
+        ("padded-segment-flagged", ["let ids: [Int] = []\n_ = \"\\( ids )\""], ["ids"], ["f0.swift:2: \\(ids)"]),
+        ("self-dotted-flagged", ["struct S { var deltas: [Int] = []; var text: String { \"\\(self.deltas)\" } }"], ["deltas"], ["f0.swift:1: \\(self.deltas)"]),
+        ("dotted-three-flagged", ["struct O { var i: I }\nstruct I { var zs: [Int] }", "func show(_ o: O) -> String { \"\\(o.i.zs)\" }"], ["zs"],
+         ["f1.swift:1: \\(o.i.zs)"]),
+        // The pre-fix `RunCommand` line verbatim, with the declaration in another file as in the real tree.
+        ("prefix-runcommand-flagged",
+         ["public struct PreflightRecord { public var reasons: [String] }",
+          "print(\"key: \\(metadata.environmentKey)  quiet: \\(preflight.quiet)\" + (preflight.reasons.isEmpty ? \"\" : \"  reasons: \\(preflight.reasons)\"))"],
+         ["reasons"], ["f1.swift:1: \\(preflight.reasons)"]),
+        ("operations-unflagged",
+         ["var notes: [String] = []\n_ = \"\\(notes.joined(separator: \"; \")) \\(notes.count) \\(notes[0]) \\(notes.first) \\(notes.map(\\.count)) \\(notes.isEmpty)\""],
+         ["notes"], []),
+        ("literal-call-unflagged", ["let xs: [Int] = []\n_ = \"\\([1, 2]) \\(f()) \\(xs.map { $0 })\""], ["xs"], []),
+        ("bare-same-file-only", ["struct Series { var raw: [[Double]] }", "func parse(_ raw: String) -> String { \"bad: \\(raw)\" }"], ["raw"], []),
+        ("dotted-any-file-flagged", ["struct Series { var raw: [[Double]] }", "func show(_ s: Series) -> String { \"\\(s.raw)\" }"], ["raw"],
+         ["f1.swift:1: \\(s.raw)"]),
+        ("shared-name-both-flagged", ["func a(_ values: [Int]) -> String { \"\\(values)\" }\nfunc b(_ values: Int) -> String { \"\\(values)\" }"], ["values"],
+         ["f0.swift:1: \\(values)", "f0.swift:2: \\(values)"]),
+        ("set-array-generic-unseen", ["let s: Set<String> = []\nlet g: Array<Int> = []\n_ = \"\\(s) \\(g)\""], [], []),
+        ("dict-generic-unseen", ["let d: Dictionary<String, Int> = [:]\n_ = \"\\(d)\""], [], []),
+        ("inferred-unseen", ["let inferred = [1, 2]\n_ = \"\\(inferred)\""], [], []),
+        ("scalar-unflagged", ["let none: Int = 0\n_ = \"\\(none)\""], [], []),
+        ("inout-unseen", ["func k(_ ys: inout [Int]) -> String { \"\\(ys)\" }"], [], []),
+        ("closure-param-unseen", ["let c: ([Int]) -> String = { (zs: [Int]) in \"\\(zs)\" }"], [], []),
+        ("subscript-param-unseen", ["struct Table { subscript(keys: [String]) -> String { \"\\(keys)\" } }"], [], []),
+        ("enum-case-unseen", ["enum E { case list(items: [Int]) }\n_ = \"\\(items)\""], [], []),
+        ("tuple-element-unseen", ["let t: (xs: [Int], n: Int) = ([], 0)\n_ = \"\\(t.xs)\""], [], []),
+        ("operator-func-unseen", ["func == (lhs: [Int], rhs: [Int]) -> Bool { \"\\(lhs)\" == \"\\(rhs)\" }"], [], []),
+        ("nested-generic-unseen", ["func g<T: P<U>>(xs: [T]) -> String { \"\\(xs)\" }"], [], []),
+        ("call-site-init-unseen", ["let made = Maker.init(items: [1, 2])\nself.init(items: [])\n_ = \"\\(items)\""], [], []),
+        ("comments-unseen", ["// let hidden: [Int] = []\n/// \\(hidden)\nlet shown: [Int] = [] // trailing \\(shown)"], ["shown"], []),
+        ("block-comment-scanned", ["/* let hidden: [Int] = [] */\n_ = \"\\(hidden)\""], ["hidden"], ["f0.swift:2: \\(hidden)"]),
+        ("string-slash-truncates", ["let urls: [String] = [\"http://x\"]; _ = \"\\(urls)\""], ["urls"], [])
+    ]
+
     /// Pins the scanner on fixture sources, so a pattern change that stops seeing a violation, or starts seeing a false one,
     /// fails here.
     func testScannerFixtures() {
-        let cases: [(sources: [String], names: Set<String>, findings: [String])] = [
-            // Recognised declaration shapes, bare use in the same file.
-            (["let reasons: [String] = []\nprint(\"reasons: \\(reasons)\")"], ["reasons"], ["f0.swift:2: \\(reasons)"]),
-            (["var flags: [String: String] = [:]\n_ = \"\\(flags)\""], ["flags"], ["f0.swift:2: \\(flags)"]),
-            (["let raw: [[Double]] = []\nvar extra: [Int]? = nil\n_ = \"\\(raw) \\(extra)\""], ["raw", "extra"],
-             ["f0.swift:3: \\(raw)", "f0.swift:3: \\(extra)"]),
-            (["func f(_ items: [Int], with list: [Int], n: Int) -> String { \"\\(items) \\(list) \\(n)\" }"], ["items", "list"],
-             ["f0.swift:1: \\(items)", "f0.swift:1: \\(list)"]),
-            (["struct S {\n    init(\n        a: [Int] = Array(repeating: 0, count: 2),\n        b: [String: Int]\n    ) { _ = \"\\(a) \\(b)\" }\n}"],
-             ["a", "b"], ["f0.swift:5: \\(a)", "f0.swift:5: \\(b)"]),
-            (["let ids: [Int] = []\n_ = \"\\( ids )\""], ["ids"], ["f0.swift:2: \\(ids)"]),
-            // Dotted use: the member may be declared in another file. The second is the pre-fix `RunCommand` line verbatim.
-            (["struct S { var deltas: [Int] = []; var text: String { \"\\(self.deltas)\" } }"], ["deltas"], ["f0.swift:1: \\(self.deltas)"]),
-            (["public struct PreflightRecord { public var reasons: [String] }",
-              "print(\"key: \\(metadata.environmentKey)  quiet: \\(preflight.quiet)\" + (preflight.reasons.isEmpty ? \"\" : \"  reasons: \\(preflight.reasons)\"))"],
-             ["reasons"], ["f1.swift:1: \\(preflight.reasons)"]),
-            // Rendering the elements, or any other operation on the name, is not a violation.
-            (["var notes: [String] = []\n_ = \"\\(notes.joined(separator: \"; \")) \\(notes.count) \\(notes[0]) \\(notes.first) \\(notes.map(\\.count)) \\(notes.isEmpty)\""],
-             ["notes"], []),
-            // A bare name resolves in its own file: a `String` named `raw` in one file is not the `[[Double]]` of another …
-            (["struct Series { var raw: [[Double]] }", "func parse(_ raw: String) -> String { \"bad: \\(raw)\" }"], ["raw"], []),
-            // … while a dotted `raw` still is.
-            (["struct Series { var raw: [[Double]] }", "func show(_ s: Series) -> String { \"\\(s.raw)\" }"], ["raw"], ["f1.swift:1: \\(s.raw)"]),
-            // Within one file, two declarations sharing a name are not told apart: both uses are flagged.
-            (["func a(_ values: [Int]) -> String { \"\\(values)\" }\nfunc b(_ values: Int) -> String { \"\\(values)\" }"], ["values"],
-             ["f0.swift:1: \\(values)", "f0.swift:2: \\(values)"]),
-            // Not recognised: generic spellings, inferred types, inline literals, call results, closure parameters, tuple
-            // elements, `inout`, subscript parameters, enum associated values.
-            (["let s: Set<String> = []\nlet g: Array<Int> = []\nlet inferred = [1, 2]\nlet t: (xs: [Int], n: Int) = ([], 0)\n"
-              + "func k(_ ys: inout [Int]) -> String { \"\\(ys)\" }\nlet c: ([Int]) -> String = { (zs: [Int]) in \"\\(zs)\" }\n"
-              + "_ = \"\\(s) \\(g) \\(inferred) \\([1, 2]) \\(f()) \\(t.xs)\"",
-              "struct Table { subscript(keys: [String]) -> String { \"\\(keys)\" } }\nenum E { case list(items: [Int]) }"], [], []),
-            // Comments are not scanned, for declarations or for uses.
-            (["// let hidden: [Int] = []\n/// \\(hidden)\nlet shown: [Int] = [] // trailing \\(shown)"], ["shown"], []),
-            (["let none: Int = 0\n_ = \"\\(none)\""], [], [])
-        ]
-        for (sources, names, findings) in cases {
-            let scan = Self.scan(sources)
-            XCTAssertEqual(scan.names, names, "collection names in: \(sources)")
-            XCTAssertEqual(scan.findings, findings, "findings in: \(sources)")
+        for row in Self.fixtures {
+            let scan = Self.scan(row.sources)
+            XCTAssertEqual(scan.names, row.names, "\(row.label): collection names in: \(row.sources)")
+            XCTAssertEqual(scan.findings, row.findings, "\(row.label): findings in: \(row.sources)")
         }
+    }
+
+    /// The doc comment above cannot claim a pin that does not exist: its `[pins: …]` labels are exactly the fixture rows.
+    func testContractCitesExactlyTheFixtureRows() throws {
+        try FixtureCitations.assertContractCitesExactlyTheFixtureRows(ofHarnessFile: "CollectionInterpolationLintTests.swift",
+                                                                       fixtureLabels: Self.fixtures.map(\.label))
     }
 
     func testNoCollectionIsInterpolatedWhole() throws {

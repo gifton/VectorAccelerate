@@ -226,8 +226,8 @@ percent:
 Reading: the floor of the copy-time distribution is the repeatable quantity. Among the estimators of 100 copies, the fast
 5th percentile is the most repeatable in the typical calm trial (median 1.08 % against 1.19 % for p02, 1.28 % for p10 and
 1.59 % for the minimum) and within 0.02 points of the best at the worst calm trial. More copies keep improving it — p05 of
-150 reads 0.92 % in the table, and the archived analysis beside the Task 15 report
-(`task-15-probe-characterization/round2/cpucand/raw2_calm.py`) has p05 of 200 at 0.84 % and p10 of 200 at 0.90 % — but
+150 reads 0.92 % in the table, and the archived analysis (`task-15-probe-characterization/round2/cpucand/raw2_calm.py`,
+untracked, archived beside the Task 15 report) has p05 of 200 at 0.84 % and p10 of 200 at 0.90 % — but
 each extra 50 copies adds about 0.23 s to every call (50 × ≈ 4.5 ms per 256 MiB copy, the settled rate above), twice per
 run, and p05 of 100 already sits under the 2.5 % instrument-check threshold in every calm trial (worst 1.76 %), so the
 count stops at 100. The minimum is an extreme order statistic and the median is the worst of all here. Fifty copies are
@@ -255,10 +255,11 @@ failed the instrument check once in three invocations (2.78 %) and was replaced 
 
 In the one not-quiet run of set A both probes dropped together (CPU 119.4 → 111.6 GB/s, GPU 340.0 → 324.9 GB/s) while
 another session was compiling. The GPU probe's drift reached 4.4–4.8 % in three of the twenty round-2 runs, all with
-another session's compiler or test runner active. Round 1, with the count-only warm-up, had a maximum of 1.30 % over its
-ten runs, but its background was never sampled, so this data does not separate the two things that changed between the
-rounds — the load and the time floor — and neither is established as the cause of the larger round-2 drifts. Whether the
-GPU probe holds under 5 % on a loaded machine is not established by this data.
+another session's compiler or test runner active. Round 1, with the count-only GPU warm-up, had a maximum of 1.30 % over
+its ten runs. Three things differ between the rounds and this data separates none of them: the GPU time floor, the CPU probe
+(original in round 1, fixed in round 2 — the `probes` column), and the background load, which round 1 never sampled and
+which is therefore unknown rather than known to differ. None of the three is established as the cause of the larger
+round-2 drifts. Whether the GPU probe holds under 5 % on a loaded machine is not established by this data.
 
 Opt-in instrument check (`VA_INSTRUMENT_CHECK=1 swift test --filter PreflightInstrumentCheckTests`), six invocations with
 the chosen estimator, none discarded, in order: 1.61 %, 1.08 %, 1.45 %, 0.48 % (pass), 4.87 % (fail; readings dipped to
