@@ -4345,13 +4345,13 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ### Task 17: Close the carried review findings, retire version strings, lint the harness files
 
-Every item below is a finding a task review or re-review carried in the SDD ledger as "fix before merge", a class-closing edit of a few lines, or a consequence of the owner's 2026-09-22 decision (no version numbers; break early). None needs design. They are one task because each is small, they touch overlapping files, and together they leave the tree ready for the deletions and the full gates in Task 18. The plan's code blocks for every file changed here are resynced in Step 10 so the plan stays the record.
+Every item below is a finding a task review or re-review carried in the SDD ledger as "fix before merge", a class-closing edit of a few lines, or a consequence of the owner's 2026-09-22 decision (no version numbers; break early). None needs design. They are one task because each is small, they touch overlapping files, and together they leave the tree ready for the deletions and the full gates in Task 18. The plan's code blocks for every file changed here are resynced in Step 11 so the plan stays the record.
 
 **Files:**
 - Modify (kit): `Sources/VectorTestKit/Compare.swift`, `Sources/VectorTestKit/PreflightProbe.swift`, `Sources/VectorTestKit/SeededRNG.swift`, `Sources/VectorTestKit/VectorGenerator.swift`
-- Modify (bench): `Sources/VectorAccelerateBench/Runner/Runner.swift`, `Sources/VectorAccelerateBench/Probe/GPUProbe.swift`, `Sources/VectorAccelerateBench/Commands/RunCommand.swift`, `Sources/VectorAccelerateBench/Commands/ValidateCommand.swift`
+- Modify (bench): `Sources/VectorAccelerateBench/Runner/Runner.swift`, `Sources/VectorAccelerateBench/Probe/GPUProbe.swift`, `Sources/VectorAccelerateBench/Commands/RunCommand.swift`, `Sources/VectorAccelerateBench/Commands/ValidateCommand.swift`, `Sources/VectorAccelerateBench/main.swift` (three comment labels)
 - Modify (tests): `Tests/VectorAccelerateTests/Harness/CompareTests.swift`, `Tests/VectorAccelerateTests/Harness/ErrorDescriptionLintTests.swift`, `Tests/VectorAccelerateTests/Harness/ArtifactSchemaTests.swift`, `Tests/VectorAccelerateTests/Harness/ComparatorTests.swift`, `Tests/VectorAccelerateTests/Harness/KitImportLintTests.swift` (only if lint names it)
-- Modify (config, docs): `.swiftlint.yml`, `Package.swift` (one header comment line), `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`, this plan (blocks of Tasks 3, 4, 8, 10, 12, 13, 14, 15 as named in Step 10)
+- Modify (config, docs): `.swiftlint.yml`, `Package.swift` (one header comment line), `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`, this plan (the Architecture paragraph, and blocks of Tasks 0, 3, 4, 8, 10, 12, 13, 14, 15 as named in Step 11)
 
 **Interfaces:**
 - Consumes: `Compare.compare(new:baseline:newKey:baselineKey:)`, `CompareResult.reasons`, `Runner.run(_:context:policy:)`, `BenchCase.identity` / `prepare(_:)`, `Arguments.validate(options:flags:operands:)`, `BenchError.usage`, `RepoPaths`.
@@ -4569,12 +4569,16 @@ swiftlint lint --quiet 2>&1 | grep -c "error:"    # record; expected 20 = the co
 
 Then the same wall-time claim in code: `Sources/VectorAccelerateBench/Probe/GPUProbe.swift`, the `copyGBps` doc comment's sentence "The ramp is a wall-time effect, so the count alone would not carry to a GPU that finishes 50 dispatches much sooner; hence the time floor." → the hedge wording of item 1. And the MSL comment on the kernel's `dst[gid] = …` line, which names "Task 18" (a plan-internal number inside shipped source): repoint it at the evidence file the acceptance task writes, `docs/superpowers/research/2026-09-17-sp0-m0-acceptance.md`, keeping every line of the MSL string ≤ 200 columns (split the comment across two lines if needed — Step 9's gate covers it).
 
+The same class — a pointer from shipped source into this plan's task numbering, which the 2026-09-22 renumbering already staled once — also appears as the `// Task 15` / `// Task 16` labels on the three dispatch lines of `Sources/VectorAccelerateBench/main.swift`: delete the labels (the called type names the command). The `Task 3 finding` / `Task 3 freeze` notes in `SeededRNG.swift`, `KitImportLintTests.swift` and the two golden files record where a decision came from and stay. (The two `blackHole` qualification comments that name the old Task 17 are deleted by Task 18 Step 1b.)
+
 - [ ] **Step 11: Plan sync, gates, commit**
 
-Resync the plan's code blocks to the committed files, byte-identical (`cmp` on extracted blocks; say so in the report): Task 3 (`SeededRNG.swift` — remove the typealias lines from the block AND from the Step grep that names `typealias TestRNG`), Task 4 (the generator script appends the `TestDataGenerator` typealias — remove that append line and the grep expectation, so a re-run of the recipe reproduces the committed file), Task 8 (`ArtifactSchemaTests` fixture string), Task 10 (`PreflightProbe.swift`), Task 12 (`Compare.swift`, `CompareTests.swift`), Task 13 (`Runner.swift`, `ValidateCommand.swift`, `ErrorDescriptionLintTests.swift`), Task 14 (`GPUProbe.swift`), Task 15 (`RunCommand.swift`). Task 0's `.swiftlint.yml` step text gains the two exclusions.
+Resync the plan's code blocks to the committed files, byte-identical (`cmp` on extracted blocks; say so in the report): Task 3 (`SeededRNG.swift` — remove the typealias lines from the block AND from the Step grep that names `typealias TestRNG`), Task 4 (the generator script appends the `TestDataGenerator` typealias — remove that append line and the grep expectation, so a re-run of the recipe reproduces the committed file), Task 8 (`ArtifactSchemaTests` fixture string), Task 10 (`PreflightProbe.swift`), Task 12 (`Compare.swift`, `CompareTests.swift`), Task 13 (`Runner.swift`, `ValidateCommand.swift`, `ErrorDescriptionLintTests.swift`), Task 14 (`GPUProbe.swift`), Task 15 (`RunCommand.swift`), whichever task's block last defines `main.swift` (the labels), and Task 0 — its `.swiftlint.yml` step text gains the two exclusions, its `Package.swift` header block becomes the committed `// Unreleased —` entry, and its Step 2 heading becomes `Add the Unreleased entry to the version-history header in Package.swift` (the Step's anchor line `// 0.6.0 — …` is the last tagged release and stays). The plan's **Architecture** paragraph ends `Deletions of dead benchmark code land at the end as a breaking change recorded under CHANGELOG \`[Unreleased]\`.` instead of naming a version. Afterwards `grep -n "0\.7\.0\|0\.8\.0" docs/superpowers/plans/2026-09-17-harness-sp0-foundation.md` prints only lines that quote text being replaced (this task's Step 8, Task 18 Step 7, the self-review notes); list them in the report.
 
 ```bash
-swift test --filter "Harness" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1    # all harness classes: 0 failures, 1 skip (the opt-in instrument check)
+swift test --filter "ArtifactSchemaTests|CaseIDTests|ComparatorTests|CompareTests|ContentDigestGoldenTests|ErrorDescriptionLintTests|FingerprintTests|KitImportLintTests|PreflightInstrumentCheckTests|RecallTests|RunStoreTests|SeededRNGGoldenTests|StatsTests|VectorGeneratorGoldenTests|WarmupPolicyTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
+# the 15 harness classes: 107 tests, 1 skipped (the opt-in instrument check), 0 failures — the count at a46acb1; this task adds no test method.
+# (A bare `--filter "Harness"` matches none of them: it selects the legacy IndexBenchmarkHarnessTests only.)
 swift build -c release 2>&1 | grep -cE "warning:|error:"                          # expected: 0
 git add .swiftlint.yml Package.swift Sources/VectorTestKit Sources/VectorAccelerateBench Tests/VectorAccelerateTests/Harness \
         docs/superpowers/research/2026-09-18-preflight-probe-characterization.md docs/superpowers/plans/2026-09-17-harness-sp0-foundation.md
@@ -4600,13 +4604,17 @@ MSG
 
 **Files:**
 - Delete: `Sources/VectorAccelerate/Benchmarking/BenchmarkFramework.swift`, `Sources/VectorAccelerate/Benchmarking/IndexBenchmarkHarness.swift`, `Sources/VectorAccelerate/Configuration/PerformanceMonitor.swift`, `Tests/VectorAccelerateTests/PerformanceBenchmarks.swift`, `Tests/VectorAccelerateTests/IndexBenchmarkHarnessTests.swift`
-- Modify: `Sources/VectorAccelerate/Index/Core/IndexAccelerationConfiguration.swift`, `Sources/VectorAccelerate/Kernels/Metal4/QuantizationStatisticsKernel.swift`, `Sources/VectorAccelerate/Kernels/Metal4/WarpOptimizedSelectionKernel.swift`, `Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift`, `Tests/VectorAccelerateTests/Harness/StatsTests.swift`, `Tests/VectorAccelerateTests/IndexBenchmarkRecallValidationTests.swift`, `Tests/VectorAccelerateTests/GPUCandidateBuilderValidationTests.swift`, `README.md`, `CHANGELOG.md`, `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`, this plan (Task 7 and Task 15 blocks)
+- Modify: `Package.swift` (header comment only), `Sources/VectorAccelerate/Index/Core/IndexAccelerationConfiguration.swift`, `Sources/VectorAccelerate/Kernels/Metal4/QuantizationStatisticsKernel.swift`, `Sources/VectorAccelerate/Kernels/Metal4/WarpOptimizedSelectionKernel.swift`, `Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift`, `Tests/VectorAccelerateTests/Harness/StatsTests.swift`, `Tests/VectorAccelerateTests/IndexBenchmarkRecallValidationTests.swift`, `Tests/VectorAccelerateTests/GPUCandidateBuilderValidationTests.swift`, `README.md`, `CHANGELOG.md`, `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`, this plan (Task 7 and Task 15 blocks)
 - Create: `Tests/VectorAccelerateTests/Utilities/RequireMetal.swift`, `Tests/VectorAccelerateTests/Harness/OrphanPublicTypeTests.swift`, `Tests/VectorAccelerateTests/Harness/OrphanAllowlist.txt`
 
 - [ ] **Step 1: Delete the dead code**
 
 ```bash
-git status --short Sources/VectorAccelerate/Kernels/Metal4   # expected: empty — if the parallel session left uncommitted changes here, stop and report
+# The parallel IVF session works in the MAIN checkout, not this worktree: check there, read-only (no index refresh, no lock).
+MAIN=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
+T18_PATHS="Sources/VectorAccelerate/Benchmarking Sources/VectorAccelerate/Configuration/PerformanceMonitor.swift Sources/VectorAccelerate/Index/Core/IndexAccelerationConfiguration.swift Sources/VectorAccelerate/Kernels/Metal4/QuantizationStatisticsKernel.swift Sources/VectorAccelerate/Kernels/Metal4/WarpOptimizedSelectionKernel.swift Tests/VectorAccelerateTests/PerformanceBenchmarks.swift Tests/VectorAccelerateTests/IndexBenchmarkHarnessTests.swift Tests/VectorAccelerateTests/IndexBenchmarkRecallValidationTests.swift Tests/VectorAccelerateTests/GPUCandidateBuilderValidationTests.swift README.md CHANGELOG.md Package.swift"
+git --no-optional-locks -C "$MAIN" status --short -- $T18_PATHS             # expected: empty
+git log --oneline 853052d..gifton/metal-hardening-checkpoint -- $T18_PATHS   # expected: empty — either non-empty: stop and report
 git rm -q Sources/VectorAccelerate/Benchmarking/BenchmarkFramework.swift Sources/VectorAccelerate/Benchmarking/IndexBenchmarkHarness.swift \
           Sources/VectorAccelerate/Configuration/PerformanceMonitor.swift \
           Tests/VectorAccelerateTests/PerformanceBenchmarks.swift Tests/VectorAccelerateTests/IndexBenchmarkHarnessTests.swift
@@ -4663,7 +4671,8 @@ import XCTest
 /// nowhere outside its own file (Sources + Tests) fails unless listed in OrphanAllowlist.txt with a justification.
 final class OrphanPublicTypeTests: XCTestCase {
     func testNoNewOrphanPublicTypes() throws {
-        let decl = try NSRegularExpression(pattern: #"^\s*(?:@[\w()., ]+\s+)*public\s+(?:final\s+)?(?:struct|class|enum|actor|protocol|typealias)\s+([A-Z][A-Za-z0-9_]*)"#, options: [.anchorsMatchLines])
+        let declPattern = #"^\s*(?:@[\w()., ]+\s+)*public\s+(?:final\s+)?(?:struct|class|enum|actor|protocol|typealias)\s+([A-Z][A-Za-z0-9_]*)"#
+        let decl = try NSRegularExpression(pattern: declPattern, options: [.anchorsMatchLines])
         let sources = RepoPaths.swiftFiles(under: "Sources/VectorAccelerate")
         let all = sources + RepoPaths.swiftFiles(under: "Sources/VectorAccelerateBench") + RepoPaths.swiftFiles(under: "Tests/VectorAccelerateTests")
         let texts = try all.map { ($0, try String(contentsOf: $0, encoding: .utf8)) }
@@ -4707,6 +4716,8 @@ Performance is measured by the benchmark harness (`swift run -c release VectorAc
 
 - Line 626 area: replace `swift run VectorAccelerateBenchmarks` with `swift run -c release VectorAccelerateBench run --mode quick`.
 - The line-7 `Version 0.6.0` banner is NOT changed: it names the last tagged release (Global Constraints, version).
+
+`Package.swift`: the version-history header's `// Unreleased —` entry (Task 17) lists removals; its `Removed:` bullet gains `QuantizationStatisticsKernel.benchmark() and WarpOptimizedSelectionKernel.benchmark()` (wrapped to the header's existing width). Nothing else in the file changes.
 
 `CHANGELOG.md`: insert after the intro paragraph, before `## [0.6.0]` (Keep-a-Changelog's `[Unreleased]` section; it accumulates everything that lands before the next tagged release and is renamed when that release is cut):
 
@@ -4752,7 +4763,8 @@ In `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`:
 - §5.3 (sampling): when a sample's warm-up ends at the policy maximum without the CoV rule being met, the runner appends a note to the record with the count. The policy itself is unchanged; its weakness on a steady slow plateau (it can stop at n = 3) is recorded in the research note and deferred to the owner.
 - §5.7 and §11 item 5: `--probe-slowdown 4` becomes `--probe-slowdown 64`. The Task 14 review measured the probe's slowdown against `loops` on the M3 Max as ≈1.0× for loops ≤ 6, 1.5× at 8, 2.8× at 32 and ≈8× at 64 (bandwidth headroom absorbs the first extra passes), so 4 would not cross the alert boundary; the acceptance evidence records the ratio actually measured.
 - Header "**Version impact:** VectorAccelerate **0.7.0** (breaking: …)" → "**Version impact:** unreleased. Breaking (removes the `Benchmarking/` public surface, the `VectorAccelerateBenchmarks` product, `IndexAccelerationConfiguration.logDecisions`, and two kernel `benchmark()` methods); no version number is assigned — the owner bundles everything that lands on main into the next tagged breaking release (decision 2026-09-22)." §3's manifest sentence "add a `0.7.0` entry to the version-history header" → "add an `Unreleased` entry"; §6's row "`[0.7.0] — Unreleased` entry" → "`[Unreleased]` entry".
-- §4.2 and §4.3: after each rename sentence add "No compatibility alias for the old name is kept (deprecated `TestRNG`/`TestDataGenerator` aliases existed briefly and were deleted: no user; the owner breaks early)."
+- §4.2 and §4.3: replace each alias sentence — §4.2's "`public typealias TestRNG = SeededRNG` is provided, marked `@available(*, deprecated, renamed: "SeededRNG")`, and removed in 0.8.0." and §4.3's "Deprecated typealias `TestDataGenerator`, removed in 0.8.0." — with "No compatibility alias for the old name is kept (deprecated `TestRNG`/`TestDataGenerator` aliases existed briefly and were deleted: no user; the owner breaks early)."
+- Then `grep -n "0\.7\.0\|0\.8\.0" docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md` → no output (Global Constraints, version).
 - §6 (deletions table): add a row `| \`QuantizationStatisticsKernel.benchmark()\` + nested \`BenchmarkResult\`, \`WarpOptimizedSelectionKernel.benchmark()\` | delete (no caller anywhere; the orphan ratchet would have flagged the struct) | no |`.
 - §8: "Preflight adds roughly one second per run (two copies of 256 MiB and 2 × 15 GPU dispatches)" → "Preflight adds roughly 1.7 s per run: two CPU probe calls of ≈0.7 s each (warm-up of at least 20 copies and 0.2 s, then 100 timed copies of 256 MiB) and two GPU probe calls of ≈0.16 s each (warm-up of at least 50 dispatches and 0.1 s, then 50 timed dispatches). The original 0.1 s instruments were not repeatable within the 5 % gate (§4.10); the cost bought repeatability. Evidence: `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`."
 - §5.2 (warm-up policy) and §12 (open items): add to §12 "**WarmupPolicy is refuted as a warm-up detector for GPU timing** (Task 15 characterization): on the post-idle slow plateau its CoV rule is satisfied at n = 3, and under compositor-cadence spikes it often never converges, so the runner reaches the maximum of 50 on every smoke sample (each such sample is noted on the record since Task 15). M0 baselines may carry ramp contamination, worst in smoke mode; they are versioned and re-capturable. Redesign — a time-floored warm-up is the candidate the data supports — is deferred to SP1 (timing), by the owner's scope." and a one-line pointer to it in §5.2.
@@ -4766,12 +4778,12 @@ swift test -c release 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
 swiftlint lint --quiet 2>&1 | grep "error:" | grep -E "Sources/VectorTestKit/|Sources/VectorAccelerateBench/|Tests/VectorAccelerateTests/Harness/" | wc -l   # expected: 0 (Task 17 Step 9 made it so; the deletions must not reintroduce one)
 swiftlint lint --quiet 2>&1 | grep -c "error:"    # record it; expected ≤ 20, the count at 853052d — every one in a file this plan never created (kernels, IVF, hardening tests); not this plan's to fix
 ```
-Expected: 0 failures in both configurations; 3 skips — the two IVF throughput placeholders, unchanged, plus `PreflightInstrumentCheckTests`, which skips unless `VA_INSTRUMENT_CHECK=1`. Record the exact counts for Task 19. Each full run takes 20+ minutes and holds the SwiftPM build lock — run them sequentially, never alongside another build.
+Expected: 0 failures in both configurations; 3 skips — the two IVF throughput placeholders, unchanged, plus `PreflightInstrumentCheckTests`, which skips unless `VA_INSTRUMENT_CHECK=1`. Record the exact counts for Task 19 and the commit whose tree they ran over (the one Step 9 creates); a review fix round that later changes `Sources`, `Tests` or `Package.swift` re-runs both suites and records the new commit. Each full run takes 20+ minutes and holds the SwiftPM build lock — run them sequentially, never alongside another build.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add -A Sources/VectorAccelerate Tests/VectorAccelerateTests README.md CHANGELOG.md docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md \
+git add -A Package.swift Sources/VectorAccelerate Tests/VectorAccelerateTests README.md CHANGELOG.md docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md \
         Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift docs/superpowers/plans/2026-09-17-harness-sp0-foundation.md
 git status --short     # nothing outside those paths; nothing from the parallel session
 git commit -q -F - <<'MSG'
@@ -4795,12 +4807,14 @@ MSG
 
 **Precondition — an idle machine.** Every timing measurement in Tasks 15–16 ran while another session built and tested in the shared checkout (load average 3–8), so the preflight quiet rate has never been measured under the conditions the spec assumes. Before step 0 the owner pauses the other session; if `uptime`'s 1-minute load average is above 1.5 with nothing of ours running, stop and report rather than measure. Never retry a run until it looks quiet; every run is recorded.
 
+**Test counts (spec §11 item 1) come from Task 18's full gates** when `git diff --quiet $T18 HEAD -- Sources Tests Package.swift` succeeds, `$T18` being the commit Task 18's report names for its last full-gate run: the counts then describe byte-identical code, and a second 45-minute pass would lengthen the owner's pause and heat the machine just before the idle measurements. If the diff is non-empty, run both suites BEFORE the idle window (they need no idle machine) and record them. Spec §11's order holds either way: item 1 precedes items 2–7.
+
 - [ ] **Step 1: Run the acceptance sequence (spec §11) on the M3 Max, AC power, idle desktop; paste every command and its tail output into the evidence file**
 
 ```bash
 uptime                                                                                              # 0. the machine must be idle: no other session building or testing (every Task 15/16 measurement ran under load 3–8 from a parallel session; record the load averages)
 [ -d .bench/baselines ] && mv .bench/baselines ".bench/baselines.pre-m0.$(date +%s)"                # 0b. start from an empty baseline store (Task 16's exercise left version 1 + approved from a smoke, dirty-tree artifact); moved aside, not deleted
-swift test 2>&1 | grep -E "Executed [0-9]+ test" | tail -1;  swift test -c release 2>&1 | grep -E "Executed [0-9]+ test" | tail -1                                   # 1. counts
+git diff --quiet "$T18" HEAD -- Sources Tests Package.swift && echo "counts: Task 18 gates at $T18 apply"   # 1. counts (see above); non-empty diff → both suites were run before step 0
 VA_INSTRUMENT_CHECK=1 swift test --filter PreflightInstrumentCheckTests 2>&1 | grep -E "VA_INSTRUMENT_CHECK|Executed [0-9]+ test" | sort -u   # 1b. opt-in CPU-probe instrument check: ten readings span < 2.5 % (record the readings; a failure means the instrument or the machine moved)
 swift build -c release 2>&1 | tail -1                                                               # 1c. warm the release binary so the loop below measures runs, not builds
 for i in 1 2 3 4 5 6 7 8 9 10; do .build/release/VectorAccelerateBench run --mode smoke >/dev/null 2>&1; A=$(ls -t .bench/runs/*/*.json | head -1); python3 -c "import json; p=json.load(open('$A'))['metadata']['preflight']; print($i, p['cpuCopyGBps'], p.get('gpuCopyGBps'), p['driftPercent'], p['quiet'], p['reasons'])"; done   # 1d. quiet rate on the idle machine: ten consecutive smoke runs, every row kept
