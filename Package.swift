@@ -13,7 +13,7 @@
 // There is NO backwards compatibility with older OS versions.
 // For Metal 3 support, use VectorAccelerate 0.2.x or earlier.
 //
-// 0.7.0 — Benchmark harness foundation (SP0) + dead-code removal (BREAKING):
+// Unreleased — Benchmark harness foundation (SP0) + dead-code removal (BREAKING; lands in the next tagged release, unnumbered until then):
 //   - Added: VectorTestKit (generic seeded RNG, generators, digest, comparator, recall, stats,
 //     artifact schema v1, host fingerprint, preflight, run store, compare) — not a product
 //   - Added: VectorAccelerateBench executable (run / baseline capture / compare / validate-artifact)

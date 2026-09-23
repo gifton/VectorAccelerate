@@ -527,7 +527,3 @@ public struct DatasetStatistics {
         """
     }
 }
-
-/// Pre-0.7.0 name. Removed in 0.8.0.
-@available(*, deprecated, renamed: "VectorGenerator")
-public typealias TestDataGenerator = VectorGenerator

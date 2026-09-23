@@ -16,6 +16,7 @@ public enum PreflightProbe {
     /// machine not being quiet, which the gate exists to report. Explicit, unverified contract on any other machine;
     /// exercised only by the opt-in `PreflightInstrumentCheckTests`.
     public static func cpuCopyGBps(bytes: Int = 268_435_456, repeats: Int = 100, warmupRepeats: Int = 20, warmupSeconds: Double = 0.2) -> Double {
+        precondition(warmupSeconds.isFinite && warmupSeconds >= 0, "warmupSeconds must be finite and non-negative")
         precondition(bytes > 0, "cpuCopyGBps needs at least one byte")
         let src = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 16_384)
         let dst = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 16_384)

@@ -77,15 +77,21 @@ final class CompareTests: XCTestCase {
     }
 
     func testNonMeasuredNewRecordIsIncomparable() {
+        // A non-measured record carries no series, so every kind the baseline carries is present on the baseline side only and
+        // that skip reason is the explanation; the status line is reserved for no kind on either side (nothing was dropped).
+        let oneSided = "timing.wall not compared: present on the baseline side only"
         for status in [CaseStatus.failed, .unavailable] {
             let r = Compare.compare(new: nonMeasured(status), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: key)
             XCTAssertEqual(r.status, .incomparable, status.rawValue); XCTAssertTrue(r.deltas.isEmpty, status.rawValue)
-            XCTAssertEqual(r.reasons, ["no comparable timing kinds (new status \(status.rawValue), baseline status measured)"])
+            XCTAssertEqual(r.reasons, [oneSided], status.rawValue)
         }
-        // A correctness failure on such a record still wins over incomparable.
+        let neither = Compare.compare(new: nonMeasured(.failed), baseline: nonMeasured(.unavailable), newKey: key, baselineKey: key)
+        XCTAssertEqual(neither.status, .incomparable); XCTAssertTrue(neither.deltas.isEmpty)
+        XCTAssertEqual(neither.reasons, ["no comparable timing kinds (new status failed, baseline status unavailable)"])
+        // A correctness failure on such a record still wins over incomparable, and the skip reason is kept.
         let failed = Compare.compare(new: nonMeasured(.failed, correctness: .fail), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: key)
         XCTAssertEqual(failed.status, .correctnessFailed)
-        XCTAssertTrue(failed.reasons.contains { $0.hasPrefix("no comparable timing kinds") }, "\(failed.reasons)")
+        XCTAssertEqual(failed.reasons, ["correctness failed", oneSided])
     }
 
     func testZeroMedianBaselineIsIncomparable() {
@@ -217,10 +223,20 @@ final class CompareTests: XCTestCase {
         let failed = Compare.compare(new: wallZero, baseline: base, newKey: key, baselineKey: key)
         XCTAssertEqual(failed.status, .correctnessFailed); XCTAssertEqual(failed.deltas.map(\.kind), [.commandBuffer])
         XCTAssertEqual(failed.reasons, ["correctness failed", "timing.wall not compared: new median 0.0 is not a positive finite number"])
-        // A kind present on one side only is still simply not compared, without a reason.
+        // A kind present on one side only is the fourth skip condition: `Runner` omits a declared GPU kind whose samples came
+        // back in the wrong shape, so a broken GPU timer can appear as an absent series, not only as a zero median.
         let oneSided = Compare.compare(new: pair(wall: [200, 200, 200], gpu: [0, 0, 0]), baseline: record(wall: [100, 100, 100]),
                                        newKey: key, baselineKey: key)
-        XCTAssertEqual(oneSided.status, .alertSlower); XCTAssertEqual(oneSided.reasons, [])
+        XCTAssertEqual(oneSided.status, .alertSlower); XCTAssertEqual(oneSided.deltas.map(\.kind), [.wall])
+        XCTAssertEqual(oneSided.reasons, ["timing.commandBuffer not compared: present on the new side only"])
+        let otherSide = Compare.compare(new: record(wall: [200, 200, 200]), baseline: pair(wall: [100, 100, 100]),
+                                        newKey: key, baselineKey: key)
+        XCTAssertEqual(otherSide.status, .alertSlower); XCTAssertEqual(otherSide.deltas.map(\.kind), [.wall])
+        XCTAssertEqual(otherSide.reasons, ["timing.commandBuffer not compared: present on the baseline side only"])
+        // Absent on both sides is nothing to compare, not a drop: no reason.
+        let neither = Compare.compare(new: record(wall: [100, 100, 100]), baseline: record(wall: [100, 100, 100]),
+                                      newKey: key, baselineKey: key)
+        XCTAssertEqual(neither.status, .ok); XCTAssertEqual(neither.reasons, [])
 
         // The reason is visible in every format when the status is ok or an alert, not only when it is incomparable.
         for result in [okWithReason, slowerNewSide] {

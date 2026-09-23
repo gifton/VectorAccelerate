@@ -11,7 +11,7 @@ final class ArtifactSchemaTests: XCTestCase {
                            timing: Timing(wall: series, commandBuffer: nil, encoder: nil),
                            correctness: Correctness(status: .pass, comparator: "memcmp", tolerance: nil, maxAbsError: nil, maxRelError: nil, recall: nil, recallPolicy: nil, notes: []),
                            resources: nil, notes: [])
-        let md = Metadata(packageVersion: "0.7.0", gitSHA: "deadbeef", gitDirty: false, date: "2026-09-17T00:00:00Z",
+        let md = Metadata(packageVersion: "unreleased", gitSHA: "deadbeef", gitDirty: false, date: "2026-09-17T00:00:00Z",
                           os: "os26.5.2", osBuild: "25F84", arch: "arm64", cpuCores: 16, performanceCores: 12, efficiencyCores: 4,
                           memoryBytes: 1, deviceModel: "Apple M3 Max", modelIdentifier: "Mac15,9", hostname: "h",
                           swiftVersion: "6.3.3", buildConfiguration: "release", deviceTag: "arm64-os26.5.2-h",

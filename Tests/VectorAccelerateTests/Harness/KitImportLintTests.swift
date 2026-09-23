@@ -57,26 +57,26 @@ final class KitImportLintTests: XCTestCase {
 
     /// Pins the classifier on fixture lines so a pattern change that reopens a bypass fails here, not in review.
     func testClassifierFixtures() {
-        typealias S = ImportStatement
-        let cases: [(line: String, expected: S?)] = [
-            ("import Foundation",                      S(module: "Foundation", testable: false)),
-            ("    import Darwin",                      S(module: "Darwin", testable: false)),
-            ("\timport CryptoKit",                     S(module: "CryptoKit", testable: false)),
+        typealias Stmt = ImportStatement
+        let cases: [(line: String, expected: Stmt?)] = [
+            ("import Foundation",                      Stmt(module: "Foundation", testable: false)),
+            ("    import Darwin",                      Stmt(module: "Darwin", testable: false)),
+            ("\timport CryptoKit",                     Stmt(module: "CryptoKit", testable: false)),
             ("// import Metal",                        nil),
             ("/* import Metal */",                     nil),
-            ("@testable import Foundation",            S(module: "Foundation", testable: true)),
-            ("@preconcurrency import XCTest",          S(module: "XCTest", testable: false)),
-            ("@_exported import Metal",                S(module: "Metal", testable: false)),
-            ("@_implementationOnly import Metal",      S(module: "Metal", testable: false)),
-            ("@_spi(Internal) import Metal",           S(module: "Metal", testable: false)),
-            ("@preconcurrency @testable import Metal", S(module: "Metal", testable: true)),
-            ("@testable @preconcurrency import Metal", S(module: "Metal", testable: true)),
-            ("private import Metal",                   S(module: "Metal", testable: false)),
-            ("package import Metal",                   S(module: "Metal", testable: false)),
-            ("@_exported public import Metal",         S(module: "Metal", testable: false)),
-            ("import struct Foundation.Data",          S(module: "Foundation", testable: false)),
-            ("import func Darwin.sqrt",                S(module: "Darwin", testable: false)),
-            ("import Foundation.NSData",               S(module: "Foundation", testable: false)),
+            ("@testable import Foundation",            Stmt(module: "Foundation", testable: true)),
+            ("@preconcurrency import XCTest",          Stmt(module: "XCTest", testable: false)),
+            ("@_exported import Metal",                Stmt(module: "Metal", testable: false)),
+            ("@_implementationOnly import Metal",      Stmt(module: "Metal", testable: false)),
+            ("@_spi(Internal) import Metal",           Stmt(module: "Metal", testable: false)),
+            ("@preconcurrency @testable import Metal", Stmt(module: "Metal", testable: true)),
+            ("@testable @preconcurrency import Metal", Stmt(module: "Metal", testable: true)),
+            ("private import Metal",                   Stmt(module: "Metal", testable: false)),
+            ("package import Metal",                   Stmt(module: "Metal", testable: false)),
+            ("@_exported public import Metal",         Stmt(module: "Metal", testable: false)),
+            ("import struct Foundation.Data",          Stmt(module: "Foundation", testable: false)),
+            ("import func Darwin.sqrt",                Stmt(module: "Darwin", testable: false)),
+            ("import Foundation.NSData",               Stmt(module: "Foundation", testable: false)),
             ("importantValue = 1",                     nil),
         ]
         for (line, expected) in cases {
@@ -85,7 +85,7 @@ final class KitImportLintTests: XCTestCase {
             XCTAssertEqual(Self.imports(in: "// header\n\(line)\nlet x = 0\n"), expected.map { [$0] } ?? [], "embedded: \(line)")
         }
         // An attribute on its own line still belongs to the import that follows it.
-        XCTAssertEqual(Self.imports(in: "@testable\nimport Foundation\n"), [S(module: "Foundation", testable: true)])
+        XCTAssertEqual(Self.imports(in: "@testable\nimport Foundation\n"), [Stmt(module: "Foundation", testable: true)])
     }
 
     // MARK: - Build-configuration-invariant transcendentals

@@ -151,10 +151,12 @@ followed by a 41-dispatch ramp would put 38 ramp samples among the 50. The runne
 and has the same weakness; it now notes on the record when a warm-up ends at the policy maximum without the CoV rule met.
 
 **Chosen:** warm-up until both 50 dispatches and 0.1 s of wall time have passed, then the median of 50. Fifty covers the
-longest ramp seen (41); the time floor (1.8 × the longest ramp's 55.5 ms) is what carries to a GPU that finishes 50
-dispatches sooner, since the ramp is a wall-time effect; and a median of 50 stays on the settled level while fewer than 25
-of its samples are slow. Cost of one `copyGBps()` call, measured in the bench executable: 19.8–39.7 ms originally,
-118.9–127.6 ms with the count-only warm-up, 156.7–161.4 ms with the time floor.
+longest ramp seen (41). The time floor (1.8 × the longest ramp's 55.5 ms) is a hedge, not a finding: no series here varied
+the dispatch duration, so whether the ramp is bound by dispatch count or by wall time is not established (see "What is not
+established"). If it is time-bound, the floor is what carries to a GPU that finishes 50 dispatches sooner; if it is
+count-bound, the floor costs at most ≈ 0.1 s per call and changes nothing else. A median of 50 stays on the settled level
+while fewer than 25 of its samples are slow. Cost of one `copyGBps()` call, measured in the bench executable: 19.8–39.7 ms
+originally, 118.9–127.6 ms with the count-only warm-up, 156.7–161.4 ms with the time floor.
 
 ## CPU copy probe
 
@@ -221,12 +223,18 @@ percent:
 | median of 100 | 1.96 / 3.57 / 1 of 10 | 3.14 | 6.39 / 11.91 / 6 of 7 |
 | median of 150 | 1.58 / 3.39 / 2 of 10 | 3.19 | 6.05 / 11.62 / 6 of 7 |
 
-Reading: the floor of the copy-time distribution is the repeatable quantity. The fast 5th percentile of 100 is the most
-repeatable in the typical calm trial and within 0.02 points of the best at the worst calm trial; the minimum is an extreme
-order statistic and the median is the worst of all here. Fifty copies are too few for any of them. While another session
-compiles, every estimator spreads 2–12 %: that is the machine not being quiet, which the gate exists to report, not an
-instrument defect. In the first, 8-trial set the last three trials sat about 3–8 % below the first five for every estimator,
-including the minimum (124–125 GB/s dropping to 118–123), for about 50 s; its background was not sampled.
+Reading: the floor of the copy-time distribution is the repeatable quantity. Among the estimators of 100 copies, the fast
+5th percentile is the most repeatable in the typical calm trial (median 1.08 % against 1.19 % for p02, 1.28 % for p10 and
+1.59 % for the minimum) and within 0.02 points of the best at the worst calm trial. More copies keep improving it — p05 of
+150 reads 0.92 % in the table, and the archived analysis beside the Task 15 report
+(`task-15-probe-characterization/round2/cpucand/raw2_calm.py`) has p05 of 200 at 0.84 % and p10 of 200 at 0.90 % — but
+each extra 50 copies adds about 0.23 s to every call (50 × ≈ 4.5 ms per 256 MiB copy, the settled rate above), twice per
+run, and p05 of 100 already sits under the 2.5 % instrument-check threshold in every calm trial (worst 1.76 %), so the
+count stops at 100. The minimum is an extreme order statistic and the median is the worst of all here. Fifty copies are
+too few for any of them. While another session compiles, every estimator spreads 2–12 %: that is the machine not being
+quiet, which the gate exists to report, not an instrument defect. In the first, 8-trial set the last three trials sat
+about 3–8 % below the first five for every estimator, including the minimum (124–125 GB/s dropping to 118–123), for about
+50 s; its background was not sampled.
 
 **Chosen:** warm-up until both 20 copies and 0.2 s of wall time have passed (1.8 × the longest ramp's 111.5 ms), then the
 fast 5th percentile (`Stats.percentile(sorted:p: 0.05)`) of 100 timed copies. The first attempt used the 10th percentile; it
@@ -242,21 +250,27 @@ failed the instrument check once in three invocations (2.78 %) and was replaced 
 | original (5 warm-up + 10; best of 3), 7 runs | both original | 2 of 7 | about 0.1, 0.6, 1.1, 7.4 and 0.2 in the five runs whose CPU readings were kept | 4.5, 8.9, 10.5, 25.70, 7.66, 63.86 and one quiet run whose value was not kept | not sampled |
 | round 1, 10 runs | GPU 50 + 50 by count; CPU original | 10 of 10 | 1.32–2.81 | 0.11–1.30 | not sampled |
 | reviewer's run | same | not quiet | 8.4 (122.09 → 111.85) | 0.003 (350.07 → 350.08) | not sampled |
-| round 2 set A, 10 runs | both fixed | 9 of 10 | 0.01–1.28, and 6.47 in run 10 | 0.40–4.70; 4.43 in run 10 | another session's `swift-frontend` at ≥ 60 % CPU in all ten runs, `xctest` in five |
+| round 2 set A, 10 runs | both fixed | 9 of 10 | 0.01–1.28, and 6.47 in run 10 | 0.40–4.70; 4.43 in run 10 | another session's `swift-frontend` at ≥ 60 % CPU in all ten runs, `xctest` in six (runs 03–08) |
 | round 2 set B, 10 runs | both fixed | 10 of 10 | 0.11–0.98 | 0.10–4.81 | none or a desktop app in runs 1, 9, 10; `swift-frontend` / `xctest` in runs 2–8 |
 
 In the one not-quiet run of set A both probes dropped together (CPU 119.4 → 111.6 GB/s, GPU 340.0 → 324.9 GB/s) while
 another session was compiling. The GPU probe's drift reached 4.4–4.8 % in three of the twenty round-2 runs, all with
-another session's compiler or test runner active; with the count-only warm-up and no such process sampled it had stayed
-under 1.30 %. Whether the GPU probe holds under 5 % on a loaded machine is not established by this data.
+another session's compiler or test runner active. Round 1, with the count-only warm-up, had a maximum of 1.30 % over its
+ten runs, but its background was never sampled, so this data does not separate the two things that changed between the
+rounds — the load and the time floor — and neither is established as the cause of the larger round-2 drifts. Whether the
+GPU probe holds under 5 % on a loaded machine is not established by this data.
 
-Opt-in instrument check (`VA_INSTRUMENT_CHECK=1 swift test --filter PreflightInstrumentCheckTests`), five invocations with
-the chosen estimator, all while another session's `swift-frontend` was at ≥ 60 % CPU in most samples: 1.61 %, 1.08 %,
-1.45 %, 0.48 % (pass) and 4.87 % (fail; readings dipped to 116.2 and 118.5 GB/s against ≈ 121.5).
+Opt-in instrument check (`VA_INSTRUMENT_CHECK=1 swift test --filter PreflightInstrumentCheckTests`), six invocations with
+the chosen estimator, none discarded, in order: 1.61 %, 1.08 %, 1.45 %, 0.48 % (pass), 4.87 % (fail; readings dipped to
+116.2 and 118.5 GB/s against ≈ 121.5) and 0.68 % (pass). The first five ran while another session's `swift-frontend` was at
+≥ 60 % CPU in most samples, the sixth with no other process above 60 %; four passes came under the same compiler load as
+the failure, so the load is not shown to be its cause.
 
 ## What is not established
 
 - Behaviour on any other machine, OS or GPU. Both warm-up floors are counts and wall times observed on one M3 Max.
+- Whether the GPU ramp is bound by dispatch count or by wall time. Every series used the same dispatch (128 MiB, `loops` 1),
+  so count and elapsed time rose together and nothing here tells them apart; the 0.1 s floor hedges the time-bound case.
 - Behaviour on an idle machine. None of this was measured on one.
 - The cause of the ramps. The shapes are consistent with GPU and CPU power-state or core-placement ramps after idle, and
   the 2 × CPU plateau is consistent with an efficiency core, but nothing here measures frequency or placement.

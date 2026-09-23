@@ -47,7 +47,8 @@ final class ComparatorTests: XCTestCase {
         XCTAssertEqual(Comparator.ulpDistance(-Double.greatestFiniteMagnitude, Double.greatestFiniteMagnitude), 18_437_736_874_454_810_622 as UInt64)
         XCTAssertEqual(Comparator.ulpDistance(-Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude), 4_278_190_078 as UInt64)
         XCTAssertEqual(Comparator.compare(1.0, 1.0.nextUp, tolerance: Tolerance(ulps: 1)), .withinTolerance)
-        XCTAssertEqual(Comparator.compare(1.0, 1.0.nextUp.nextUp, tolerance: Tolerance(ulps: 1)), .outOfTolerance(absError: 1.0.nextUp.nextUp - 1.0, relError: (1.0.nextUp.nextUp - 1.0) / 1.0.nextUp.nextUp))
+        XCTAssertEqual(Comparator.compare(1.0, 1.0.nextUp.nextUp, tolerance: Tolerance(ulps: 1)),
+                       .outOfTolerance(absError: 1.0.nextUp.nextUp - 1.0, relError: (1.0.nextUp.nextUp - 1.0) / 1.0.nextUp.nextUp))
     }
 
     func testFloatOverloadSharesTiersAndAppliesFloatULPs() {

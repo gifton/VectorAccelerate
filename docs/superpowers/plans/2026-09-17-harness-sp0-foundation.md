@@ -4,7 +4,7 @@
 
 **Goal:** Build the benchmark-harness substrate (generic `VectorTestKit` library, `VectorAccelerateBench` executable) and close one measurement loop: `run` writes a schema-valid artifact with full provenance for two cases, `baseline capture` stores it, `compare` reports a status per case, and a deliberately slowed probe is caught.
 
-**Architecture:** Two non-product SwiftPM targets. `VectorTestKit` is pure Swift (Foundation, Darwin, CryptoKit only) holding the seeded RNG, generators, digest, comparator, recall, statistics, artifact schema, host fingerprint, preflight, run store, warm-up policy, and compare logic — everything testable without a GPU. `VectorAccelerateBench` is a thin executable holding the CLI, the sampling loop, the Metal part of the fingerprint, the GPU probe, and the two M0 cases. Deletions of dead benchmark code land at the end as the 0.7.0 breaking change.
+**Architecture:** Two non-product SwiftPM targets. `VectorTestKit` is pure Swift (Foundation, Darwin, CryptoKit only) holding the seeded RNG, generators, digest, comparator, recall, statistics, artifact schema, host fingerprint, preflight, run store, warm-up policy, and compare logic — everything testable without a GPU. `VectorAccelerateBench` is a thin executable holding the CLI, the sampling loop, the Metal part of the fingerprint, the GPU probe, and the two M0 cases. Deletions of dead benchmark code land at the end as a breaking change recorded under CHANGELOG `[Unreleased]`.
 
 **Tech Stack:** Swift 6.2 tools, XCTest, Metal (executable only), IOKit (executable only), CryptoKit (kit, SHA-256), SwiftPM. No third-party dependencies.
 
@@ -172,12 +172,12 @@ Replace everything from `targets: [` to the closing `]` of the package with:
 
 Also delete the `.executable(name: "VectorAccelerateBenchmarks", targets: ["VectorAccelerateBenchmarks"]),` line from `products:`.
 
-- [ ] **Step 2: Add the 0.7.0 entry to the version-history header in `Package.swift`**
+- [ ] **Step 2: Add the Unreleased entry to the version-history header in `Package.swift`**
 
 Insert directly above the line `// 0.6.0 — Zero-copy SoA scoring + normalization parity + the promised removal:`:
 
 ```swift
-// 0.7.0 — Benchmark harness foundation (SP0) + dead-code removal (BREAKING):
+// Unreleased — Benchmark harness foundation (SP0) + dead-code removal (BREAKING; lands in the next tagged release, unnumbered until then):
 //   - Added: VectorTestKit (generic seeded RNG, generators, digest, comparator, recall, stats,
 //     artifact schema v1, host fingerprint, preflight, run store, compare) — not a product
 //   - Added: VectorAccelerateBench executable (run / baseline capture / compare / validate-artifact)
@@ -230,6 +230,13 @@ In `.swiftlint.yml`: remove the line `  - Sources/VectorAccelerateBenchmarks  # 
 
 ```yaml
     excluded: ".*(Tests|VectorAccelerateBench)/.*"
+```
+
+Add to the top-level `excluded:` list, after `  - Package.swift` (the two golden files that Tasks 3 and 4 generate are data, one literal array per line, up to 1,454 columns; Task 17 Step 9 added these):
+
+```yaml
+  - Tests/VectorAccelerateTests/Harness/SeededRNGGoldenTests.swift       # generated golden data: one literal array per line
+  - Tests/VectorAccelerateTests/Harness/VectorGeneratorGoldenTests.swift  # generated golden data
 ```
 
 - [ ] **Step 6: Build**
@@ -298,6 +305,9 @@ import XCTest
 /// (`import struct Foundation.Data` reports module `Foundation`). A commented-out line such as `// import Metal`
 /// does not match because `^\s*` must be followed directly by an attribute, an access-level modifier, or `import`.
 /// `testClassifierFixtures` pins each of these behaviours.
+///
+/// Build-configuration invariance (Task 3 finding): kit code never calls `sin`/`cos`/`tan` directly; see
+/// `testKitHasNoBareTrigCalls`.
 final class KitImportLintTests: XCTestCase {
     private static let allowed: Set<String> = ["Foundation", "Darwin", "CryptoKit"]
 
@@ -344,26 +354,26 @@ final class KitImportLintTests: XCTestCase {
 
     /// Pins the classifier on fixture lines so a pattern change that reopens a bypass fails here, not in review.
     func testClassifierFixtures() {
-        typealias S = ImportStatement
-        let cases: [(line: String, expected: S?)] = [
-            ("import Foundation",                      S(module: "Foundation", testable: false)),
-            ("    import Darwin",                      S(module: "Darwin", testable: false)),
-            ("\timport CryptoKit",                     S(module: "CryptoKit", testable: false)),
+        typealias Stmt = ImportStatement
+        let cases: [(line: String, expected: Stmt?)] = [
+            ("import Foundation",                      Stmt(module: "Foundation", testable: false)),
+            ("    import Darwin",                      Stmt(module: "Darwin", testable: false)),
+            ("\timport CryptoKit",                     Stmt(module: "CryptoKit", testable: false)),
             ("// import Metal",                        nil),
             ("/* import Metal */",                     nil),
-            ("@testable import Foundation",            S(module: "Foundation", testable: true)),
-            ("@preconcurrency import XCTest",          S(module: "XCTest", testable: false)),
-            ("@_exported import Metal",                S(module: "Metal", testable: false)),
-            ("@_implementationOnly import Metal",      S(module: "Metal", testable: false)),
-            ("@_spi(Internal) import Metal",           S(module: "Metal", testable: false)),
-            ("@preconcurrency @testable import Metal", S(module: "Metal", testable: true)),
-            ("@testable @preconcurrency import Metal", S(module: "Metal", testable: true)),
-            ("private import Metal",                   S(module: "Metal", testable: false)),
-            ("package import Metal",                   S(module: "Metal", testable: false)),
-            ("@_exported public import Metal",         S(module: "Metal", testable: false)),
-            ("import struct Foundation.Data",          S(module: "Foundation", testable: false)),
-            ("import func Darwin.sqrt",                S(module: "Darwin", testable: false)),
-            ("import Foundation.NSData",               S(module: "Foundation", testable: false)),
+            ("@testable import Foundation",            Stmt(module: "Foundation", testable: true)),
+            ("@preconcurrency import XCTest",          Stmt(module: "XCTest", testable: false)),
+            ("@_exported import Metal",                Stmt(module: "Metal", testable: false)),
+            ("@_implementationOnly import Metal",      Stmt(module: "Metal", testable: false)),
+            ("@_spi(Internal) import Metal",           Stmt(module: "Metal", testable: false)),
+            ("@preconcurrency @testable import Metal", Stmt(module: "Metal", testable: true)),
+            ("@testable @preconcurrency import Metal", Stmt(module: "Metal", testable: true)),
+            ("private import Metal",                   Stmt(module: "Metal", testable: false)),
+            ("package import Metal",                   Stmt(module: "Metal", testable: false)),
+            ("@_exported public import Metal",         Stmt(module: "Metal", testable: false)),
+            ("import struct Foundation.Data",          Stmt(module: "Foundation", testable: false)),
+            ("import func Darwin.sqrt",                Stmt(module: "Darwin", testable: false)),
+            ("import Foundation.NSData",               Stmt(module: "Foundation", testable: false)),
             ("importantValue = 1",                     nil),
         ]
         for (line, expected) in cases {
@@ -372,7 +382,69 @@ final class KitImportLintTests: XCTestCase {
             XCTAssertEqual(Self.imports(in: "// header\n\(line)\nlet x = 0\n"), expected.map { [$0] } ?? [], "embedded: \(line)")
         }
         // An attribute on its own line still belongs to the import that follows it.
-        XCTAssertEqual(Self.imports(in: "@testable\nimport Foundation\n"), [S(module: "Foundation", testable: true)])
+        XCTAssertEqual(Self.imports(in: "@testable\nimport Foundation\n"), [Stmt(module: "Foundation", testable: true)])
+    }
+
+    // MARK: - Build-configuration-invariant transcendentals
+
+    // Group 1: the trig function name. `\b` rejects `asin(` and, case-sensitively, `opaqueSin(`; `\s*\(` rejects `sinh(`/`cosine(`.
+    private static let bareTrigCall = try! NSRegularExpression(pattern: #"\b(sin|cos|sinf|cosf|tan|tanf)\s*\("#)
+
+    /// True when `line` contains a direct trig call. The `//` comment, if any, is removed first, so the wrapper's own doc
+    /// comment naming `sin(x)` does not match and a comment cannot exempt a call that precedes it on the same line. The
+    /// only exempt code is a wrapper definition: a line whose code part contains `func opaqueSin(` or `func opaqueCos(`,
+    /// which is why each wrapper's body must stay on its `func` line. Known limits, both fail closed or are absent from the
+    /// kit: `//` inside a string literal truncates that line's scan (no kit file has one); `/* */` blocks are scanned as code.
+    static func hasBareTrigCall(_ line: String) -> Bool {
+        var code = Substring(line)
+        if let comment = code.range(of: "//") { code = code[..<comment.lowerBound] }
+        if code.contains("func opaqueSin(") || code.contains("func opaqueCos(") { return false }
+        let s = String(code)
+        return bareTrigCall.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil
+    }
+
+    /// Build-configuration invariance (Task 3 finding; see "Build-configuration-invariant transcendentals" in
+    /// `SeededRNG.swift`): under `-O`, LLVM fuses an adjacent `sinf`/`cosf` pair inside one function into Darwin's
+    /// `__sincosf_stret`, which differs from standalone `sinf`/`cosf` by 1-2 ulp for some inputs, so a stream frozen at
+    /// `-Onone` would not reproduce at `-O` (6 of 384 frozen Gaussian values diverged before the fix). Rule: kit code never
+    /// calls `sin`/`cos`/`sinf`/`cosf`/`tan`/`tanf` directly; it goes through the `@inline(never)` `opaqueSin`/`opaqueCos`
+    /// wrappers in `SeededRNG.swift`, and any new transcendental that could fuse gets a sibling wrapper there. The debug
+    /// (`-Onone`) stream is the contract by ruling; `SeededRNGGoldenTests` and `VectorGeneratorGoldenTests` prove both
+    /// configurations match. Fixture lines pin the classifier first so a pattern change that reopens a bypass fails here.
+    func testKitHasNoBareTrigCalls() throws {
+        let cases: [(line: String, violation: Bool)] = [
+            ("let z = sin(x)",                                                 true),
+            ("let z = cos (x)",                                                true),
+            ("        let z0 = r * cos(theta)",                                true),
+            ("let z = Foundation.sin(x)",                                      true),
+            ("let z = sinf(x) + cosf(x)",                                      true),
+            ("let z = tan(x)",                                                 true),
+            ("let z = tanf(x)",                                                true),
+            ("let z = sin(x) // func opaqueSin( in a comment does not exempt", true),
+            ("let z = opaqueSin(x) + opaqueCos(x)",                            false),
+            ("let z = asin(x) + sinh(x) + cosine(x)",                          false),
+            ("let n = sqrt(x) + log(x) + pow(x, 2)",                           false),
+            ("/// `sin(x)` behind an inlining barrier",                        false),
+            ("// Box-Muller calls `sin` and `cos` on the same argument.",      false),
+            ("let z0 = r * opaqueCos(theta) // was cos(theta)",                false),
+            ("internal func opaqueSin(_ x: Float) -> Float { sin(x) }",        false),
+            ("internal func opaqueCos(_ x: Float) -> Float { cos(x) }",        false),
+        ]
+        for (line, violation) in cases {
+            XCTAssertEqual(Self.hasBareTrigCall(line), violation, "line: \(line)")
+        }
+
+        let files = RepoPaths.swiftFiles(under: "Sources/VectorTestKit")
+        XCTAssertFalse(files.isEmpty, "Sources/VectorTestKit must contain Swift files")
+        var violations: [String] = []
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated()
+            where Self.hasBareTrigCall(String(line)) {
+                violations.append("\(file.lastPathComponent):\(index + 1): bare trig call; route it through opaqueSin/opaqueCos: \(line.trimmingCharacters(in: .whitespaces))")
+            }
+        }
+        XCTAssertTrue(violations.isEmpty, violations.joined(separator: "\n"))
     }
 }
 ```
@@ -531,7 +603,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify (add `import VectorTestKit`, rename uses): `Tests/VectorAccelerateTests/BatchDistanceEngineTests.swift`, `Fixtures/IVF/IVFBenchmarkFixture.swift`, `Hardening/DifferentialKernelVsCPUTests.swift`, `Hardening/LatentReductionGeometryTests.swift`, `Hardening/RoutingProvenanceTests.swift`, `Hardening/SpecializedKernelStrideGuardTests.swift`, `Hardening/TreeReductionDispatchRobustnessTests.swift`, `IVFQualityAssessmentTests.swift`, `IVFValidationTests.swift`, `LogSumExpKernelTests.swift`, `NormalizationParityTests.swift`, `OperationsDispatchTests.swift`, `SoAFusedTopKTests.swift`, `TopKSelectionAdoptionTests.swift`, `Utilities/TestDataGenerator.swift`
 
 **Interfaces:**
-- Produces: `public struct SeededRNG: Sendable, RandomNumberGenerator` with `init(seed: UInt64, stream: UInt64 = 0, warmup: Int = 10)`, `next() -> UInt64`, `nextFloat01() -> Float`, `nextFloat(in:) -> Float`, `nextDouble() -> Double`, `nextGaussian(mean:stdDev:) -> Float`, `nextInt(bound:)`, `nextInt(in: Range<Int>)`, `nextInt(in: ClosedRange<Int>)`, `nextBool(probability:)`, `shuffle(_:)`, `shuffled(_:)`, `sample(_:k:)`; `public typealias TestRNG = SeededRNG` (deprecated).
+- Produces: `public struct SeededRNG: Sendable, RandomNumberGenerator` with `init(seed: UInt64, stream: UInt64 = 0, warmup: Int = 10)`, `next() -> UInt64`, `nextFloat01() -> Float`, `nextFloat(in:) -> Float`, `nextDouble() -> Double`, `nextGaussian(mean:stdDev:) -> Float`, `nextInt(bound:)`, `nextInt(in: Range<Int>)`, `nextInt(in: ClosedRange<Int>)`, `nextBool(probability:)`, `shuffle(_:)`, `shuffled(_:)`, `sample(_:k:)`. (A deprecated `TestRNG` typealias existed from this task until Task 17 deleted it: no user.)
 
 - [ ] **Step 1: Generate the golden test from the PRE-MOVE generator (before touching the file)**
 
@@ -593,16 +665,10 @@ Expected: `cannot find 'SeededRNG' in scope`.
 ```bash
 git mv Tests/VectorAccelerateTests/Utilities/TestRNG.swift Sources/VectorTestKit/SeededRNG.swift
 sed -i '' -e 's/\bTestRNG\b/SeededRNG/g' -e 's|//  TestRNG.swift|//  SeededRNG.swift|' Sources/VectorTestKit/SeededRNG.swift
-cat >> Sources/VectorTestKit/SeededRNG.swift <<'SWIFT'
-
-/// Pre-0.7.0 name. Removed in 0.8.0.
-@available(*, deprecated, renamed: "SeededRNG")
-public typealias TestRNG = SeededRNG
-SWIFT
-grep -n "public struct SeededRNG\|extension SeededRNG: RandomNumberGenerator\|typealias TestRNG" Sources/VectorTestKit/SeededRNG.swift
+grep -n "public struct SeededRNG\|extension SeededRNG: RandomNumberGenerator" Sources/VectorTestKit/SeededRNG.swift
 ```
 
-Expected: three matching lines.
+Expected: two matching lines. No compatibility alias for the old name: a deprecated `TestRNG` typealias existed briefly and Task 17 deleted it (no user; the owner breaks early).
 
 - [ ] **Step 4: Point the test target at the kit**
 
@@ -649,7 +715,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `SeededRNG` (Task 3), `ContentDigest` (Task 2).
-- Produces: `public struct VectorGenerator` with the same members as `TestDataGenerator` plus `public static let version: String = "1"`; `public typealias TestDataGenerator = VectorGenerator` (deprecated); `public struct DatasetStatistics` unchanged.
+- Produces: `public struct VectorGenerator` with the same members as `TestDataGenerator` plus `public static let version: String = "1"`; `public struct DatasetStatistics` unchanged. (A deprecated `TestDataGenerator` typealias existed from this task until Task 17 deleted it: no user.)
 
 - [ ] **Step 1: Generate the golden test from the PRE-MOVE generator**
 
@@ -714,7 +780,7 @@ If a method's parameter labels differ from the calls above, the compile step fai
 Run: `swift test --filter VectorGeneratorGoldenTests 2>&1 | grep -m1 "cannot find"`
 Expected: `cannot find 'VectorGenerator' in scope`.
 
-- [ ] **Step 3: Move, rename, add version and typealias**
+- [ ] **Step 3: Move, rename, add version**
 
 ```bash
 git mv Tests/VectorAccelerateTests/Utilities/TestDataGenerator.swift Sources/VectorTestKit/VectorGenerator.swift
@@ -724,11 +790,12 @@ p="Sources/VectorTestKit/VectorGenerator.swift"; s=open(p).read()
 old="public struct VectorGenerator {\n    /// Internal RNG\n    var rng: SeededRNG\n"
 assert s.count(old)==1, "anchor not found; inspect the struct header"
 s=s.replace(old, "public struct VectorGenerator {\n    /// Bumped whenever any method's output stream changes; part of every case identity (spec §4.3).\n    public static let version: String = \"1\"\n\n    /// Internal RNG\n    var rng: SeededRNG\n")
-s+="\n/// Pre-0.7.0 name. Removed in 0.8.0.\n@available(*, deprecated, renamed: \"VectorGenerator\")\npublic typealias TestDataGenerator = VectorGenerator\n"
 open(p,"w").write(s)
 PY
-grep -n "public static let version\|typealias TestDataGenerator" Sources/VectorTestKit/VectorGenerator.swift
+grep -n "public static let version" Sources/VectorTestKit/VectorGenerator.swift
 ```
+
+Expected: one matching line. No compatibility alias for the old name: a deprecated `TestDataGenerator` typealias existed briefly and Task 17 deleted it (no user; the owner breaks early).
 
 - [ ] **Step 4: Rename uses in tests**
 
@@ -814,7 +881,8 @@ final class ComparatorTests: XCTestCase {
         XCTAssertEqual(Comparator.ulpDistance(-Double.greatestFiniteMagnitude, Double.greatestFiniteMagnitude), 18_437_736_874_454_810_622 as UInt64)
         XCTAssertEqual(Comparator.ulpDistance(-Float.greatestFiniteMagnitude, Float.greatestFiniteMagnitude), 4_278_190_078 as UInt64)
         XCTAssertEqual(Comparator.compare(1.0, 1.0.nextUp, tolerance: Tolerance(ulps: 1)), .withinTolerance)
-        XCTAssertEqual(Comparator.compare(1.0, 1.0.nextUp.nextUp, tolerance: Tolerance(ulps: 1)), .outOfTolerance(absError: 1.0.nextUp.nextUp - 1.0, relError: (1.0.nextUp.nextUp - 1.0) / 1.0.nextUp.nextUp))
+        XCTAssertEqual(Comparator.compare(1.0, 1.0.nextUp.nextUp, tolerance: Tolerance(ulps: 1)),
+                       .outOfTolerance(absError: 1.0.nextUp.nextUp - 1.0, relError: (1.0.nextUp.nextUp - 1.0) / 1.0.nextUp.nextUp))
     }
 
     func testFloatOverloadSharesTiersAndAppliesFloatULPs() {
@@ -1316,7 +1384,7 @@ final class ArtifactSchemaTests: XCTestCase {
                            timing: Timing(wall: series, commandBuffer: nil, encoder: nil),
                            correctness: Correctness(status: .pass, comparator: "memcmp", tolerance: nil, maxAbsError: nil, maxRelError: nil, recall: nil, recallPolicy: nil, notes: []),
                            resources: nil, notes: [])
-        let md = Metadata(packageVersion: "0.7.0", gitSHA: "deadbeef", gitDirty: false, date: "2026-09-17T00:00:00Z",
+        let md = Metadata(packageVersion: "unreleased", gitSHA: "deadbeef", gitDirty: false, date: "2026-09-17T00:00:00Z",
                           os: "os26.5.2", osBuild: "25F84", arch: "arm64", cpuCores: 16, performanceCores: 12, efficiencyCores: 4,
                           memoryBytes: 1, deviceModel: "Apple M3 Max", modelIdentifier: "Mac15,9", hostname: "h",
                           swiftVersion: "6.3.3", buildConfiguration: "release", deviceTag: "arm64-os26.5.2-h",
@@ -2192,6 +2260,7 @@ public enum PreflightProbe {
     /// machine not being quiet, which the gate exists to report. Explicit, unverified contract on any other machine;
     /// exercised only by the opt-in `PreflightInstrumentCheckTests`.
     public static func cpuCopyGBps(bytes: Int = 268_435_456, repeats: Int = 100, warmupRepeats: Int = 20, warmupSeconds: Double = 0.2) -> Double {
+        precondition(warmupSeconds.isFinite && warmupSeconds >= 0, "warmupSeconds must be finite and non-negative")
         precondition(bytes > 0, "cpuCopyGBps needs at least one byte")
         let src = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 16_384)
         let dst = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 16_384)
@@ -2688,15 +2757,21 @@ final class CompareTests: XCTestCase {
     }
 
     func testNonMeasuredNewRecordIsIncomparable() {
+        // A non-measured record carries no series, so every kind the baseline carries is present on the baseline side only and
+        // that skip reason is the explanation; the status line is reserved for no kind on either side (nothing was dropped).
+        let oneSided = "timing.wall not compared: present on the baseline side only"
         for status in [CaseStatus.failed, .unavailable] {
             let r = Compare.compare(new: nonMeasured(status), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: key)
             XCTAssertEqual(r.status, .incomparable, status.rawValue); XCTAssertTrue(r.deltas.isEmpty, status.rawValue)
-            XCTAssertEqual(r.reasons, ["no comparable timing kinds (new status \(status.rawValue), baseline status measured)"])
+            XCTAssertEqual(r.reasons, [oneSided], status.rawValue)
         }
-        // A correctness failure on such a record still wins over incomparable.
+        let neither = Compare.compare(new: nonMeasured(.failed), baseline: nonMeasured(.unavailable), newKey: key, baselineKey: key)
+        XCTAssertEqual(neither.status, .incomparable); XCTAssertTrue(neither.deltas.isEmpty)
+        XCTAssertEqual(neither.reasons, ["no comparable timing kinds (new status failed, baseline status unavailable)"])
+        // A correctness failure on such a record still wins over incomparable, and the skip reason is kept.
         let failed = Compare.compare(new: nonMeasured(.failed, correctness: .fail), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: key)
         XCTAssertEqual(failed.status, .correctnessFailed)
-        XCTAssertTrue(failed.reasons.contains { $0.hasPrefix("no comparable timing kinds") }, "\(failed.reasons)")
+        XCTAssertEqual(failed.reasons, ["correctness failed", oneSided])
     }
 
     func testZeroMedianBaselineIsIncomparable() {
@@ -2828,10 +2903,20 @@ final class CompareTests: XCTestCase {
         let failed = Compare.compare(new: wallZero, baseline: base, newKey: key, baselineKey: key)
         XCTAssertEqual(failed.status, .correctnessFailed); XCTAssertEqual(failed.deltas.map(\.kind), [.commandBuffer])
         XCTAssertEqual(failed.reasons, ["correctness failed", "timing.wall not compared: new median 0.0 is not a positive finite number"])
-        // A kind present on one side only is still simply not compared, without a reason.
+        // A kind present on one side only is the fourth skip condition: `Runner` omits a declared GPU kind whose samples came
+        // back in the wrong shape, so a broken GPU timer can appear as an absent series, not only as a zero median.
         let oneSided = Compare.compare(new: pair(wall: [200, 200, 200], gpu: [0, 0, 0]), baseline: record(wall: [100, 100, 100]),
                                        newKey: key, baselineKey: key)
-        XCTAssertEqual(oneSided.status, .alertSlower); XCTAssertEqual(oneSided.reasons, [])
+        XCTAssertEqual(oneSided.status, .alertSlower); XCTAssertEqual(oneSided.deltas.map(\.kind), [.wall])
+        XCTAssertEqual(oneSided.reasons, ["timing.commandBuffer not compared: present on the new side only"])
+        let otherSide = Compare.compare(new: record(wall: [200, 200, 200]), baseline: pair(wall: [100, 100, 100]),
+                                        newKey: key, baselineKey: key)
+        XCTAssertEqual(otherSide.status, .alertSlower); XCTAssertEqual(otherSide.deltas.map(\.kind), [.wall])
+        XCTAssertEqual(otherSide.reasons, ["timing.commandBuffer not compared: present on the baseline side only"])
+        // Absent on both sides is nothing to compare, not a drop: no reason.
+        let neither = Compare.compare(new: record(wall: [100, 100, 100]), baseline: record(wall: [100, 100, 100]),
+                                      newKey: key, baselineKey: key)
+        XCTAssertEqual(neither.status, .ok); XCTAssertEqual(neither.reasons, [])
 
         // The reason is visible in every format when the status is ok or an alert, not only when it is incomparable.
         for result in [okWithReason, slowerNewSide] {
@@ -2996,11 +3081,19 @@ public enum Compare {
         var alert: CompareStatus?
         var skipped: [String] = []
         for kind in TimingKind.allCases {
-            guard let n = new.timing[kind], let b = base.timing[kind] else { continue }
             // A kind that cannot be compared is skipped with a reason and the remaining kinds decide the case, so a broken GPU
-            // timer cannot hide a wall regression (`CompareTests.testUnusableKindIsSkippedWithAReasonAndTheRestDecide`). Three
-            // conditions, one wording — `timing.<kind> not compared: <quantity> <value> is not …` — on either side.
+            // timer cannot hide a wall regression (`CompareTests.testUnusableKindIsSkippedWithAReasonAndTheRestDecide`). Four
+            // conditions, one wording — `timing.<kind> not compared: …` — on either side.
             let notCompared = "timing.\(kind.rawValue) not compared"
+            // 0. Present on one side only. `Runner` omits a declared GPU kind whose samples came back in the wrong shape, so a
+            // broken GPU timer can appear as an absent series, not only as a zero median. Absent on both sides is nothing to
+            // compare, not a drop.
+            let sides = (new: new.timing[kind], base: base.timing[kind])
+            if sides.new == nil, sides.base == nil { continue }
+            guard let n = sides.new, let b = sides.base else {
+                skipped.append("\(notCompared): present on the \(sides.new == nil ? "baseline" : "new") side only")
+                continue
+            }
             // 1–2. `validate()` does not bound the summary fields. A median that is not a positive finite number cannot anchor a
             // ratio: as the baseline it divides by zero or flips the sign, and as the new value it is finite garbage that would
             // read as an alert (0 against 100 is delta −1).
@@ -3062,8 +3155,9 @@ public enum Compare {
         case "json":
             let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
             // try!, as a contract: `JSONEncoder` throws here only for a non-finite Double. Results produced by `Compare.compare`
-            // carry finite values only (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable`). A hand-built `CompareResult`
-            // holding NaN or an infinity is the caller's responsibility and traps here.
+            // carry finite values only (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable` for skipped kinds;
+            // `testUnusableKindIsSkippedWithAReasonAndTheRestDecide` round-trips results that carry deltas through this encoder).
+            // A hand-built `CompareResult` holding NaN or an infinity is the caller's responsibility and traps here.
             return String(decoding: try! enc.encode(results), as: UTF8.self)
         case "markdown":
             var out = "| case | status | kind | new median (ns) | base median (ns) | delta | boundary |\n|---|---|---|---|---|---|---|\n"
@@ -3100,7 +3194,7 @@ public enum Compare {
 Run: `swift test --filter CompareTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
 Expected: `Executed 15 tests, with 0 failures`
 
-A timing kind present on both sides that cannot be compared is skipped with a reason, and the remaining kinds decide the case; the case is `incomparable` only when no kind is left (`CompareTests.testUnusableKindIsSkippedWithAReasonAndTheRestDecide`). Whole-case `incomparable` on one unusable kind would be a masking path: a broken GPU timer (`commandBuffer` median 0, which a real run can produce) would hide a genuine `wall` regression and `--strict-perf` would exit 0 on it; skipping silently would leave no trace. Three conditions make a kind unusable, identically on both sides and in one wording (`timing.<kind> not compared: <quantity> <value> is not …`): a new median or a baseline median that is not a positive finite number (0 against 100 would otherwise read `alert(faster)`), and a `delta` or `boundary` that is not finite (usable medians can overflow the ratio; 2 × rsd can overflow; `validate()` does not bound summary fields). The skipped kind contributes no delta and no verdict; the reason stays on the result whatever its status, and every format of `render` prints a result's reasons (text and markdown already did so for every status, so `render` needed no change; the test pins it). The boundary rule and `Compare.exitCode` are untouched. This also closes the earlier minor that partially-comparable pairs emitted no per-kind skip reason; a kind present on one side only is still not compared and carries no reason.
+A timing kind present on both sides that cannot be compared is skipped with a reason, and the remaining kinds decide the case; the case is `incomparable` only when no kind is left (`CompareTests.testUnusableKindIsSkippedWithAReasonAndTheRestDecide`). Whole-case `incomparable` on one unusable kind would be a masking path: a broken GPU timer (`commandBuffer` median 0, which a real run can produce) would hide a genuine `wall` regression and `--strict-perf` would exit 0 on it; skipping silently would leave no trace. Four conditions make a kind unusable, identically on both sides and in one wording (`timing.<kind> not compared: …`): a kind present on one side only (Task 17: `Runner` omits a declared GPU kind whose samples came back in the wrong shape, so a broken GPU timer can appear as an absent series; absent on both sides is nothing to compare and carries no reason), a new median or a baseline median that is not a positive finite number (0 against 100 would otherwise read `alert(faster)`), and a `delta` or `boundary` that is not finite (usable medians can overflow the ratio; 2 × rsd can overflow; `validate()` does not bound summary fields). The skipped kind contributes no delta and no verdict; the reason stays on the result whatever its status, and every format of `render` prints a result's reasons (text and markdown already did so for every status, so `render` needed no change; the test pins it). The boundary rule and `Compare.exitCode` are untouched. This also closes the earlier minor that partially-comparable pairs emitted no per-kind skip reason. A kind present on one side only carried no reason until Task 17 made it the fourth condition; a non-measured record therefore explains itself through one-sided skip reasons, and the `no comparable timing kinds (new status …, baseline status …)` line is reserved for no kind on either side (`testNonMeasuredNewRecordIsIncomparable`).
 
 - [ ] **Step 5: Commit**
 
@@ -3332,6 +3426,12 @@ enum Runner {
 
     static func run(_ c: any BenchCase, context: BenchContext, policy: WarmupPolicy = .standard) async -> CaseRecord {
         let o = context.options
+        // `prepare` runs before the record exists so `identity` is read exactly once, afterwards. Contract on adapters (unverified,
+        // no test): one whose identity depends on the run seed publishes the seeded identity before anything in its `prepare` can
+        // throw (`L2BatchDistanceCase` does), so failed and unavailable records carry the run's seed and digest too; a struct
+        // adapter returns its registration-time identity either way.
+        let preparation: Result<any PreparedCase, any Error>
+        do { preparation = .success(try await c.prepare(context)) } catch { preparation = .failure(error) }
         var record = CaseRecord(id: c.id.rawValue, identity: c.identity, status: .measured, failureReason: nil,
                                 samples: o.samples, iterations: o.iterations, warmupUsed: [], unitCount: c.unitCount,
                                 timing: Timing(wall: nil, commandBuffer: nil, encoder: nil), correctness: nil, resources: nil, notes: [])
@@ -3340,7 +3440,7 @@ enum Runner {
         func ns(_ d: Duration) -> Double { Double(d.components.seconds) * 1e9 + Double(d.components.attoseconds) / 1e9 }
 
         do {
-            let prepared = try await c.prepare(context)
+            let prepared = try preparation.get()
             var wall: [[Double]] = [], cb: [[Double]] = [], enc: [[Double]] = []
             var lastOutput: IterationOutput?
             var anyCorrectnessFailed = false
@@ -3404,10 +3504,6 @@ enum Runner {
             record.correctness = nil
             record.timing = Timing(wall: nil, commandBuffer: nil, encoder: nil)
         }
-        // Re-read after `prepare` whatever its outcome. Contract on adapters (unverified, no test): one whose identity depends on the
-        // run seed is a class that publishes the seeded identity before anything in its `prepare` can throw (`L2BatchDistanceCase`
-        // does), so failed and unavailable records carry the run's seed and digest too; struct adapters return the same value as before.
-        record.identity = c.identity
         return record
     }
 }
@@ -3466,7 +3562,7 @@ import VectorTestKit
 enum ValidateCommand {
     static func run(_ args: Arguments) throws -> Int32 {
         try args.validate(options: [], flags: [], operands: 1)
-        guard let path = args.subcommand else { print("usage: validate-artifact <path>"); return 2 }
+        guard let path = args.subcommand else { throw BenchError.usage("usage: validate-artifact <path>") }
         do {
             let a = try RunStore.load(URL(fileURLWithPath: path))
             try a.validate()
@@ -3502,9 +3598,9 @@ do {
     switch args.command {
     case "list": status = try ListCommand.run(args)
     case "validate-artifact": status = try ValidateCommand.run(args)
-    case "run": status = try await RunCommand.run(args)              // Task 15
-    case "baseline": status = try BaselineCommand.run(args)           // Task 16
-    case "compare": status = try CompareCommand.run(args)             // Task 16
+    case "run": status = try await RunCommand.run(args)
+    case "baseline": status = try BaselineCommand.run(args)
+    case "compare": status = try CompareCommand.run(args)
     default: print(usage); status = args.command == "help" ? 0 : 2
     }
 } catch let error as BenchError {
@@ -3603,6 +3699,8 @@ final class ErrorDescriptionLintTests: XCTestCase {
             (["struct J<T>: Error where T: Sendable { }"], ["J"], ["J"]),
             (["final class K: @unchecked Sendable, Error { }"], ["K"], ["K"]),
             (["enum L: Error { case x; var description: String { \"l\" } }"], ["L"], ["L"]),
+            (["actor Boom: Error {}"], ["Boom"], ["Boom"]),
+            (["actor Calm: Error, CustomStringConvertible { var description: String { \"calm\" } }"], ["Calm"], []),
             (["// enum M: Error { case x }\n/// enum N: Error { case x }"], [], []),
             (["enum ErrorKind: String, Codable { case error }"], [], []),
             (["struct P: CustomStringConvertible { var description: String { \"p\" } }"], [], []),
@@ -3745,7 +3843,8 @@ final class GPUProbe: @unchecked Sendable {
         float4 v = src[gid];
         float4 sink = float4(0.0f);
         for (uint i = 1; i < p.loops; ++i) { sink += src[(gid + i * 4099u) % p.n4]; }
-        dst[gid] = v + sink * p.zero;   // p.zero is 0.0f from the CPU; the compiler cannot fold it (exercised by the M0 slowdown run in Task 18)
+        dst[gid] = v + sink * p.zero;   // p.zero is 0.0f from the CPU; the compiler cannot fold it (exercised by the M0 slowdown run,
+                                        // evidence in docs/superpowers/research/2026-09-17-sp0-m0-acceptance.md)
     }
     """
 
@@ -3805,10 +3904,13 @@ final class GPUProbe: @unchecked Sendable {
     /// dispatches run slow (median 1.88×, range 1.08–2.40× the settled time) and reach the settled level after at most 41
     /// dispatches, or 55.5 ms of wall time in the 36 wall-stamped series. `WarmupPolicy` cannot find that point: the slow plateau is itself steady (CoV < 5 %), so the
     /// policy stopped on it at n = 3 in 3 of 45 series. A median of 10 settled dispatches strayed up to 4.66 % from its series'
-    /// level, a median of 50 up to 1.85 %, against a 5 % quiet gate on the difference of two readings. The ramp is a wall-time
-    /// effect, so the count alone would not carry to a GPU that finishes 50 dispatches much sooner; hence the time floor.
-    /// Explicit, unverified contract on any other machine: the executable has no test target, so nothing exercises this.
+    /// level, a median of 50 up to 1.85 %, against a 5 % quiet gate on the difference of two readings. Whether the ramp is bound
+    /// by dispatch count or by wall time is not established (no series varied the dispatch duration): the time floor is a hedge
+    /// that covers a time-bound ramp on a GPU that finishes 50 dispatches much sooner, and costs at most ≈ 0.1 s per call if
+    /// the ramp is count-bound. Explicit, unverified contract on any other machine: the executable has no test target, so
+    /// nothing exercises this.
     func copyGBps(warmup: Int = 50, warmupSeconds: Double = 0.1, measured: Int = 50) throws -> Double {
+        precondition(warmupSeconds.isFinite && warmupSeconds >= 0, "warmupSeconds must be finite and non-negative")
         precondition(measured >= 1, "copyGBps needs at least one measured dispatch")
         let clock = ContinuousClock()
         let warmupStart = clock.now
@@ -4117,7 +4219,8 @@ enum RunCommand {
         try artifact.validate()
         let url = try write(artifact, to: out)
         print("artifact: \(url.path)")
-        print("key: \(metadata.environmentKey)  quiet: \(preflight.quiet)" + (preflight.reasons.isEmpty ? "" : "  reasons: \(preflight.reasons)"))
+        print("key: \(metadata.environmentKey)  quiet: \(preflight.quiet)"
+              + (preflight.reasons.isEmpty ? "" : "  reasons: \(preflight.reasons.joined(separator: "; "))"))
 
         if records.contains(where: { $0.status == .failed }) { return 1 }
         if options.requireGPU, records.contains(where: { $0.status == .unavailable }) { return 1 }

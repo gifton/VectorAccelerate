@@ -74,7 +74,8 @@ enum RunCommand {
         try artifact.validate()
         let url = try write(artifact, to: out)
         print("artifact: \(url.path)")
-        print("key: \(metadata.environmentKey)  quiet: \(preflight.quiet)" + (preflight.reasons.isEmpty ? "" : "  reasons: \(preflight.reasons)"))
+        print("key: \(metadata.environmentKey)  quiet: \(preflight.quiet)"
+              + (preflight.reasons.isEmpty ? "" : "  reasons: \(preflight.reasons.joined(separator: "; "))"))
 
         if records.contains(where: { $0.status == .failed }) { return 1 }
         if options.requireGPU, records.contains(where: { $0.status == .unavailable }) { return 1 }

@@ -288,7 +288,3 @@ internal func opaqueCos(_ x: Float) -> Float { cos(x) }
 // defined in the main struct. This allows use with Swift's standard random APIs
 // like Float.random(in:using:) and Array.shuffled(using:).
 extension SeededRNG: RandomNumberGenerator {}
-
-/// Pre-0.7.0 name. Removed in 0.8.0.
-@available(*, deprecated, renamed: "SeededRNG")
-public typealias TestRNG = SeededRNG

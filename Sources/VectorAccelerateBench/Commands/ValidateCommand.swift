@@ -4,7 +4,7 @@ import VectorTestKit
 enum ValidateCommand {
     static func run(_ args: Arguments) throws -> Int32 {
         try args.validate(options: [], flags: [], operands: 1)
-        guard let path = args.subcommand else { print("usage: validate-artifact <path>"); return 2 }
+        guard let path = args.subcommand else { throw BenchError.usage("usage: validate-artifact <path>") }
         do {
             let a = try RunStore.load(URL(fileURLWithPath: path))
             try a.validate()

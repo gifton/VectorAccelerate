@@ -11,6 +11,8 @@ excluded:
   - .build
   - .swiftpm
   - Package.swift
+  - Tests/VectorAccelerateTests/Harness/SeededRNGGoldenTests.swift       # generated golden data: one literal array per line
+  - Tests/VectorAccelerateTests/Harness/VectorGeneratorGoldenTests.swift  # generated golden data
 
 # Disabled rules
 disabled_rules:

@@ -72,6 +72,8 @@ final class ErrorDescriptionLintTests: XCTestCase {
             (["struct J<T>: Error where T: Sendable { }"], ["J"], ["J"]),
             (["final class K: @unchecked Sendable, Error { }"], ["K"], ["K"]),
             (["enum L: Error { case x; var description: String { \"l\" } }"], ["L"], ["L"]),
+            (["actor Boom: Error {}"], ["Boom"], ["Boom"]),
+            (["actor Calm: Error, CustomStringConvertible { var description: String { \"calm\" } }"], ["Calm"], []),
             (["// enum M: Error { case x }\n/// enum N: Error { case x }"], [], []),
             (["enum ErrorKind: String, Codable { case error }"], [], []),
             (["struct P: CustomStringConvertible { var description: String { \"p\" } }"], [], []),

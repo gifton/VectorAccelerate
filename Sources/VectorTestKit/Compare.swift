@@ -84,11 +84,19 @@ public enum Compare {
         var alert: CompareStatus?
         var skipped: [String] = []
         for kind in TimingKind.allCases {
-            guard let n = new.timing[kind], let b = base.timing[kind] else { continue }
             // A kind that cannot be compared is skipped with a reason and the remaining kinds decide the case, so a broken GPU
-            // timer cannot hide a wall regression (`CompareTests.testUnusableKindIsSkippedWithAReasonAndTheRestDecide`). Three
-            // conditions, one wording — `timing.<kind> not compared: <quantity> <value> is not …` — on either side.
+            // timer cannot hide a wall regression (`CompareTests.testUnusableKindIsSkippedWithAReasonAndTheRestDecide`). Four
+            // conditions, one wording — `timing.<kind> not compared: …` — on either side.
             let notCompared = "timing.\(kind.rawValue) not compared"
+            // 0. Present on one side only. `Runner` omits a declared GPU kind whose samples came back in the wrong shape, so a
+            // broken GPU timer can appear as an absent series, not only as a zero median. Absent on both sides is nothing to
+            // compare, not a drop.
+            let sides = (new: new.timing[kind], base: base.timing[kind])
+            if sides.new == nil, sides.base == nil { continue }
+            guard let n = sides.new, let b = sides.base else {
+                skipped.append("\(notCompared): present on the \(sides.new == nil ? "baseline" : "new") side only")
+                continue
+            }
             // 1–2. `validate()` does not bound the summary fields. A median that is not a positive finite number cannot anchor a
             // ratio: as the baseline it divides by zero or flips the sign, and as the new value it is finite garbage that would
             // read as an alert (0 against 100 is delta −1).
@@ -150,8 +158,9 @@ public enum Compare {
         case "json":
             let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
             // try!, as a contract: `JSONEncoder` throws here only for a non-finite Double. Results produced by `Compare.compare`
-            // carry finite values only (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable`). A hand-built `CompareResult`
-            // holding NaN or an infinity is the caller's responsibility and traps here.
+            // carry finite values only (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable` for skipped kinds;
+            // `testUnusableKindIsSkippedWithAReasonAndTheRestDecide` round-trips results that carry deltas through this encoder).
+            // A hand-built `CompareResult` holding NaN or an infinity is the caller's responsibility and traps here.
             return String(decoding: try! enc.encode(results), as: UTF8.self)
         case "markdown":
             var out = "| case | status | kind | new median (ns) | base median (ns) | delta | boundary |\n|---|---|---|---|---|---|---|\n"

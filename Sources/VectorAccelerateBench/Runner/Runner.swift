@@ -6,6 +6,12 @@ enum Runner {
 
     static func run(_ c: any BenchCase, context: BenchContext, policy: WarmupPolicy = .standard) async -> CaseRecord {
         let o = context.options
+        // `prepare` runs before the record exists so `identity` is read exactly once, afterwards. Contract on adapters (unverified,
+        // no test): one whose identity depends on the run seed publishes the seeded identity before anything in its `prepare` can
+        // throw (`L2BatchDistanceCase` does), so failed and unavailable records carry the run's seed and digest too; a struct
+        // adapter returns its registration-time identity either way.
+        let preparation: Result<any PreparedCase, any Error>
+        do { preparation = .success(try await c.prepare(context)) } catch { preparation = .failure(error) }
         var record = CaseRecord(id: c.id.rawValue, identity: c.identity, status: .measured, failureReason: nil,
                                 samples: o.samples, iterations: o.iterations, warmupUsed: [], unitCount: c.unitCount,
                                 timing: Timing(wall: nil, commandBuffer: nil, encoder: nil), correctness: nil, resources: nil, notes: [])
@@ -14,7 +20,7 @@ enum Runner {
         func ns(_ d: Duration) -> Double { Double(d.components.seconds) * 1e9 + Double(d.components.attoseconds) / 1e9 }
 
         do {
-            let prepared = try await c.prepare(context)
+            let prepared = try preparation.get()
             var wall: [[Double]] = [], cb: [[Double]] = [], enc: [[Double]] = []
             var lastOutput: IterationOutput?
             var anyCorrectnessFailed = false
@@ -78,10 +84,6 @@ enum Runner {
             record.correctness = nil
             record.timing = Timing(wall: nil, commandBuffer: nil, encoder: nil)
         }
-        // Re-read after `prepare` whatever its outcome. Contract on adapters (unverified, no test): one whose identity depends on the
-        // run seed is a class that publishes the seeded identity before anything in its `prepare` can throw (`L2BatchDistanceCase`
-        // does), so failed and unavailable records carry the run's seed and digest too; struct adapters return the same value as before.
-        record.identity = c.identity
         return record
     }
 }

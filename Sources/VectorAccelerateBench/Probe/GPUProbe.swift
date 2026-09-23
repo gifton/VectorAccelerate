@@ -22,7 +22,8 @@ final class GPUProbe: @unchecked Sendable {
         float4 v = src[gid];
         float4 sink = float4(0.0f);
         for (uint i = 1; i < p.loops; ++i) { sink += src[(gid + i * 4099u) % p.n4]; }
-        dst[gid] = v + sink * p.zero;   // p.zero is 0.0f from the CPU; the compiler cannot fold it (exercised by the M0 slowdown run in Task 18)
+        dst[gid] = v + sink * p.zero;   // p.zero is 0.0f from the CPU; the compiler cannot fold it (exercised by the M0 slowdown run,
+                                        // evidence in docs/superpowers/research/2026-09-17-sp0-m0-acceptance.md)
     }
     """
 
@@ -82,10 +83,13 @@ final class GPUProbe: @unchecked Sendable {
     /// dispatches run slow (median 1.88×, range 1.08–2.40× the settled time) and reach the settled level after at most 41
     /// dispatches, or 55.5 ms of wall time in the 36 wall-stamped series. `WarmupPolicy` cannot find that point: the slow plateau is itself steady (CoV < 5 %), so the
     /// policy stopped on it at n = 3 in 3 of 45 series. A median of 10 settled dispatches strayed up to 4.66 % from its series'
-    /// level, a median of 50 up to 1.85 %, against a 5 % quiet gate on the difference of two readings. The ramp is a wall-time
-    /// effect, so the count alone would not carry to a GPU that finishes 50 dispatches much sooner; hence the time floor.
-    /// Explicit, unverified contract on any other machine: the executable has no test target, so nothing exercises this.
+    /// level, a median of 50 up to 1.85 %, against a 5 % quiet gate on the difference of two readings. Whether the ramp is bound
+    /// by dispatch count or by wall time is not established (no series varied the dispatch duration): the time floor is a hedge
+    /// that covers a time-bound ramp on a GPU that finishes 50 dispatches much sooner, and costs at most ≈ 0.1 s per call if
+    /// the ramp is count-bound. Explicit, unverified contract on any other machine: the executable has no test target, so
+    /// nothing exercises this.
     func copyGBps(warmup: Int = 50, warmupSeconds: Double = 0.1, measured: Int = 50) throws -> Double {
+        precondition(warmupSeconds.isFinite && warmupSeconds >= 0, "warmupSeconds must be finite and non-negative")
         precondition(measured >= 1, "copyGBps needs at least one measured dispatch")
         let clock = ContinuousClock()
         let warmupStart = clock.now
