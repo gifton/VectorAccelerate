@@ -77,21 +77,26 @@ final class CompareTests: XCTestCase {
     }
 
     func testNonMeasuredNewRecordIsIncomparable() {
-        // A non-measured record carries no series, so every kind the baseline carries is present on the baseline side only and
-        // that skip reason is the explanation; the status line is reserved for no kind on either side (nothing was dropped).
+        // A non-measured record carries no series, so every kind the baseline carries is present on the baseline side only; the
+        // status line follows those skip reasons and names the cause, so `compare` output still says the new run failed.
         let oneSided = "timing.wall not compared: present on the baseline side only"
         for status in [CaseStatus.failed, .unavailable] {
             let r = Compare.compare(new: nonMeasured(status), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: key)
             XCTAssertEqual(r.status, .incomparable, status.rawValue); XCTAssertTrue(r.deltas.isEmpty, status.rawValue)
-            XCTAssertEqual(r.reasons, [oneSided], status.rawValue)
+            XCTAssertEqual(r.reasons, [oneSided, "no comparable timing kinds (new status \(status.rawValue), baseline status measured)"], status.rawValue)
         }
+        // The same on the baseline side, and with no kind on either side (nothing dropped: the statuses are the whole explanation).
+        let baseSide = Compare.compare(new: record(wall: [1, 1, 1]), baseline: nonMeasured(.failed), newKey: key, baselineKey: key)
+        XCTAssertEqual(baseSide.status, .incomparable); XCTAssertTrue(baseSide.deltas.isEmpty)
+        XCTAssertEqual(baseSide.reasons, ["timing.wall not compared: present on the new side only",
+                                          "no comparable timing kinds (new status measured, baseline status failed)"])
         let neither = Compare.compare(new: nonMeasured(.failed), baseline: nonMeasured(.unavailable), newKey: key, baselineKey: key)
         XCTAssertEqual(neither.status, .incomparable); XCTAssertTrue(neither.deltas.isEmpty)
         XCTAssertEqual(neither.reasons, ["no comparable timing kinds (new status failed, baseline status unavailable)"])
-        // A correctness failure on such a record still wins over incomparable, and the skip reason is kept.
+        // A correctness failure on such a record still wins over incomparable; the skip reason and the status line are both kept.
         let failed = Compare.compare(new: nonMeasured(.failed, correctness: .fail), baseline: record(wall: [1, 1, 1]), newKey: key, baselineKey: key)
         XCTAssertEqual(failed.status, .correctnessFailed)
-        XCTAssertEqual(failed.reasons, ["correctness failed", oneSided])
+        XCTAssertEqual(failed.reasons, ["correctness failed", oneSided, "no comparable timing kinds (new status failed, baseline status measured)"])
     }
 
     func testZeroMedianBaselineIsIncomparable() {

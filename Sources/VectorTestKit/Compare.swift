@@ -129,9 +129,11 @@ public enum Compare {
         reasons += skipped
         // Nothing left to judge by (non-measured record, no timing kind present on both sides, or every such kind skipped) is
         // incomparable, never ok (`CompareTests.testNonMeasuredNewRecordIsIncomparable`, `testZeroMedianBaselineIsIncomparable`).
-        // The skip reasons, when there are any, are the explanation.
+        // The status line is appended, after the skip reasons, when there are no skip reasons (nothing was dropped, so the two
+        // statuses are the whole explanation) and whenever either record is not measured (its status is the cause of the
+        // one-sided skips above it). A measured pair whose every kind was skipped is explained by the skip reasons alone.
         if deltas.isEmpty {
-            if skipped.isEmpty {
+            if skipped.isEmpty || new.status != .measured || base.status != .measured {
                 reasons.append("no comparable timing kinds (new status \(new.status.rawValue), baseline status \(base.status.rawValue))")
             }
             return CompareResult(id: new.id, status: status ?? .incomparable, deltas: [], reasons: reasons)
