@@ -17,14 +17,17 @@
 - `Sources/VectorTestKit/**` may import only `Foundation`, `Darwin`, `CryptoKit`. No `@testable`. (spec §4.1, enforced by `KitImportLintTests`)
 - Neither new target is a declared product (spec §3). `swift run VectorAccelerateBench` works through the root package's implicit executable product.
 - No new clocks: wall time is `ContinuousClock`; GPU command-buffer time is `gpuStartTime/gpuEndTime`. `CFAbsoluteTimeGetCurrent` and `CACurrentMediaTime` do not appear in new code. (brief P2)
-- Version: this is **0.7.0**, breaking (removes `Sources/VectorAccelerate/Benchmarking/` public types, the `VectorAccelerateBenchmarks` product, `IndexAccelerationConfiguration.logDecisions`).
+- Version: **none is written anywhere** (owner decision 2026-09-22: break early, no release strategy yet; everything lands on main and is bundled into the next tagged breaking release). The breaking changes (removal of `Sources/VectorAccelerate/Benchmarking/` public types, the `VectorAccelerateBenchmarks` product, `IndexAccelerationConfiguration.logDecisions`, two kernel `benchmark()` methods, the `TestRNG`/`TestDataGenerator` names) accumulate under CHANGELOG `## [Unreleased]` and an `// Unreleased —` entry in Package.swift's version-history header. `BenchVersion.package` is `"unreleased"`; `gitSHA` identifies a build. No task, commit message, comment or doc written from here on carries a version number; the README's `Version 0.6.0` banner names the last tagged release and is left alone.
 - Performance boundary rule: `max(0.025, 2 × baseline RSD)` on the median per timing kind; alerts in both directions; alerts never fail the run unless `--strict-perf`. (spec §5.6)
 - Missing recall is `nil`, never `1.0`. Runs with `validationLayers == true`, `preflight.quiet == false`, or `gitDirty == true` (without `--allow-dirty`) are never captured as baselines. (spec §4.6, §4.11)
 - Warm-up: window 8, CoV < 0.05, minimum 3, maximum 50; the count used is recorded per sample. (spec §5.2)
 - Mode defaults: `smoke` 1×3, `quick` 3×20, `full` 5×100 (samples × iterations).
-- Case ID grammar: `^[a-z0-9_]+(\.[a-z0-9_]+)+(\.[a-z0-9_]+=[a-z0-9_]+)*(\.[a-z0-9_]+)?$` — a family, one or more bare op segments, zero or more `param=value` segments, an optional bare variant; never contains seeds, digests, timestamps. (spec §5.4, amended in Task 17 because the spec's one-op form rejects `distance.l2.batch.n=10000.d=768`)
+- Case ID grammar: `^[a-z0-9_]+(\.[a-z0-9_]+)+(\.[a-z0-9_]+=[a-z0-9_]+)*(\.[a-z0-9_]+)?$` — a family, one or more bare op segments, zero or more `param=value` segments, an optional bare variant; never contains seeds, digests, timestamps. (spec §5.4, amended in Task 18 because the spec's one-op form rejects `distance.l2.batch.n=10000.d=768`)
 - Commits end with the trailer `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`. Commit after every task. Do not commit unrelated working-tree changes from the parallel IVF session (`git add` only the paths each task names).
-- Test gates: every task ends with `swift test --filter <suite>` green; Task 17 runs the full suite in debug and release. Current full-suite expectation before this plan: 1764 passed / 0 failed / 2 skipped.
+- Test gates: every task ends with `swift test --filter <suite>` green; Task 18 runs the full suite in debug and release. Current full-suite expectation before this plan: 1764 passed / 0 failed / 2 skipped.
+- Lint gate (from Task 17 on): `swiftlint lint --quiet` reports **no error-level finding in any file under `Sources/VectorTestKit/`, `Sources/VectorAccelerateBench/` or `Tests/VectorAccelerateTests/Harness/`**; the two generated golden files are excluded from lint by `.swiftlint.yml`. The repository's other error-level findings (20 at 853052d, all in files this plan never created) are not this plan's to fix — record the total, do not raise it.
+- Machine state for measurements: every timing measurement in Tasks 15–16 ran while another session built and tested in the shared checkout (load average 3–8), so no quiet-rate claim from those tasks stands. Task 19 requires an idle machine and re-measures it. Never retry a run until it looks quiet; report every run.
+- Parallel session: another session owns IVF hardening in the main checkout. Do not touch `Cases/IVF/`, IVF sources, or anything with uncommitted changes there; expect a merge at branch finish.
 - Naming deviation from the spec, applied consistently: the artifact's preflight struct is `PreflightRecord` and the probing helper is `PreflightProbe` (the spec uses `Preflight` for both; JSON key stays `preflight`).
 
 ---
@@ -33,8 +36,8 @@
 
 **Created — `Sources/VectorTestKit/` (library target, no product)**
 - `VectorTestKit.swift` — module marker: `public enum VectorTestKit { public static let schemaVersion = 1 }`. Deleted in Task 7 once real kit files exist.
-- `SeededRNG.swift` — moved from `Tests/VectorAccelerateTests/Utilities/TestRNG.swift`, type renamed; deprecated `TestRNG` typealias.
-- `VectorGenerator.swift` — moved from `Tests/VectorAccelerateTests/Utilities/TestDataGenerator.swift`, type renamed; `static let version = "1"`; deprecated `TestDataGenerator` typealias.
+- `SeededRNG.swift` — moved from `Tests/VectorAccelerateTests/Utilities/TestRNG.swift`, type renamed. (A deprecated `TestRNG` typealias existed from Task 3 until Task 17 deleted it: no user, and the owner breaks early.)
+- `VectorGenerator.swift` — moved from `Tests/VectorAccelerateTests/Utilities/TestDataGenerator.swift`, type renamed; `static let version = "1"`. (Deprecated `TestDataGenerator` typealias likewise deleted in Task 17.)
 - `ContentDigest.swift` — `DigestPart`, `ContentDigest.sha256(_:)`.
 - `Tolerance.swift` — `Tolerance`, `Verdict`, `Comparator`.
 - `Recall.swift` — `RecallPolicy`, `Recall`, `RecallError`.
@@ -61,8 +64,9 @@
 - `Commands/ListCommand.swift`, `Commands/RunCommand.swift`, `Commands/BaselineCommand.swift`, `Commands/CompareCommand.swift`, `Commands/ValidateCommand.swift`.
 
 **Created — `Tests/VectorAccelerateTests/Harness/`**
-- `RepoPaths.swift` (helper), `KitImportLintTests.swift`, `ErrorDescriptionLintTests.swift` (Task 13), `OrphanPublicTypeTests.swift`, `SeededRNGGoldenTests.swift` (generated), `VectorGeneratorGoldenTests.swift` (generated), `ContentDigestGoldenTests.swift`, `ComparatorTests.swift`, `RecallTests.swift`, `StatsTests.swift`, `ArtifactSchemaTests.swift`, `CaseIDTests.swift`, `WarmupPolicyTests.swift`, `FingerprintTests.swift`, `RunStoreTests.swift`, `CompareTests.swift`.
+- `RepoPaths.swift` (helper), `KitImportLintTests.swift`, `ErrorDescriptionLintTests.swift` (Task 13), `OrphanPublicTypeTests.swift`, `SeededRNGGoldenTests.swift` (generated), `VectorGeneratorGoldenTests.swift` (generated), `ContentDigestGoldenTests.swift`, `ComparatorTests.swift`, `RecallTests.swift`, `StatsTests.swift`, `ArtifactSchemaTests.swift`, `CaseIDTests.swift`, `WarmupPolicyTests.swift`, `FingerprintTests.swift`, `PreflightInstrumentCheckTests.swift` (Task 15; opt-in via `VA_INSTRUMENT_CHECK=1`, skipped otherwise), `RunStoreTests.swift`, `CompareTests.swift`.
 - `Tests/VectorAccelerateTests/Utilities/RequireMetal.swift` — `requireMetalDevice()`.
+- `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md` — tracked evidence for both preflight probes (Task 15; accuracy fixes in Task 17).
 
 **Modified**
 - `Package.swift` — targets, test dependency, version-history header entry.
@@ -71,13 +75,16 @@
 - `Tests/VectorAccelerateTests/IndexBenchmarkRecallValidationTests.swift` — harness-only test removed, private RNG replaced.
 - `Tests/VectorAccelerateTests/GPUCandidateBuilderValidationTests.swift` — private RNG replaced.
 - `Sources/VectorAccelerate/Index/Core/IndexAccelerationConfiguration.swift` — `logDecisions` removed.
+- `Sources/VectorAccelerate/Kernels/Metal4/QuantizationStatisticsKernel.swift`, `WarpOptimizedSelectionKernel.swift` — their public `benchmark()` methods (and the nested `BenchmarkResult` the first returns) removed in Task 18: no caller anywhere.
+- `Package.swift` version-history header entry reads `// Unreleased —` (Task 17).
 
 **Deleted**
+- `TestRNG` and `TestDataGenerator` typealiases in `Sources/VectorTestKit/` (Task 17).
 - `Sources/VectorAccelerateBenchmarks/` (5 files) and its product/target (Task 0).
 - `Sources/VectorAccelerate/Benchmarking/BenchmarkFramework.swift`, `IndexBenchmarkHarness.swift`; `Sources/VectorAccelerate/Configuration/PerformanceMonitor.swift`; `Tests/VectorAccelerateTests/PerformanceBenchmarks.swift`; `Tests/VectorAccelerateTests/IndexBenchmarkHarnessTests.swift` (Task 16).
 - `Tests/VectorAccelerateTests/Utilities/TestRNG.swift`, `TestDataGenerator.swift` (moved, Tasks 3–4).
 
-**Spec deviation recorded (Task 16 updates the spec):** `IndexBenchmarkRecallValidationTests.swift` does not depend on the deleted harness except for one test (`testBenchmarkHarnessRealisticIVF`), so the file is kept with that test removed instead of being ported wholesale; its flat-recall-exactly-1.0 and IVF-recall->0.95 assertions are the retained coverage the spec wanted in `IndexRecallTests`. `IndexBenchmarkHarnessTests.swift` is deleted as planned.
+**Spec deviation recorded (Task 18 updates the spec):** `IndexBenchmarkRecallValidationTests.swift` does not depend on the deleted harness except for one test (`testBenchmarkHarnessRealisticIVF`), so the file is kept with that test removed instead of being ported wholesale; its flat-recall-exactly-1.0 and IVF-recall->0.95 assertions are the retained coverage the spec wanted in `IndexRecallTests`. `IndexBenchmarkHarnessTests.swift` is deleted as planned.
 
 ---
 
@@ -4336,21 +4343,282 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 17: Deletions, orphan guard, Metal-skip helper, README, CHANGELOG, spec amendment
+### Task 17: Close the carried review findings, retire version strings, lint the harness files
+
+Every item below is a finding a task review or re-review carried in the SDD ledger as "fix before merge", a class-closing edit of a few lines, or a consequence of the owner's 2026-09-22 decision (no version numbers; break early). None needs design. They are one task because each is small, they touch overlapping files, and together they leave the tree ready for the deletions and the full gates in Task 18. The plan's code blocks for every file changed here are resynced in Step 10 so the plan stays the record.
+
+**Files:**
+- Modify (kit): `Sources/VectorTestKit/Compare.swift`, `Sources/VectorTestKit/PreflightProbe.swift`, `Sources/VectorTestKit/SeededRNG.swift`, `Sources/VectorTestKit/VectorGenerator.swift`
+- Modify (bench): `Sources/VectorAccelerateBench/Runner/Runner.swift`, `Sources/VectorAccelerateBench/Probe/GPUProbe.swift`, `Sources/VectorAccelerateBench/Commands/RunCommand.swift`, `Sources/VectorAccelerateBench/Commands/ValidateCommand.swift`
+- Modify (tests): `Tests/VectorAccelerateTests/Harness/CompareTests.swift`, `Tests/VectorAccelerateTests/Harness/ErrorDescriptionLintTests.swift`, `Tests/VectorAccelerateTests/Harness/ArtifactSchemaTests.swift`, `Tests/VectorAccelerateTests/Harness/ComparatorTests.swift`, `Tests/VectorAccelerateTests/Harness/KitImportLintTests.swift` (only if lint names it)
+- Modify (config, docs): `.swiftlint.yml`, `Package.swift` (one header comment line), `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`, this plan (blocks of Tasks 3, 4, 8, 10, 12, 13, 14, 15 as named in Step 10)
+
+**Interfaces:**
+- Consumes: `Compare.compare(new:baseline:newKey:baselineKey:)`, `CompareResult.reasons`, `Runner.run(_:context:policy:)`, `BenchCase.identity` / `prepare(_:)`, `Arguments.validate(options:flags:operands:)`, `BenchError.usage`, `RepoPaths`.
+- Produces: nothing new. `TestRNG` and `TestDataGenerator` cease to exist; `Compare` records a fourth skip reason (`timing.<kind> not compared: present on the <side> side only`).
+
+- [ ] **Step 1: One-sided timing kind gets a reason — write the failing test**
+
+In `Tests/VectorAccelerateTests/Harness/CompareTests.swift`, inside `testUnusableKindIsSkippedWithAReasonAndTheRestDecide`, replace the `oneSided` block (the comment `// A kind present on one side only is still simply not compared, without a reason.`, the `let oneSided = …` statement and its two assertions) with:
+
+```swift
+        // A kind present on one side only is the fourth skip condition: `Runner` omits a declared GPU kind whose samples came
+        // back in the wrong shape, so a broken GPU timer can appear as an absent series, not only as a zero median.
+        let oneSided = Compare.compare(new: pair(wall: [200, 200, 200], gpu: [0, 0, 0]), baseline: record(wall: [100, 100, 100]),
+                                       newKey: key, baselineKey: key)
+        XCTAssertEqual(oneSided.status, .alertSlower); XCTAssertEqual(oneSided.deltas.map(\.kind), [.wall])
+        XCTAssertEqual(oneSided.reasons, ["timing.commandBuffer not compared: present on the new side only"])
+        let otherSide = Compare.compare(new: record(wall: [200, 200, 200]), baseline: pair(wall: [100, 100, 100]),
+                                        newKey: key, baselineKey: key)
+        XCTAssertEqual(otherSide.status, .alertSlower); XCTAssertEqual(otherSide.deltas.map(\.kind), [.wall])
+        XCTAssertEqual(otherSide.reasons, ["timing.commandBuffer not compared: present on the baseline side only"])
+        // Absent on both sides is nothing to compare, not a drop: no reason.
+        let neither = Compare.compare(new: record(wall: [100, 100, 100]), baseline: record(wall: [100, 100, 100]),
+                                      newKey: key, baselineKey: key)
+        XCTAssertEqual(neither.status, .ok); XCTAssertEqual(neither.reasons, [])
+```
+
+`record(wall:)` builds a wall-only record and `pair(wall:gpu:)` a wall + commandBuffer record (both helpers already exist in this file; confirm what `record` produces before relying on it — if the sample artifact it copies carries a `commandBuffer` series, strip it in the helper so the fixture is genuinely one-sided).
+
+- [ ] **Step 2: Run it to see it fail**
+
+```bash
+swift test --filter CompareTests 2>&1 | grep -E "error:|Executed [0-9]+ test" | tail -6
+```
+Expected: `oneSided.reasons` is `[]` and `otherSide.reasons` is `[]` — failures, no traps. Any OTHER test in this class that fails here has a one-sided fixture and expects no reason; list each in the report and update its expectation in Step 3 (the reason wording is fixed; the verdicts must not change).
+
+- [ ] **Step 3: Make it pass**
+
+In `Sources/VectorTestKit/Compare.swift`, replace the head of the per-kind loop —
+
+```swift
+        for kind in TimingKind.allCases {
+            guard let n = new.timing[kind], let b = base.timing[kind] else { continue }
+            // A kind that cannot be compared is skipped with a reason and the remaining kinds decide the case, so a broken GPU
+            // timer cannot hide a wall regression (`CompareTests.testUnusableKindIsSkippedWithAReasonAndTheRestDecide`). Three
+            // conditions, one wording — `timing.<kind> not compared: <quantity> <value> is not …` — on either side.
+            let notCompared = "timing.\(kind.rawValue) not compared"
+```
+
+— with:
+
+```swift
+        for kind in TimingKind.allCases {
+            // A kind that cannot be compared is skipped with a reason and the remaining kinds decide the case, so a broken GPU
+            // timer cannot hide a wall regression (`CompareTests.testUnusableKindIsSkippedWithAReasonAndTheRestDecide`). Four
+            // conditions, one wording — `timing.<kind> not compared: …` — on either side.
+            let notCompared = "timing.\(kind.rawValue) not compared"
+            // 0. Present on one side only. `Runner` omits a declared GPU kind whose samples came back in the wrong shape, so a
+            // broken GPU timer can appear as an absent series, not only as a zero median. Absent on both sides is nothing to
+            // compare, not a drop.
+            let sides = (new: new.timing[kind], base: base.timing[kind])
+            if sides.new == nil, sides.base == nil { continue }
+            guard let n = sides.new, let b = sides.base else {
+                skipped.append("\(notCompared): present on the \(sides.new == nil ? "baseline" : "new") side only")
+                continue
+            }
+```
+
+The rest of the loop (conditions 1–3, the delta, the boundary, the alert) is unchanged. In the same file, replace the `try!` contract comment in `render` with one that cites both pinning tests:
+
+```swift
+            // try!, as a contract: `JSONEncoder` throws here only for a non-finite Double. Results produced by `Compare.compare`
+            // carry finite values only (`CompareTests.testNonFiniteDeltaOrBoundaryIsIncomparable` for skipped kinds;
+            // `testUnusableKindIsSkippedWithAReasonAndTheRestDecide` round-trips results that carry deltas through this encoder).
+            // A hand-built `CompareResult` holding NaN or an infinity is the caller's responsibility and traps here.
+```
+
+Update any test expectations found in Step 2. Then:
+
+```bash
+swift test --filter CompareTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
+```
+Expected: `Executed 15 tests, with 0 failures`.
+
+- [ ] **Step 4: `Runner` reads `identity` once, after `prepare`**
+
+`Runner.run` currently reads `c.identity` to build the record BEFORE `prepare`, then overwrites it with a second read afterwards; for `L2BatchDistanceCase` the first read generates and SHA-256s the default-seed fixture (≈30 MB) and is thrown away. In `Sources/VectorAccelerateBench/Runner/Runner.swift` replace the function head through the `do {` / `let prepared = …` line —
+
+```swift
+    static func run(_ c: any BenchCase, context: BenchContext, policy: WarmupPolicy = .standard) async -> CaseRecord {
+        let o = context.options
+        var record = CaseRecord(id: c.id.rawValue, identity: c.identity, status: .measured, failureReason: nil,
+                                samples: o.samples, iterations: o.iterations, warmupUsed: [], unitCount: c.unitCount,
+                                timing: Timing(wall: nil, commandBuffer: nil, encoder: nil), correctness: nil, resources: nil, notes: [])
+        if o.probeSlowdown > 0 { record.notes.append("probe-slowdown=\(o.probeSlowdown)") }
+        let clock = ContinuousClock()
+        func ns(_ d: Duration) -> Double { Double(d.components.seconds) * 1e9 + Double(d.components.attoseconds) / 1e9 }
+
+        do {
+            let prepared = try await c.prepare(context)
+```
+
+— with:
+
+```swift
+    static func run(_ c: any BenchCase, context: BenchContext, policy: WarmupPolicy = .standard) async -> CaseRecord {
+        let o = context.options
+        // `prepare` runs before the record exists so `identity` is read exactly once, afterwards. Contract on adapters (unverified,
+        // no test): one whose identity depends on the run seed publishes the seeded identity before anything in its `prepare` can
+        // throw (`L2BatchDistanceCase` does), so failed and unavailable records carry the run's seed and digest too; a struct
+        // adapter returns its registration-time identity either way.
+        let preparation: Result<any PreparedCase, any Error>
+        do { preparation = .success(try await c.prepare(context)) } catch { preparation = .failure(error) }
+        var record = CaseRecord(id: c.id.rawValue, identity: c.identity, status: .measured, failureReason: nil,
+                                samples: o.samples, iterations: o.iterations, warmupUsed: [], unitCount: c.unitCount,
+                                timing: Timing(wall: nil, commandBuffer: nil, encoder: nil), correctness: nil, resources: nil, notes: [])
+        if o.probeSlowdown > 0 { record.notes.append("probe-slowdown=\(o.probeSlowdown)") }
+        let clock = ContinuousClock()
+        func ns(_ d: Duration) -> Double { Double(d.components.seconds) * 1e9 + Double(d.components.attoseconds) / 1e9 }
+
+        do {
+            let prepared = try preparation.get()
+```
+
+and delete the trailing block before `return record` (the three-line `// Re-read after \`prepare\` whatever its outcome …` comment and `record.identity = c.identity`). `preparation.get()` rethrows the stored error, so both `catch` arms match exactly as before.
+
+```bash
+swift build 2>&1 | grep -E "warning:|error:|Build complete" | tail -3
+swift run -q VectorAccelerateBench run --mode smoke --seed 7 --filter 'distance.*' --out /tmp/va-seed7.json >/dev/null; echo "exit=$?"
+python3 -c "import json; c=json.load(open('/tmp/va-seed7.json'))['cases'][0]; print(c['status'], c['identity']['seed'], c['identity']['fixtureDigest'][:16])"; rm -f /tmp/va-seed7.json
+```
+Expected: build clean; `measured 7 <digest>` where the digest differs from the seed-42 digest `list` shows. (The failed-`prepare` path carries the seed by the same single read — derivable from the code above; Task 15's report pinned it with fault injection.)
+
+- [ ] **Step 5: The lint test's doc comment claims an `actor` shape its fixtures never pin**
+
+`Tests/VectorAccelerateTests/Harness/ErrorDescriptionLintTests.swift` line 12 lists `actor` among the recognised heads and line 20 says `testScannerFixtures` pins each shape named. No fixture has an `actor` head. Add two fixtures to `testScannerFixtures` in the same table form as the existing sixteen, one flagged and one described:
+
+```swift
+            ("actor Boom: Error {}", Scan(errorTypes: ["Boom"], describedTypes: [])),
+            ("actor Calm: Error, CustomStringConvertible { var description: String { \"calm\" } }",
+             Scan(errorTypes: ["Calm"], describedTypes: ["Calm"])),
+```
+
+(adapt the tuple shape to the table's actual shape — the expected `Scan` values are what matter). Run:
+
+```bash
+swift test --filter ErrorDescriptionLintTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
+```
+Expected: `Executed 3 tests, with 0 failures`. If the scanner does NOT recognise `actor`, fix the scanner (the doc comment is the contract), not the comment.
+
+- [ ] **Step 6: Finite, non-negative warm-up floors**
+
+Both probes take a public `warmupSeconds: Double`; `.infinity` spins forever and NaN never ends the loop. Add, as the first statement of `GPUProbe.copyGBps(warmup:warmupSeconds:measured:)` in `Sources/VectorAccelerateBench/Probe/GPUProbe.swift` and of `PreflightProbe.cpuCopyGBps(...)` in `Sources/VectorTestKit/PreflightProbe.swift` (whatever its warm-up parameters are named — read the signature):
+
+```swift
+        precondition(warmupSeconds.isFinite && warmupSeconds >= 0, "warmupSeconds must be finite and non-negative")
+```
+
+```bash
+swift test --filter FingerprintTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
+```
+Expected: `Executed 8 tests, with 0 failures`.
+
+- [ ] **Step 7: Two stdout leaks in the bench commands**
+
+`Sources/VectorAccelerateBench/Commands/ValidateCommand.swift`: the missing-path guard prints usage on stdout and returns 2 while every other usage error goes through `BenchError.usage` to stderr. Read `Arguments.validate(options:flags:operands:)` first: if `operands: 1` already rejects a MISSING operand, delete the guard; otherwise make it `guard let path = args.subcommand else { throw BenchError.usage("usage: validate-artifact <path>") }`. The `invalid: …` line stays on stdout — it is the command's verdict, not an error.
+
+`Sources/VectorAccelerateBench/Commands/RunCommand.swift`: the end-of-run summary prints `reasons: \(preflight.reasons)` — a Swift array debug literal (second occurrence of the class the Task 16 review closed in `CompareCommand`). Use the same form: `reasons: \(preflight.reasons.joined(separator: "; "))`.
+
+```bash
+swift build 2>&1 | grep -E "warning:|error:|Build complete" | tail -3
+.build/debug/VectorAccelerateBench validate-artifact; echo "exit=$?"
+```
+Expected: one `error: …` line on stderr (nothing on stdout), `exit=2`. The reasons format is derivable from the line itself; if any smoke run in this task comes out not quiet, paste its `key:` line as the demonstration.
+
+- [ ] **Step 8: Retire every version string; delete the compatibility typealiases**
+
+1. `Package.swift` line 16: `// 0.7.0 — Benchmark harness foundation (SP0) + dead-code removal (BREAKING):` → `// Unreleased — Benchmark harness foundation (SP0) + dead-code removal (BREAKING; lands in the next tagged release, unnumbered until then):`. Nothing else in the file changes.
+2. Delete the three-line typealias blocks (doc comment, `@available`, `public typealias`) at the end of `Sources/VectorTestKit/SeededRNG.swift` (`TestRNG`) and `Sources/VectorTestKit/VectorGenerator.swift` (`TestDataGenerator`). First prove they have no user:
+   ```bash
+   grep -rn "TestRNG\b\|TestDataGenerator\b" Sources Tests | grep -v "^Sources/VectorTestKit/SeededRNG.swift\|^Sources/VectorTestKit/VectorGenerator.swift"
+   ```
+   Expected: only doc-comment lines in the two golden test files that describe where the goldens came from (history; they stay).
+3. `Tests/VectorAccelerateTests/Harness/ArtifactSchemaTests.swift`: the sample artifact's `packageVersion: "0.7.0"` → `packageVersion: "unreleased"` (what `BenchVersion.package` writes).
+4. Confirm no version number remains: `grep -rn "0\.7\.0\|0\.8\.0" Package.swift Sources Tests CHANGELOG.md` → no output (README's `0.6.0` banner and CHANGELOG's `## [0.6.0]` history are the last tagged release and stay).
+
+```bash
+swift test --filter "SeededRNGGoldenTests|VectorGeneratorGoldenTests|ArtifactSchemaTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
+```
+Expected: 0 failures (the goldens do not mention the aliases).
+
+- [ ] **Step 9: Lint the harness paths to zero error-level findings**
+
+The branch added 21 error-level swiftlint findings, 19 of them `line_length` in the two GENERATED golden files (one literal array per line, up to 1,454 columns) — data, not code. Exclude those two files from lint in `.swiftlint.yml` (add to the top-level `excluded:` list, after `- Package.swift`):
+
+```yaml
+  - Tests/VectorAccelerateTests/Harness/SeededRNGGoldenTests.swift       # generated golden data: one literal array per line
+  - Tests/VectorAccelerateTests/Harness/VectorGeneratorGoldenTests.swift  # generated golden data
+```
+
+Then list what remains in the harness paths and fix each with the smallest change that leaves every assertion untouched (wrap the 206-column line at `ComparatorTests.swift:50`; for a finding in `KitImportLintTests.swift` whose subject is a lint-probe fixture, a `// swiftlint:disable:next <rule>` with a one-line reason is acceptable if renaming the fixture would change what the probe tests):
+
+```bash
+swiftlint lint --quiet 2>&1 | grep "error:" | grep -E "Sources/VectorTestKit/|Sources/VectorAccelerateBench/|Tests/VectorAccelerateTests/Harness/"   # fix until empty
+swiftlint lint --quiet 2>&1 | grep -c "error:"    # record; expected 20 = the count at 853052d (kernels, IVF, hardening tests — not this plan's)
+```
+
+- [ ] **Step 10: Accuracy of the tracked evidence (claim discipline)**
+
+`docs/superpowers/research/2026-09-18-preflight-probe-characterization.md` — the Task 15 re-review found these; fix each, quoting the report file `.superpowers/sdd/2026-09-17-harness-sp0-foundation/task-15-report.md` where a number is needed:
+1. "the ramp is a wall-time effect" (§"WarmupPolicy refuted; candidates", the **Chosen** paragraph) — not established by any table (no series varies dispatch duration) and contradicted by the note's own "What is not established". Reword: the floor is a hedge that covers a time-bound ramp on a faster GPU and costs ≈0.1 s if the ramp is count-bound.
+2. §"Estimator comparison": "the fast 5th percentile of 100 is the most repeatable in the typical calm trial" — the table's own p05-of-150 row reads 0.92 against 1.08, and the archived analysis (`task-15-probe-characterization/` beside the report; copy the two numbers into the note) has p05 of 200 at 0.84 and p10 of 200 at 0.90. State that 100 is the most repeatable AMONG the 100-copy estimators and give the cost reason for stopping at 100 (each copy's measured time is in the note's own CPU tables; state the per-call cost each extra 50 copies would add).
+3. §"Before and after" table, round-2 set A background: "`xctest` in five" — the archived `bg_03`–`bg_08` samples and the report's table show six (runs 03–08).
+4. Same section, the sentence "with the count-only warm-up and no such process sampled it had stayed under 1.30 %": round 1's background was never sampled and 1.30 % was the maximum observed, not a bound. Reword so it does not suggest that load, or the time floor, explains the 4.4–4.8 % round-2 drifts — the data does not separate them.
+5. Same section, "five invocations" of the instrument check — the report shows six; list all six values (the omitted one passed).
+
+Then the same wall-time claim in code: `Sources/VectorAccelerateBench/Probe/GPUProbe.swift`, the `copyGBps` doc comment's sentence "The ramp is a wall-time effect, so the count alone would not carry to a GPU that finishes 50 dispatches much sooner; hence the time floor." → the hedge wording of item 1. And the MSL comment on the kernel's `dst[gid] = …` line, which names "Task 18" (a plan-internal number inside shipped source): repoint it at the evidence file the acceptance task writes, `docs/superpowers/research/2026-09-17-sp0-m0-acceptance.md`, keeping every line of the MSL string ≤ 200 columns (split the comment across two lines if needed — Step 9's gate covers it).
+
+- [ ] **Step 11: Plan sync, gates, commit**
+
+Resync the plan's code blocks to the committed files, byte-identical (`cmp` on extracted blocks; say so in the report): Task 3 (`SeededRNG.swift` — remove the typealias lines from the block AND from the Step grep that names `typealias TestRNG`), Task 4 (the generator script appends the `TestDataGenerator` typealias — remove that append line and the grep expectation, so a re-run of the recipe reproduces the committed file), Task 8 (`ArtifactSchemaTests` fixture string), Task 10 (`PreflightProbe.swift`), Task 12 (`Compare.swift`, `CompareTests.swift`), Task 13 (`Runner.swift`, `ValidateCommand.swift`, `ErrorDescriptionLintTests.swift`), Task 14 (`GPUProbe.swift`), Task 15 (`RunCommand.swift`). Task 0's `.swiftlint.yml` step text gains the two exclusions.
+
+```bash
+swift test --filter "Harness" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1    # all harness classes: 0 failures, 1 skip (the opt-in instrument check)
+swift build -c release 2>&1 | grep -cE "warning:|error:"                          # expected: 0
+git add .swiftlint.yml Package.swift Sources/VectorTestKit Sources/VectorAccelerateBench Tests/VectorAccelerateTests/Harness \
+        docs/superpowers/research/2026-09-18-preflight-probe-characterization.md docs/superpowers/plans/2026-09-17-harness-sp0-foundation.md
+git status --short     # nothing outside those paths
+git commit -q -F - <<'MSG'
+fix(harness): one-sided timing kinds carry a reason; identity read once; version strings retired; evidence note corrected
+
+Closes the findings the Task 14–16 reviews carried: a timing kind present on one side of a
+comparison is skipped with a reason like the other three conditions; Runner reads identity
+once after prepare; the lint test pins the actor shape it documents; warm-up floors must be
+finite; validate-artifact usage errors go to stderr; run prints preflight reasons joined.
+Deletes the TestRNG/TestDataGenerator aliases (no users). No version number remains in
+code or fixtures. The characterization note's four counting/wording slips are fixed and
+the time-bound-ramp claim is a hedge, not a fact. Golden files are excluded from lint.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+MSG
+```
+
+---
+
+### Task 18: Deletions, orphan guard, Metal-skip helper, README, CHANGELOG, spec amendment
 
 **Files:**
 - Delete: `Sources/VectorAccelerate/Benchmarking/BenchmarkFramework.swift`, `Sources/VectorAccelerate/Benchmarking/IndexBenchmarkHarness.swift`, `Sources/VectorAccelerate/Configuration/PerformanceMonitor.swift`, `Tests/VectorAccelerateTests/PerformanceBenchmarks.swift`, `Tests/VectorAccelerateTests/IndexBenchmarkHarnessTests.swift`
-- Modify: `Sources/VectorAccelerate/Index/Core/IndexAccelerationConfiguration.swift`, `Tests/VectorAccelerateTests/IndexBenchmarkRecallValidationTests.swift`, `Tests/VectorAccelerateTests/GPUCandidateBuilderValidationTests.swift`, `README.md`, `CHANGELOG.md`, `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`
+- Modify: `Sources/VectorAccelerate/Index/Core/IndexAccelerationConfiguration.swift`, `Sources/VectorAccelerate/Kernels/Metal4/QuantizationStatisticsKernel.swift`, `Sources/VectorAccelerate/Kernels/Metal4/WarpOptimizedSelectionKernel.swift`, `Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift`, `Tests/VectorAccelerateTests/Harness/StatsTests.swift`, `Tests/VectorAccelerateTests/IndexBenchmarkRecallValidationTests.swift`, `Tests/VectorAccelerateTests/GPUCandidateBuilderValidationTests.swift`, `README.md`, `CHANGELOG.md`, `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`, this plan (Task 7 and Task 15 blocks)
 - Create: `Tests/VectorAccelerateTests/Utilities/RequireMetal.swift`, `Tests/VectorAccelerateTests/Harness/OrphanPublicTypeTests.swift`, `Tests/VectorAccelerateTests/Harness/OrphanAllowlist.txt`
 
 - [ ] **Step 1: Delete the dead code**
 
 ```bash
+git status --short Sources/VectorAccelerate/Kernels/Metal4   # expected: empty — if the parallel session left uncommitted changes here, stop and report
 git rm -q Sources/VectorAccelerate/Benchmarking/BenchmarkFramework.swift Sources/VectorAccelerate/Benchmarking/IndexBenchmarkHarness.swift \
           Sources/VectorAccelerate/Configuration/PerformanceMonitor.swift \
           Tests/VectorAccelerateTests/PerformanceBenchmarks.swift Tests/VectorAccelerateTests/IndexBenchmarkHarnessTests.swift
 rmdir Sources/VectorAccelerate/Benchmarking 2>/dev/null; true
+grep -rn "\.benchmark(" Sources Tests    # expected: no output — the two kernel benchmark() methods have no caller (Task 9 pre-read; re-verify)
 ```
+
+Then delete `public func benchmark(` in `Sources/VectorAccelerate/Kernels/Metal4/WarpOptimizedSelectionKernel.swift` (the whole method, from its doc comment through its closing brace) and in `Sources/VectorAccelerate/Kernels/Metal4/QuantizationStatisticsKernel.swift` the same plus the nested `public struct BenchmarkResult: Sendable` it returns. Owner Q7: dead code is deleted, not allow-listed. `swift build` must succeed before Step 2.
+
+- [ ] **Step 1b: Drop the `blackHole` qualification comments**
+
+With the library's `Benchmarking/` gone, `blackHole` resolves to the kit's unambiguously. In `Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift` change `VectorTestKit.blackHole(distances)   // qualified: … until Task 17 deletes Benchmarking/` to `blackHole(distances)` (no comment), and in `Tests/VectorAccelerateTests/Harness/StatsTests.swift` delete the comment line `// Qualified: VectorAccelerate.blackHole still exists until Task 17 deletes Benchmarking/.` and unqualify the call below it. `swift build` and `swift test --filter StatsTests` prove the resolution. Resync the plan's Task 7 and Task 15 blocks.
 
 - [ ] **Step 2: Remove `logDecisions`**
 
@@ -4438,14 +4706,14 @@ Performance is measured by the benchmark harness (`swift run -c release VectorAc
 ```
 
 - Line 626 area: replace `swift run VectorAccelerateBenchmarks` with `swift run -c release VectorAccelerateBench run --mode quick`.
-- Line 7 version banner: `Version 0.6.0` → `Version 0.7.0`.
+- The line-7 `Version 0.6.0` banner is NOT changed: it names the last tagged release (Global Constraints, version).
 
-`CHANGELOG.md`: insert after the intro paragraph, before `## [0.6.0]`:
+`CHANGELOG.md`: insert after the intro paragraph, before `## [0.6.0]` (Keep-a-Changelog's `[Unreleased]` section; it accumulates everything that lands before the next tagged release and is renamed when that release is cut):
 
 ```markdown
-## [0.7.0] - Unreleased
+## [Unreleased]
 
-Benchmark harness foundation (SP0 of the observability program) and the removal of dead benchmarking code. The minor bump reflects the removed public `Benchmarking/` surface.
+Benchmark harness foundation (SP0 of the observability program) and the removal of dead benchmarking code. Breaking: the public `Benchmarking/` surface and two kernel `benchmark()` methods are removed. No version is assigned yet.
 
 ### Added
 - **`VectorTestKit`** (non-product library target): `SeededRNG` (frozen streams), `VectorGenerator` (versioned, frozen digests), `ContentDigest`, `Tolerance`/`Comparator` with derived sum bounds, distance-epsilon `Recall`, `Stats` with bootstrap intervals, artifact schema v1, `HostFingerprint`/`EnvironmentKey`, `PreflightProbe`, append-only `RunStore`, `Compare` with the owner's boundary rule.
@@ -4456,9 +4724,12 @@ Benchmark harness foundation (SP0 of the observability program) and the removal 
 - `Sources/VectorAccelerate/Benchmarking/` and all its public types (`BenchmarkSuite`, `BenchmarkResult`, `BenchmarkConfiguration`, `BenchmarkReport`, `PerformanceComparison`, `IndexBenchmarkHarness`, `IndexBenchmarkConfiguration`, `IndexBenchmarkResult`, `LatencyStats`, `BenchmarkWorkload`, `SeededRandomNumberGenerator`, `blackHole` — the last now lives in `VectorTestKit`).
 - The `VectorAccelerateBenchmarks` executable product (crossover sweep returns as a harness mode in SP4).
 - `PerformanceMonitor` (unused), `IndexAccelerationConfiguration.logDecisions` (never read).
+- `QuantizationStatisticsKernel.benchmark()` with its nested `BenchmarkResult`, and `WarpOptimizedSelectionKernel.benchmark()` (no callers).
 
 ### Changed
 - README performance claims retired pending measured run records.
+- The test utilities `TestRNG` and `TestDataGenerator` became `VectorTestKit.SeededRNG` and `VectorTestKit.VectorGenerator` with frozen output streams; no compatibility aliases are kept.
+- Preflight calibration costs about 1.7 s per run (it was about 0.1 s and was not repeatable; see `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`).
 ```
 
 - [ ] **Step 7: Amend the spec for the recorded deviations**
@@ -4473,32 +4744,43 @@ In `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`:
 - §4.8: the thermal-state list gains `"unknown"` (what `HostFingerprint.thermalStateName()` returns for `ProcessInfo.thermalState`'s `@unknown default`), matching the schema doc comment.
 - §5.7 (probe case): `dataDescriptor = "sequential_u32_pattern"` becomes `"sawtooth_f32_(i&0xFFFF)*0.5+1"` (the fill is a float32 sawtooth; the old label misdescribed it), and `resetForSample` re-zeroes the destination so a passing `memcmp` proves that at least one of that sample's dispatches wrote the whole destination (zeroing is once per sample, before warm-up; `verify` runs after the last measured iteration). The expectation `≈0.36 ms, ≈370 GB/s` did not reproduce: the Task 15 characterization measured a settled dispatch of ≈0.765 ms on the M3 Max, which reads ≈350 GB/s under the read-plus-write convention (the spec's figure also used the 1× convention: 134217728 B / 0.36 ms). Replace it with the figures the M0 acceptance run measures.
 - §5.8: `GPUProbe.copyGBps()` returns `2 × 128 MiB / median command-buffer seconds / 1e9` (read plus write), the same convention as §4.10's CPU probe, so the two preflight figures are comparable.
-- §5.8: `5 warm-up + 10 measured` becomes "warm-up until both 50 dispatches and 0.1 s of wall time have passed, then the median of 50", with a fixed floor rather than `WarmupPolicy`. Measured on the M3 Max over 81 recorded series (13,500 dispatches): after GPU idle 56 of the 81 series started slow (median 1.88×, range 1.08–2.40× the settled ≈0.765 ms) and settled only after up to 41 dispatches (median 10, p90 25), at most 55.5 ms of wall time; the ramp is a wall-time effect, hence the time floor; `WarmupPolicy.standard` stopped at n = 3 on that slow plateau in 3 of 45 series because the plateau's own CoV is under 5 % (one reading then came out +41 %); a median of 10 settled dispatches strays up to 4.66 % from its series' level (p99 2.38 %) against 1.85 % (p99 1.01 %) for a median of 50, with a 5 % gate on the difference of two readings. One `copyGBps()` call costs ≈0.16 s instead of ≈0.02–0.04 s. The 5 % gate of §4.10 is unchanged. Evidence and the before/after quiet tables: `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`.
+- §5.8: `5 warm-up + 10 measured` becomes "warm-up until both 50 dispatches and 0.1 s of wall time have passed, then the median of 50", with a fixed floor rather than `WarmupPolicy`. Measured on the M3 Max over 81 recorded series (13,500 dispatches): after GPU idle 56 of the 81 series started slow (median 1.88×, range 1.08–2.40× the settled ≈0.765 ms) and settled only after up to 41 dispatches (median 10, p90 25), at most 55.5 ms of wall time; whether the ramp is bounded by time or by dispatch count is not established (the note says so), and the time floor is the cheap hedge — it covers a GPU that finishes 50 dispatches sooner if the ramp is time-bound and costs ≈0.1 s if it is not; `WarmupPolicy.standard` stopped at n = 3 on that slow plateau in 3 of 45 series because the plateau's own CoV is under 5 % (one reading then came out +41 %); a median of 10 settled dispatches strays up to 4.66 % from its series' level (p99 2.38 %) against 1.85 % (p99 1.01 %) for a median of 50, with a 5 % gate on the difference of two readings. One `copyGBps()` call costs ≈0.16 s instead of ≈0.02–0.04 s. The 5 % gate of §4.10 is unchanged. Evidence and the before/after quiet tables: `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`.
 - §4.10 (CPU probe method): "best of 3 copies of 256 MiB" becomes "warm-up until both 20 copies and 0.2 s of wall time have passed, then the fast 5th percentile of 100 timed copies" (read plus write unchanged). Measured on the same machine: a thread that was idle, blocked or waiting on subprocesses copies at as little as 0.52× its settled rate for up to 17 copies (111.5 ms), and ten best-of-3 readings 0.3 s apart spanned 56–117 GB/s; settled copy times are bimodal and alternate, so on identical data (ten trials with no other process above 60 % CPU) ten readings spanned at most 1.76 % of their median for the 5th percentile of 100 against 1.89 % for the minimum and 3.57 % for the median. One call costs ≈0.71 s instead of ≈0.05 s. The opt-in `PreflightInstrumentCheckTests` (`VA_INSTRUMENT_CHECK=1`) asserts ten readings span under 2.5 %; there is no equivalent for the GPU probe because the executable has no test target. Same research note.
 - §7: add "empty selection (no case matches `--filter`/`--exclude`) → usage error before any probe runs, exit 2", and state that a preflight GPU probe failure at setup, at the start reading or at the end reading is the §4.10 "probe unavailable" state (`quiet: false`, the error text recorded in `preflight.reasons` and on stderr) and never aborts the run: the cases run and the artifact is written. `BenchError.registry` exits 2 as §7 already says (it exited 1 until Task 15's review).
 - §5.5, §5.6 step 4 and §7 (Task 16 review): every command rejects an option, flag or operand it does not declare — a usage error naming it, exit 2, before the command does any work (new §7 row: "unknown option, flag or operand → usage error, exit 2"). §5.6 step 5 gains a rule for a timing kind present in both that cannot be compared — its new or baseline median is not a positive finite number (a GPU timing pair can come back 0), or its `delta` or `boundary` is not finite (usable medians can overflow the ratio, and `2 × base.rsd` can overflow; `validate()` does not bound summary fields): the kind is skipped, contributing no delta and no verdict, and a reason naming the kind, the quantity and the value is kept on the result (`timing.<kind> not compared: …`, the same wording for all three conditions and for either side); the case's status comes from the remaining kinds exactly as before, so a broken GPU timer cannot hide a wall regression; and §5.6 step 4 gains the cause "no timing kind is comparable" (new §7 row: "timing kind not comparable → skipped with a reason, the case judged on the rest; `incomparable` only if none is left; exit status as §5.6"). Reasons are part of every output format whatever the status.
 - §5.5: the `run` synopsis drops `[--allow-dirty]`. `run` never refuses a dirty tree (§7: it suffixes the artifact `_dirty` and records `gitDirty: true`), so the flag had no effect there; it stays on `baseline capture`, the one command §7 gives it meaning for, and `run --allow-dirty` is now a usage error like any other undeclared flag.
 - §5.3 (sampling): when a sample's warm-up ends at the policy maximum without the CoV rule being met, the runner appends a note to the record with the count. The policy itself is unchanged; its weakness on a steady slow plateau (it can stop at n = 3) is recorded in the research note and deferred to the owner.
 - §5.7 and §11 item 5: `--probe-slowdown 4` becomes `--probe-slowdown 64`. The Task 14 review measured the probe's slowdown against `loops` on the M3 Max as ≈1.0× for loops ≤ 6, 1.5× at 8, 2.8× at 32 and ≈8× at 64 (bandwidth headroom absorbs the first extra passes), so 4 would not cross the alert boundary; the acceptance evidence records the ratio actually measured.
+- Header "**Version impact:** VectorAccelerate **0.7.0** (breaking: …)" → "**Version impact:** unreleased. Breaking (removes the `Benchmarking/` public surface, the `VectorAccelerateBenchmarks` product, `IndexAccelerationConfiguration.logDecisions`, and two kernel `benchmark()` methods); no version number is assigned — the owner bundles everything that lands on main into the next tagged breaking release (decision 2026-09-22)." §3's manifest sentence "add a `0.7.0` entry to the version-history header" → "add an `Unreleased` entry"; §6's row "`[0.7.0] — Unreleased` entry" → "`[Unreleased]` entry".
+- §4.2 and §4.3: after each rename sentence add "No compatibility alias for the old name is kept (deprecated `TestRNG`/`TestDataGenerator` aliases existed briefly and were deleted: no user; the owner breaks early)."
+- §6 (deletions table): add a row `| \`QuantizationStatisticsKernel.benchmark()\` + nested \`BenchmarkResult\`, \`WarpOptimizedSelectionKernel.benchmark()\` | delete (no caller anywhere; the orphan ratchet would have flagged the struct) | no |`.
+- §8: "Preflight adds roughly one second per run (two copies of 256 MiB and 2 × 15 GPU dispatches)" → "Preflight adds roughly 1.7 s per run: two CPU probe calls of ≈0.7 s each (warm-up of at least 20 copies and 0.2 s, then 100 timed copies of 256 MiB) and two GPU probe calls of ≈0.16 s each (warm-up of at least 50 dispatches and 0.1 s, then 50 timed dispatches). The original 0.1 s instruments were not repeatable within the 5 % gate (§4.10); the cost bought repeatability. Evidence: `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`."
+- §5.2 (warm-up policy) and §12 (open items): add to §12 "**WarmupPolicy is refuted as a warm-up detector for GPU timing** (Task 15 characterization): on the post-idle slow plateau its CoV rule is satisfied at n = 3, and under compositor-cadence spikes it often never converges, so the runner reaches the maximum of 50 on every smoke sample (each such sample is noted on the record since Task 15). M0 baselines may carry ramp contamination, worst in smoke mode; they are versioned and re-capturable. Redesign — a time-floored warm-up is the candidate the data supports — is deferred to SP1 (timing), by the owner's scope." and a one-line pointer to it in §5.2.
+- §12: add "Executable test target: three reviewers asked for automated pins of the CLI (option validation, exit codes, stderr routing) — the executable has no test target; splitting it into a library + thin `main` is SP1/SP3 work." and "`deviceTag` hostname source: `ProcessInfo.hostName` here vs `Host.current().localizedName` in VectorCore; cross-suite joins by `deviceTag` are SP4's concern (Task 10 review)." and "Absurd-but-finite baseline `rsd` (JSON can carry 1e300) widens the boundary without limit so any regression reads `ok` with `widened: true`; bounding summary fields in `validate()` is SP2's per-kernel tolerance work (Task 16 review)."
 
 - [ ] **Step 8: Full gates**
 
 ```bash
 swift test 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
 swift test -c release 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
-swiftlint lint --quiet 2>&1 | grep -c "error:"    # expected: 0
+swiftlint lint --quiet 2>&1 | grep "error:" | grep -E "Sources/VectorTestKit/|Sources/VectorAccelerateBench/|Tests/VectorAccelerateTests/Harness/" | wc -l   # expected: 0 (Task 17 Step 9 made it so; the deletions must not reintroduce one)
+swiftlint lint --quiet 2>&1 | grep -c "error:"    # record it; expected ≤ 20, the count at 853052d — every one in a file this plan never created (kernels, IVF, hardening tests); not this plan's to fix
 ```
-Expected: 0 failures in both configurations; 3 skips — the two IVF throughput placeholders, unchanged, plus `PreflightInstrumentCheckTests`, which skips unless `VA_INSTRUMENT_CHECK=1`. Record the exact counts for Task 18.
+Expected: 0 failures in both configurations; 3 skips — the two IVF throughput placeholders, unchanged, plus `PreflightInstrumentCheckTests`, which skips unless `VA_INSTRUMENT_CHECK=1`. Record the exact counts for Task 19. Each full run takes 20+ minutes and holds the SwiftPM build lock — run them sequentially, never alongside another build.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add -A Sources/VectorAccelerate Tests/VectorAccelerateTests README.md CHANGELOG.md docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md
+git add -A Sources/VectorAccelerate Tests/VectorAccelerateTests README.md CHANGELOG.md docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md \
+        Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift docs/superpowers/plans/2026-09-17-harness-sp0-foundation.md
+git status --short     # nothing outside those paths; nothing from the parallel session
 git commit -q -F - <<'MSG'
-refactor!: remove Benchmarking surface, PerformanceMonitor, logDecisions; retire README claims (0.7.0)
+refactor!: remove Benchmarking surface, kernel benchmark() methods, PerformanceMonitor, logDecisions; retire README claims
 
 Adds the orphan public-type ratchet and requireMetalDevice(). Recall coverage
 retained in IndexBenchmarkRecallValidationTests (harness-only test removed).
+CHANGELOG accumulates under [Unreleased]; no version is assigned. Spec amended
+for every deviation the ledger recorded (Step 7).
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 MSG
@@ -4506,10 +4788,12 @@ MSG
 
 ---
 
-### Task 18: Milestone M0 acceptance and evidence
+### Task 19: Milestone M0 acceptance and evidence
 
 **Files:**
 - Create: `docs/superpowers/research/2026-09-17-sp0-m0-acceptance.md`
+
+**Precondition — an idle machine.** Every timing measurement in Tasks 15–16 ran while another session built and tested in the shared checkout (load average 3–8), so the preflight quiet rate has never been measured under the conditions the spec assumes. Before step 0 the owner pauses the other session; if `uptime`'s 1-minute load average is above 1.5 with nothing of ours running, stop and report rather than measure. Never retry a run until it looks quiet; every run is recorded.
 
 - [ ] **Step 1: Run the acceptance sequence (spec §11) on the M3 Max, AC power, idle desktop; paste every command and its tail output into the evidence file**
 
@@ -4518,12 +4802,14 @@ uptime                                                                          
 [ -d .bench/baselines ] && mv .bench/baselines ".bench/baselines.pre-m0.$(date +%s)"                # 0b. start from an empty baseline store (Task 16's exercise left version 1 + approved from a smoke, dirty-tree artifact); moved aside, not deleted
 swift test 2>&1 | grep -E "Executed [0-9]+ test" | tail -1;  swift test -c release 2>&1 | grep -E "Executed [0-9]+ test" | tail -1                                   # 1. counts
 VA_INSTRUMENT_CHECK=1 swift test --filter PreflightInstrumentCheckTests 2>&1 | grep -E "VA_INSTRUMENT_CHECK|Executed [0-9]+ test" | sort -u   # 1b. opt-in CPU-probe instrument check: ten readings span < 2.5 % (record the readings; a failure means the instrument or the machine moved)
+swift build -c release 2>&1 | tail -1                                                               # 1c. warm the release binary so the loop below measures runs, not builds
+for i in 1 2 3 4 5 6 7 8 9 10; do .build/release/VectorAccelerateBench run --mode smoke >/dev/null 2>&1; A=$(ls -t .bench/runs/*/*.json | head -1); python3 -c "import json; p=json.load(open('$A'))['metadata']['preflight']; print($i, p['cpuCopyGBps'], p.get('gpuCopyGBps'), p['driftPercent'], p['quiet'], p['reasons'])"; done   # 1d. quiet rate on the idle machine: ten consecutive smoke runs, every row kept
 swift run -c release VectorAccelerateBench run --mode quick 2>&1 | tail -4                          # 2. artifact, quiet: true
 A=$(ls -t .bench/runs/*/*.json | head -1); swift run -q -c release VectorAccelerateBench validate-artifact "$A"
 swift run -q -c release VectorAccelerateBench baseline capture --from "$A" --approve                # 3. (refused with exit 1 and a "dirty tree" message on stderr if the tree is dirty → commit first or add --allow-dirty and say so)
 swift run -c release VectorAccelerateBench run --mode quick 2>&1 | tail -2                          # 4. second run
 B=$(ls -t .bench/runs/*/*.json | head -1); swift run -q -c release VectorAccelerateBench compare --artifact "$B"
-swift run -c release VectorAccelerateBench run --mode quick --filter 'probe.*' --probe-slowdown 64 2>&1 | tail -2   # 5. slowdown (64, not the spec's 4: measured ≈1.0× at 4 on the M3 Max — see Task 17 Step 7)
+swift run -c release VectorAccelerateBench run --mode quick --filter 'probe.*' --probe-slowdown 64 2>&1 | tail -2   # 5. slowdown (64, not the spec's 4: measured ≈1.0× at 4 on the M3 Max — see Task 18 Step 7)
 C=$(ls -t .bench/runs/*/*.json | head -1); swift run -q -c release VectorAccelerateBench compare --artifact "$C"; echo "exit=$?"           # alert(slower), exit=0
 swift run -q -c release VectorAccelerateBench compare --artifact "$C" --strict-perf; echo "exit=$?"                                      # exit=1
 touch README.md.tmp && swift run -c release VectorAccelerateBench run --mode smoke 2>&1 | grep artifact; rm README.md.tmp               # 6. _dirty suffix
@@ -4534,7 +4820,7 @@ E=$(ls -t .bench/runs/*-val/*.json | head -1); swift run -q -c release VectorAcc
 
 - [ ] **Step 2: Write the evidence file**
 
-`docs/superpowers/research/2026-09-17-sp0-m0-acceptance.md` contains: date, machine fingerprint (chip, OS build, Swift, Xcode, power, thermal), the exact test counts from step 1 with the reconciliation against the previous 1764/0/2 gate (deleted suites, added suites, trimmed test), the artifact paths, the compare outputs for steps 4 and 5 (verbatim), the probe's measured slowdown ratio at `--probe-slowdown 64` (step 5 wall and command-buffer medians over step 4's), the two refusals, and one paragraph of observations (probe GB/s, distance-case command-buffer median, whether the boundary widened and why). No number is rounded away from what the tool printed.
+`docs/superpowers/research/2026-09-17-sp0-m0-acceptance.md` contains: date; machine fingerprint (chip, OS build, Swift, Xcode, power, thermal) and the `uptime` load averages from step 0; the exact test counts from step 1 with the reconciliation against the previous 1764/0/2 gate (deleted suites, added suites, trimmed test, the opt-in skip); the instrument-check readings from 1b; the ten-row quiet-rate table from 1d (cpu start/end, gpu start/end, drift, quiet, reasons) and the rate as a fraction — this is the first idle-machine measurement of the gate, and it stands whatever it shows; the artifact paths; the compare outputs for steps 4 and 5 (verbatim); the probe's measured slowdown ratio at `--probe-slowdown 64` (step 5 wall and command-buffer medians over step 4's); the two refusals; one paragraph on the runner's warm-up — how many samples of each case ended at the policy maximum (the record's notes and `warmupUsed`), that the policy's weakness is characterized in the probe note and its redesign deferred to SP1, and that these baselines are therefore provisional (versioned, re-capturable); and one paragraph of observations (probe GB/s, distance-case command-buffer median, whether the boundary widened and why, any `not compared` reason — none is expected). No number is rounded away from what the tool printed.
 
 - [ ] **Step 3: Commit**
 
@@ -4547,8 +4833,17 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
+## After Task 19: branch finish (controller steps, not a task)
+
+1. **Final whole-branch review.** `scripts/review-package <plan> 853052d HEAD`; dispatch superpowers:requesting-code-review's `code-reviewer.md` on the most capable model, pointing it at the ledger's `minor (deferred)`, `parked`, `CORRECTION`, `LOAD-BEARING` and `Ruling:` lines so it can triage what must be fixed before merge. ONE fix dispatch for its findings, ONE scoped re-review, residuals adjudicated in the ledger.
+2. **Reword one commit trailer.** `db622c0` (Task 0) carries `Co-Authored-By: Claude Haiku 4.5` instead of the mandated Fable trailer. The branch has never been pushed, so its history is local: with a clean tree, `git rebase --exec 'git log -1 --format=%B | sed "s/Claude Haiku 4.5/Claude Fable 5.1/" | git commit --amend -q -F -' db622c0~1`. Every SHA after `db622c0` changes; the ledger's SHAs become historical from this point, which is why this is the last step before the merge. Confirm with `git log --format=%B db622c0~1..HEAD | grep -c "Claude Haiku"` → 0.
+3. **Merge.** superpowers:finishing-a-development-branch: the target is `gifton/metal-hardening-checkpoint` in the main checkout (the parallel IVF session commits there; resolve conflicts, never discard either side). Pushing is the owner's call.
+4. **Clean up.** After the merge, `rm -rf .superpowers/sdd/2026-09-17-harness-sp0-foundation/` (git-ignored; the plan, the research notes and git history are the record). `.bench/` is local, git-ignored measurement state; leave it.
+
 ## Self-review notes (run by the plan author before hand-off)
 
-- **Spec coverage.** §3 layout → Task 0. §4.1 → Task 1. §4.2 → Task 3. §4.3 → Task 4. §4.4 → Task 2. §4.5 → Task 5. §4.6 (amended) → Task 6. §4.7 → Task 7. §4.8 → Task 8. §4.9–4.10 → Task 10. §4.11 → Task 11. §5.1–5.3 → Task 13. §5.4 → Tasks 9, 13. §5.5 → Tasks 13, 15, 16. §5.6 (amended order) → Task 12. §5.7 → Tasks 14, 15. §5.8 → Task 14. §6 → Tasks 0, 17. §7 → Tasks 13, 15, 16. §10 → Tasks 1–12, 17. §11 → Task 18. §13 is SP2 scope by the spec's own §1 non-goals and has no task here.
-- **Placeholder scan.** No TBD/TODO; the only data-driven steps are the two golden generators (Tasks 3–4, deterministic scripts) and the orphan allowlist seeding (Task 17, explicit procedure).
-- **Type consistency.** `PreflightRecord`/`PreflightProbe` used consistently (spec's `Preflight` split, noted in Global Constraints). `Correctness.maxAbsError`/`maxRelError` (Task 8) match the contract's amended names. `CaseRecord.validate()` (Task 8) is what `Compare` (Task 12) calls. `Runner` writes `Series` via `Stats.summarize` (Task 7). `BenchError` is defined once (Task 13) and thrown by Tasks 14–15.
+- **Spec coverage.** §3 layout → Task 0. §4.1 → Task 1. §4.2 → Task 3 (alias deleted in Task 17). §4.3 → Task 4 (same). §4.4 → Task 2. §4.5 → Task 5. §4.6 (amended) → Task 6. §4.7 → Task 7. §4.8 → Task 8. §4.9–4.10 → Tasks 10, 15 (CPU probe method amended). §4.11 → Task 11. §5.1–5.3 → Task 13 (warm-up visibility note: Task 15). §5.4 → Tasks 9, 13. §5.5 → Tasks 13, 15, 16. §5.6 (amended order; per-kind skips) → Tasks 12, 16, 17. §5.7 → Tasks 14, 15. §5.8 → Tasks 14, 15. §6 → Tasks 0, 17, 18. §7 → Tasks 13, 15, 16. §8 (amended cost) → Task 18 Step 7. §10 → Tasks 1–12, 16 (error-description lint), 17, 18. §11 → Task 19. §12 gains the deferred items in Task 18 Step 7. §13 is SP2 scope by the spec's own §1 non-goals and has no task here. The spec header's "Version impact: 0.7.0" is superseded by the owner's 2026-09-22 decision and amended in Task 18 Step 7.
+- **Placeholder scan.** No TBD/TODO; the only data-driven steps are the two golden generators (Tasks 3–4, deterministic scripts), the orphan allowlist seeding (Task 18, explicit procedure) and Task 17 Step 10's evidence corrections (each names its source number).
+- **Type consistency.** `PreflightRecord`/`PreflightProbe` used consistently (spec's `Preflight` split, noted in Global Constraints). `Correctness.maxAbsError`/`maxRelError` (Task 8) match the contract's amended names. `CaseRecord.validate()` (Task 8) is what `Compare` (Task 12) calls. `Runner` writes `Series` via `Stats.summarize` (Task 7). `BenchError` is defined once (Task 13) and thrown by Tasks 14–16. The skip-reason wording `timing.<kind> not compared: …` is shared by Tasks 16 and 17. `Runner.run`'s single `identity` read (Task 17) rests on the Task 15 adapter contract (seeded identity published before `prepare` can throw).
+- **Owner decisions folded in (2026-09-22).** No version number anywhere; break early (typealiases and kernel `benchmark()` methods deleted rather than deprecated); `WarmupPolicy` redesign, an executable test target, the `deviceTag` source and `validate()` bounds on summary fields are recorded in spec §12 as deferred, not silently dropped.
+- **Renumbering (2026-09-22).** The task that was "Task 17: Deletions…" is now Task 18 and "Task 18: Milestone M0…" is now Task 19; the new Task 17 closes the reviews' carried findings first so Task 18's full gates run over the final code. Ledger entries written before this date use the old numbers.
