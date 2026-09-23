@@ -7,6 +7,7 @@
 
 import XCTest
 @testable import VectorAccelerate
+import VectorTestKit
 
 final class GPUCandidateBuilderValidationTests: XCTestCase {
 
@@ -246,21 +247,6 @@ final class GPUCandidateBuilderValidationTests: XCTestCase {
 }
 
 // MARK: - Helpers
-
-private struct SeededRNG: RandomNumberGenerator {
-    private var state: UInt64
-
-    init(seed: UInt64) {
-        self.state = seed
-    }
-
-    mutating func next() -> UInt64 {
-        state ^= state << 13
-        state ^= state >> 7
-        state ^= state << 17
-        return state
-    }
-}
 
 private extension String {
     func repeated(_ count: Int) -> String {

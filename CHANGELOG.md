@@ -5,6 +5,27 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Benchmark harness foundation (SP0 of the observability program) and the removal of dead benchmarking code. Breaking: the public `Benchmarking/` surface and two kernel `benchmark()` methods are removed. No version is assigned yet.
+
+### Added
+- **`VectorTestKit`** (non-product library target): `SeededRNG` (frozen streams), `VectorGenerator` (versioned, frozen digests), `ContentDigest`, `Tolerance`/`Comparator` with derived sum bounds, distance-epsilon `Recall`, `Stats` with bootstrap intervals, artifact schema v1, `HostFingerprint`/`EnvironmentKey`, `PreflightProbe`, append-only `RunStore`, `Compare` with the owner's boundary rule.
+- **`VectorAccelerateBench`** (executable): `list`, `run`, `baseline capture`, `compare`, `validate-artifact`; two M0 cases (GPU copy probe, batch L2 distance at N=10,000 D=768).
+- Mechanical guards: kit import allowlist, orphan public-type ratchet, golden streams/digests.
+
+### Removed (breaking)
+- `Sources/VectorAccelerate/Benchmarking/` and all its public types (`BenchmarkSuite`, `BenchmarkResult`, `BenchmarkConfiguration`, `BenchmarkReport`, `PerformanceComparison`, `IndexBenchmarkHarness`, `IndexBenchmarkConfiguration`, `IndexBenchmarkResult`, `LatencyStats`, `BenchmarkWorkload`, `SeededRandomNumberGenerator`, `blackHole` — the last now lives in `VectorTestKit`).
+- The `VectorAccelerateBenchmarks` executable product (crossover sweep returns as a harness mode in SP4).
+- `PerformanceMonitor` (unused), `IndexAccelerationConfiguration.logDecisions` (never read).
+- `QuantizationStatisticsKernel.benchmark()` with its nested `BenchmarkResult`, and `WarpOptimizedSelectionKernel.benchmark()` with its nested `PerformanceMetrics` (no callers).
+- `ExecutionPath` and `OperationType` (`AccelerationConfiguration.swift`): the orphan ratchet reported them; `PerformanceMonitor` was their only user.
+
+### Changed
+- README performance claims retired pending measured run records.
+- The test utilities `TestRNG` and `TestDataGenerator` became `VectorTestKit.SeededRNG` and `VectorTestKit.VectorGenerator` with frozen output streams; no compatibility aliases are kept.
+- Preflight calibration costs about 1.7 s per run (it was about 0.1 s and was not repeatable; see `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`).
+
 ## [0.6.0] - 2026-08-15
 
 The zero-copy SoA scoring release, plus the removal promised in 0.5.0. The minor bump reflects the removed deprecated GPU surface, the `L2NormalizationParameters.epsilon` default change, and the new SoA scoring API. The normalization parity work was validated with measured GPU evidence (fast-math reassociation and FTZ boundary behavior probed on hardware) and is gated by a release-configuration test that also guards the runtime shader-compile path.

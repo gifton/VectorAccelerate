@@ -4,7 +4,7 @@
 **Status:** Approved design (sections 1–4 approved by the owner in conversation on 2026-09-14); awaiting owner review of this written form before the implementation plan.
 **Search-quality addendum:** The owner approved the initial downstream-search measurement scope in §13. Numerical thresholds and characterization counts remain for subsequent owner review.
 **Program:** Observability, guardrails, and reproducible benchmarks for VectorAccelerate. Research brief: `docs/superpowers/research/2026-09-14-observability-harness-research.md` (decisions in §6a). Adapter seam: `docs/superpowers/specs/2026-09-14-harness-interface-contract.md` (this spec is the authority where the two overlap; the contract is updated to match on approval). Library wish list: `docs/superpowers/research/2026-09-14-metal-improvements-wishlist-for-harness.md`. First consumer: `docs/superpowers/specs/2026-09-14-ivf-benchmark-integration.md`.
-**Version impact:** VectorAccelerate **0.7.0** (breaking: removes the `Benchmarking/` public surface, the `VectorAccelerateBenchmarks` product, and `IndexAccelerationConfiguration.logDecisions`).
+**Version impact:** unreleased. Breaking (removes the `Benchmarking/` public surface, the `VectorAccelerateBenchmarks` product, `IndexAccelerationConfiguration.logDecisions`, and two kernel `benchmark()` methods); no version number is assigned — the owner bundles everything that lands on main into the next tagged breaking release (decision 2026-09-22).
 
 ---
 
@@ -41,7 +41,7 @@
 | `Tests/VectorAccelerateTests/` | test target | — | gains a dependency on `VectorTestKit` |
 | `.bench/` | — | — | gitignored in SP0 (`.bench/` added to `.gitignore`); history strategy is SP5 |
 
-Manifest changes: add the two targets; add `VectorTestKit` to the test target's dependencies; remove the `VectorAccelerateBenchmarks` executable target and product; add a `0.7.0` entry to the version-history header; SwiftLint scope gains `Sources/VectorTestKit` and `Sources/VectorAccelerateBench` (the `no_print_in_production` custom rule is scoped to exclude the bench executable, which legitimately prints reports).
+Manifest changes: add the two targets; add `VectorTestKit` to the test target's dependencies; remove the `VectorAccelerateBenchmarks` executable target and product; add an `Unreleased` entry to the version-history header; SwiftLint scope gains `Sources/VectorTestKit` and `Sources/VectorAccelerateBench` (the `no_print_in_production` custom rule is scoped to exclude the bench executable, which legitimately prints reports).
 
 ## 4. `VectorTestKit`
 
@@ -51,13 +51,13 @@ Every Swift file under `Sources/VectorTestKit/` may import only `Foundation`, `D
 
 ### 4.2 `SeededRNG` (promotion of `TestRNG`)
 
-`Tests/VectorAccelerateTests/Utilities/TestRNG.swift` moves to `Sources/VectorTestKit/SeededRNG.swift` with the type renamed `SeededRNG`. Every public member keeps its name and semantics: `init(seed:stream:warmup:)` (warm-up default 10, stream mixing `seed ^ (stream << 32)`), `next()`, `nextFloat01()`, `nextFloat(in:)`, `nextDouble()`, `nextGaussian(mean:stdDev:)`, `nextInt(bound:)`, `nextInt(in:)` (both range forms), `nextBool(probability:)`, `shuffle`, `shuffled`, `sample(_:k:)`, and `RandomNumberGenerator` conformance. The LCG constants and the 24-bit float construction are unchanged. `public typealias TestRNG = SeededRNG` is provided, marked `@available(*, deprecated, renamed: "SeededRNG")`, and removed in 0.8.0.
+`Tests/VectorAccelerateTests/Utilities/TestRNG.swift` moves to `Sources/VectorTestKit/SeededRNG.swift` with the type renamed `SeededRNG`. Every public member keeps its name and semantics: `init(seed:stream:warmup:)` (warm-up default 10, stream mixing `seed ^ (stream << 32)`), `next()`, `nextFloat01()`, `nextFloat(in:)`, `nextDouble()`, `nextGaussian(mean:stdDev:)`, `nextInt(bound:)`, `nextInt(in:)` (both range forms), `nextBool(probability:)`, `shuffle`, `shuffled`, `sample(_:k:)`, and `RandomNumberGenerator` conformance. The LCG constants and the 24-bit float construction are unchanged. No compatibility alias for the old name is kept (deprecated `TestRNG`/`TestDataGenerator` aliases existed briefly and were deleted: no user; the owner breaks early).
 
 **Output-stream freeze.** `SeededRNGGoldenTests` pins the first 64 values of `next()`, `nextFloat01()`, and `nextGaussian()` for seeds {0, 1, 42} × streams {0, 1} as literal arrays in the test file, generated once from the pre-move `TestRNG` and never regenerated. A failure means the sequence changed and every fixture digest in the suite is invalid.
 
 ### 4.3 `VectorGenerator` (promotion of `TestDataGenerator`)
 
-`TestDataGenerator.swift` moves to `Sources/VectorTestKit/VectorGenerator.swift`, renamed `VectorGenerator`, same public members (`init(seed:stream:)`, `uniformVectors` both forms, `gaussianClusters`, `separatedGaussianClusters`, `unitVectors`, `clusteredUnitVectors`, `sparseVectors`, `skewedClusters`, `perturbedQueries`, `clusterQueries`, `randomQueries`, `shuffle`, `shuffled`, `sample`, `trainTestSplit`, `statistics(for:)`, `randomGenerator`, `generatedCount`) and `DatasetStatistics`. Adds `public static let version: String = "1"`. Deprecated typealias `TestDataGenerator`, removed in 0.8.0.
+`TestDataGenerator.swift` moves to `Sources/VectorTestKit/VectorGenerator.swift`, renamed `VectorGenerator`, same public members (`init(seed:stream:)`, `uniformVectors` both forms, `gaussianClusters`, `separatedGaussianClusters`, `unitVectors`, `clusteredUnitVectors`, `sparseVectors`, `skewedClusters`, `perturbedQueries`, `clusterQueries`, `randomQueries`, `shuffle`, `shuffled`, `sample`, `trainTestSplit`, `statistics(for:)`, `randomGenerator`, `generatedCount`) and `DatasetStatistics`. Adds `public static let version: String = "1"`. No compatibility alias for the old name is kept (deprecated `TestRNG`/`TestDataGenerator` aliases existed briefly and were deleted: no user; the owner breaks early).
 
 **Freeze.** `VectorGeneratorGoldenTests` pins, per generator method, the SHA-256 digest (§4.4) of a small fixed call (for example `uniformVectors(count: 16, dimension: 8)` at seed 42, stream 0). Any change bumps `version` deliberately, which changes every dependent case identity.
 
@@ -94,7 +94,7 @@ This is the distance-threshold recall measure, reported separately from exact-ID
 
 ### 4.7 `Stats`
 
-`Stats.summarize(_ values: [Double], bootstrapSeed: UInt64) -> Summary` with `Summary { median, p90, p99, min, max, mean, rsd, ci95: (lo, hi), count }`. Percentiles use linear interpolation between order statistics (the method already in `IndexBenchmarkHarness.LatencyStats`, moved here). `rsd = sampleStdDev / mean` (0 when count < 2). `ci95` is a percentile bootstrap of the median: 1,000 resamples with replacement drawn from `SeededRNG(seed: bootstrapSeed, stream: 0)`, 2.5th and 97.5th percentiles of the resampled medians. `blackHole(_:)` (the `@inline(never)` DCE barrier from `BenchmarkFramework.swift`) also lives here.
+`Stats.summarize(_ values: [Double], bootstrapSeed: UInt64) -> Summary` with `Summary { median, p90, p99, min, max, mean, rsd, ci95: (lo, hi), count }`. Percentiles use linear interpolation between order statistics (rank = p·(n−1)); this replaces the floor-index method the old `IndexBenchmarkHarness.LatencyStats` used. `rsd = sampleStdDev / mean` (0 when count < 2). `ci95` is a percentile bootstrap of the median: 1,000 resamples with replacement drawn from `SeededRNG(seed: bootstrapSeed, stream: 0)`, 2.5th and 97.5th percentiles of the resampled medians. `blackHole(_:)` (the `@inline(never)` DCE barrier from `BenchmarkFramework.swift`) also lives here.
 
 ### 4.8 Artifact schema v1 (`BenchArtifact`)
 
@@ -113,7 +113,7 @@ Metadata {
 }
 GPUInfo { name: String, coreCount: Int?, unifiedMemory: Bool, maxThreadgroupBytes: Int, metal4: Bool, metalToolchain: String? }
 PowerInfo { source: "ac"|"battery"|"unknown", lowPowerMode: Bool }
-ThermalInfo { start: String, end: String }   // "nominal"|"fair"|"serious"|"critical"
+ThermalInfo { start: String, end: String }   // "nominal"|"fair"|"serious"|"critical"|"unknown" ("unknown": HostFingerprint.thermalStateName() for ProcessInfo.thermalState's @unknown default)
 Preflight { cpuCopyGBps: StartEnd, gpuCopyGBps: StartEnd?, driftPercent: Double, quiet: Bool, reasons: [String] }
 StartEnd { start: Double, end: Double }
 Filters { mode: "glob", include: [String]?, exclude: [String]? }
@@ -141,7 +141,7 @@ Environment key: `"\(chipSlug)-g\(gpuCores ?? "?")-\(osBuild)-mtl\(metalToolchai
 
 ### 4.10 `Preflight`
 
-Kit part: `Preflight.cpuCopyGBps()` performs `memcpy` of a 256 MiB buffer three times and reports the best as `2 × bytes / seconds / 1e9` (read plus write). The executable supplies `gpuCopyGBps` (§5.8). `Preflight.evaluate(start:end:thermalStart:thermalEnd:) -> (quiet: Bool, driftPercent: Double, reasons: [String])`: drift is the larger of the CPU and GPU relative changes between start and end, in percent; `quiet` is false when drift > 5%, when either thermal state is not `nominal`, or when the GPU probe is unavailable while a Metal device exists. Reasons are human-readable strings recorded in the artifact.
+Kit part: `Preflight.cpuCopyGBps()` performs `memcpy` of a 256 MiB buffer — warm-up until both 20 copies and 0.2 s of wall time have passed, then 100 timed copies — and reports the fast 5th percentile as `2 × bytes / seconds / 1e9` (read plus write). This replaced the original best of 3 copies. Measured on the M3 Max: a thread that was idle, blocked or waiting on subprocesses copies at as little as 0.52× its settled rate for up to 17 copies (111.5 ms), and ten best-of-3 readings 0.3 s apart spanned 56–117 GB/s; settled copy times are bimodal and alternate, so on identical data (ten trials with no other process above 60 % CPU) ten readings spanned at most 1.76 % of their median for the 5th percentile of 100 against 1.89 % for the minimum and 3.57 % for the median. One call costs ≈0.71 s instead of ≈0.05 s. The opt-in `PreflightInstrumentCheckTests` (`VA_INSTRUMENT_CHECK=1`) asserts ten readings span under 2.5 %; there is no equivalent for the GPU probe because the executable has no test target. Evidence: `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`. The executable supplies `gpuCopyGBps` (§5.8). `Preflight.evaluate(start:end:thermalStart:thermalEnd:) -> (quiet: Bool, driftPercent: Double, reasons: [String])`: drift is the larger of the CPU and GPU relative changes between start and end, in percent; `quiet` is false when drift > 5%, when either thermal state is not `nominal`, or when the GPU probe is unavailable while a Metal device exists. Reasons are human-readable strings recorded in the artifact.
 
 ### 4.11 `RunStore`
 
@@ -179,30 +179,30 @@ public protocol PreparedCase: AnyObject {
 
 ### 5.2 Sampling loop
 
-For each case: `prepare` once. Then for `sample in 0..<samples`: `resetForSample()`; warm-up: run `runOnce()` repeatedly, keeping the wall time of each, until at least 3 have run and the coefficient of variation of the last 8 (or all, if fewer) is below 0.05, or 50 have run; record the count in `warmupUsed[sample]`; then `iterations` measured calls, each wrapped in `ContinuousClock` for `.wall`, appending every `GPUSample` returned to the series of its kind; after the last iteration of the sample, `verify(lastOutput)` outside any timed region. `resources()` is called once after all samples. Any thrown error marks the case `failed` with `failureReason` and continues to the next case.
+For each case: `prepare` once. Then for `sample in 0..<samples`: `resetForSample()`; warm-up: run `runOnce()` repeatedly, keeping the wall time of each, until at least 3 have run and the coefficient of variation of the last 8 (or all, if fewer) is below 0.05, or 50 have run; record the count in `warmupUsed[sample]`; then `iterations` measured calls, each wrapped in `ContinuousClock` for `.wall`, appending every `GPUSample` returned to the series of its kind; after the last iteration of the sample, `verify(lastOutput)` outside any timed region. `resources()` is called once after all samples. Any thrown error marks the case `failed` with `failureReason` and continues to the next case. When a sample's warm-up ends at the policy maximum without the CoV rule being met, the runner appends a note to the record with the count; the policy itself is unchanged, and its weakness on a steady slow plateau (it can stop at n = 3) is recorded in the research note and deferred to the owner (§12, WarmupPolicy).
 
 Mode defaults: `smoke` 1 × 3, `quick` 3 × 20, `full` 5 × 100 (samples × iterations); `--samples`/`--iterations` override.
 
 ### 5.3 Timing rules
 
-The harness measures `.wall` for every case. It never synthesizes `.commandBuffer` or `.encoder` values; a kind not present in `providedTiming` is absent from the artifact. A `Series.bias` string is set to `"command-buffer duration includes submission and completion overhead (+2–10 µs measured on M3 Max, see research brief Appendix D)"` for `.commandBuffer` series. When wish-list HW-03 lands, the harness collects GPU kinds from the context's per-submission records and ignores adapter-supplied samples for those kinds; that change is SP1 and does not alter this protocol.
+The harness measures `.wall` for every case. It never synthesizes `.commandBuffer` or `.encoder` values; a kind not present in `providedTiming` is absent from the artifact. An adapter returns exactly one `GPUSample` per declared timing kind per iteration; a kind produced in any other shape (none, or more than one, in an iteration) is omitted from the artifact and noted on the record (Task 13 runner behaviour). A `Series.bias` string is set to `"command-buffer duration includes submission and completion overhead (+2–10 µs measured on M3 Max, see research brief Appendix D)"` for `.commandBuffer` series. When wish-list HW-03 lands, the harness collects GPU kinds from the context's per-submission records and ignores adapter-supplied samples for those kinds; that change is SP1 and does not alter this protocol.
 
 ### 5.4 Case identity and registry
 
-Grammar: `<family>.<op>(.<param>=<value>)*(.<variant>)?`, lowercase, `[a-z0-9_=.]` only, parameters in the order the family documents, never containing seeds, digests, or timestamps. `CaseID.init(validating:)` rejects anything else. Each family exposes `enum <Family>Cases { static var all: [any BenchCase] }` and one line in `Cases/Registry.swift`. Duplicate IDs across families are a registry error at startup.
+Grammar: `<family>(.<op>)+(.<param>=<value>)*(.<variant>)?`, lowercase, `[a-z0-9_=.]` only, parameters in the order the family documents, never containing seeds, digests, or timestamps. More than one bare op segment is allowed because the M0 ID `distance.l2.batch.n=10000.d=768` requires it (`l2` and `batch` are both ops). `CaseID.init(validating:)` rejects anything else. Each family exposes `enum <Family>Cases { static var all: [any BenchCase] }` and one line in `Cases/Registry.swift`. Duplicate IDs across families are a registry error at startup.
 
 ### 5.5 CLI
 
 ```
 VectorAccelerateBench list [--filter <glob>] [--exclude <glob>]
 VectorAccelerateBench run  [--filter <glob>] [--exclude <glob>] [--mode smoke|quick|full] [--samples N] [--iterations N]
-                           [--seed S] [--out <path>] [--label <text>] [--require-gpu] [--validation-layers] [--allow-dirty]
+                           [--seed S] [--out <path>] [--label <text>] [--require-gpu] [--validation-layers]
 VectorAccelerateBench baseline capture --from <artifact> [--approve] [--allow-dirty]
 VectorAccelerateBench compare --artifact <path> [--against approved|<n>] [--strict-perf] [--format text|json|markdown]
 VectorAccelerateBench validate-artifact <path>
 ```
 
-Argument parsing is hand-written (no `swift-argument-parser`, per the Q2 dependency trigger). Globs use `fnmatch`. `--out` defaults to the run-store path. `--validation-layers` only flags the artifact; the environment variables themselves are set by the caller (SP2 adds the script).
+Argument parsing is hand-written (no `swift-argument-parser`, per the Q2 dependency trigger). Globs use `fnmatch`. `--out` defaults to the run-store path. `--validation-layers` only flags the artifact; the environment variables themselves are set by the caller (SP2 adds the script). Every command rejects an option, flag or operand it does not declare: a usage error naming it, exit 2, before the command does any work (Task 16 review). `run` never refuses a dirty tree (§7: it suffixes the artifact `_dirty` and records `gitDirty: true`), so `--allow-dirty` had no effect there; it stays on `baseline capture`, the one command §7 gives it meaning for, and `run --allow-dirty` is now a usage error like any other undeclared flag.
 
 ### 5.6 Compare
 
@@ -211,37 +211,40 @@ Input: a run artifact and, per case, the approved (or `--against <n>`) baseline 
 1. `invalidArtifact` if either record fails `validate()`.
 2. `correctnessFailed` if `correctness.status == "fail"`, regardless of whether a comparable baseline exists.
 3. `resourceFailed` if `resources.staticThreadgroupBytes > resources.maxThreadgroupBytes` (both present) or any note in `resources.notes` begins with `LIMIT_EXCEEDED:`, regardless of whether a comparable baseline exists.
-4. `incomparable` if `identity != baseline.identity` or the environment keys differ or the baseline is missing. Missing baselines are handled here, not treated as malformed records at step 1. Reports retain all observed correctness/resource failures and any comparison-unavailability reason even when a single primary status is selected.
-5. For each timing kind present in both: `delta = (new.median − base.median) / base.median`; `boundary = max(0.025, 2 × base.rsd)`; `alert(slower)` if `delta > boundary`, `alert(faster)` if `delta < −boundary`. A case with any alerting kind is reported as that alert; kinds are listed individually in the report with `delta`, `boundary`, and whether the boundary was widened beyond 2.5%.
+4. `incomparable` if `identity != baseline.identity` or the environment keys differ or the baseline is missing — or, once step 5 has run, if no timing kind is comparable. Missing baselines are handled here, not treated as malformed records at step 1. Reports retain all observed correctness/resource failures and any comparison-unavailability reason even when a single primary status is selected.
+5. For each timing kind present in both: `delta = (new.median − base.median) / base.median`; `boundary = max(0.025, 2 × base.rsd)`; `alert(slower)` if `delta > boundary`, `alert(faster)` if `delta < −boundary`. A case with any alerting kind is reported as that alert; kinds are listed individually in the report with `delta`, `boundary`, and whether the boundary was widened beyond 2.5%. A kind present in both that cannot be compared — its new or baseline median is not a positive finite number (a GPU timing pair can come back 0), or its `delta` or `boundary` is not finite (usable medians can overflow the ratio, and `2 × base.rsd` can overflow; `validate()` does not bound summary fields) — is skipped, contributing no delta and no verdict, and a reason naming the kind, the quantity and the value is kept on the result (`timing.<kind> not compared: …`, the same wording for all three conditions and for either side); the case's status comes from the remaining kinds exactly as before, so a broken GPU timer cannot hide a wall regression. Reasons are part of every output format whatever the status.
 6. Otherwise `ok`.
 
 Exit status: 1 if any case is `invalidArtifact`, `correctnessFailed`, or `resourceFailed`; 1 for alerts only under `--strict-perf`; 2 for usage errors; 0 otherwise. Output formats: `text` (table), `markdown` (table plus a per-alert line), `json` (`[CompareResult]`).
 
 ### 5.7 First cases (M0)
 
-**`probe.gpu_copy.bytes=134217728`** (`Cases/Probe/`): the spike's `float4` copy kernel compiled from an MSL string at runtime; one legacy `MTLCommandBuffer` per `runOnce()`, waited on synchronously; `.commandBuffer` sample from `gpuStartTime`/`gpuEndTime`. Correctness: `memcmp` of output against input once per sample in `verify`. Resources: the pipeline's `staticThreadgroupMemoryLength` and the device limit. Identity: `route = "gpu.probe_copy"`, `dataDescriptor = "sequential_u32_pattern"`, fixture digest over the pattern parameters. Purpose: known cost (expected ≈0.36 ms, ≈370 GB/s on M3 Max), validates the timing path end to end, and is the deliberate-slowdown vehicle for M0 (a `--probe-slowdown N` hidden option makes the kernel loop N extra times; used only by the M0 acceptance test, recorded in `notes`).
+**`probe.gpu_copy.bytes=134217728`** (`Cases/Probe/`): the spike's `float4` copy kernel compiled from an MSL string at runtime; one legacy `MTLCommandBuffer` per `runOnce()`, waited on synchronously; `.commandBuffer` sample from `gpuStartTime`/`gpuEndTime`. Correctness: `memcmp` of output against input once per sample in `verify`; `resetForSample` re-zeroes the destination (once per sample, before warm-up; `verify` runs after the last measured iteration), so a passing `memcmp` proves that at least one of that sample's dispatches wrote the whole destination. Resources: the pipeline's `staticThreadgroupMemoryLength` and the device limit. Identity: `route = "gpu.probe_copy"`, `dataDescriptor = "sawtooth_f32_(i&0xFFFF)*0.5+1"` (the fill is a float32 sawtooth; the earlier label `"sequential_u32_pattern"` misdescribed it), fixture digest over the pattern parameters. Purpose: known cost, validates the timing path end to end, and is the deliberate-slowdown vehicle for M0 (a `--probe-slowdown N` hidden option makes the kernel loop N extra times; used only by the M0 acceptance test, recorded in `notes`). The original expectation of ≈0.36 ms, ≈370 GB/s on the M3 Max did not reproduce: the Task 15 characterization measured a settled dispatch of ≈0.765 ms, which reads ≈350 GB/s under the read-plus-write convention (the ≈370 GB/s figure also used the 1× convention: 134217728 B / 0.36 ms); the figures the M0 acceptance run measures replace it. The M0 slowdown is `--probe-slowdown 64`, not 4: the Task 14 review measured the probe's slowdown against `loops` on the M3 Max as ≈1.0× for loops ≤ 6, 1.5× at 8, 2.8× at 32 and ≈8× at 64 (bandwidth headroom absorbs the first extra passes), so 4 would not cross the alert boundary; the acceptance evidence records the ratio actually measured.
 
 **`distance.l2.batch.n=10000.d=768`** (`Cases/Distance/`): candidates from `VectorGenerator.uniformVectors(count: 10000, dimension: 768)` and one query, seeded per case; a `Metal4Context` created by the case and a `MetalComputeProvider(context:configuration: .init(preferGPU: true, fallbackToCPU: false))` over it; `runOnce()` calls `batchDistance(query:candidates:metric: .euclidean)` and, immediately after, reads `context.lastGPUTiming` as the `.commandBuffer` sample. Route verification: `routingTelemetry().gpuKernel` must increase by exactly one per call; otherwise `verify` returns `fail` with note `route mismatch`. Correctness: the returned distances are compared with a Double-precision CPU oracle over the same inputs using `Tolerance.forSum(terms: 768, reduction: .tree, magnitude: Σ|xᵢ| bound from the generator range)`; `maxAbsError`/`maxRelError` recorded. Identity: `route = "gpu.l2.batch"`, `dataDescriptor = "uniform[-1,1]"`, digest over candidates and query.
 
 ### 5.8 Metal fingerprint and GPU probe (executable)
 
-`MetalFingerprint.gather() -> GPUInfo?`: `MTLCreateSystemDefaultDevice()` name, `hasUnifiedMemory`, `maxThreadgroupMemoryLength`, `supportsFamily(.metal4)`; `coreCount` from the IORegistry property `gpu-core-count` on the first `AGXAccelerator` service (via IOKit), `nil` if absent; `metalToolchain` from `xcrun -sdk macosx metal --version` (first line, version token), `nil` on failure. `GPUProbe.copyGBps()` runs the probe kernel 5 warm-up + 10 measured times and returns `128 MiB / median command-buffer seconds / 1e9`.
+`MetalFingerprint.gather() -> GPUInfo?`: `MTLCreateSystemDefaultDevice()` name, `hasUnifiedMemory`, `maxThreadgroupMemoryLength`, `supportsFamily(.metal4)`; `coreCount` from the IORegistry property `gpu-core-count` on the first `AGXAccelerator` service (via IOKit), `nil` if absent; `metalToolchain` from `xcrun -sdk macosx metal --version` (first line, version token), `nil` on failure. `GPUProbe.copyGBps()` warms up until both 50 dispatches and 0.1 s of wall time have passed, then takes the median of 50 measured dispatches and returns `2 × 128 MiB / median command-buffer seconds / 1e9` (read plus write, the same convention as §4.10's CPU probe, so the two preflight figures are comparable). The warm-up floor is fixed rather than `WarmupPolicy`; it replaced the original 5 warm-up + 10 measured. Measured on the M3 Max over 81 recorded series (13,500 dispatches): after GPU idle 56 of the 81 series started slow (median 1.88×, range 1.08–2.40× the settled ≈0.765 ms) and settled only after up to 41 dispatches (median 10, p90 25), at most 55.5 ms of wall time; whether the ramp is bounded by time or by dispatch count is not established (the research note says so), and the time floor is the cheap hedge — it covers a GPU that finishes 50 dispatches sooner if the ramp is time-bound and costs ≈0.1 s if it is not; `WarmupPolicy.standard` stopped at n = 3 on that slow plateau in 3 of 45 series because the plateau's own CoV is under 5 % (one reading then came out +41 %); a median of 10 settled dispatches strays up to 4.66 % from its series' level (p99 2.38 %) against 1.85 % (p99 1.01 %) for a median of 50, with a 5 % gate on the difference of two readings. One `copyGBps()` call costs ≈0.16 s instead of ≈0.02–0.04 s. The 5 % gate of §4.10 is unchanged. Evidence and the before/after quiet tables: `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`.
 
 ## 6. Deletions and migrations
 
 | Item | Action | Breaking? |
 |---|---|---|
 | `Sources/VectorAccelerate/Benchmarking/BenchmarkFramework.swift`, `IndexBenchmarkHarness.swift` | delete; `blackHole` and percentile interpolation move to `Stats` | **yes** (public types removed) |
-| `Tests/.../IndexBenchmarkHarnessTests.swift`, `IndexBenchmarkRecallValidationTests.swift` | the recall assertions (flat recall exactly 1.0; IVF recall > 0.9) are ported to a new `Tests/.../IndexRecallTests.swift` using `VectorGenerator` and the public index API **before** the harness files are deleted; the two old files are then deleted | no |
+| `Tests/.../IndexBenchmarkHarnessTests.swift` | delete (every test depends on the harness; its recall assertions duplicate the validation suite's) | no |
+| `Tests/.../IndexBenchmarkRecallValidationTests.swift` | keep; remove the one harness-only test (`testBenchmarkHarnessRealisticIVF`) and its private RNG; this file already asserts flat recall = 1.0 and IVF recall > 0.95 through the public index API | no |
 | `Sources/VectorAccelerateBenchmarks/` (5 files) and the `VectorAccelerateBenchmarks` product | delete | yes (product removed) |
 | `Sources/VectorAccelerate/Configuration/PerformanceMonitor.swift` | delete | yes (public, unused) |
 | `IndexAccelerationConfiguration.logDecisions` | delete field and its init parameter | yes |
+| `QuantizationStatisticsKernel.benchmark()` + nested `BenchmarkResult`, `WarpOptimizedSelectionKernel.benchmark()` + nested `PerformanceMetrics` | delete (no caller anywhere; the orphan ratchet would have flagged the struct) | no |
+| `ExecutionPath`, `OperationType` (`AccelerationConfiguration.swift`) | delete (the orphan ratchet reported them; `PerformanceMonitor` was their only user) | yes (public, unused) |
 | `Tests/.../PerformanceBenchmarks.swift` | delete | no |
-| private `SeededRNG` in `GPUCandidateBuilderValidationTests.swift` | replace with kit `SeededRNG`; the test must still pass (it asserts properties, not a specific sequence). The other private copy, in `IndexBenchmarkRecallValidationTests.swift`, disappears with that file (row above). | no |
+| private `SeededRNG` in `GPUCandidateBuilderValidationTests.swift` | replace with kit `SeededRNG`; the test must still pass (it asserts properties, not a specific sequence). The other private copy, in `IndexBenchmarkRecallValidationTests.swift`, is replaced the same way (row above). | no |
 | `Tests/.../Utilities/TestRNG.swift`, `TestDataGenerator.swift` | moved to the kit (§4.2, §4.3) | no |
 | `README.md` line 5 "up to 100x speedups", lines 582–586 table, line 626 command | line 5 loses the number; the table becomes "Performance is measured by the benchmark harness; the latest run records live under `.bench/runs/` and are not committed. See `docs/superpowers/research/2026-09-14-observability-harness-research.md`."; line 626 becomes `swift run -c release VectorAccelerateBench run --mode quick` | no |
 | `.gitignore` | add `.bench/` | no |
-| `CHANGELOG.md`, `Package.swift` header | `[0.7.0] — Unreleased` entry listing the removals and the two new targets | — |
+| `CHANGELOG.md`, `Package.swift` header | `[Unreleased]` entry listing the removals and the two new targets | — |
 
 Not touched in SP0: `MLIntegrationBenchmarkTests.swift`, `SwiftTopicsBenchmarks.swift`, the `PerfGate`-gated assertions, the XCTest `measure {}` uses (SP4 re-homes them); `Logger.swift`; any kernel or `Metal4Context` code.
 
@@ -254,13 +257,17 @@ Not touched in SP0: `MLIntegrationBenchmarkTests.swift`, `SwiftTopicsBenchmarks.
 | Dirty tree | artifact name suffixed `_dirty`, `gitDirty: true`; capture refuses without `--allow-dirty`. |
 | Preflight not quiet | artifact written with `quiet: false` and reasons; capture refuses; compare proceeds and prints a warning. |
 | Schema validation fails on write | run exits 1 with the validation error; nothing is written (this is a harness bug). |
-| Registry duplicate ID | startup error, exit 2. |
+| Registry duplicate ID | startup error, exit 2 (`BenchError.registry`; it exited 1 until Task 15's review). |
 | Baseline missing | compare status `incomparable` for that case; exit 0. |
 | Run-store path exists | error, exit 1 (never overwrite). |
+| Empty selection (no case matches `--filter`/`--exclude`) | usage error before any probe runs, exit 2. |
+| Preflight GPU probe fails at setup, at the start reading or at the end reading | the §4.10 "probe unavailable" state (`quiet: false`, the error text recorded in `preflight.reasons` and on stderr); never aborts the run: the cases run and the artifact is written. |
+| Unknown option, flag or operand | usage error naming it, exit 2, before the command does any work. |
+| Timing kind not comparable (§5.6 step 5) | skipped with a reason, the case judged on the rest; `incomparable` only if none is left; exit status as §5.6. |
 
 ## 8. Performance and cost of the harness itself
 
-The harness allocates fixture data in `prepare`, never inside `runOnce`. The two M0 cases hold their buffers for the whole run. The bootstrap costs 1,000 median computations per series and is negligible next to any case. Preflight adds roughly one second per run (two copies of 256 MiB and 2 × 15 GPU dispatches). Nothing in SP0 is on a library hot path.
+The harness allocates fixture data in `prepare`, never inside `runOnce`. The two M0 cases hold their buffers for the whole run. The bootstrap costs 1,000 median computations per series and is negligible next to any case. Preflight adds roughly 1.7 s per run: two CPU probe calls of ≈0.7 s each (warm-up of at least 20 copies and 0.2 s, then 100 timed copies of 256 MiB) and two GPU probe calls of ≈0.16 s each (warm-up of at least 50 dispatches and 0.1 s, then 50 timed dispatches). The original 0.1 s instruments were not repeatable within the 5 % gate (§4.10); the cost bought repeatability. Evidence: `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`. Nothing in SP0 is on a library hot path.
 
 ## 9. Security and hygiene
 
@@ -282,7 +289,7 @@ The fingerprint runs `git`, `pmset`, `swift`, and `xcrun` as subprocesses with f
 | `Harness/CompareTests` — synthetic artifact pairs produce each status: `ok`, `alert(slower)`, `alert(faster)`, widened boundary when baseline RSD > 1.25%, `incomparable` (identity, key, missing), `correctnessFailed`, `resourceFailed`, `invalidArtifact`; correctness/resource failures still fail with missing or mismatched baselines; exit-code mapping with and without `--strict-perf` | decision rule |
 | `Harness/CaseIDTests` — grammar accepts the two M0 IDs and rejects seeds/uppercase/spaces | identity |
 | `Harness/RegistryTests` — duplicate ID detection | registry |
-| `IndexRecallTests` (ported) — flat recall exactly 1.0; IVF recall > 0.9 on a seeded clustered set | keeps existing coverage |
+| `IndexBenchmarkRecallValidationTests` (retained, trimmed) — flat recall exactly 1.0; IVF recall > 0.95 at nprobe = nlist on a seeded set | keeps existing coverage |
 
 The M0 end-to-end run (§11) is a script step, not a unit test, because it needs the release build and a real GPU.
 
@@ -290,11 +297,11 @@ The M0 end-to-end run (§11) is a script step, not a unit test, because it needs
 
 Run on the M3 Max, AC power, in this order, recording the commands and outputs in the implementation ledger:
 
-1. `swift test` and `swift test -c release`: all green; expected count = previous gate (1764) − deleted (`PerformanceBenchmarks`, the two old index-harness suites) + new (§10) + ported (`IndexRecallTests`); the two remaining IVF throughput skips are unchanged.
+1. `swift test` and `swift test -c release`: all green; expected count = previous gate (1764) − deleted (`PerformanceBenchmarks`, the two old index-harness suites) + new (§10) − one trimmed test; the two remaining IVF throughput skips are unchanged.
 2. `swift run -c release VectorAccelerateBench run --mode quick` writes one artifact; `validate-artifact` on it exits 0; the artifact has both M0 cases `measured`, `.wall` and `.commandBuffer` series for both, non-nil `gpu`, `preflight.quiet == true`, and correctness `pass` for both.
 3. `baseline capture --from <artifact> --approve` creates `.bench/baselines/<key>/<id>/1.json` and `approved` for both cases.
 4. A second `run` followed by `compare --against approved` reports `ok` for both cases (or an `alert` with a visibly widened boundary if the probe's own RSD exceeded 1.25%, which is itself recorded).
-5. `run --probe-slowdown 4` then `compare` reports `alert(slower)` for the probe case and exit 0; with `--strict-perf` exit 1.
+5. `run --probe-slowdown 64` then `compare` reports `alert(slower)` for the probe case and exit 0; with `--strict-perf` exit 1 (64, not 4: see §5.7 for the measured slowdown-versus-`loops` curve).
 6. `run` on a dirty tree produces `_dirty` and `baseline capture` refuses it.
 7. `MTL_DEBUG_LAYER=1 swift run -c release VectorAccelerateBench run --mode smoke --validation-layers` exits 0 (both cases are validation-clean) and `baseline capture` refuses the artifact.
 
@@ -303,6 +310,10 @@ Run on the M3 Max, AC power, in this order, recording the commands and outputs i
 - SP2 implements the initial search-quality acceptance outline in §13. Per-query summaries, retraining records and quality thresholds require shared-owner interface work; they are not additional M0 cases or a parallel family-owned framework.
 - Ground-truth artifact caching under `.bench/fixtures/` (SP4, when a real dataset arrives).
 - Warm-up window and CoV threshold retuned from SP1's variance-profiling run; the values here (8, 0.05, cap 50) are the initial contract and are recorded in every artifact.
+- **WarmupPolicy is refuted as a warm-up detector for GPU timing** (Task 15 characterization): on the post-idle slow plateau its CoV rule is satisfied at n = 3, and under compositor-cadence spikes it often never converges, so the runner reaches the maximum of 50 on every smoke sample (each such sample is noted on the record since Task 15). M0 baselines may carry ramp contamination, worst in smoke mode; they are versioned and re-capturable. Redesign — a time-floored warm-up is the candidate the data supports — is deferred to SP1 (timing), by the owner's scope.
+- Executable test target: three reviewers asked for automated pins of the CLI (option validation, exit codes, stderr routing) — the executable has no test target; splitting it into a library + thin `main` is SP1/SP3 work.
+- `deviceTag` hostname source: `ProcessInfo.hostName` here vs `Host.current().localizedName` in VectorCore; cross-suite joins by `deviceTag` are SP4's concern (Task 10 review).
+- Absurd-but-finite baseline `rsd` (JSON can carry 1e300) widens the boundary without limit so any regression reads `ok` with `widened: true`; bounding summary fields in `validate()` is SP2's per-kernel tolerance work (Task 16 review).
 - `.bench/` history and a `bench-history` branch (SP5).
 - The interface contract's §10 is superseded by this section.
 

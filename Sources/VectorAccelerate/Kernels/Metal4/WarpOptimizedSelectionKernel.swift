@@ -760,66 +760,6 @@ public final class WarpOptimizedSelectionKernel: @unchecked Sendable, Metal4Kern
         return try await selectTopKSingle(from: candidateValues, k: k, config: config)
     }
 
-    // MARK: - Performance Metrics
-
-    /// Performance metrics from selection operation.
-    public struct PerformanceMetrics: Sendable {
-        /// Kernel type used (warp or batch)
-        public let kernelType: String
-
-        /// Average execution time per query
-        public let timePerQuery: TimeInterval
-
-        /// Throughput in queries per second
-        public let throughput: Double
-
-        /// Estimated SIMD efficiency (0-1)
-        public let simdEfficiency: Double
-    }
-
-    /// Benchmark selection performance.
-    ///
-    /// - Parameters:
-    ///   - queryCount: Number of queries
-    ///   - candidateCount: Number of candidates per query
-    ///   - k: Number of elements to select
-    ///   - iterations: Number of iterations
-    /// - Returns: Performance metrics
-    public func benchmark(
-        queryCount: Int = 100,
-        candidateCount: Int = 10000,
-        k: Int = 10,
-        iterations: Int = 10
-    ) async throws -> PerformanceMetrics {
-        // Generate test data
-        let values = (0..<queryCount).map { _ in
-            (0..<candidateCount).map { _ in Float.random(in: 0...1) }
-        }
-
-        var times: [TimeInterval] = []
-
-        // Warm-up
-        _ = try await selectTopK(from: values, k: k)
-
-        // Timed iterations
-        for _ in 0..<iterations {
-            let start = CACurrentMediaTime()
-            _ = try await selectTopK(from: values, k: k)
-            times.append(CACurrentMediaTime() - start)
-        }
-
-        let avgTime = times.reduce(0, +) / Double(times.count)
-        let kernelType = k <= maxWarpK ? "Warp-Optimized" : "Batch (Heap)"
-        let efficiency = k <= maxWarpK ? 0.95 : 0.75
-
-        return PerformanceMetrics(
-            kernelType: kernelType,
-            timePerQuery: avgTime / Double(queryCount),
-            throughput: Double(queryCount) / avgTime,
-            simdEfficiency: efficiency
-        )
-    }
-
     /// Compare performance across different k values.
     ///
     /// - Parameters:

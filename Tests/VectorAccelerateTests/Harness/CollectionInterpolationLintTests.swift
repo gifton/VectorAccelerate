@@ -10,10 +10,10 @@ import XCTest
 /// `testScannerFixtures` that pin it, and `testContractCitesExactlyTheFixtureRows` checks that every cited label is a row and
 /// every row is cited (`FixtureCitations`):
 /// - a collection name is the `name` in `let name: [` or `var name: [` (stored, computed and local) [pins: let-array-flagged,
-///   var-dict-flagged, self-dotted-flagged], or in a parameter `[label ]name: [` of a `func` or `init` declaration's parameter
-///   clause — the balanced parenthesised text after the name, so multi-line clauses and defaults with parentheses are read
-///   [pins: func-params-flagged, init-multiline-default-flagged]; a call-site `.init(` is not a declaration and contributes
-///   nothing [pins: call-site-init-unseen];
+///   var-dict-flagged, var-computed-flagged, self-dotted-flagged], or in a parameter `[label ]name: [` of a `func` or `init`
+///   declaration's parameter clause — the balanced parenthesised text after the name, so multi-line clauses and defaults with
+///   parentheses are read [pins: func-params-flagged, init-multiline-default-flagged]; a call-site `.init(` is not a
+///   declaration and contributes nothing [pins: call-site-init-unseen];
 /// - the type must START with `[`: `[T]`, `[[T]]`, `[K: V]` and `[T]?` count [pins: let-array-flagged, nested-optional-flagged,
 ///   var-dict-flagged], while `Set<T>`, `Array<T>`, `Dictionary<K, V>`, `inout [T]`, every inferred type and every scalar do
 ///   not [pins: set-array-generic-unseen, dict-generic-unseen, inout-unseen, inferred-unseen, scalar-unflagged];
@@ -105,6 +105,7 @@ final class CollectionInterpolationLintTests: XCTestCase {
     static let fixtures: [(label: String, sources: [String], names: Set<String>, findings: [String])] = [
         ("let-array-flagged", ["let reasons: [String] = []\nprint(\"reasons: \\(reasons)\")"], ["reasons"], ["f0.swift:2: \\(reasons)"]),
         ("var-dict-flagged", ["var flags: [String: String] = [:]\n_ = \"\\(flags)\""], ["flags"], ["f0.swift:2: \\(flags)"]),
+        ("var-computed-flagged", ["struct S {\n    var xs: [Int] { [1] }\n    var text: String { \"\\(xs)\" }\n}"], ["xs"], ["f0.swift:3: \\(xs)"]),
         ("nested-optional-flagged", ["let raw: [[Double]] = []\nvar extra: [Int]? = nil\n_ = \"\\(raw) \\(extra)\""], ["raw", "extra"],
          ["f0.swift:3: \\(raw)", "f0.swift:3: \\(extra)"]),
         ("func-params-flagged", ["func f(_ items: [Int], with list: [Int], n: Int) -> String { \"\\(items) \\(list) \\(n)\" }"], ["items", "list"],

@@ -42,7 +42,6 @@ final class StatsTests: XCTestCase {
     }
 
     func testBlackHoleAcceptsAnything() {
-        // Qualified: VectorAccelerate.blackHole still exists until Task 17 deletes Benchmarking/.
-        VectorTestKit.blackHole([1, 2, 3]); VectorTestKit.blackHole("x"); VectorTestKit.blackHole(())
+        blackHole([1, 2, 3]); blackHole("x"); blackHole(())
     }
 }

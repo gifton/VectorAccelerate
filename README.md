@@ -2,7 +2,7 @@
 
 **GPU-Accelerated Vector Operations for VectorCore — Metal 4 Edition**
 
-VectorAccelerate provides high-performance GPU acceleration for vector operations, serving as the computational backbone for the VectorCore ecosystem. By leveraging Metal 4's compute shaders, unified command encoding, and Apple Silicon's unified memory architecture, VectorAccelerate delivers up to 100x speedups for large-scale vector operations.
+VectorAccelerate provides high-performance GPU acceleration for vector operations, serving as the computational backbone for the VectorCore ecosystem. By leveraging Metal 4's compute shaders, unified command encoding, and Apple Silicon's unified memory architecture, VectorAccelerate accelerates large-scale vector operations on Apple silicon; performance is measured, not asserted (see Performance).
 
 > **⚠️ Version 0.6.0**: Requires **Metal 4** (macOS 26.0+, iOS 26.0+, visionOS 3.0+). For older OS support, use VectorAccelerate 0.2.x
 > 
@@ -575,15 +575,7 @@ VectorAccelerate/
 
 ## 📊 Performance
 
-Typical speedups over CPU implementations:
-
-| Operation | Vector Size | CPU Time | GPU Time | Speedup |
-|-----------|------------|----------|----------|---------|
-| L2 Distance | 1M × 10K | 12.3s | 0.15s | 82x |
-| Cosine Similarity | 100K × 100K | 8.7s | 0.09s | 97x |
-| Matrix Multiply | 2048 × 2048 | 1.8s | 0.03s | 60x |
-| Top-K Selection | 1M, k=100 | 0.9s | 0.02s | 45x |
-| INT8 Quantization | 10M vectors | 2.1s | 0.04s | 52x |
+Performance is measured by the benchmark harness (`swift run -c release VectorAccelerateBench run --mode quick`), which records hardware, OS, toolchain, power and thermal state, and a preflight calibration with every run. Run records live under `.bench/runs/` and are not committed; measured claims will be published from those records once the SP4 matrix lands. Method and program: `docs/superpowers/research/2026-09-14-observability-harness-research.md`.
 
 ## ⚠️ Known Limitations
 
@@ -623,7 +615,7 @@ swift test
 Run performance benchmarks:
 
 ```bash
-swift run VectorAccelerateBenchmarks
+swift run -c release VectorAccelerateBench run --mode quick
 ```
 
 ## 🤝 Contributing

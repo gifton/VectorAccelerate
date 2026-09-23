@@ -2,11 +2,12 @@
 //  IndexBenchmarkRecallValidationTests.swift
 //  VectorAccelerateTests
 //
-//  Rigorous validation of recall calculation in IndexBenchmarkHarness
+//  Rigorous validation of recall through the public index API (flat and IVF)
 //
 
 import XCTest
 import VectorCore
+import VectorTestKit
 @testable import VectorAccelerate
 
 final class IndexBenchmarkRecallValidationTests: XCTestCase {
@@ -230,80 +231,6 @@ final class IndexBenchmarkRecallValidationTests: XCTestCase {
         }
     }
 
-    /// Test the benchmark harness with realistic IVF settings
-    func testBenchmarkHarnessRealisticIVF() async throws {
-        let harness = IndexBenchmarkHarness(seed: 42)
-
-        print("\n=== Benchmark Harness with Realistic IVF Settings ===")
-
-        // Configuration with nprobe < nlist (realistic ANN setting)
-        let configs: [(name: String, config: IndexBenchmarkConfiguration)] = [
-            ("Flat-D64-N1000", IndexBenchmarkConfiguration(
-                dimension: 64,
-                datasetSize: 1000,
-                numQueries: 30,
-                k: 10,
-                indexType: .flat,
-                warmupIterations: 1,
-                measurementIterations: 3,
-                computeRecall: true,
-                seed: 42
-            )),
-            ("IVF-nprobe=nlist", IndexBenchmarkConfiguration(
-                dimension: 64,
-                datasetSize: 1000,
-                numQueries: 30,
-                k: 10,
-                indexType: .ivf(nlist: 16, nprobe: 16, minTrainingVectors: 100),
-                warmupIterations: 1,
-                measurementIterations: 3,
-                computeRecall: true,
-                seed: 42
-            )),
-            ("IVF-nprobe=50%", IndexBenchmarkConfiguration(
-                dimension: 64,
-                datasetSize: 1000,
-                numQueries: 30,
-                k: 10,
-                indexType: .ivf(nlist: 16, nprobe: 8, minTrainingVectors: 100),
-                warmupIterations: 1,
-                measurementIterations: 3,
-                computeRecall: true,
-                seed: 42
-            )),
-            ("IVF-nprobe=25%", IndexBenchmarkConfiguration(
-                dimension: 64,
-                datasetSize: 1000,
-                numQueries: 30,
-                k: 10,
-                indexType: .ivf(nlist: 16, nprobe: 4, minTrainingVectors: 100),
-                warmupIterations: 1,
-                measurementIterations: 3,
-                computeRecall: true,
-                seed: 42
-            )),
-            ("IVF-nprobe=12.5%", IndexBenchmarkConfiguration(
-                dimension: 64,
-                datasetSize: 1000,
-                numQueries: 30,
-                k: 10,
-                indexType: .ivf(nlist: 16, nprobe: 2, minTrainingVectors: 100),
-                warmupIterations: 1,
-                measurementIterations: 3,
-                computeRecall: true,
-                seed: 42
-            )),
-        ]
-
-        print("\n| Configuration | Recall | Throughput | p50 Latency |")
-        print("|---------------|--------|------------|-------------|")
-
-        for (name, config) in configs {
-            let result = try await harness.runBenchmark(configuration: config)
-            print("| \(name.padding(toLength: 13, withPad: " ", startingAt: 0)) | \(String(format: "%5.1f%%", result.recall * 100)) | \(String(format: "%6.0f q/s", result.throughput)) | \(String(format: "%6.3f ms", result.latencyStats.p50 * 1000)) |")
-        }
-    }
-
     /// Test with batch search to see if batching affects recall
     func testBatchSearchRecall() async throws {
         let dimension = 64
@@ -379,22 +306,5 @@ final class IndexBenchmarkRecallValidationTests: XCTestCase {
 
         // Flat index batch should match single query exactly
         XCTAssertEqual(avgRecall, 1.0, accuracy: 0.01, "Batch search should match single query search")
-    }
-}
-
-// MARK: - Seeded RNG for Reproducibility
-
-private struct SeededRNG: RandomNumberGenerator {
-    private var state: UInt64
-
-    init(seed: UInt64) {
-        self.state = seed
-    }
-
-    mutating func next() -> UInt64 {
-        state ^= state << 13
-        state ^= state >> 7
-        state ^= state << 17
-        return state
     }
 }

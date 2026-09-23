@@ -183,7 +183,9 @@ Insert directly above the line `// 0.6.0 — Zero-copy SoA scoring + normalizati
 //   - Added: VectorAccelerateBench executable (run / baseline capture / compare / validate-artifact)
 //   - Removed: Sources/VectorAccelerate/Benchmarking (BenchmarkFramework, IndexBenchmarkHarness and
 //     all their public types), the VectorAccelerateBenchmarks product, PerformanceMonitor,
-//     IndexAccelerationConfiguration.logDecisions
+//     IndexAccelerationConfiguration.logDecisions, QuantizationStatisticsKernel.benchmark() and
+//     WarpOptimizedSelectionKernel.benchmark() (with their nested result types), and the
+//     ExecutionPath / OperationType enums whose only user was PerformanceMonitor
 //   - Changed: README performance claims retired pending measured runs under .bench/runs/
 //   See docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md
 ```
@@ -1258,8 +1260,7 @@ final class StatsTests: XCTestCase {
     }
 
     func testBlackHoleAcceptsAnything() {
-        // Qualified: VectorAccelerate.blackHole still exists until Task 17 deletes Benchmarking/.
-        VectorTestKit.blackHole([1, 2, 3]); VectorTestKit.blackHole("x"); VectorTestKit.blackHole(())
+        blackHole([1, 2, 3]); blackHole("x"); blackHole(())
     }
 }
 ```
@@ -3658,11 +3659,11 @@ import XCTest
 ///   [pins: block-comment-scanned]; string literals are scanned as code and a `//` inside one truncates that line, hiding what
 ///   follows it [pins: string-slash-truncates];
 /// - not recognised: `Error` inherited through another protocol (`protocol KitError: Error`) or through a typealias [pins:
-///   protocol-inherited-unseen, typealias-unseen]; a type declared in another module [pins: none — a fixture is one source
-///   string, so another module cannot appear in a scan]; a `description` property without the `CustomStringConvertible`
-///   conformance, because interpolation ignores it [pins: description-without-conformance]; and, as non-matches, a name that
-///   merely contains `Error`, a `CustomStringConvertible` that is not an `Error`, and the `class` keyword on members [pins:
-///   error-in-name-unseen, described-not-error, class-keyword-members-unseen].
+///   protocol-inherited-unseen, typealias-unseen]; a type declared in another module [pins: none — all of a row's sources scan
+///   as one directory, i.e. one module, so another module cannot appear in a fixture]; a `description` property without the
+///   `CustomStringConvertible` conformance, because interpolation ignores it [pins: description-without-conformance]; and, as
+///   non-matches, a name that merely contains `Error`, a `CustomStringConvertible` that is not an `Error`, and the `class`
+///   keyword on members [pins: error-in-name-unseen, described-not-error, class-keyword-members-unseen].
 final class ErrorDescriptionLintTests: XCTestCase {
     struct Scan: Equatable {
         var errorTypes: Set<String> = []
@@ -3775,7 +3776,7 @@ final class ErrorDescriptionLintTests: XCTestCase {
 ```
 
 Run: `swift test --filter ErrorDescriptionLintTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1`
-Expected: `Executed 3 tests, with 0 failures`. To see it bite, delete one kit `extension …Error: CustomStringConvertible` and rerun: `testEveryErrorTypeHasADescription` names the type.
+Expected: `Executed 4 tests, with 0 failures`. To see it bite, delete one kit `extension …Error: CustomStringConvertible` and rerun: `testEveryErrorTypeHasADescription` names the type.
 
 - [ ] **Step 6b: `Tests/VectorAccelerateTests/Harness/CollectionInterpolationLintTests.swift`** (added by Task 17's fix round)
 
@@ -3794,10 +3795,10 @@ import XCTest
 /// `testScannerFixtures` that pin it, and `testContractCitesExactlyTheFixtureRows` checks that every cited label is a row and
 /// every row is cited (`FixtureCitations`):
 /// - a collection name is the `name` in `let name: [` or `var name: [` (stored, computed and local) [pins: let-array-flagged,
-///   var-dict-flagged, self-dotted-flagged], or in a parameter `[label ]name: [` of a `func` or `init` declaration's parameter
-///   clause — the balanced parenthesised text after the name, so multi-line clauses and defaults with parentheses are read
-///   [pins: func-params-flagged, init-multiline-default-flagged]; a call-site `.init(` is not a declaration and contributes
-///   nothing [pins: call-site-init-unseen];
+///   var-dict-flagged, var-computed-flagged, self-dotted-flagged], or in a parameter `[label ]name: [` of a `func` or `init`
+///   declaration's parameter clause — the balanced parenthesised text after the name, so multi-line clauses and defaults with
+///   parentheses are read [pins: func-params-flagged, init-multiline-default-flagged]; a call-site `.init(` is not a
+///   declaration and contributes nothing [pins: call-site-init-unseen];
 /// - the type must START with `[`: `[T]`, `[[T]]`, `[K: V]` and `[T]?` count [pins: let-array-flagged, nested-optional-flagged,
 ///   var-dict-flagged], while `Set<T>`, `Array<T>`, `Dictionary<K, V>`, `inout [T]`, every inferred type and every scalar do
 ///   not [pins: set-array-generic-unseen, dict-generic-unseen, inout-unseen, inferred-unseen, scalar-unflagged];
@@ -3889,6 +3890,7 @@ final class CollectionInterpolationLintTests: XCTestCase {
     static let fixtures: [(label: String, sources: [String], names: Set<String>, findings: [String])] = [
         ("let-array-flagged", ["let reasons: [String] = []\nprint(\"reasons: \\(reasons)\")"], ["reasons"], ["f0.swift:2: \\(reasons)"]),
         ("var-dict-flagged", ["var flags: [String: String] = [:]\n_ = \"\\(flags)\""], ["flags"], ["f0.swift:2: \\(flags)"]),
+        ("var-computed-flagged", ["struct S {\n    var xs: [Int] { [1] }\n    var text: String { \"\\(xs)\" }\n}"], ["xs"], ["f0.swift:3: \\(xs)"]),
         ("nested-optional-flagged", ["let raw: [[Double]] = []\nvar extra: [Int]? = nil\n_ = \"\\(raw) \\(extra)\""], ["raw", "extra"],
          ["f0.swift:3: \\(raw)", "f0.swift:3: \\(extra)"]),
         ("func-params-flagged", ["func f(_ items: [Int], with list: [Int], n: Int) -> String { \"\\(items) \\(list) \\(n)\" }"], ["items", "list"],
@@ -3975,8 +3977,9 @@ import XCTest
 /// The pins contract of the scanner lints (`ErrorDescriptionLintTests`, `CollectionInterpolationLintTests`): every `- ` bullet
 /// of a lint's leading doc comment ends in `[pins: label-a, label-b]`, naming the rows of its fixture table that exercise the
 /// bullet, or in exactly `[pins: none — <why>]` when no fixture can. `assertContractCitesExactlyTheFixtureRows` reads the
-/// lint's own source and fails when a cited label has no row, a row is never cited, a bullet ends without a citation, or a
-/// citation is malformed — so a doc comment cannot claim a pin that does not exist. `FixtureCitationsTests` pins the parser.
+/// lint's own source and fails when a cited label has no row, a row is never cited, a bullet ends without a citation, the
+/// fixture table is empty, or a citation is malformed — so a doc comment cannot claim a pin that does not exist.
+/// `FixtureCitationsTests` pins the parser and each of those conditions.
 enum FixtureCitations {
     struct Malformed: Error, CustomStringConvertible { var description: String }
 
@@ -4034,23 +4037,36 @@ enum FixtureCitations {
         return labels
     }
 
-    /// Reads `Tests/VectorAccelerateTests/Harness/<fileName>`; every contract bullet must end with a citation, and the labels
-    /// cited anywhere in the leading doc comment must equal `fixtureLabels` as sets (which must be well-formed and unique).
+    /// The problems with one lint's contract, given the lint's source and its fixture labels; empty when the contract is sound.
+    /// Reported, in this order: no `- ` bullet at all; a bullet that does not end in a citation; a fixture label that is not a
+    /// label; duplicate labels; an empty table (under all-`none` citations an empty table would otherwise pass as ∅ == ∅); a
+    /// cited label with no row; a row the contract never cites. A malformed citation throws `Malformed`. Each condition is
+    /// pinned by `FixtureCitationsTests.testContractProblemsNameEachCondition`.
+    static func contractProblems(fileName: String, source: String, fixtureLabels: [String]) throws -> [String] {
+        let doc = leadingDocComment(inSource: source)
+        let bullets = contractBullets(inLeadingDocComment: doc)
+        var problems: [String] = []
+        if bullets.isEmpty { problems.append("\(fileName): no `- ` bullet in the leading doc comment") }
+        for bullet in bullets where bullet.range(of: #"\[pins: [^\]]*\][;.]?$"#, options: .regularExpression) == nil {
+            problems.append("\(fileName): a contract bullet does not end with a [pins: …] citation: \(bullet.prefix(90))…")
+        }
+        let cited = try citedLabels(in: doc.joined(separator: " "))
+        for label in fixtureLabels where !isLabel(label) { problems.append("\(fileName): fixture label `\(label)` is not a label") }
+        let rows = Set(fixtureLabels)
+        if rows.count != fixtureLabels.count { problems.append("\(fileName): duplicate fixture labels") }
+        if rows.isEmpty { problems.append("\(fileName): no fixture rows") }
+        let unrowed = cited.subtracting(rows).sorted(), uncited = rows.subtracting(cited).sorted()
+        if !unrowed.isEmpty { problems.append("\(fileName): cited in the contract but no fixture row: \(unrowed.joined(separator: ", "))") }
+        if !uncited.isEmpty { problems.append("\(fileName): fixture rows the contract never cites: \(uncited.joined(separator: ", "))") }
+        return problems
+    }
+
+    /// Reads `Tests/VectorAccelerateTests/Harness/<fileName>` and fails on every problem `contractProblems` reports for it.
     static func assertContractCitesExactlyTheFixtureRows(ofHarnessFile fileName: String, fixtureLabels: [String],
                                                          file: StaticString = #filePath, line: UInt = #line) throws {
         let url = RepoPaths.root.appendingPathComponent("Tests/VectorAccelerateTests/Harness/\(fileName)")
-        let doc = leadingDocComment(inSource: try String(contentsOf: url, encoding: .utf8))
-        let bullets = contractBullets(inLeadingDocComment: doc)
-        XCTAssertFalse(bullets.isEmpty, "\(fileName): no `- ` bullet in the leading doc comment", file: file, line: line)
-        for bullet in bullets where bullet.range(of: #"\[pins: [^\]]*\][;.]?$"#, options: .regularExpression) == nil {
-            XCTFail("\(fileName): a contract bullet does not end with a [pins: …] citation: \(bullet.prefix(90))…", file: file, line: line)
-        }
-        let cited = try citedLabels(in: doc.joined(separator: " "))
-        for label in fixtureLabels where !isLabel(label) { XCTFail("\(fileName): fixture label `\(label)` is not a label", file: file, line: line) }
-        let rows = Set(fixtureLabels)
-        XCTAssertEqual(rows.count, fixtureLabels.count, "\(fileName): duplicate fixture labels", file: file, line: line)
-        XCTAssertEqual(cited.subtracting(rows).sorted(), [], "\(fileName): cited in the contract but no fixture row", file: file, line: line)
-        XCTAssertEqual(rows.subtracting(cited).sorted(), [], "\(fileName): fixture rows the contract never cites", file: file, line: line)
+        let problems = try contractProblems(fileName: fileName, source: try String(contentsOf: url, encoding: .utf8), fixtureLabels: fixtureLabels)
+        XCTAssertEqual(problems, [], problems.joined(separator: "\n"), file: file, line: line)
     }
 }
 
@@ -4073,6 +4089,28 @@ final class FixtureCitationsTests: XCTestCase {
         XCTAssertEqual(FixtureCitations.contractBullets(inLeadingDocComment: doc), ["first bullet [pins: a] continued [pins: b];", "second [pins: none — why]."])
         // Citations anywhere in the leading block count; the block ends at the first non-`///` line.
         XCTAssertEqual(try FixtureCitations.citedLabels(in: doc.joined(separator: " ")), ["a", "b", "c"])
+    }
+
+    /// Each condition `contractProblems` reports, on synthetic sources — in particular an empty fixture table under all-`none`
+    /// citations is a problem, not a vacuous ∅ == ∅ match.
+    func testContractProblemsNameEachCondition() throws {
+        func problems(_ source: String, _ labels: [String]) throws -> [String] {
+            try FixtureCitations.contractProblems(fileName: "L.swift", source: source, fixtureLabels: labels)
+        }
+        let sound = "/// Rule.\n/// - one [pins: a, b];\n/// - two [pins: none — why].\nfinal class L {}\n"
+        XCTAssertEqual(try problems(sound, ["a", "b"]), [])
+        XCTAssertEqual(try problems("/// Rule.\n/// - two [pins: none — why].\nfinal class L {}\n", []), ["L.swift: no fixture rows"])
+        XCTAssertEqual(try problems("/// Rule only.\nfinal class L {}\n", ["a"]),
+                       ["L.swift: no `- ` bullet in the leading doc comment", "L.swift: fixture rows the contract never cites: a"])
+        XCTAssertEqual(try problems("/// - one without a citation\nfinal class L {}\n", ["a"]),
+                       ["L.swift: a contract bullet does not end with a [pins: …] citation: one without a citation…",
+                        "L.swift: fixture rows the contract never cites: a"])
+        XCTAssertEqual(try problems(sound, ["a", "b", "Bad_Label"]),
+                       ["L.swift: fixture label `Bad_Label` is not a label", "L.swift: fixture rows the contract never cites: Bad_Label"])
+        XCTAssertEqual(try problems(sound, ["a", "b", "a"]), ["L.swift: duplicate fixture labels"])
+        XCTAssertEqual(try problems(sound, ["a"]), ["L.swift: cited in the contract but no fixture row: b"])
+        XCTAssertEqual(try problems(sound, ["a", "b", "c"]), ["L.swift: fixture rows the contract never cites: c"])
+        XCTAssertThrowsError(try problems("/// - one [pins: none]\nfinal class L {}\n", ["a"]))
     }
 }
 ```
@@ -4425,7 +4463,7 @@ final class L2BatchDistanceCase: BenchCase {
             if let t = await context.lastGPUTiming {
                 gpu.append(GPUSample(kind: .commandBuffer, startNs: t.gpuStartTime * 1e9, endNs: t.gpuEndTime * 1e9, label: "l2_batch"))
             }
-            VectorTestKit.blackHole(distances)   // qualified: VectorAccelerate exports an identical blackHole until Task 17 deletes Benchmarking/
+            blackHole(distances)
             return IterationOutput(gpu: gpu, payload: distances)
         }
 
@@ -4785,6 +4823,7 @@ Every item below is a finding a task review or re-review carried in the SDD ledg
 - Modify (kit): `Sources/VectorTestKit/Compare.swift`, `Sources/VectorTestKit/PreflightProbe.swift`, `Sources/VectorTestKit/SeededRNG.swift`, `Sources/VectorTestKit/VectorGenerator.swift`
 - Modify (bench): `Sources/VectorAccelerateBench/Runner/Runner.swift`, `Sources/VectorAccelerateBench/Probe/GPUProbe.swift`, `Sources/VectorAccelerateBench/Commands/RunCommand.swift`, `Sources/VectorAccelerateBench/Commands/ValidateCommand.swift`, `Sources/VectorAccelerateBench/main.swift` (three comment labels)
 - Modify (tests): `Tests/VectorAccelerateTests/Harness/CompareTests.swift`, `Tests/VectorAccelerateTests/Harness/ErrorDescriptionLintTests.swift`, `Tests/VectorAccelerateTests/Harness/ArtifactSchemaTests.swift`, `Tests/VectorAccelerateTests/Harness/ComparatorTests.swift`, `Tests/VectorAccelerateTests/Harness/KitImportLintTests.swift` (only if lint names it)
+- Create (tests, by the fix rounds): `Tests/VectorAccelerateTests/Harness/CollectionInterpolationLintTests.swift` (Task 13 Step 6b), `Tests/VectorAccelerateTests/Harness/FixtureCitations.swift` (Task 13 Step 6c; the helper and its `FixtureCitationsTests` share this file)
 - Modify (config, docs): `.swiftlint.yml`, `Package.swift` (one header comment line), `docs/superpowers/research/2026-09-18-preflight-probe-characterization.md`, this plan (the Architecture paragraph, and blocks of Tasks 0, 3, 4, 8, 10, 12, 13, 14, 15 as named in Step 11)
 
 **Interfaces:**
@@ -4933,7 +4972,7 @@ Expected: build clean; `measured 7 <digest>` where the digest differs from the s
 ```bash
 swift test --filter ErrorDescriptionLintTests 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
 ```
-Expected: `Executed 3 tests, with 0 failures`. If the scanner does NOT recognise `actor`, fix the scanner (the doc comment is the contract), not the comment.
+Expected: `Executed 4 tests, with 0 failures` (the class has four tests since the fix round added `testContractCitesExactlyTheFixtureRows`). If the scanner does NOT recognise `actor`, fix the scanner (the doc comment is the contract), not the comment.
 
 - [ ] **Step 6: Finite, non-negative warm-up floors**
 
@@ -5013,6 +5052,7 @@ Resync the plan's code blocks to the committed files, byte-identical (`cmp` on e
 swift test --filter "ArtifactSchemaTests|CaseIDTests|CollectionInterpolationLintTests|ComparatorTests|CompareTests|ContentDigestGoldenTests|ErrorDescriptionLintTests|FingerprintTests|FixtureCitationsTests|KitImportLintTests|PreflightInstrumentCheckTests|RecallTests|RunStoreTests|SeededRNGGoldenTests|StatsTests|VectorGeneratorGoldenTests|WarmupPolicyTests" 2>&1 | grep -E "Executed [0-9]+ test" | tail -1
 # the 17 harness classes: 113 tests, 1 skipped (the opt-in instrument check), 0 failures — the 107 at a46acb1 plus the six this task's fix rounds
 # added (CollectionInterpolationLintTests 3, FixtureCitationsTests 2, ErrorDescriptionLintTests.testContractCitesExactlyTheFixtureRows 1).
+# Task 18 Step 0 adds FixtureCitationsTests.testContractProblemsNameEachCondition, so the same filter reads 114 from that task on.
 # (A bare `--filter "Harness"` matches none of them: it selects the legacy IndexBenchmarkHarnessTests only.)
 swift build -c release 2>&1 | grep -cE "warning:|error:"                          # expected: 0
 git add .swiftlint.yml Package.swift Sources/VectorTestKit Sources/VectorAccelerateBench Tests/VectorAccelerateTests/Harness \
@@ -5039,7 +5079,7 @@ MSG
 
 **Files:**
 - Delete: `Sources/VectorAccelerate/Benchmarking/BenchmarkFramework.swift`, `Sources/VectorAccelerate/Benchmarking/IndexBenchmarkHarness.swift`, `Sources/VectorAccelerate/Configuration/PerformanceMonitor.swift`, `Tests/VectorAccelerateTests/PerformanceBenchmarks.swift`, `Tests/VectorAccelerateTests/IndexBenchmarkHarnessTests.swift`
-- Modify: `Package.swift` (header comment only), `Sources/VectorAccelerate/Index/Core/IndexAccelerationConfiguration.swift`, `Sources/VectorAccelerate/Kernels/Metal4/QuantizationStatisticsKernel.swift`, `Sources/VectorAccelerate/Kernels/Metal4/WarpOptimizedSelectionKernel.swift`, `Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift`, `Tests/VectorAccelerateTests/Harness/StatsTests.swift`, `Tests/VectorAccelerateTests/IndexBenchmarkRecallValidationTests.swift`, `Tests/VectorAccelerateTests/GPUCandidateBuilderValidationTests.swift`, `README.md`, `CHANGELOG.md`, `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`, this plan (Task 7 and Task 15 blocks)
+- Modify: `Package.swift` (header comment only), `Sources/VectorAccelerate/Index/Core/IndexAccelerationConfiguration.swift`, `Sources/VectorAccelerate/Kernels/Metal4/QuantizationStatisticsKernel.swift`, `Sources/VectorAccelerate/Kernels/Metal4/WarpOptimizedSelectionKernel.swift`, `Sources/VectorAccelerate/Configuration/AccelerationConfiguration.swift` (Step 5 rule 3: `ExecutionPath`, `OperationType`), `Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift`, `Tests/VectorAccelerateTests/Harness/StatsTests.swift`, `Tests/VectorAccelerateTests/IndexBenchmarkRecallValidationTests.swift`, `Tests/VectorAccelerateTests/GPUCandidateBuilderValidationTests.swift`, `README.md`, `CHANGELOG.md`, `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`, this plan (Task 7 and Task 15 blocks)
 - Create: `Tests/VectorAccelerateTests/Utilities/RequireMetal.swift`, `Tests/VectorAccelerateTests/Harness/OrphanPublicTypeTests.swift`, `Tests/VectorAccelerateTests/Harness/OrphanAllowlist.txt`
 
 - [ ] **Step 1: Delete the dead code**
@@ -5057,7 +5097,7 @@ rmdir Sources/VectorAccelerate/Benchmarking 2>/dev/null; true
 grep -rn "\.benchmark(" Sources Tests    # expected: no output — the two kernel benchmark() methods have no caller (Task 9 pre-read; re-verify)
 ```
 
-Then delete `public func benchmark(` in `Sources/VectorAccelerate/Kernels/Metal4/WarpOptimizedSelectionKernel.swift` (the whole method, from its doc comment through its closing brace) and in `Sources/VectorAccelerate/Kernels/Metal4/QuantizationStatisticsKernel.swift` the same plus the nested `public struct BenchmarkResult: Sendable` it returns. Owner Q7: dead code is deleted, not allow-listed. `swift build` must succeed before Step 2.
+Then delete `public func benchmark(` in `Sources/VectorAccelerate/Kernels/Metal4/WarpOptimizedSelectionKernel.swift` (the whole method, from its doc comment through its closing brace) and in `Sources/VectorAccelerate/Kernels/Metal4/QuantizationStatisticsKernel.swift` the same plus the nested `public struct BenchmarkResult: Sendable` it returns. Owner Q7: dead code is deleted, not allow-listed. `swift build` must succeed before Step 2. (Done 2026-09-22: the `WarpOptimizedSelectionKernel.benchmark()` return type, the nested `public struct PerformanceMetrics` with no other producer, went with it under the same rule; the ratchet could not have reported it because two unrelated types share the simple name.)
 
 - [ ] **Step 1b: Drop the `blackHole` qualification comments**
 
@@ -5131,7 +5171,7 @@ final class OrphanPublicTypeTests: XCTestCase {
 }
 ```
 
-Seed the allowlist: run the test once, and for every name it reports decide whether it is intended public API. Each intended one goes into `Tests/VectorAccelerateTests/Harness/OrphanAllowlist.txt` as `Name  # one-line justification`; anything that is not intended API is deleted from `Sources` in this task instead. The ratchet then fails only on new orphans.
+Seed the allowlist: run the test once, and for every name it reports decide whether it is intended public API. Each intended one goes into `Tests/VectorAccelerateTests/Harness/OrphanAllowlist.txt` as `Name  # one-line justification`; anything that is not intended API is deleted from `Sources` in this task instead. The ratchet then fails only on new orphans. (Done 2026-09-22 under the controller's triage order — used by a sibling VSK package; named in README/docs as API; a leftover of code this task deletes; otherwise kept pending an owner decision: 150 names reported; 5 allow-listed as used by EmbedKit, 44 as named in `docs/`, 99 kept pending an owner decision, 2 deleted as leftovers of `PerformanceMonitor` — `ExecutionPath` and `OperationType` in `AccelerationConfiguration.swift`. The per-name table is in the Task 18 report.)
 
 ```bash
 swift test --filter OrphanPublicTypeTests 2>&1 | grep -A200 "Unreferenced public types" | head -80   # review this list
@@ -5152,7 +5192,7 @@ Performance is measured by the benchmark harness (`swift run -c release VectorAc
 - Line 626 area: replace `swift run VectorAccelerateBenchmarks` with `swift run -c release VectorAccelerateBench run --mode quick`.
 - The line-7 `Version 0.6.0` banner is NOT changed: it names the last tagged release (Global Constraints, version).
 
-`Package.swift`: the version-history header's `// Unreleased —` entry (Task 17) lists removals; its `Removed:` bullet gains `QuantizationStatisticsKernel.benchmark() and WarpOptimizedSelectionKernel.benchmark()` (wrapped to the header's existing width). Nothing else in the file changes.
+`Package.swift`: the version-history header's `// Unreleased —` entry (Task 17) lists removals; its `Removed:` bullet gains `QuantizationStatisticsKernel.benchmark() and WarpOptimizedSelectionKernel.benchmark()` (wrapped to the header's existing width). Nothing else in the file changes. (Done 2026-09-22: the bullet also names the nested result types and the `ExecutionPath` / `OperationType` deletion from Step 5; the Task 0 Step 2 block holds the committed header.)
 
 `CHANGELOG.md`: insert after the intro paragraph, before `## [0.6.0]` (Keep-a-Changelog's `[Unreleased]` section; it accumulates everything that lands before the next tagged release and is renamed when that release is cut):
 
@@ -5170,7 +5210,8 @@ Benchmark harness foundation (SP0 of the observability program) and the removal 
 - `Sources/VectorAccelerate/Benchmarking/` and all its public types (`BenchmarkSuite`, `BenchmarkResult`, `BenchmarkConfiguration`, `BenchmarkReport`, `PerformanceComparison`, `IndexBenchmarkHarness`, `IndexBenchmarkConfiguration`, `IndexBenchmarkResult`, `LatencyStats`, `BenchmarkWorkload`, `SeededRandomNumberGenerator`, `blackHole` — the last now lives in `VectorTestKit`).
 - The `VectorAccelerateBenchmarks` executable product (crossover sweep returns as a harness mode in SP4).
 - `PerformanceMonitor` (unused), `IndexAccelerationConfiguration.logDecisions` (never read).
-- `QuantizationStatisticsKernel.benchmark()` with its nested `BenchmarkResult`, and `WarpOptimizedSelectionKernel.benchmark()` (no callers).
+- `QuantizationStatisticsKernel.benchmark()` with its nested `BenchmarkResult`, and `WarpOptimizedSelectionKernel.benchmark()` with its nested `PerformanceMetrics` (no callers).
+- `ExecutionPath` and `OperationType` (`AccelerationConfiguration.swift`): the orphan ratchet reported them; `PerformanceMonitor` was their only user.
 
 ### Changed
 - README performance claims retired pending measured run records.

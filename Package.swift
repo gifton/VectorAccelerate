@@ -19,7 +19,9 @@
 //   - Added: VectorAccelerateBench executable (run / baseline capture / compare / validate-artifact)
 //   - Removed: Sources/VectorAccelerate/Benchmarking (BenchmarkFramework, IndexBenchmarkHarness and
 //     all their public types), the VectorAccelerateBenchmarks product, PerformanceMonitor,
-//     IndexAccelerationConfiguration.logDecisions
+//     IndexAccelerationConfiguration.logDecisions, QuantizationStatisticsKernel.benchmark() and
+//     WarpOptimizedSelectionKernel.benchmark() (with their nested result types), and the
+//     ExecutionPath / OperationType enums whose only user was PerformanceMonitor
 //   - Changed: README performance claims retired pending measured runs under .bench/runs/
 //   See docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md
 //

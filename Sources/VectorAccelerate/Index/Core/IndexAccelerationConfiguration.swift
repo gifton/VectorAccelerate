@@ -55,9 +55,6 @@ public struct IndexAccelerationConfiguration: Sendable {
     /// Enable performance profiling and metrics collection.
     public var enableProfiling: Bool
 
-    /// Log acceleration decisions for debugging.
-    public var logDecisions: Bool
-
     // MARK: - Initialization
 
     public init(
@@ -67,8 +64,7 @@ public struct IndexAccelerationConfiguration: Sendable {
         preallocateBuffers: Bool = false,
         bufferPreallocationSize: Int = 10_000,
         forceGPU: Bool = false,
-        enableProfiling: Bool = false,
-        logDecisions: Bool = false
+        enableProfiling: Bool = false
     ) {
         self.maxBatchSize = maxBatchSize
         self.useFusedKernels = useFusedKernels
@@ -77,7 +73,6 @@ public struct IndexAccelerationConfiguration: Sendable {
         self.bufferPreallocationSize = bufferPreallocationSize
         self.forceGPU = forceGPU
         self.enableProfiling = enableProfiling
-        self.logDecisions = logDecisions
     }
 
     // MARK: - Presets

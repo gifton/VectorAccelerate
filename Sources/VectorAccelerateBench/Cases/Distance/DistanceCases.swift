@@ -82,7 +82,7 @@ final class L2BatchDistanceCase: BenchCase {
             if let t = await context.lastGPUTiming {
                 gpu.append(GPUSample(kind: .commandBuffer, startNs: t.gpuStartTime * 1e9, endNs: t.gpuEndTime * 1e9, label: "l2_batch"))
             }
-            VectorTestKit.blackHole(distances)   // qualified: VectorAccelerate exports an identical blackHole until Task 17 deletes Benchmarking/
+            blackHole(distances)
             return IterationOutput(gpu: gpu, payload: distances)
         }
 

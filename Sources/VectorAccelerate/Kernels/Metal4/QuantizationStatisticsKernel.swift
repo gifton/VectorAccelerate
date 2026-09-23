@@ -531,57 +531,6 @@ public final class QuantizationStatisticsKernel: @unchecked Sendable, Metal4Kern
         return try await computeStatistics(original: originalArrays, quantized: quantizedArrays, config: config)
     }
     
-    // MARK: - Performance Analysis
-    
-    /// Benchmark statistics computation for different vector sizes
-    public func benchmark(
-        dimensions: [Int],
-        vectorCounts: [Int] = [100, 500, 1000]
-    ) async throws -> [BenchmarkResult] {
-        var results: [BenchmarkResult] = []
-        
-        for dimension in dimensions {
-            for vectorCount in vectorCounts {
-                // Generate test data
-                let original = (0..<vectorCount).map { _ in
-                    (0..<dimension).map { _ in Float.random(in: -1...1) }
-                }
-                let quantized = original.map { vector in
-                    vector.map { value in round(value * 8) / 8 } // Simple 3-bit quantization
-                }
-                
-                // Warm-up
-                _ = try await computeStatistics(original: Array(original.prefix(10)), quantized: Array(quantized.prefix(10)))
-
-                // Benchmark runs
-                var times: [TimeInterval] = []
-                for _ in 0..<3 {
-                    let result = try await computeStatistics(original: original, quantized: quantized)
-                    times.append(result.totalExecutionTime)
-                }
-                
-                let avgTime = times.reduce(0, +) / Double(times.count)
-                let throughput = Double(vectorCount * dimension) / avgTime / 1e6
-                
-                results.append(BenchmarkResult(
-                    dimension: dimension,
-                    vectorCount: vectorCount,
-                    executionTime: avgTime,
-                    throughputMEPS: throughput
-                ))
-            }
-        }
-        
-        return results
-    }
-    
-    public struct BenchmarkResult: Sendable {
-        public let dimension: Int
-        public let vectorCount: Int
-        public let executionTime: TimeInterval
-        public let throughputMEPS: Double
-    }
-    
     // MARK: - Private Utilities
     
     /// Calculate maximum absolute errors using optimized CPU processing

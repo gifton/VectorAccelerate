@@ -24,11 +24,11 @@ import XCTest
 ///   [pins: block-comment-scanned]; string literals are scanned as code and a `//` inside one truncates that line, hiding what
 ///   follows it [pins: string-slash-truncates];
 /// - not recognised: `Error` inherited through another protocol (`protocol KitError: Error`) or through a typealias [pins:
-///   protocol-inherited-unseen, typealias-unseen]; a type declared in another module [pins: none — a fixture is one source
-///   string, so another module cannot appear in a scan]; a `description` property without the `CustomStringConvertible`
-///   conformance, because interpolation ignores it [pins: description-without-conformance]; and, as non-matches, a name that
-///   merely contains `Error`, a `CustomStringConvertible` that is not an `Error`, and the `class` keyword on members [pins:
-///   error-in-name-unseen, described-not-error, class-keyword-members-unseen].
+///   protocol-inherited-unseen, typealias-unseen]; a type declared in another module [pins: none — all of a row's sources scan
+///   as one directory, i.e. one module, so another module cannot appear in a fixture]; a `description` property without the
+///   `CustomStringConvertible` conformance, because interpolation ignores it [pins: description-without-conformance]; and, as
+///   non-matches, a name that merely contains `Error`, a `CustomStringConvertible` that is not an `Error`, and the `class`
+///   keyword on members [pins: error-in-name-unseen, described-not-error, class-keyword-members-unseen].
 final class ErrorDescriptionLintTests: XCTestCase {
     struct Scan: Equatable {
         var errorTypes: Set<String> = []

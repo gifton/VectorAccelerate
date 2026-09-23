@@ -45,24 +45,6 @@ public struct AccelerationConfiguration: Sendable {
     public static let `default` = AccelerationConfiguration()
 }
 
-/// Execution path for operations
-public enum ExecutionPath: String, Sendable {
-    case cpu = "CPU"
-    case gpu = "GPU"
-    case hybrid = "Hybrid"
-}
-
-/// Operation types for performance tracking
-public enum OperationType: String, Sendable {
-    case distanceComputation = "DistanceComputation"
-    case batchDistanceComputation = "BatchDistanceComputation"
-    case matrixMultiplication = "MatrixMultiplication"
-    case quantization = "Quantization"
-    case clustering = "Clustering"
-    case indexing = "Indexing"
-    case search = "Search"
-}
-
 /// Buffer pool configuration extensions
 public extension BufferPoolConfiguration {
     static let smallVectors = BufferPoolConfiguration(
