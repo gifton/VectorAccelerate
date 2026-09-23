@@ -41,7 +41,7 @@
 | `Tests/VectorAccelerateTests/` | test target | — | gains a dependency on `VectorTestKit` |
 | `.bench/` | — | — | gitignored in SP0 (`.bench/` added to `.gitignore`); history strategy is SP5 |
 
-Manifest changes: add the two targets; add `VectorTestKit` to the test target's dependencies; remove the `VectorAccelerateBenchmarks` executable target and product; add an `Unreleased` entry to the version-history header; SwiftLint scope gains `Sources/VectorTestKit` and `Sources/VectorAccelerateBench` (the `no_print_in_production` custom rule is scoped to exclude the bench executable, which legitimately prints reports).
+Manifest changes: add the two targets; add `VectorTestKit` to the test target's dependencies; exclude the orphan allow-list data file (`Harness/OrphanAllowlist.txt`, read by path, not a bundle resource) from the test target; remove the `VectorAccelerateBenchmarks` executable target and product; add an `Unreleased` entry to the version-history header; SwiftLint scope gains `Sources/VectorTestKit` and `Sources/VectorAccelerateBench` (the `no_print_in_production` custom rule is scoped to exclude the bench executable, which legitimately prints reports).
 
 ## 4. `VectorTestKit`
 

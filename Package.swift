@@ -167,7 +167,8 @@ let package = Package(
                 "VectorAccelerate",
                 "VectorTestKit",
                 .product(name: "VectorCore", package: "VectorCore")
-            ]
+            ],
+            exclude: ["Harness/OrphanAllowlist.txt"]  // data file read by path in OrphanPublicTypeTests, not a bundle resource
         )
     ]
 )

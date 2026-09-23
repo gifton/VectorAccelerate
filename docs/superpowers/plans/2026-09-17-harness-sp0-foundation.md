@@ -165,7 +165,8 @@ Replace everything from `targets: [` to the closing `]` of the package with:
                 "VectorAccelerate",
                 "VectorTestKit",
                 .product(name: "VectorCore", package: "VectorCore")
-            ]
+            ],
+            exclude: ["Harness/OrphanAllowlist.txt"]  // data file read by path in OrphanPublicTypeTests, not a bundle resource
         )
     ]
 ```
@@ -5079,7 +5080,7 @@ MSG
 
 **Files:**
 - Delete: `Sources/VectorAccelerate/Benchmarking/BenchmarkFramework.swift`, `Sources/VectorAccelerate/Benchmarking/IndexBenchmarkHarness.swift`, `Sources/VectorAccelerate/Configuration/PerformanceMonitor.swift`, `Tests/VectorAccelerateTests/PerformanceBenchmarks.swift`, `Tests/VectorAccelerateTests/IndexBenchmarkHarnessTests.swift`
-- Modify: `Package.swift` (header comment only), `Sources/VectorAccelerate/Index/Core/IndexAccelerationConfiguration.swift`, `Sources/VectorAccelerate/Kernels/Metal4/QuantizationStatisticsKernel.swift`, `Sources/VectorAccelerate/Kernels/Metal4/WarpOptimizedSelectionKernel.swift`, `Sources/VectorAccelerate/Configuration/AccelerationConfiguration.swift` (Step 5 rule 3: `ExecutionPath`, `OperationType`), `Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift`, `Tests/VectorAccelerateTests/Harness/StatsTests.swift`, `Tests/VectorAccelerateTests/IndexBenchmarkRecallValidationTests.swift`, `Tests/VectorAccelerateTests/GPUCandidateBuilderValidationTests.swift`, `README.md`, `CHANGELOG.md`, `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`, this plan (Task 7 and Task 15 blocks)
+- Modify: `Package.swift` (header comment, and — pre-review fix, controller ruling 2026-09-22 — `exclude: ["Harness/OrphanAllowlist.txt"]` on the test target, because SwiftPM warned about the unhandled data file on every build; the Task 0 Step 1 block holds the committed targets array), `Sources/VectorAccelerate/Index/Core/IndexAccelerationConfiguration.swift`, `Sources/VectorAccelerate/Kernels/Metal4/QuantizationStatisticsKernel.swift`, `Sources/VectorAccelerate/Kernels/Metal4/WarpOptimizedSelectionKernel.swift`, `Sources/VectorAccelerate/Configuration/AccelerationConfiguration.swift` (Step 5 rule 3: `ExecutionPath`, `OperationType`), `Sources/VectorAccelerateBench/Cases/Distance/DistanceCases.swift`, `Tests/VectorAccelerateTests/Harness/StatsTests.swift`, `Tests/VectorAccelerateTests/IndexBenchmarkRecallValidationTests.swift`, `Tests/VectorAccelerateTests/GPUCandidateBuilderValidationTests.swift`, `README.md`, `CHANGELOG.md`, `docs/superpowers/specs/2026-09-14-harness-sp0-foundation-design.md`, this plan (Task 7 and Task 15 blocks)
 - Create: `Tests/VectorAccelerateTests/Utilities/RequireMetal.swift`, `Tests/VectorAccelerateTests/Harness/OrphanPublicTypeTests.swift`, `Tests/VectorAccelerateTests/Harness/OrphanAllowlist.txt`
 
 - [ ] **Step 1: Delete the dead code**
@@ -5192,7 +5193,7 @@ Performance is measured by the benchmark harness (`swift run -c release VectorAc
 - Line 626 area: replace `swift run VectorAccelerateBenchmarks` with `swift run -c release VectorAccelerateBench run --mode quick`.
 - The line-7 `Version 0.6.0` banner is NOT changed: it names the last tagged release (Global Constraints, version).
 
-`Package.swift`: the version-history header's `// Unreleased —` entry (Task 17) lists removals; its `Removed:` bullet gains `QuantizationStatisticsKernel.benchmark() and WarpOptimizedSelectionKernel.benchmark()` (wrapped to the header's existing width). Nothing else in the file changes. (Done 2026-09-22: the bullet also names the nested result types and the `ExecutionPath` / `OperationType` deletion from Step 5; the Task 0 Step 2 block holds the committed header.)
+`Package.swift`: the version-history header's `// Unreleased —` entry (Task 17) lists removals; its `Removed:` bullet gains `QuantizationStatisticsKernel.benchmark() and WarpOptimizedSelectionKernel.benchmark()` (wrapped to the header's existing width). Nothing else in the file changes. (Done 2026-09-22: the bullet also names the nested result types and the `ExecutionPath` / `OperationType` deletion from Step 5; the Task 0 Step 2 block holds the committed header. Pre-review fix: the test target also gained `exclude: ["Harness/OrphanAllowlist.txt"]` — see the Files list.)
 
 `CHANGELOG.md`: insert after the intro paragraph, before `## [0.6.0]` (Keep-a-Changelog's `[Unreleased]` section; it accumulates everything that lands before the next tagged release and is renamed when that release is cut):
 
