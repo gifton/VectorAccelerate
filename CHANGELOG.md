@@ -22,6 +22,9 @@ The hardening audit of the Metal stack. `docs/audits/AUDIT-2.md` and `docs/audit
 - **Shader validation.** Fused Top-K and IVF list search now fit the instrumented threadgroup memory budget.
 - **`WarmupManager` lost pauses and cancels.** The warm-up loop wrote `state` after suspending on a pipeline, so `reportUserActivity()`, `pause(reason:)` and thermal pauses were overwritten and warm-up kept running. A restart could also be overwritten with `.cancelled`, leaving `beginWarmup` waiting forever.
 - **A pipeline compile error during `Metal4Context` warm-up aborted Debug processes.** Only a key naming a missing kernel asserts now. Compile errors are logged and the pipeline compiles on first use.
+- **The test suite failed under Swift 6.4's default build system.** Swift Build packages the shaders as `default.metallib` with no sources, so the runtime compile returned a library with no kernels and 76 tests that asked for it failed. `default.metallib` is now the shipped library. `KernelContext.makeLibraryFromBundleSources` throws when the bundle has no sources or an incomplete set, and the hardening suites certify whatever libraries the bundle ships. See `docs/stability/SHADER-LIBRARY-PACKAGING-CONTRACT.md`.
+- **`SoACandidateSet` with zero candidates threw `bufferAllocationFailed`.** Metal refuses a zero-length buffer. It now allocates one element and copies nothing, and both scoring methods return empty results.
+- **`PerformanceMonitor` reads the task's resident size inside the `withUnsafeMutablePointer` borrow** instead of after it. This wasn't the miscompile below, but it was the shape closest to it in production code.
 
 ### Changed
 - **Dependency: VectorCore floor raised to 0.3.3** for the NaN-last Top-K contract and original-index ties.
@@ -33,12 +36,15 @@ The hardening audit of the Metal stack. `docs/audits/AUDIT-2.md` and `docs/audit
 - **Raw kernel bindings changed** for callers encoding shaders directly: `minkowski_distance_batch` buffer(7), `neural_encode_pass1` buffer(8), the UMAP negative-sampling output at buffer(3), and capacity words in the Borůvka and fused IVF parameter structs.
 - **`PipelineCache.warmUp(keys:)` returns `[PipelineWarmUpFailure]`** instead of tuples with an error string.
 - **Wall-clock test assertions run only under `VECTORACCELERATE_STRICT_PERF=1`**, enforced by `PerfGateCoverageTests`.
+- **GPU availability guards use a runtime Metal check.** `MetalComputeProvider`, `AcceleratedVectorOperations`, `AcceleratedVectorFactory.isAccelerationAvailable`, `VectorCoreIntegration` and `MetalDevice.isGPUAvailable()` now share `MetalDevice.isAvailable` instead of VectorCore's `ComputeDevice.gpu().isAvailable`, which is a compile-time constant in 0.3.3. A host with no Metal device now fails at the guard with `metalNotAvailable`.
+- **Every consumer's build host needs the Metal Toolchain component** under Swift Build.
 
 ### Added
 - `MetalComputeProvider.RoutingTelemetry`, which reports whether the GPU actually served a call.
 - `BatchBiasLayout` and `PipelineWarmUpFailure`.
 - The permanent guard suites in `Tests/VectorAccelerateTests/Hardening/`.
 - A CI job that runs the test suite in Release, the configuration where the missing shader went unnoticed.
+- `CompilerLostStoreCanaryTests` and `LostStoreShapeGuardTests`, for a Swift 6.2 and 6.4.2 optimizer miscompile found by VectorCore. See `docs/stability/COMPILER-LOST-STORE-CONTRACT.md`.
 
 ### Removed
 - `encodeTiledEncode`, `encodeTiledEncodeQuantize`, `encodeTiledEncodeQuantizeV2`, their `isTiled…Available` properties and `TiledEncodeParameters`. Their kernels never existed, so they could only throw. `encodeTiledV3` is the shipping tiled path.
