@@ -172,7 +172,7 @@ jobs:
     name: Test
     runs-on: macos-26
     needs: build
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -198,10 +198,13 @@ jobs:
           # hangs, runtime pipeline-compile errors) — wall-clock assertions are
           # separately gated behind VECTORACCELERATE_STRICT_PERF (Tests/.../Utilities/PerfGate.swift).
           # Retry the suite once; a second failure is treated as a real regression.
-          if ! swift test --parallel 2>&1 | tee test.log; then
+          # Serial on purpose: with --parallel every test is its own process and they all share one
+          # virtual GPU. That setup failed a few different tests per attempt (hangs, compile errors)
+          # on PR #39, whereas serial runs on real hardware have stayed green.
+          if ! swift test 2>&1 | tee test.log; then
             echo "::warning::swift test failed — retrying once (known virtualized-GPU flakiness)"
             mv test.log test-attempt1.log
-            swift test --parallel 2>&1 | tee test.log
+            swift test 2>&1 | tee test.log
           fi
 
           # Extract test summary
@@ -229,7 +232,7 @@ jobs:
     name: Test (Release)
     runs-on: macos-26
     needs: build
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -251,11 +254,11 @@ jobs:
       - name: Run Tests
         run: |
           set -eo pipefail
-          # Same one retry as the Debug job, for the same virtualized-GPU reasons.
-          if ! swift test -c release --parallel 2>&1 | tee test.log; then
+          # Serial with one retry, for the same reasons as the Debug job.
+          if ! swift test -c release 2>&1 | tee test.log; then
             echo "::warning::swift test failed — retrying once (known virtualized-GPU flakiness)"
             mv test.log test-attempt1.log
-            swift test -c release --parallel 2>&1 | tee test.log
+            swift test -c release 2>&1 | tee test.log
           fi
 
           TESTS=$(grep -E "Executed [0-9]+ tests" test.log | tail -1 || echo "")
