@@ -5,8 +5,7 @@ import XCTest
 final class IVFBenchmarkFixtureGPUTests: XCTestCase {
     private func withPipelines(_ body: (any MTLDevice, any MTLComputePipelineState, String) throws -> Void) throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal unavailable") }
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle())
-        func check(_ library: any MTLLibrary, _ path: String) throws {
+        try ShippedMetalLibraries.forEach(device: device) { library, path in
             let pipeline = try device.makeComputePipelineState(function: XCTUnwrap(library.makeFunction(name: "ivf_list_search")))
             guard pipeline.staticThreadgroupMemoryLength <= device.maxThreadgroupMemoryLength else {
                 XCTFail("\(path): compiled list-search memory exceeds device capacity")
@@ -14,10 +13,6 @@ final class IVFBenchmarkFixtureGPUTests: XCTestCase {
             }
             try body(device, pipeline, path)
         }
-        #if DEBUG
-        try check(device.makeLibrary(URL: XCTUnwrap(bundle.url(forResource: "debug", withExtension: "metallib"))), "plugin")
-        #endif
-        try check(KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle), "runtime")
     }
 
     private func check(_ fixture: IVFBenchmarkFixture, k: Int, width: Int,

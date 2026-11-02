@@ -8,15 +8,7 @@ final class FastMathPolicyTests: XCTestCase {
     private func withLibraries(
         _ body: (any MTLDevice, any MTLLibrary, String) throws -> Void
     ) throws {
-        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal unavailable") }
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle())
-        #if DEBUG
-        let url = try XCTUnwrap(bundle.url(forResource: "debug", withExtension: "metallib"),
-                                "Debug gate must exercise the plugin metallib")
-        try body(device, device.makeLibrary(URL: url), "plugin")
-        #endif
-        let runtime = try KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle)
-        try body(device, runtime, "runtime")
+        try ShippedMetalLibraries.forEach(body)
     }
 
     private func buffer<T: BitwiseCopyable>(_ values: [T], device: any MTLDevice) throws -> any MTLBuffer {

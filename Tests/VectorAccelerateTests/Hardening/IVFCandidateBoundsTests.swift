@@ -13,12 +13,7 @@ final class IVFCandidateBoundsTests: XCTestCase {
     }
 
     private func withLibraries(_ body: (any MTLDevice, any MTLLibrary, String) throws -> Void) throws {
-        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal unavailable") }
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle())
-        #if DEBUG
-        try body(device, device.makeLibrary(URL: XCTUnwrap(bundle.url(forResource: "debug", withExtension: "metallib"))), "plugin")
-        #endif
-        try body(device, KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle), "runtime")
+        try ShippedMetalLibraries.forEach(body)
     }
 
     private func run(_ device: any MTLDevice, _ library: any MTLLibrary, _ buffers: [any MTLBuffer],
