@@ -49,12 +49,20 @@ public final class SoACandidateSet<V: SoACompatible>: @unchecked Sendable {
             self.isZeroCopy = true
         } else {
             // Staged fallback (e.g. not page-aligned): copy the logical bytes into a fresh buffer.
+            // An empty candidate set reaches this branch by contract (SoA_Layout_Contract.md: empty
+            // storage provides no page-aligned allocation) with zero logical bytes; Metal refuses a
+            // zero-length buffer, so allocate one element and copy nothing. Both scoring methods
+            // return before touching the buffer when `layout.count == 0`
+            // (SoACandidateSetBoundaryTests.testEmptyAndSingleCandidateSets).
             let logical = built.layoutDescriptor.logicalByteCount
-            guard let staged = device.rawDevice.makeBuffer(length: logical, options: .storageModeShared) else {
-                throw VectorError.bufferAllocationFailed(size: logical)
+            let length = max(logical, SoALayout.elementStrideBytes)
+            guard let staged = device.rawDevice.makeBuffer(length: length, options: .storageModeShared) else {
+                throw VectorError.bufferAllocationFailed(size: length)
             }
-            built.withUnsafeRawBuffer { raw in
-                if let src = raw.baseAddress { memcpy(staged.contents(), src, logical) }
+            if logical > 0 {
+                built.withUnsafeRawBuffer { raw in
+                    if let src = raw.baseAddress { memcpy(staged.contents(), src, logical) }
+                }
             }
             self.buffer = staged
             self.isZeroCopy = false
