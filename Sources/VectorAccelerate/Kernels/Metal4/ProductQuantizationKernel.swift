@@ -247,6 +247,15 @@ public final class ProductQuantizationKernel: @unchecked Sendable, Metal4Kernel 
         // Pipelines created in init
     }
 
+    /// Maximum ADC table storage. Training and encoding do not use this table.
+    public static let maxADCTableBytes = 32 * 1024
+
+    private static func validateCentroidCount(_ config: Metal4PQConfig) throws {
+        guard config.K > 0 && config.K <= 256 else {
+            throw VectorError.invalidInput("PQ K must be between 1 and 256 for UInt8 codes")
+        }
+    }
+
     // MARK: - Training
 
     /// Train PQ model on training data.
@@ -263,6 +272,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable, Metal4Kernel 
         config: Metal4PQConfig,
         progressHandler: ((Int, Float) -> Void)? = nil
     ) async throws -> Metal4PQModel {
+        try Self.validateCentroidCount(config)
         let device = context.device.rawDevice
 
         // Allocate codebook buffer [M × K × D_sub]
@@ -376,6 +386,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable, Metal4Kernel 
     ) async throws -> Metal4EncodedVectors {
         let device = context.device.rawDevice
         let config = model.config
+        try Self.validateCentroidCount(config)
 
         let codesSize = count * config.M * MemoryLayout<UInt8>.stride
         guard let codes = device.makeBuffer(length: codesSize, options: .storageModeShared) else {
@@ -406,6 +417,8 @@ public final class ProductQuantizationKernel: @unchecked Sendable, Metal4Kernel 
     // MARK: - Distance Computation
 
     /// Compute approximate distances using ADC.
+    /// Throws if the M × K float table exceeds 32 KB or the device/pipeline's
+    /// available threadgroup memory. Training and encoding retain larger M support.
     public func computeDistances(
         query: any MTLBuffer,
         encodedVectors: Metal4EncodedVectors,
@@ -414,8 +427,22 @@ public final class ProductQuantizationKernel: @unchecked Sendable, Metal4Kernel 
         let device = context.device.rawDevice
         let config = model.config
 
-        // Allocate distance table [M × K]
+        try Self.validateCentroidCount(config)
+        let maxEntries = Self.maxADCTableBytes / MemoryLayout<Float>.stride
+        guard config.M > 0 && config.M <= maxEntries / config.K else {
+            throw VectorError.invalidInput("PQ ADC requires M × K × 4 <= \(Self.maxADCTableBytes) bytes")
+        }
+
+        // Bound the product before multiplying; round the dynamic binding up to
+        // Metal's 16-byte granularity, including small K and odd table sizes.
         let tableSize = config.M * config.K * MemoryLayout<Float>.stride
+        let sharedMemorySize = (tableSize + 15) & ~15
+        guard computeDistancesPipeline.staticThreadgroupMemoryLength <= device.maxThreadgroupMemoryLength,
+              sharedMemorySize <= device.maxThreadgroupMemoryLength - computeDistancesPipeline.staticThreadgroupMemoryLength else {
+            throw VectorError.invalidInput("PQ ADC table exceeds available threadgroup memory")
+        }
+
+        // Allocate distance table [M × K]
         guard let distanceTable = device.makeBuffer(length: tableSize, options: .storageModePrivate) else {
             throw VectorError.bufferAllocationFailed(size: tableSize)
         }
@@ -459,7 +486,6 @@ public final class ProductQuantizationKernel: @unchecked Sendable, Metal4Kernel 
             encoder.setBytes(&p2, length: MemoryLayout<Metal4PQParams>.size, index: 3)
 
             // Shared memory for distance table
-            let sharedMemorySize = config.M * config.K * MemoryLayout<Float>.stride
             encoder.setThreadgroupMemoryLength(sharedMemorySize, index: 0)
 
             let distConfig = Metal4ThreadConfiguration.linear(
@@ -482,6 +508,7 @@ public final class ProductQuantizationKernel: @unchecked Sendable, Metal4Kernel 
         data: [[Float]],
         config: Metal4PQConfig
     ) async throws -> (model: Metal4PQModel, encoded: Metal4EncodedVectors) {
+        try Self.validateCentroidCount(config)
         let device = context.device.rawDevice
 
         let flatData = data.flatMap { $0 }

@@ -36,8 +36,8 @@ struct TopKBatchParams {
 // Comparison for Heap: Returns true if 'a' should be closer to the root than 'b'.
 // SELECT_MIN uses a Max-Heap (root is the largest/worst).
 // SELECT_MAX uses a Min-Heap (root is the smallest/worst).
-bool compare_heap(float a, float b, SelectionMode mode) {
-    return (mode == SELECT_MIN) ? (a > b) : (a < b);
+bool compare_heap(IndexedValue a, IndexedValue b, SelectionMode mode) {
+    return va_topk_is_better(b.value, b.index, a.value, a.index, mode == SELECT_MIN);
 }
 
 // Heapify down (sift down) operation
@@ -47,10 +47,10 @@ void heapify_down(thread IndexedValue* heap, uint k, uint idx, SelectionMode mod
         uint right = 2 * idx + 2;
         uint prioritized = idx;
 
-        if (left < k && compare_heap(heap[left].value, heap[prioritized].value, mode)) {
+        if (left < k && compare_heap(heap[left], heap[prioritized], mode)) {
             prioritized = left;
         }
-        if (right < k && compare_heap(heap[right].value, heap[prioritized].value, mode)) {
+        if (right < k && compare_heap(heap[right], heap[prioritized], mode)) {
             prioritized = right;
         }
 
@@ -102,12 +102,26 @@ kernel void topk_select_batch_kernel(
 
     // Constraint: Heap must fit efficiently in registers.
     constexpr uint MAX_K = 128;
-    if (K > MAX_K) return;
+    if (K > MAX_K) {
+        // VA3-011: a capability cap must never be a silent no-op — the caller would read
+        // back whatever bytes the buffer pool left in the output. Publish an explicit
+        // all-sentinel row instead (CapabilityCapPolicyTests
+        // .testTopKBatchEncodeOverCapSentinelFills). `select()` throws host-side; this
+        // covers the raw encode()/parameters paths.
+        device float* out_val = topk_values + (ulong)tid * params.output_stride;
+        device uint* out_idx = topk_indices + (ulong)tid * params.output_stride;
+        const float pad = (MODE == SELECT_MIN) ? INFINITY : -INFINITY;
+        for (uint i = 0; i < K; ++i) {
+            out_val[i] = pad;
+            out_idx[i] = UINT_MAX;
+        }
+        return;
+    }
 
     IndexedValue heap[MAX_K];
     uint heap_size = 0;
 
-    device const float* input_row = distances + tid * params.input_stride;
+    device const float* input_row = distances + (ulong)tid * params.input_stride;
 
     // Phase 1: Fill the initial heap (O(K))
     for (uint i = 0; i < K && i < N; ++i) {
@@ -125,7 +139,7 @@ kernel void topk_select_batch_kernel(
         float val = input_row[i];
         
         // Check if the new element is better than the root (the worst element so far)
-        bool should_insert = (MODE == SELECT_MIN) ? (val < heap[0].value) : (val > heap[0].value);
+        bool should_insert = va_topk_is_better(val, i, heap[0].value, heap[0].index, MODE == SELECT_MIN);
 
         if (should_insert) {
             // Replace the root and sift down
@@ -140,8 +154,8 @@ kernel void topk_select_batch_kernel(
     }
 
     // Phase 4: Write results to global memory
-    device float* output_val_row = topk_values + tid * params.output_stride;
-    device uint* output_idx_row = topk_indices + tid * params.output_stride;
+    device float* output_val_row = topk_values + (ulong)tid * params.output_stride;
+    device uint* output_idx_row = topk_indices + (ulong)tid * params.output_stride;
 
     for (uint i = 0; i < heap_size; ++i) {
         output_val_row[i] = heap[i].value;
@@ -311,9 +325,7 @@ struct TopKMergeParams {
 };
 
 inline bool va_merge_is_better(float distA, uint idxA, float distB, uint idxB) {
-    if (distA < distB) return true;
-    if (distA > distB) return false;
-    return idxA < idxB;
+    return va_topk_is_better(distA, idxA, distB, idxB, true);
 }
 
 // (Spec Section: Metal Kernel Signatures - merge_topk_sorted_kernel)
@@ -337,8 +349,8 @@ kernel void merge_topk_sorted_kernel(
     const uint base = params.chunk_base;
 
     // Strides: row-major contiguous
-    const uint running_row = tid * K;
-    const uint chunk_row = tid * Kc;
+    const ulong running_row = (ulong)tid * K;
+    const ulong chunk_row = (ulong)tid * Kc;
 
     uint i = 0;
     uint j = 0;
@@ -437,8 +449,8 @@ kernel void ivf_distance_with_indirection(
     }
 
     const uint D = params.dimension;
-    const uint qBase = q * D;
-    const uint vBase = slot * D;
+    const ulong qBase = (ulong)q * D;
+    const ulong vBase = (ulong)slot * D;
 
     float dist = 0.0f;
     for (uint d = 0; d < D; ++d) {

@@ -31,11 +31,15 @@ struct ElementwiseParams {
     float scalar_value2;     // clamp (min)
     float scalar_value3;     // clamp (max)
     uint8_t operation;
+    // Intrinsic selection only: zero uses ordinary operators/intrinsics, nonzero
+    // uses fast:: for the cases below. Zero does not disable library fast math.
     uint8_t use_fast_math;
     uint8_t padding[2];
 };
 
 // Helper function to execute the operation
+// Both entry points share this helper. The library is compiled with fast math;
+// neither branch promises strict IEEE semantics or a distinct accuracy/speed tier.
 float perform_elementwise_operation(float a, float b, constant ElementwiseParams& params) {
     // 'b' is pre-loaded with either the second vector element or the scalar value.
     const bool use_fast = params.use_fast_math;
@@ -78,15 +82,15 @@ kernel void elementwise_operation_kernel(
     if (tid >= params.num_elements) return;
 
     // Calculate indices based on strides
-    const uint idx_a = tid * params.stride_a;
-    const uint idx_out = tid * params.stride_output;
+    const ulong idx_a = (ulong)tid * params.stride_a;
+    const ulong idx_out = (ulong)tid * params.stride_output;
 
     float a = input_a[idx_a];
     float b;
 
     // Determine 'b'. If input_b is provided (binary), use it; otherwise use scalar (scalar/unary).
     if (input_b != nullptr) {
-        const uint idx_b = tid * params.stride_b;
+        const ulong idx_b = (ulong)tid * params.stride_b;
         b = input_b[idx_b];
     } else {
         b = params.scalar_value;
@@ -103,12 +107,12 @@ kernel void elementwise_inplace_kernel(
 ) {
     if (tid >= params.num_elements) return;
 
-    const uint idx_a = tid * params.stride_a;
+    const ulong idx_a = (ulong)tid * params.stride_a;
     float a = data[idx_a];
     float b;
 
     if (operand != nullptr) {
-        const uint idx_b = tid * params.stride_b;
+        const ulong idx_b = (ulong)tid * params.stride_b;
         b = operand[idx_b];
     } else {
         b = params.scalar_value;

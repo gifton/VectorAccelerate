@@ -1028,9 +1028,14 @@ public final class FusedL2TopKKernel: @unchecked Sendable, Metal4Kernel {
                 }
 
                 // Sort and truncate to k
+                // Match the GPU merge and VectorCore 0.3.3 contract; covered by
+                // TopKNaNPolicyTests.testChunkedPublicAPIKeepsCPUAndGPUMergeInAgreement.
                 merged.sort {
-                    if $0.distance == $1.distance { return $0.index < $1.index }
-                    return $0.distance < $1.distance
+                    let aNaN = $0.distance.isNaN
+                    let bNaN = $1.distance.isNaN
+                    if aNaN != bNaN { return !aNaN }
+                    if !aNaN && $0.distance != $1.distance { return $0.distance < $1.distance }
+                    return $0.index < $1.index
                 }
                 if merged.count > actualK {
                     merged.removeLast(merged.count - actualK)

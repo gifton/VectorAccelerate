@@ -215,7 +215,9 @@ final class SIMDFallbackTests: XCTestCase {
         let elapsed = CFAbsoluteTimeGetCurrent() - start
         
         // Should be very fast for small vectors
-        XCTAssertLessThan(elapsed, 1.0)
+        if PerfGate.strict {
+            XCTAssertLessThan(elapsed, 1.0)
+        }
     }
     
     func testDotProductPerformanceLarge() async throws {
@@ -229,7 +231,9 @@ final class SIMDFallbackTests: XCTestCase {
         let elapsed = CFAbsoluteTimeGetCurrent() - start
         
         // Should still be reasonably fast
-        XCTAssertLessThan(elapsed, 2.0)
+        if PerfGate.strict {
+            XCTAssertLessThan(elapsed, 2.0)
+        }
     }
     
     // MARK: - Edge Cases

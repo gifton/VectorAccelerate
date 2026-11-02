@@ -9,7 +9,7 @@
 // - Fused L2 distance + top-K selection
 // - Streaming top-K for large datasets
 // - Warp-optimized selection for small K
-// - Bitonic sort for large K values
+// - Distributed heap merge for fused selection
 
 #include "Metal4Common.h"
 
@@ -18,7 +18,6 @@
 constexpr constant uint K_PRIVATE = 8;                // Per-thread register heap size
 constexpr constant uint MAX_TGS = 256;                // Maximum threadgroup size
 constexpr constant uint MAX_D = 768;                  // Maximum dimension for query caching (supports BERT-768)
-constexpr constant uint MAX_SHARED_CANDIDATES_POT = 2048; // Max candidates in shared memory
 constexpr constant uint SENTINEL_INDEX = 0xFFFFFFFF;  // Invalid index marker
 constexpr constant uint MAX_K_PRIVATE = 128;          // Maximum K for private-heap selection kernels
 constexpr constant uint K4_MAX_K = 32;                // Maximum K for warp-optimized kernel
@@ -46,14 +45,12 @@ struct StreamConfig {
 // MARK: - Helper Functions
 
 inline bool is_better(Candidate a, Candidate b) {
-    if (a.distance < b.distance) return true;
-    if (a.distance > b.distance) return false;
-    return a.index < b.index;
+    return va_topk_is_better(a.distance, a.index, b.distance, b.index, true);
 }
 
 inline float4 safe_load_float4(device const float* base, uint offset, uint max) {
     if (offset + 3 < max) {
-        return reinterpret_cast<const device float4*>(base + offset)[0];
+        return reinterpret_cast<const device packed_float4*>(base + offset)[0];
     }
     float4 v = float4(0.0f);
     for (uint i = 0; i < 4 && offset + i < max; ++i) {
@@ -68,7 +65,7 @@ inline float calculate_l2_squared(const threadgroup float* query_cached, device 
     
     // Vectorized processing
     for (; d + 3 < D; d += 4) {
-        float4 q_data = reinterpret_cast<const threadgroup float4*>(query_cached + d)[0];
+        float4 q_data = reinterpret_cast<const threadgroup packed_float4*>(query_cached + d)[0];
         float4 v_data = safe_load_float4(vector_ptr, d, D);
         float4 diff = q_data - v_data;
         accumulator += dot(diff, diff);
@@ -85,7 +82,7 @@ inline float calculate_l2_squared(const threadgroup float* query_cached, device 
 
 inline void update_private_heap_sorted(thread Candidate* heap, float new_dist, uint new_id) {
     Candidate worst = heap[K_PRIVATE - 1];
-    if (new_dist < worst.distance || (new_dist == worst.distance && new_id < worst.index)) {
+    if (va_topk_is_better(new_dist, new_id, worst.distance, worst.index, true)) {
         heap[K_PRIVATE - 1] = {new_dist, new_id};
         
         // Insertion sort to maintain order
@@ -100,30 +97,6 @@ inline void update_private_heap_sorted(thread Candidate* heap, float new_dist, u
             }
         }
     }
-}
-
-// Bitonic sort for shared memory candidates
-inline void block_bitonic_sort(threadgroup Candidate* data, const uint N_PoT, const uint tid, const uint tgs) {
-    for (uint k = 2; k <= N_PoT; k *= 2) {
-        for (uint j = k / 2; j > 0; j /= 2) {
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-            for (uint i = tid; i < N_PoT; i += tgs) {
-                uint partner = i ^ j;
-                if (i < partner) {
-                    bool direction_ascending = ((i & k) == 0);
-                    Candidate c_i = data[i];
-                    Candidate c_p = data[partner];
-                    bool p_is_better = is_better(c_p, c_i);
-                    bool should_swap = (direction_ascending == p_is_better);
-                    if (should_swap) {
-                        data[i] = c_p;
-                        data[partner] = c_i;
-                    }
-                }
-            }
-        }
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
 }
 
 // Parallel reduction for finding minimum
@@ -144,11 +117,12 @@ inline void min_heap_sink_down(thread float* heap_data, thread uint* heap_indice
         if (child_idx >= heap_size) break;
 
         // Find smaller child (min-heap)
-        if (child_idx + 1 < heap_size && heap_data[child_idx] > heap_data[child_idx + 1]) {
+        if (child_idx + 1 < heap_size && va_topk_is_better(heap_data[child_idx], heap_indices[child_idx],
+                               heap_data[child_idx + 1], heap_indices[child_idx + 1], false)) {
             child_idx++;
         }
 
-        if (parent_val <= heap_data[child_idx]) break;
+        if (!va_topk_is_better(parent_val, parent_id, heap_data[child_idx], heap_indices[child_idx], false)) break;
 
         heap_data[parent_idx] = heap_data[child_idx];
         heap_indices[parent_idx] = heap_indices[child_idx];
@@ -160,10 +134,7 @@ inline void min_heap_sink_down(thread float* heap_data, thread uint* heap_indice
 }
 
 inline BestCand reduce_min(BestCand a, BestCand b) {
-    if (a.distance < b.distance) return a;
-    if (b.distance < a.distance) return b;
-    if (a.index < b.index) return a;
-    return b;
+    return va_topk_is_better(a.distance, a.index, b.distance, b.index, true) ? a : b;
 }
 
 inline BestCand warp_reduce_min(BestCand v) {
@@ -215,10 +186,25 @@ kernel void fused_l2_topk(
     uint tgs [[threads_per_threadgroup]]
 ) {
     if (q_id >= Q) return;
-    if (D > MAX_D || tgs > MAX_TGS || K == 0) return;
+    if (K == 0) return;
+    if (D > MAX_D || tgs > MAX_TGS) {
+        // VA3-011: capability cap must never be a silent no-op (stale output bytes).
+        // Sentinel-fill this query's K slots before bailing (CapabilityCapPolicyTests
+        // .testFusedL2TopKOverDimSentinelFills). FusedL2TopKParameters guards D <= MAX_D
+        // host-side; this covers direct kernel dispatch. Uniform condition, no barriers yet.
+        const ulong cap_off = (ulong)q_id * K;
+        for (uint i = tid; i < K; i += tgs) {
+            result_indices[cap_off + i] = SENTINEL_INDEX;
+            if (result_distances != nullptr) {
+                result_distances[cap_off + i] = INFINITY;
+            }
+        }
+        return;
+    }
 
     threadgroup float query_cached[MAX_D];
-    threadgroup Candidate shared_candidates[MAX_SHARED_CANDIDATES_POT];
+    threadgroup BestCand scratch[MAX_TGS];
+    threadgroup uint winner_thread;
 
     // Initialize private heap
     Candidate private_heap[K_PRIVATE];
@@ -241,75 +227,32 @@ kernel void fused_l2_topk(
         update_private_heap_sorted(private_heap, dist, n_idx);
     }
 
-    // Merge private heaps in shared memory
-    const uint num_valid_candidates = tgs * K_PRIVATE;
-    uint pow2_size = 1;
-    while (pow2_size < num_valid_candidates) { pow2_size <<= 1; }
-    pow2_size = metal::min(pow2_size, (uint)MAX_SHARED_CANDIDATES_POT);
-
-    // Copy private heap to shared memory
-    for (uint k = 0; k < K_PRIVATE; ++k) {
-        uint shared_idx = k * tgs + tid;
-        if (shared_idx < pow2_size) {
-            shared_candidates[shared_idx] = private_heap[k];
-        }
-    }
-    
-    // Pad with sentinels
-    for (uint i = num_valid_candidates + tid; i < pow2_size; i += tgs) {
-        shared_candidates[i] = {INFINITY, SENTINEL_INDEX};
-    }
-
+    // Merge sorted private heaps by their heads. The next winner must be a head,
+    // so materializing all tgs * K_PRIVATE candidates in threadgroup memory is
+    // unnecessary. This also leaves room for shader validation's memory overhead.
+    // Raw K > K_PRIVATE still selects from the same per-thread retained candidates;
+    // public execute() continues to use its exact fallback for K > K_PRIVATE.
+    uint head = 0;
     const ulong output_offset = (ulong)q_id * K;
-
-    // Small-K path: emit exact top-K when K <= 32 using reductions
-    if (K <= 32) {
-        // Use parallel reduction for small K
-        threadgroup BestCand scratch[MAX_TGS];
-        
-        for (uint sel = 0; sel < K; ++sel) {
-            BestCand local = {INFINITY, SENTINEL_INDEX, 0};
-            for (uint i = tid; i < pow2_size; i += tgs) {
-                Candidate c = shared_candidates[i];
-                BestCand cur = {c.distance, c.index, i};
-                local = reduce_min(local, cur);
-            }
-            
-            BestCand winner = parallel_min_reduce(scratch, local, tid, tgs);
-            if (tid == 0) {
-                if (winner.index != SENTINEL_INDEX) {
-                    result_indices[output_offset + sel] = winner.index;
-                    if (result_distances != nullptr) {
-                        result_distances[output_offset + sel] = winner.distance;
-                    }
-                    shared_candidates[winner.pos].distance = INFINITY;
-                } else {
-                    result_indices[output_offset + sel] = SENTINEL_INDEX;
-                    if (result_distances != nullptr) {
-                        result_distances[output_offset + sel] = INFINITY;
-                    }
-                }
-            }
-            threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint sel = 0; sel < K; ++sel) {
+        BestCand local = {INFINITY, SENTINEL_INDEX, tid};
+        if (head < K_PRIVATE) {
+            Candidate candidate = private_heap[head];
+            local = {candidate.distance, candidate.index, tid};
         }
-    } else {
-        // Use bitonic sort for larger K and emit full K results
-        block_bitonic_sort(shared_candidates, pow2_size, tid, tgs);
-        
-        for (uint out = tid; out < K; out += tgs) {
-            if (out < pow2_size) {
-                Candidate result = shared_candidates[out];
-                result_indices[output_offset + out] = result.index;
-                if (result_distances != nullptr) {
-                    result_distances[output_offset + out] = result.distance;
-                }
-            } else {
-                result_indices[output_offset + out] = SENTINEL_INDEX;
-                if (result_distances != nullptr) {
-                    result_distances[output_offset + out] = INFINITY;
-                }
+        BestCand winner = parallel_min_reduce(scratch, local, tid, tgs);
+        if (tid == 0) {
+            result_indices[output_offset + sel] = winner.index;
+            if (result_distances != nullptr) {
+                result_distances[output_offset + sel] = winner.distance;
             }
+            winner_thread = winner.index == SENTINEL_INDEX ? SENTINEL_INDEX : winner.pos;
         }
+        // Publish the owner and finish all reads of this reduction's scratch.
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (tid == winner_thread) { ++head; }
+        // Every thread participates even after exhaustion. The next reduction's
+        // barrier orders these owner reads before thread 0 publishes the next owner.
     }
 }
 
@@ -325,11 +268,12 @@ METAL_FUNC void sink_down(thread T_Dist* heap_data, thread T_Idx* heap_indices, 
         uint child_idx = 2 * parent_idx + 1;
         if (child_idx >= K) break;
 
-        if (child_idx + 1 < K && heap_data[child_idx] < heap_data[child_idx + 1]) {
+        if (child_idx + 1 < K && va_topk_is_better(heap_data[child_idx], heap_indices[child_idx],
+                               heap_data[child_idx + 1], heap_indices[child_idx + 1], true)) {
             child_idx++;
         }
 
-        if (parent_val >= heap_data[child_idx]) break;
+        if (!va_topk_is_better(parent_val, parent_id, heap_data[child_idx], heap_indices[child_idx], true)) break;
 
         heap_data[parent_idx] = heap_data[child_idx];
         heap_indices[parent_idx] = heap_indices[child_idx];
@@ -359,7 +303,7 @@ struct PrivateMaxHeap {
     }
 
     void insert(float distance, uint index, uint K) {
-        if (distance < distances[0]) {
+        if (va_topk_is_better(distance, index, distances[0], indices[0], true)) {
             distances[0] = distance;
             indices[0] = index;
             sink_down(distances, indices, K, 0);
@@ -466,11 +410,7 @@ kernel void streaming_topk_finalize(
 template <bool Ascending>
 struct Property {
     inline bool is_better(thread const IndexDistance& a, thread const IndexDistance& b) const {
-        if (Ascending) {
-            return (a.distance < b.distance) || (a.distance == b.distance && a.index < b.index);
-        } else {
-            return (a.distance > b.distance) || (a.distance == b.distance && a.index < b.index);
-        }
+        return va_topk_is_better(a.distance, a.index, b.distance, b.index, Ascending);
     }
 
     float init_dist() const {
@@ -527,12 +467,24 @@ kernel void warp_select_small_k_ascending(
 ) {
     const uint query_idx = gid.y;
     if (query_idx >= queryCount) return;
-    if (k_param > K4_MAX_K) return;
-
-    const uint K = metal::min(k_param, candidateCount);
-    if (K == 0) return;
 
     Property<true> prop;
+
+    // Over-cap k is a capability miss, not license to leave the output unwritten (the
+    // VA3-008 stale-bytes symptom): sentinel-fill every requested slot so the caller reads
+    // "no results" instead of pool garbage. `selectTopK` routes k > K4_MAX_K to the
+    // two-pass path; only direct `encodeWarp` callers can land here.
+    if (k_param > K4_MAX_K) {
+        const ulong pad_offset = (ulong)query_idx * k_param;
+        for (uint i = lane_id; i < k_param; i += K4_WARP_SIZE) {
+            indices[pad_offset + i] = SENTINEL_INDEX;
+            values[pad_offset + i] = prop.init_dist();
+        }
+        return;
+    }
+
+    const uint K = metal::min(k_param, candidateCount);
+    if (k_param == 0) return;
     
     IndexDistance local_k[K4_MAX_K];
     const float boundary_dist = prop.init_dist();
@@ -560,14 +512,21 @@ kernel void warp_select_small_k_ascending(
     }
 
     const ulong output_offset = (ulong)query_idx * k_param;
-    
-    if (lane_id < K) {
-        IndexDistance result = local_k[lane_id];
-        if (result.index != SENTINEL_INDEX) {
-            indices[output_offset + lane_id] = result.index;
-            if (values != nullptr) {
-                values[output_offset + lane_id] = result.distance;
-            }
+
+    // Write ALL k_param output slots (VA3-008): the consumer reads at stride k_param, so
+    // slots K..k_param-1 (candidateCount < k) must be sentinel-padded — the pre-fix version
+    // skipped them (and skipped sentinel entries inside K), leaving whatever bytes the output
+    // buffer previously held to be read back as results. Sentinel lanes already carry the
+    // boundary distance (+Inf ascending / −Inf descending) from initialization, so writing
+    // `local_k` verbatim and padding the tail with the same convention matches
+    // topk_select_batch_kernel / fused_l2_topk.
+    if (lane_id < k_param) {
+        IndexDistance result = (lane_id < K)
+            ? local_k[lane_id]
+            : IndexDistance{SENTINEL_INDEX, prop.init_dist()};
+        indices[output_offset + lane_id] = result.index;
+        if (values != nullptr) {
+            values[output_offset + lane_id] = result.distance;
         }
     }
 }
@@ -584,12 +543,21 @@ kernel void warp_select_small_k_descending(
 ) {
     const uint query_idx = gid.y;
     if (query_idx >= queryCount) return;
-    if (k_param > K4_MAX_K) return;
-
-    const uint K = metal::min(k_param, candidateCount);
-    if (K == 0) return;
 
     Property<false> prop;
+
+    // Over-cap k: sentinel-fill all requested slots — see warp_select_small_k_ascending.
+    if (k_param > K4_MAX_K) {
+        const ulong pad_offset = (ulong)query_idx * k_param;
+        for (uint i = lane_id; i < k_param; i += K4_WARP_SIZE) {
+            indices[pad_offset + i] = SENTINEL_INDEX;
+            values[pad_offset + i] = prop.init_dist();
+        }
+        return;
+    }
+
+    const uint K = metal::min(k_param, candidateCount);
+    if (k_param == 0) return;
 
     IndexDistance local_k[K4_MAX_K];
     const float boundary_dist = prop.init_dist();
@@ -618,13 +586,15 @@ kernel void warp_select_small_k_descending(
 
     const ulong output_offset = (ulong)query_idx * k_param;
 
-    if (lane_id < K) {
-        IndexDistance result = local_k[lane_id];
-        if (result.index != SENTINEL_INDEX) {
-            indices[output_offset + lane_id] = result.index;
-            if (values != nullptr) {
-                values[output_offset + lane_id] = result.distance;
-            }
+    // Write ALL k_param output slots with sentinel padding — see the VA3-008 note in the
+    // ascending variant.
+    if (lane_id < k_param) {
+        IndexDistance result = (lane_id < K)
+            ? local_k[lane_id]
+            : IndexDistance{SENTINEL_INDEX, prop.init_dist()};
+        indices[output_offset + lane_id] = result.index;
+        if (values != nullptr) {
+            values[output_offset + lane_id] = result.distance;
         }
     }
 }
@@ -682,7 +652,7 @@ kernel void batch_select_k_nearest_ascending(
         // Process remaining candidates
         for (uint i = K; i < candidateCount; ++i) {
             float dist = query_distances[i];
-            if (dist < heap_dist[0]) {
+            if (va_topk_is_better(dist, i, heap_dist[0], heap_idx[0], true)) {
                 heap_dist[0] = dist;
                 heap_idx[0] = i;
                 sink_down(heap_dist, heap_idx, K, 0);
@@ -768,7 +738,7 @@ kernel void batch_select_k_nearest_descending(
         // Process remaining candidates
         for (uint i = K; i < candidateCount; ++i) {
             float dist = query_distances[i];
-            if (dist > heap_dist[0]) {  // Larger than smallest in heap
+            if (va_topk_is_better(dist, i, heap_dist[0], heap_idx[0], false)) {  // Larger than smallest in heap
                 heap_dist[0] = dist;
                 heap_idx[0] = i;
                 min_heap_sink_down(heap_dist, heap_idx, K, 0);
@@ -790,7 +760,7 @@ kernel void batch_select_k_nearest_descending(
             float key_d = sorted_dist[i];
             uint key_i = sorted_idx[i];
             int j = (int)i - 1;
-            while (j >= 0 && sorted_dist[j] < key_d) {  // Descending order
+            while (j >= 0 && va_topk_is_better(key_d, key_i, sorted_dist[j], sorted_idx[j], false)) {  // Descending order
                 sorted_dist[j + 1] = sorted_dist[j];
                 sorted_idx[j + 1] = sorted_idx[j];
                 j--;

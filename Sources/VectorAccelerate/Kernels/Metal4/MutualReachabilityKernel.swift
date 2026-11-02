@@ -220,6 +220,14 @@ public final class MutualReachabilityKernel: @unchecked Sendable, Metal4Kernel, 
     // MARK: - Pipeline Selection
 
     /// Select the optimal pipeline for a given dimension.
+    ///
+    /// The dimension-specialized kernels hardcode dense packing (`strideEmbed == d`) and
+    /// ignore `params.strideEmbed`. Selecting on dimension alone is valid ONLY because every
+    /// dispatch path in this file constructs `MutualReachabilityParams` with the default
+    /// stride (`strideEmbed == d` — see the two construction sites in `encode`). If a future
+    /// entry point ever accepts caller-supplied params, this selection must gain the
+    /// `strideEmbed == dimension` guard that `DotProductKernel`/`L2NormalizationKernel`
+    /// use (AUDIT-3 VA3-010).
     private func selectPipeline(for dimension: Int) -> (pipeline: any MTLComputePipelineState, name: String) {
         switch dimension {
         case 384:

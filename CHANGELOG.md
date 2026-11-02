@@ -5,6 +5,74 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+The hardening audit of the Metal stack. `docs/audits/AUDIT-2.md` and `docs/audits/AUDIT-3-shaders.md` are the per-finding record, and `docs/stability/` holds the resulting contracts.
+
+### Fixed
+- **`MetalComputeProvider` was unusable in Release builds.** `SoADistance.metal` was missing from the runtime shader compile, the only load path in those builds, and several pipeline keys named kernels that don't exist. The GPU cosine fused and batch paths had never run in any build because their kernel didn't exist.
+- **`batchDistance` could not reach the GPU under default configuration**, so its GPU legs ran on the CPU.
+- **Numerics.** GPU cosine, rooted L2, Minkowski and correlation misbehaved on huge, tiny and mixed-scale finite inputs. See `docs/stability/DISTANCE-RANGE-CONTRACT.md` for what is rescued and what keeps FP32 limits.
+- **NaN handling.** GPU Top-K now orders NaN last and breaks ties by smaller original index, matching VectorCore 0.3.3. LogSumExp and basic statistics propagate NaN.
+- **Dispatch-geometry bugs.** Reduction trees, barriers and threadgroup initializers gave wrong results or undefined behaviour at non-power-of-two widths in Jaccard, Manhattan, Chebyshev, Minkowski, LogSumExp, statistics and the single-pair basic kernels.
+- **Out-of-bounds access.** Bounds are now enforced in PQ codes and ADC tables, Borůvka candidates, fused IVF candidates, sparse c-TF-IDF tails, batch matrix bias and quantization statistics. Device row and address arithmetic no longer overflows 32 bits, and unaligned vector loads are gone.
+- **UMAP negative sampling race.** Targets are now frozen for the pass, so sampling no longer reads the embedding while writing it.
+- **Ignored and mishandled neural options.** `useActivation`, `normalizeProjected` and `normalizeLatent` are honoured, and per-vector reconstruction scales are preserved.
+- **Buffer lifecycle.** Pool allocation bounds, return routing across pool lifetimes, argument-table ownership and cache-clear accounting.
+- **Shader validation.** Fused Top-K and IVF list search now fit the instrumented threadgroup memory budget.
+- **`WarmupManager` lost pauses and cancels.** The warm-up loop wrote `state` after suspending on a pipeline, so `reportUserActivity()`, `pause(reason:)` and thermal pauses were overwritten and warm-up kept running. A restart could also be overwritten with `.cancelled`, leaving `beginWarmup` waiting forever.
+- **A pipeline compile error during `Metal4Context` warm-up aborted Debug processes.** Only a key naming a missing kernel asserts now. Compile errors are logged and the pipeline compiles on first use.
+
+### Changed
+- **Dependency: VectorCore floor raised to 0.3.3** for the NaN-last Top-K contract and original-index ties.
+- **Minkowski no longer silently returns Chebyshev for large `p`.** The approximation is the explicit opt-in `Metal4MinkowskiConfig.chebyshevApproximation`.
+- **Unsupported sizes now throw instead of being silently capped**, including attention head dimension, learned projection dimension, neural latent dimension and IVF `nprobe`. `TopKParameters` no longer clamps `k`.
+- **Basic statistics accept NaN input** and propagate it, where they previously threw.
+- **`encodeNegativeSampling` now throws** and has an overload taking caller-owned scratch.
+- **`Metal4NeuralEncodingResult` exposes `scales`, one per row.** `scale` is now a deprecated diagnostic average.
+- **Raw kernel bindings changed** for callers encoding shaders directly: `minkowski_distance_batch` buffer(7), `neural_encode_pass1` buffer(8), the UMAP negative-sampling output at buffer(3), and capacity words in the Borůvka and fused IVF parameter structs.
+- **`PipelineCache.warmUp(keys:)` returns `[PipelineWarmUpFailure]`** instead of tuples with an error string.
+- **Wall-clock test assertions run only under `VECTORACCELERATE_STRICT_PERF=1`**, enforced by `PerfGateCoverageTests`.
+
+### Added
+- `MetalComputeProvider.RoutingTelemetry`, which reports whether the GPU actually served a call.
+- `BatchBiasLayout` and `PipelineWarmUpFailure`.
+- The permanent guard suites in `Tests/VectorAccelerateTests/Hardening/`.
+- A CI job that runs the test suite in Release, the configuration where the missing shader went unnoticed.
+
+### Removed
+- `encodeTiledEncode`, `encodeTiledEncodeQuantize`, `encodeTiledEncodeQuantizeV2`, their `isTiled…Available` properties and `TiledEncodeParameters`. Their kernels never existed, so they could only throw. `encodeTiledV3` is the shipping tiled path.
+- `PipelineCacheKey.cosineSimilarity` and about 2400 lines of dead or unsound shaders.
+
+## [0.6.0] - 2026-08-15
+
+The zero-copy SoA scoring release, plus the removal promised in 0.5.0. The minor bump reflects the removed deprecated GPU surface, the `L2NormalizationParameters.epsilon` default change, and the new SoA scoring API. The normalization parity work was validated with measured GPU evidence (fast-math reassociation and FTZ boundary behavior probed on hardware) and is gated by a release-configuration test that also guards the runtime shader-compile path.
+
+### Added
+- **Zero-copy SoA scoring** — the release headline. `SoACandidateSet` builds VectorCore's page-aligned lane-major SoA once and bridges it into a zero-copy `MTLBuffer` (borrow mode; staged-copy fallback when zero-copy is unavailable), and `MetalComputeProvider` gains `batchDistance(query:against:metric:)` / `findNearest(query:in:k:metric:)` against a prebuilt set — build once, score many. Distances run on lane-major L2/cosine Metal kernels validated against VectorCore's golden layout fixture; `findNearest` selects top-K with VectorCore's zero-copy pointer `TopKSelection.select` directly on the GPU output buffer (O(N log k), no full distance-array materialization — a fused single-thread GPU selection variant was benchmarked at 1.8–6.7× slower and rejected). The borrow-mode lifetime contract is enforced structurally: the SoA allocation and `MTLBuffer` are internal, so the provider methods — which pin the set until GPU completion — are the only possible submitters.
+- **End-to-end dispatch tests** (`OperationsDispatchTests`): proves VectorCore's `Operations.findNearest` / `findNearestBatch` route through `Operations.$computeProvider` to the installed `BatchKernelProvider`.
+
+### Fixed
+- **Normalization diverged from VectorCore's CPU three ways (BE3 §4.4).** Neither GPU shader family pre-scaled before accumulating `Σ v²`, so subnormal-magnitude vectors underflowed the sum to `0` and huge-magnitude vectors (`|v| ≳ 1e19`) overflowed it to `+Inf`; on top of that the two families disagreed with each other and with the CPU about what to do next. `vectorNormalize` / `normalizeVectors` (behind `Metal4ComputeEngine.normalize` → `AcceleratedVectorOperations.normalize`) returned the **input unchanged** below a hard-coded `EPSILON = 1e-7`, silently leaving legitimately small vectors (e.g. `‖v‖ = 2.3e-19`) unnormalized; the `l2_normalize_*` family (behind `L2NormalizationKernel`) returned a **zero vector** below its `epsilon`, and reported `+Inf` in the `norms` output for huge inputs; VectorCore's post-BE3 CPU (`NormalizeKernels`, Kahan pre-scale with a `max(maxAbs, .leastNormalMagnitude)` clamp) normalized all of those correctly, and returned the input untouched only for vectors whose reciprocal norm is genuinely unrepresentable in FP32.
+
+  Both families — and VectorAccelerate's own CPU fallbacks (`AccelerateFallback.normalize`, `SIMDFallback.normalize`, `FallbackProvider.normalize`, now sharing one `StableNormalization` implementation) — run VectorCore's algorithm: `den = clamp(maxAbs, 0x1p-126, 0x1p126)`, `scale = 1/den`, `sNorm = √Σ (v·scale)² = ‖v‖·scale`, `out = (v·scale)/sNorm` ≡ `v/‖v‖`. Consequences: huge and micro-magnitude vectors now normalize correctly instead of collapsing to zeros or passing through — including vectors whose `‖v‖₂` is itself unrepresentable (elements ≥ 1e38), since `1/‖v‖₂` is never formed; and **no finite input can produce `Inf`/`NaN`**, for any `epsilon` including `0`.
+
+  Two GPU-specific hazards are handled explicitly, because Metal's default math mode flushes subnormals to zero. The pre-scale denominator is clamped on **both** sides (`[2^-126, 2^126]`): unclamped, a vector with components ≳ 8.5e37 produced a *subnormal* `1/maxAbs` that flushed to `0`, collapsing the sum of squares and misreporting the norm as `0.0`. And the output is a `precise::divide(v·scale, ‖v‖·scale)`, not a multiply by `1/(‖v‖·scale)`: fast math is free to reassociate the two scalings into the single factor `1/‖v‖`, which is subnormal for every `‖v‖ > 2^126` and flushed a 4e36 vector to all zeros in testing. Stored `norms` are the true `‖v‖₂` over the whole normal range; they saturate to `+Inf` where `‖v‖₂` genuinely exceeds `.greatestFiniteMagnitude` (the honest answer — the pre-fix kernel reported a finite-looking `0.0` there) and, at the other end, may read `0` for a subnormal `‖v‖₂` on a GPU that flushes denormals (see the `VA_NORM_MIN_SCALED` note in `Metal4Common.h`; those vectors are the pass-through class anyway). The normalized output is exact in both cases. The CPU fallbacks use the identical clamp and division so all five implementations agree.
+
+  The normalization constants live in `Metal4Common.h` **and** in `KernelContext`'s runtime-compilation preamble, which strips the header include and is the only Metal library load path in release builds; a new test compiles that path and asserts the normalize kernels are present, so a constant added to one place but not the other can no longer disable the library. The shared threadgroup reductions were additionally made correct for non-power-of-two threadgroup sizes (the old `stride = tgSize/2` tree dropped lanes for dimensions such as 3, 5 or 100).
+
+  *Unified degenerate policy:* every path returns the **input unchanged** for the vectors it cannot normalize — the true zero vector and vectors too small for `1/‖v‖₂` to be representable (`‖v‖₂ ≤ 2^-127`), plus any vector containing a non-finite component (`±Inf`/`NaN`). Note this is a small-side criterion: `‖v‖₂` *above* `.greatestFiniteMagnitude` has no representable reciprocal either, yet those vectors normalize correctly because the reciprocal is never formed. This matches `VectorCore.NormalizeKernels.normalizeUnchecked` (for the zero vector "unchanged" and "zeroed" coincide, so zero-vector behavior is bit-identical to before). The GPU pass-through copies raw bit patterns, so subnormals survive Metal's denormals-are-zero math mode.
+
+  *Behavioral change:* `L2NormalizationParameters.epsilon` (and the `epsilon:` parameter on `L2NormalizationKernel.normalize` / `normalizeSingle`) **now defaults to `0` instead of `1e-8`**. It is no longer load-bearing for numerical stability — it is purely the caller's explicit degenerate threshold (vectors with `0 < ‖v‖₂ ≤ epsilon` are emitted as zeros), and `0` is the value that matches the CPU. Callers who relied on small-norm vectors being zeroed should pass `epsilon: 1e-8` explicitly. Two unreferenced legacy kernels stay off the unified path and are now documented as such in the shader source: `batchNormalize2D` (its cross-threadgroup atomic accumulation is unsound) and `fastNormalize` in `OptimizedMatrixOps.metal` (naive `Σ v²` plus a `+1e-8` reciprocal bias).
+
+### Removed
+- **The scattered GPU surface deprecated in 0.5.0, as scheduled** (12 declarations, all in `VectorCoreIntegration.swift`): the `AcceleratedDistanceProvider` actor; `AcceleratedVectorFactory.createDefaultProviders` / `createProviders`; the `acceleratedDistance(to:metric:)` / `acceleratedDistanceOptimized(...)` convenience extensions; `VectorCoreIntegration.createDistanceProvider`; and `BatchOperations.findNearestGPU` / `batchDistancesGPU` / `pairwiseDistancesGPU` / `normalizeGPU` / `normalizeGPUUnchecked` / `scaleGPU`. The last three (`normalizeGPU` / `normalizeGPUUnchecked` / `scaleGPU`) were carved out of the 0.5.0 deprecation wave and go **directly from live to removed in this release**: they were unused, paid a fresh `Metal4Context` per call with a sequential per-vector loop, and `normalizeGPU` silently dropped vectors whose reconstruction failed (`try?`), so the output could be shorter than the input. Migrate distance and search calls to **`MetalComputeProvider`** (`distance(_:_:metric:)`, `batchDistance(query:candidates:metric:)`, `findNearest(query:in:k:metric:)`, `distanceMatrix(queries:candidates:metric:)`); migrate vector-op calls to **`AcceleratedVectorOperations`** (`normalize(_:)`, `scale(_:by:)`), which is unaffected and remains the supported vector-ops actor. The now-pointless `MetalComputeProviderTests.testDeprecatedBatchOperationsStillDelegateCorrectly` delegation-parity test was removed alongside its targets.
+
+### Changed
+- **CPU top-K selection is now VectorCore's adaptive `TopKSelection`** (heap select, O(N log k) for small k) instead of a full O(N log N) sort, across every `MetalComputeProvider.findNearest` CPU path. Ties now resolve deterministically to the smaller index (previously unstable-sort order); for `dotProduct` the larger-is-closer ordering is preserved via exact IEEE-754 negation.
+- **Dependency: VectorCore floor raised 0.3.0 → 0.3.2.** `Package.resolved` is now tracked in git for reproducible resolution across local/CI/clones.
+- **Transitive public surface growth.** Via the package's `@_exported import VectorCore`, consumers now transitively receive VectorCore 0.3.2's enlarged public surface (`LinearAlgebra`, `ManifoldLearning`, `AccelerateArraySIMDProvider`) and its new `VectorCoreC` C target builds as a transitive dependency.
+
 ## [0.5.0] - 2026-06-06
 
 The GPU compute façade + VectorCore 0.3.0 integration, layered on the earlier remediation of an external architectural & numerical audit (17 findings: 13 fixed, 2 refuted as non-issues, 1 deprecated/broken kernel removed). The minor bump reflects the new `MetalComputeProvider` API, the deprecation of the scattered GPU surface, the removed deprecated kernel, and the behavioral change to fused activation.
@@ -12,7 +80,7 @@ The GPU compute façade + VectorCore 0.3.0 integration, layered on the earlier r
 > Release notes for 0.4.3–0.4.4 are recorded in the `Package.swift` header.
 
 ### Added
-- **`MetalComputeProvider`** — a single GPU compute façade (`batchDistance`, `findNearest`/top-K, `distanceMatrix`, single `distance`) that routes GPU-vs-CPU through `GPUDecisionEngine`, falls back to Accelerate, and reuses the no-copy kernel staging. Conforms to VectorCore's **`BatchKernelProvider`** — the R4 dispatch hook shipped in VectorCore 0.3.0. Installed as `Operations.computeProvider`, it makes VectorCore's `Operations.findNearest` / `findNearestBatch` dispatch transparently to the GPU: euclidean/cosine run on the fused distance+top-K kernel, and every other metric falls back to that metric's own `batchDistance` so results never diverge from the CPU path.
+- **`MetalComputeProvider`** — a single GPU compute façade (`batchDistance`, `findNearest`/top-K, `distanceMatrix`, single `distance`) that routes GPU-vs-CPU through `GPUDecisionEngine`, falls back to Accelerate, and reuses the no-copy kernel staging. Conforms to VectorCore's **`BatchKernelProvider`** — the R4 dispatch hook shipped in VectorCore 0.3.0. Installed via `Operations.$computeProvider.withValue(provider) { … }`, it makes VectorCore's `Operations.findNearest` / `findNearestBatch` dispatch transparently to the GPU inside the scope: euclidean/cosine run on the fused distance+top-K kernel, and every other metric falls back to that metric's own `batchDistance` so results never diverge from the CPU path.
 
 ### Deprecated
 - **The scattered GPU distance/search surface**, all superseded by `MetalComputeProvider` and **scheduled for removal in 0.6.0**: `BatchOperations.findNearestGPU` / `batchDistancesGPU` / `pairwiseDistancesGPU` (now thin delegates to the provider — also fixing `pairwiseDistancesGPU`'s Chebyshev-as-Euclidean bug), `AcceleratedDistanceProvider`, the `acceleratedDistance(to:metric:)` / `acceleratedDistanceOptimized(...)` convenience extensions, and the `AcceleratedVectorFactory.createDefaultProviders` / `createProviders` / `VectorCoreIntegration.createDistanceProvider` vendors. (`AcceleratedVectorOperations` vector ops are unaffected.)

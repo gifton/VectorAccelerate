@@ -51,10 +51,27 @@ final class GPUDecisionEngineTests: XCTestCase {
         XCTAssertFalse(result)
     }
 
-    func test_shouldUseGPU_belowMinK() async throws {
-        // k=5 is below default minKForGPU=10
+    func test_shouldUseGPU_kGatesIgnoredForDistanceOps() async throws {
+        // AUDIT-2 VA2-003: distance-shaped operations have no k — the k-gates apply only to
+        // selection ops. Before the fix, batchDistance's k=0 consultations were unconditionally
+        // refused, making the provider's batch GPU path unreachable. Any k value must be
+        // irrelevant here (complexity gates on q·n·dimension instead).
+        for k in [0, 5, 2000] {
+            let result = await engine.shouldUseGPU(
+                operation: .l2Distance,
+                vectorCount: 5000,
+                candidateCount: 2000,
+                k: k,
+                dimension: 128
+            )
+            XCTAssertTrue(result, "distance op refused with k=\(k) — k-gates must not apply")
+        }
+    }
+
+    func test_shouldUseGPU_belowMinK_selectionOp() async throws {
+        // k=5 is below default minKForGPU=10; the k-gate still applies to selection ops.
         let result = await engine.shouldUseGPU(
-            operation: .l2Distance,
+            operation: .topKSelection,
             vectorCount: 5000,
             candidateCount: 2000,
             k: 5
@@ -62,10 +79,10 @@ final class GPUDecisionEngineTests: XCTestCase {
         XCTAssertFalse(result)
     }
 
-    func test_shouldUseGPU_aboveMaxK() async throws {
-        // k=2000 exceeds default maxKForGPU=1000
+    func test_shouldUseGPU_aboveMaxK_selectionOp() async throws {
+        // k=2000 exceeds default maxKForGPU=1000; the k-gate still applies to selection ops.
         let result = await engine.shouldUseGPU(
-            operation: .l2Distance,
+            operation: .topKSelection,
             vectorCount: 5000,
             candidateCount: 2000,
             k: 2000
@@ -74,13 +91,14 @@ final class GPUDecisionEngineTests: XCTestCase {
     }
 
     func test_shouldUseGPU_belowMinOperations() async throws {
-        // operationCount = queryCount(1) * candidateCount(500) * k(10) = 5000
-        // Below default minOperationsForGPU=50000
+        // Distance-shaped complexity gate: operationCount = queryCount(1) * candidateCount(500)
+        // * dimension(64) = 32_000, below default minOperationsForGPU=50_000.
         let result = await engine.shouldUseGPU(
             operation: .l2Distance,
             vectorCount: 5000,
             candidateCount: 500,
-            k: 10
+            k: 0,
+            dimension: 64
         )
         XCTAssertFalse(result)
     }

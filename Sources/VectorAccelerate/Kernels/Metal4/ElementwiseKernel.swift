@@ -121,7 +121,13 @@ public struct ElementwiseParameters: Sendable {
     public let scalarValue3: Float
     /// Operation type
     public let operation: UInt8
-    /// Use fast math approximations
+    /// Select explicit `fast::` intrinsics for divide, power/powerScalar, sqrt,
+    /// reciprocal, exp and log. Other operations ignore this flag.
+    ///
+    /// Zero selects ordinary operators/intrinsics in the same compiled pipeline;
+    /// it does not disable library fast math or request strict IEEE semantics.
+    /// Nonzero selects the explicit fast branch. The two branches may compile to
+    /// identical instructions; no accuracy or speed difference is guaranteed.
     public let useFastMath: UInt8
     /// Padding for alignment
     private let padding: (UInt8, UInt8) = (0, 0)
@@ -185,6 +191,14 @@ public struct Metal4ElementwiseResult: Sendable {
 ///
 /// Performs mathematical operations on vectors element-by-element with
 /// GPU acceleration and support for kernel fusion.
+///
+/// ## Math Policy
+///
+/// `useFastMath` selects ordinary versus explicit `fast::` intrinsics within the
+/// existing shader. The bundled library uses fast math in both debug and release,
+/// so the default `false` does not provide a precise pipeline, full-range results,
+/// or guarantees for NaNs, infinities, signed zero or subnormal preservation.
+/// Both in-place and out-of-place kernels share this policy.
 ///
 /// ## Operation Types
 ///
@@ -371,6 +385,10 @@ public final class ElementwiseKernel: @unchecked Sendable, Metal4Kernel, Fusible
     // MARK: - High-Level API
 
     /// Perform binary operation on two arrays.
+    ///
+    /// - Parameter useFastMath: Select explicit fast intrinsics for divide/power.
+    ///   `false` uses ordinary intrinsics under the library's fast-math settings;
+    ///   it does not request strict floating-point semantics.
     public func execute(
         _ a: [Float],
         _ b: [Float],
@@ -417,6 +435,10 @@ public final class ElementwiseKernel: @unchecked Sendable, Metal4Kernel, Fusible
     }
 
     /// Perform scalar/unary operation on array.
+    ///
+    /// - Parameter useFastMath: Select explicit fast intrinsics for powerScalar,
+    ///   sqrt, reciprocal, exp and log. `false` retains library fast math;
+    ///   other operations ignore this flag.
     public func execute(
         _ a: [Float],
         operation: Metal4ElementwiseOperation,
@@ -450,6 +472,9 @@ public final class ElementwiseKernel: @unchecked Sendable, Metal4Kernel, Fusible
     }
 
     /// Perform operation using VectorProtocol types.
+    ///
+    /// - Parameter useFastMath: Forward the elementwise intrinsic-selection flag.
+    ///   `false` retains library fast math; see the kernel's math policy.
     public func execute<V: VectorProtocol>(
         _ a: V,
         _ b: V? = nil,

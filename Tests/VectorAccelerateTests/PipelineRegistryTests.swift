@@ -29,13 +29,18 @@ final class PipelineRegistryTests: XCTestCase {
         XCTAssertFalse(registry.occasionalKeys.isEmpty)
         XCTAssertFalse(registry.rareKeys.isEmpty)
 
-        // Critical should include 384-dim L2 distance (MiniLM)
-        let hasL2_384 = registry.criticalKeys.contains { $0.operation == "l2Distance" && $0.dimension == 384 }
-        XCTAssertTrue(hasL2_384, "Journaling app should have l2Distance(384) as critical")
+        // Critical should include generic L2 distance and the 384-dim dot product (MiniLM).
+        // (The dimension-specialized L2/cosine matrix kernels the old keys warmed were deleted
+        // in AUDIT-3 Group F; every registry key now resolves to a real kernel — see
+        // ShaderLibraryCompletenessTests.testBuiltInRegistryKeysResolveToRealFunctions.)
+        let hasL2 = registry.criticalKeys.contains { $0.operation == "l2Distance" }
+        XCTAssertTrue(hasL2, "Journaling app should have l2Distance as critical")
 
-        // Critical should include cosine similarity for 384
-        let hasCosine_384 = registry.criticalKeys.contains { $0.operation == "cosineSimilarity" && $0.dimension == 384 }
-        XCTAssertTrue(hasCosine_384, "Journaling app should have cosineSimilarity(384) as critical")
+        // Match the factory-built key rather than a hand-spelled operation string: the batch
+        // dot-product family's operation is "dot_product" ("dotProduct" is the single-pair
+        // kernel's literal function name — AUDIT-3 VA3-031 split the two).
+        let hasDot_384 = registry.criticalKeys.contains(.dotProduct(dimension: 384))
+        XCTAssertTrue(hasDot_384, "Journaling app should have dotProduct(384) as critical")
     }
 
     func testMinimalRegistry() {
@@ -64,15 +69,15 @@ final class PipelineRegistryTests: XCTestCase {
     func testTierLookupKnownKey() {
         let registry = PipelineRegistry.journalingApp
 
-        let tier = registry.tier(for: .l2Distance(dimension: 384))
+        let tier = registry.tier(for: .l2Distance(dimension: 0))
         XCTAssertEqual(tier, .critical)
     }
 
     func testTierLookupOccasionalKey() {
         let registry = PipelineRegistry.journalingApp
 
-        // 768-dim should be occasional
-        let tier = registry.tier(for: .l2Distance(dimension: 768))
+        // 768-dim dot product should be occasional
+        let tier = registry.tier(for: .dotProduct(dimension: 768))
         XCTAssertEqual(tier, .occasional)
     }
 
@@ -110,7 +115,7 @@ final class PipelineRegistryTests: XCTestCase {
 
     func testCountForTier() {
         let registry = PipelineRegistry(entries: [
-            .critical: [.l2Distance(dimension: 384), .cosineSimilarity(dimension: 384)],
+            .critical: [.l2Distance(dimension: 384), .dotProduct(dimension: 384)],
             .occasional: [.dotProduct(dimension: 0)],
             .rare: []
         ])
@@ -142,7 +147,7 @@ final class PipelineRegistryTests: XCTestCase {
     func testCodableRoundTrip() throws {
         let original = PipelineRegistry(entries: [
             .critical: [.l2Distance(dimension: 384)],
-            .occasional: [.cosineSimilarity(dimension: 0)],
+            .occasional: [.dotProduct(dimension: 0)],
             .rare: []
         ])
 

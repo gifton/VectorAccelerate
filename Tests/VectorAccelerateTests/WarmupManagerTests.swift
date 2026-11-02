@@ -133,11 +133,13 @@ final class WarmupManagerTests: XCTestCase {
             configuration: .testing
         )
 
-        // Use multiple keys to give us time to pause
+        // Use multiple DISTINCT keys to give us time to pause (the mechanical
+        // cosineSimilarity → dotProduct key swap had left a duplicate here, which quietly
+        // weakened the premise if the manager dedupes its key list).
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
             .dotProduct(dimension: 0),
+            .dotProduct(dimension: 384),
         ]
 
         // Start warmup in background
@@ -165,35 +167,176 @@ final class WarmupManagerTests: XCTestCase {
     }
 
     func testIsPausedAfterUserActivity() async throws {
+        let (manager, run) = try await startBusyWarmup()
+
+        await manager.reportUserActivity()
+        try await assertPausedAndFrozen(manager)
+
+        await manager.cancel()
+        await run.value
+    }
+
+    // MARK: - State writes across the loop's suspension
+
+    /// A key list long enough that warmup is still running throughout a test.
+    private var busyKeys: [PipelineCacheKey] {
+        [PipelineCacheKey](repeating: .l2Distance(dimension: 0), count: 200_000)
+    }
+
+    /// Starts warmup, returning once it is actually running. The idle timeout is far longer than
+    /// any test here, so a pause can only end by being overwritten.
+    private func startBusyWarmup() async throws -> (WarmupManager, Task<Void, Never>) {
         let manager = WarmupManager(
             context: context,
-            configuration: .testing
+            configuration: MetalSubsystemConfiguration(
+                pipelineRegistry: .minimal,
+                warmupIdleTimeout: 600,
+                respectThermalState: false
+            )
         )
+        let keys = busyKeys
+        let run = Task { await manager.beginWarmup(keys: keys) }
+        try await waitUntilWarming(manager)
+        return (manager, run)
+    }
 
-        let keys: [PipelineCacheKey] = [
-            .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
-            .dotProduct(dimension: 0),
-        ]
+    private func waitUntilWarming(_ manager: WarmupManager) async throws {
+        let deadline = Date().addingTimeInterval(30)
+        while !manager.isWarming {
+            guard Date() < deadline else {
+                XCTFail("Warmup never started")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+    }
 
-        // Start warmup in background
-        Task {
-            await manager.beginWarmup(keys: keys)
+    /// The pipeline in flight when the pause landed may still finish; nothing after it may.
+    private func assertPausedAndFrozen(
+        _ manager: WarmupManager,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        try await Task.sleep(for: .milliseconds(50))
+        let first = await manager.state
+        guard case .paused = first else {
+            XCTFail("Pause was overwritten: state is \(first)", file: file, line: line)
+            return
+        }
+        XCTAssertTrue(manager.isPaused, file: file, line: line)
+        XCTAssertFalse(manager.isWarming, file: file, line: line)
+
+        let before = await manager.warmedCount
+        try await Task.sleep(for: .milliseconds(100))
+        let after = await manager.warmedCount
+        XCTAssertLessThanOrEqual(after - before, 1, "Warmup kept running while paused", file: file, line: line)
+    }
+
+    func testExplicitPauseSurvivesInFlightPipeline() async throws {
+        let (manager, run) = try await startBusyWarmup()
+
+        await manager.pause(reason: .manualPause)
+        try await assertPausedAndFrozen(manager)
+
+        await manager.cancel()
+        await run.value
+    }
+
+    /// Observer calls run synchronously in `state`'s `didSet`, so the log is the exact sequence.
+    private final class StateLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var states: [WarmupManager.WarmupState] = []
+
+        func append(_ state: WarmupManager.WarmupState) {
+            lock.lock()
+            defer { lock.unlock() }
+            states.append(state)
         }
 
-        // Give warmup time to start
-        try await Task.sleep(for: .milliseconds(50))
+        var isEmpty: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return states.isEmpty
+        }
 
-        // Report user activity
-        await manager.reportUserActivity()
+        var statesAfterFirstCancelled: [WarmupManager.WarmupState] {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let index = states.firstIndex(where: {
+                if case .cancelled = $0 { return true }
+                return false
+            }) else { return [] }
+            return Array(states[(index + 1)...])
+        }
+    }
 
-        try await Task.sleep(for: .milliseconds(50))
+    func testCancelSurvivesInFlightPipeline() async throws {
+        let (manager, run) = try await startBusyWarmup()
+        let log = StateLog()
+        _ = await manager.addObserver { log.append($0) }
 
-        // Check isPaused reflects state
+        await manager.cancel()
+        await run.value
+
         let state = await manager.state
-        if case .paused = state {
-            XCTAssertTrue(manager.isPaused)
+        guard case .cancelled = state else {
+            XCTFail("Cancel was overwritten: state is \(state)")
+            return
         }
+        XCTAssertEqual(log.statesAfterFirstCancelled.count, 0, "\(log.statesAfterFirstCancelled)")
+        XCTAssertFalse(manager.isWarming)
+    }
+
+    /// Cancel can land while the loop is suspended on its only pipeline. When the pipeline finished
+    /// first, cancel() does nothing and no `.cancelled` is logged, so the assertion holds trivially.
+    func testCancelDuringLastPipelineIsNotReportedAsCompleted() async throws {
+        let manager = WarmupManager(
+            context: context,
+            configuration: MetalSubsystemConfiguration(
+                pipelineRegistry: .minimal,
+                warmupIdleTimeout: 600,
+                respectThermalState: false
+            )
+        )
+        let log = StateLog()
+        _ = await manager.addObserver { log.append($0) }
+        let run = Task { await manager.beginWarmup(keys: [.l2Distance(dimension: 0)]) }
+        // Not `waitUntilWarming`: a single cached key can finish before a poll ever sees it running.
+        let deadline = Date().addingTimeInterval(30)
+        while log.isEmpty && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+
+        await manager.cancel()
+        await run.value
+
+        XCTAssertEqual(log.statesAfterFirstCancelled.count, 0, "\(log.statesAfterFirstCancelled)")
+    }
+
+    /// Restarting must not let the previous loop write `.cancelled` over the new run. Before the
+    /// fix that left the new loop waiting forever on a state nothing would ever change.
+    func testRestartIsNotClobberedByPreviousLoop() async throws {
+        let (manager, firstRun) = try await startBusyWarmup()
+
+        // Paused, so the first loop is parked in its retry sleep and wakes when cancelled.
+        await manager.pause(reason: .manualPause)
+        try await Task.sleep(for: .milliseconds(20))
+
+        let keys = busyKeys
+        let secondRun = Task { await manager.beginWarmup(keys: keys) }
+        await firstRun.value
+        try await Task.sleep(for: .milliseconds(150))
+
+        let state = await manager.state
+        guard case .warming = state else {
+            XCTFail("Restarted warmup was clobbered: state is \(state)")
+            await manager.cancel()
+            await secondRun.value
+            return
+        }
+
+        await manager.cancel()
+        await secondRun.value
     }
 
     // MARK: - Manual Pause/Resume Tests
@@ -206,7 +349,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         // Start warmup in background
@@ -268,7 +411,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         // Start warmup in background
@@ -294,7 +437,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         // Start warmup in background
@@ -335,7 +478,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         await manager.beginWarmup(keys: keys)
@@ -446,7 +589,7 @@ final class WarmupManagerTests: XCTestCase {
         XCTAssertEqual(state, .completed)
 
         // Second warmup - should reset and complete
-        await manager.beginWarmup(keys: [.cosineSimilarity(dimension: 0)])
+        await manager.beginWarmup(keys: [.dotProduct(dimension: 0)])
 
         state = await manager.state
         XCTAssertEqual(state, .completed)
@@ -627,7 +770,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         await manager.beginWarmup(keys: keys)
@@ -654,7 +797,7 @@ final class WarmupManagerTests: XCTestCase {
 
         // Second warmup with different keys
         await manager.beginWarmup(keys: [
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
             .dotProduct(dimension: 0),
         ])
         let statsAfterSecond = await manager.statistics
@@ -722,7 +865,7 @@ final class WarmupManagerTests: XCTestCase {
         delegate.reset()
 
         // Start another warmup
-        await manager.beginWarmup(keys: [.cosineSimilarity(dimension: 0)])
+        await manager.beginWarmup(keys: [.dotProduct(dimension: 0)])
 
         // Wait for potential delegate calls
         try? await Task.sleep(for: .milliseconds(100))
@@ -744,7 +887,7 @@ final class WarmupManagerTests: XCTestCase {
         // Use multiple keys to allow time for pause
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
             .dotProduct(dimension: 0),
         ]
 
@@ -788,7 +931,7 @@ final class WarmupManagerTests: XCTestCase {
 
         let keys: [PipelineCacheKey] = [
             .l2Distance(dimension: 0),
-            .cosineSimilarity(dimension: 0),
+            .dotProduct(dimension: 0),
         ]
 
         // Start warmup in background

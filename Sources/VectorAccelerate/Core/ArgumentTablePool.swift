@@ -171,6 +171,7 @@ public actor ArgumentTablePool {
     // Pool state
     private var available: [any ArgumentTable] = []
     private var inUse: Set<ObjectIdentifier> = []
+    private let pendingReturns = PendingTableReturns()
 
     // Statistics
     private var acquisitionCount: Int = 0
@@ -244,7 +245,7 @@ public actor ArgumentTablePool {
 
     /// Drain tables that were returned via token deinit.
     private func drainPendingReturns() {
-        let returned = PendingTableReturns.shared.drain(for: self)
+        let returned = pendingReturns.drain()
         for table in returned {
             release(table)
         }
@@ -351,37 +352,24 @@ public actor ArgumentTablePool {
 
 // MARK: - Pending Argument Table Returns
 
-/// Lock-protected pending-return queue for argument table tokens.
-/// Same pattern as `PendingBufferReturns` -- see its documentation.
+/// Return queue owned by one argument-table pool. Tokens weakly reference this queue
+/// so pool destruction releases undrained tables and their retained buffer bindings.
+/// Safety: all storage is protected by the lock; enqueue and drain are synchronous.
+/// The queue neither retains the pool nor routes by a reusable actor address.
 internal final class PendingTableReturns: @unchecked Sendable {
-    static let shared = PendingTableReturns()
-
-    /// Entry stores the pool's ObjectIdentifier to avoid retaining the pool actor.
-    private struct Entry {
-        let table: any ArgumentTable
-        let poolId: ObjectIdentifier
-    }
-
-    private var pending: [Entry] = []
+    private var pending: [any ArgumentTable] = []
     private let lock = NSLock()
 
-    func enqueue(table: any ArgumentTable, pool: ArgumentTablePool) {
+    func enqueue(table: any ArgumentTable) {
         lock.lock()
-        pending.append(Entry(table: table, poolId: ObjectIdentifier(pool)))
+        pending.append(table)
         lock.unlock()
     }
 
-    func drain(for pool: ArgumentTablePool) -> [any ArgumentTable] {
+    func drain() -> [any ArgumentTable] {
         lock.lock()
-        let poolId = ObjectIdentifier(pool)
-        var returned: [any ArgumentTable] = []
-        pending.removeAll { entry in
-            if entry.poolId == poolId {
-                returned.append(entry.table)
-                return true
-            }
-            return false
-        }
+        let returned = pending
+        pending = []
         lock.unlock()
         return returned
     }
@@ -389,16 +377,19 @@ internal final class PendingTableReturns: @unchecked Sendable {
 
 // MARK: - Argument Table Token
 
-/// RAII token that automatically releases argument table on deinit
+/// Owns an argument table and returns it to a live pool on deinitialization.
+/// The token does not retain the pool. Its table and bindings remain owned after pool
+/// destruction, while late returns are discarded. Explicit release ends the lease.
 public final class ArgumentTableToken: @unchecked Sendable {
     public let table: any ArgumentTable
-    private let pool: ArgumentTablePool?
+    // Initialized once; ARC clears this weak reference when the pool releases its queue.
+    private weak var pendingReturns: PendingTableReturns?
     private var isReleased: Bool = false
     private let lock = NSLock()
 
-    init(table: any ArgumentTable, pool: ArgumentTablePool?) {
+    init(table: any ArgumentTable, pendingReturns: PendingTableReturns) {
         self.table = table
-        self.pool = pool
+        self.pendingReturns = pendingReturns
     }
 
     deinit {
@@ -407,8 +398,8 @@ public final class ArgumentTableToken: @unchecked Sendable {
         isReleased = true  // Prevent double-return if release() races with deinit
         lock.unlock()
 
-        guard !alreadyReleased, let pool = pool else { return }
-        PendingTableReturns.shared.enqueue(table: table, pool: pool)
+        guard !alreadyReleased, let pendingReturns else { return }
+        pendingReturns.enqueue(table: table)
     }
 
     /// Manually release the table back to pool (optional - happens on deinit)
@@ -421,8 +412,8 @@ public final class ArgumentTableToken: @unchecked Sendable {
         isReleased = true
         lock.unlock()
 
-        guard let pool = pool else { return }
-        PendingTableReturns.shared.enqueue(table: table, pool: pool)
+        guard let pendingReturns else { return }
+        pendingReturns.enqueue(table: table)
     }
 }
 
@@ -437,12 +428,12 @@ extension ArgumentTablePool {
     /// - Throws: `VectorError.argumentTablePoolExhausted` if pool is full
     public func acquireToken() throws -> ArgumentTableToken {
         let table = try acquire()
-        return ArgumentTableToken(table: table, pool: self)
+        return ArgumentTableToken(table: table, pendingReturns: pendingReturns)
     }
 
     /// Acquire with specific descriptor wrapped in token
     public func acquireToken(descriptor: ArgumentTableDescriptor) throws -> ArgumentTableToken {
         let table = try acquire(descriptor: descriptor)
-        return ArgumentTableToken(table: table, pool: self)
+        return ArgumentTableToken(table: table, pendingReturns: pendingReturns)
     }
 }

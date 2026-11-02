@@ -30,6 +30,20 @@ public enum Metal4ActivationType: UInt8, Sendable {
 
 // MARK: - Configuration
 
+/// Memory layout of the optional fused-GEMM bias buffer (AUDIT-3 VA3-004).
+///
+/// The shader previously indexed the bias as an M×N matrix (`bias[row * N + col]`) — a
+/// layout the Swift API never produced, so any multi-row GEMM with the documented
+/// N-length bias read out of bounds. The layout is now explicit.
+public enum BatchBiasLayout: UInt32, Sendable {
+    /// No bias.
+    case none = 0
+    /// One bias per output column, length N, broadcast over rows and batches.
+    case sharedColumns = 1
+    /// Per-batch column bias, length batchSize × N (`bias[batch * N + col]`).
+    case perBatchColumns = 2
+}
+
 /// Configuration for fused batch operations.
 public struct Metal4BatchFusedConfig: Sendable {
     /// Scaling factor for A*B result
@@ -225,12 +239,25 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
 
     private let fusedPipeline: any MTLComputePipelineState
     private let stridedPipeline: any MTLComputePipelineState
+    private let disabledBiasBuffer: any MTLBuffer
 
     // MARK: - Initialization
 
     /// Create a Metal 4 Batch Matrix kernel.
     public init(context: Metal4Context) async throws {
         self.context = context
+
+        let device = context.device.rawDevice
+        var zeroBias: Float = 0
+        guard let disabledBiasBuffer = device.makeBuffer(
+            bytes: &zeroBias,
+            length: MemoryLayout<Float>.stride,
+            options: .storageModeShared
+        ) else {
+            throw VectorError.bufferAllocationFailed(size: MemoryLayout<Float>.stride)
+        }
+        disabledBiasBuffer.label = "BatchMatrix.disabledBias"
+        self.disabledBiasBuffer = disabledBiasBuffer
 
         let library = try await context.shaderCompiler.getDefaultLibrary()
 
@@ -246,7 +273,6 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
             )
         }
 
-        let device = context.device.rawDevice
         self.fusedPipeline = try await device.makeComputePipelineState(function: fusedFunc)
         self.stridedPipeline = try await device.makeComputePipelineState(function: stridedFunc)
     }
@@ -260,6 +286,13 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
     // MARK: - Encode API
 
     /// Encode fused batch multiplication into an existing encoder.
+    ///
+    /// A nil bias or `.none` layout disables bias. Active `.sharedColumns` storage must
+    /// contain at least N Float32 values; active `.perBatchColumns` storage must contain
+    /// at least batchSize × N values. Larger buffers are accepted. Active bias must belong
+    /// to this kernel's device and remain alive until GPU completion. Invalid active bias
+    /// throws before changing encoder state. Raw A, B, output storage and synchronization
+    /// remain the caller's responsibility. Zero-sized grids return without encoding work.
     @discardableResult
     public func encodeFused(
         into encoder: any MTLComputeCommandEncoder,
@@ -267,8 +300,59 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
         batchB: any MTLBuffer,
         output: any MTLBuffer,
         bias: (any MTLBuffer)?,
+        biasLayout: BatchBiasLayout = .sharedColumns,
         parameters: BatchFusedParameters
-    ) -> Metal4EncodingResult {
+    ) throws -> Metal4EncodingResult {
+        let biasMode: UInt32
+        let boundBias: any MTLBuffer
+        if let bias, biasLayout != .none {
+            let elementCount: Int
+            switch biasLayout {
+            case .none:
+                elementCount = 0
+            case .sharedColumns:
+                elementCount = Int(parameters.N)
+            case .perBatchColumns:
+                let (count, overflow) = Int(parameters.batchSize).multipliedReportingOverflow(
+                    by: Int(parameters.N)
+                )
+                guard !overflow else {
+                    throw VectorError.invalidInput("Batch bias element count is not representable")
+                }
+                elementCount = count
+            }
+            let (requiredBytes, overflow) = elementCount.multipliedReportingOverflow(
+                by: MemoryLayout<Float>.stride
+            )
+            guard !overflow,
+                  bias.length >= requiredBytes,
+                  bias.device.registryID == context.device.rawDevice.registryID else {
+                throw VectorError.invalidInput("Active batch bias must have sufficient Float32 storage on the context device")
+            }
+            biasMode = biasLayout.rawValue
+            boundBias = bias
+        } else {
+            biasMode = 0
+            boundBias = disabledBiasBuffer
+        }
+
+        let threadgroupSize = MTLSize(width: BLOCK_SIZE, height: BLOCK_SIZE, depth: 1)
+        let threadgroupCount = MTLSize(
+            width: (Int(parameters.N) + BLOCK_SIZE - 1) / BLOCK_SIZE,
+            height: (Int(parameters.M) + BLOCK_SIZE - 1) / BLOCK_SIZE,
+            depth: Int(parameters.batchSize)
+        )
+        let result = Metal4EncodingResult(
+            pipelineName: "batchMatrixMultiplyFused",
+            threadgroups: threadgroupCount,
+            threadsPerThreadgroup: threadgroupSize
+        )
+        guard threadgroupCount.width > 0,
+              threadgroupCount.height > 0,
+              threadgroupCount.depth > 0 else {
+            return result
+        }
+
         encoder.setComputePipelineState(fusedPipeline)
         encoder.label = "BatchMatrixFused (batch=\(parameters.batchSize))"
 
@@ -284,7 +368,7 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
         )
         encoder.setBytes(&params, length: MemoryLayout<SIMD4<UInt32>>.size, index: 3)
 
-        encoder.setBuffer(bias, offset: 0, index: 4)
+        encoder.setBuffer(boundBias, offset: 0, index: 4)
 
         var alpha = parameters.alpha
         encoder.setBytes(&alpha, length: MemoryLayout<Float>.size, index: 5)
@@ -292,21 +376,12 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
         var activation = parameters.activation
         encoder.setBytes(&activation, length: MemoryLayout<UInt32>.size, index: 6)
 
+        var encodedBiasMode = biasMode
+        encoder.setBytes(&encodedBiasMode, length: MemoryLayout<UInt32>.size, index: 7)
+
         // 3D dispatch for batch dimension
-        let threadgroupSize = MTLSize(width: BLOCK_SIZE, height: BLOCK_SIZE, depth: 1)
-        let threadgroupCount = MTLSize(
-            width: (Int(parameters.N) + BLOCK_SIZE - 1) / BLOCK_SIZE,
-            height: (Int(parameters.M) + BLOCK_SIZE - 1) / BLOCK_SIZE,
-            depth: Int(parameters.batchSize)
-        )
-
         encoder.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
-
-        return Metal4EncodingResult(
-            pipelineName: "batchMatrixMultiplyFused",
-            threadgroups: threadgroupCount,
-            threadsPerThreadgroup: threadgroupSize
-        )
+        return result
     }
 
     /// Encode strided batch multiplication into an existing encoder.
@@ -401,11 +476,20 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
             }
         }
 
-        // Validate bias
-        if let bias = bias {
-            guard bias.count == batchSize * N || bias.count == N else {
-                throw VectorError.invalidInput("Bias dimensions don't match output")
-            }
+        // Validate bias and derive its layout (VA3-004: the layout must be explicit — the
+        // shader has no other way to distinguish an N-length column bias from a
+        // batchSize×N per-batch bias).
+        let biasLayout: BatchBiasLayout
+        switch bias?.count {
+        case nil:
+            biasLayout = .none
+        case N:
+            biasLayout = .sharedColumns
+        case batchSize * N:
+            biasLayout = .perBatchColumns
+        case let count?:
+            throw VectorError.invalidInput(
+                "Bias must have N (\(N)) or batchSize×N (\(batchSize * N)) elements; got \(count)")
         }
 
         let device = context.device.rawDevice
@@ -439,12 +523,17 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
 
         let biasBuffer: (any MTLBuffer)?
         if let bias = bias {
-            biasBuffer = device.makeBuffer(
+            guard let allocatedBias = device.makeBuffer(
                 bytes: bias,
                 length: bias.count * MemoryLayout<Float>.stride,
                 options: .storageModeShared
-            )
-            biasBuffer?.label = "BatchMatrix.bias"
+            ) else {
+                throw VectorError.bufferAllocationFailed(
+                    size: bias.count * MemoryLayout<Float>.stride
+                )
+            }
+            allocatedBias.label = "BatchMatrix.bias"
+            biasBuffer = allocatedBias
         } else {
             biasBuffer = nil
         }
@@ -459,12 +548,13 @@ public final class BatchMatrixKernel: @unchecked Sendable, Metal4Kernel {
 
         let startTime = CACurrentMediaTime()
         try await context.executeAndWait { [self] _, encoder in
-            self.encodeFused(
+            try self.encodeFused(
                 into: encoder,
                 batchA: bufferA,
                 batchB: bufferB,
                 output: outputBuffer,
                 bias: biasBuffer,
+                biasLayout: biasLayout,
                 parameters: parameters
             )
         }

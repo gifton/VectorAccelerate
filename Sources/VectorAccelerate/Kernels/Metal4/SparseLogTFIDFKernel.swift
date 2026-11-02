@@ -273,7 +273,7 @@ public final class SparseLogTFIDFKernel: @unchecked Sendable, Metal4Kernel, Fusi
     ///   - topKIndices: Output buffer for top-K indices [numClusters, k].
     ///   - topKScores: Output buffer for top-K scores [numClusters, k].
     ///   - numClusters: Number of clusters.
-    ///   - k: Number of top terms per cluster.
+    ///   - k: Number of top terms per cluster (0...UInt32.max); zero encodes no work.
     /// - Returns: Encoding result.
     @discardableResult
     public func encodeTopK(
@@ -286,6 +286,17 @@ public final class SparseLogTFIDFKernel: @unchecked Sendable, Metal4Kernel, Fusi
         numClusters: Int,
         k: Int
     ) -> Metal4EncodingResult {
+        precondition(numClusters >= 0 && numClusters <= Int(UInt32.max),
+                     "numClusters must fit UInt32")
+        precondition(k >= 0 && k <= Int(UInt32.max), "k must fit UInt32")
+        guard k > 0 && numClusters > 0 else {
+            return Metal4EncodingResult(
+                pipelineName: "ctfidf_topk_per_cluster_kernel",
+                threadgroups: MTLSize(width: 0, height: 1, depth: 1),
+                threadsPerThreadgroup: MTLSize(width: 1, height: 1, depth: 1)
+            )
+        }
+
         encoder.setComputePipelineState(topKPipeline)
         encoder.setBuffer(scores, offset: 0, index: 0)
         encoder.setBuffer(termIndices, offset: 0, index: 1)
@@ -421,7 +432,8 @@ public final class SparseLogTFIDFKernel: @unchecked Sendable, Metal4Kernel, Fusi
     ///   - clusterTerms: Per-cluster term indices and frequencies.
     ///   - corpusFrequencies: Corpus-wide term frequencies [vocabSize].
     ///   - avgClusterSize: Average tokens per cluster.
-    ///   - k: Number of top terms to extract per cluster.
+    ///   - k: Number of top terms to extract per cluster (0...UInt32.max).
+    ///     Zero returns an empty list for each cluster without allocating GPU buffers.
     /// - Returns: Top-K (termIndex, score) pairs per cluster.
     /// - Throws: If execution fails.
     public func topKPerCluster(
@@ -430,11 +442,14 @@ public final class SparseLogTFIDFKernel: @unchecked Sendable, Metal4Kernel, Fusi
         avgClusterSize: Float,
         k: Int
     ) async throws -> CTFIDFTopKResult {
+        guard k >= 0 && k <= Int(UInt32.max) else {
+            throw VectorError.invalidInput("K must be between 0 and UInt32.max")
+        }
         let numClusters = clusterTerms.count
-        if numClusters == 0 {
+        if numClusters == 0 || k == 0 {
             return CTFIDFTopKResult(
-                topKPerCluster: [],
-                clusterCount: 0,
+                topKPerCluster: clusterTerms.map { _ in [] },
+                clusterCount: numClusters,
                 k: k,
                 executionTime: 0,
                 throughputGBps: 0

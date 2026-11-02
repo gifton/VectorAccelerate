@@ -262,7 +262,9 @@ final class SharedMetalConfigurationTests: XCTestCase {
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
         XCTAssertNotNil(result)
-        XCTAssertLessThan(elapsed, 0.1, "Should return immediately when context is available")
+        if PerfGate.strict {
+            XCTAssertLessThan(elapsed, 0.1, "Should return immediately when context is available")
+        }
     }
 
     // MARK: - Observer Tests

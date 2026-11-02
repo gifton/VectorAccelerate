@@ -219,15 +219,15 @@ public final class JaccardDistanceKernel: @unchecked Sendable, Metal4Kernel, Fus
         var dim = UInt32(dimension)
         encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
 
-        var thresh = threshold
-        encoder.setBytes(&thresh, length: MemoryLayout<Float>.size, index: 4)
+        // NOTE: `threshold` is not passed to the GPU — the kernel computes *weighted* Jaccard
+        // over the raw values (Σmin/Σmax); the threshold only feeds the CPU-side
+        // intersection/union counts in `calculateJaccardMetrics`.
 
+        // The kernel reduces one pair inside a single threadgroup and requires exactly one
+        // group per result (AUDIT-3 VA3-001: the previous ceil(dimension/256)-group dispatch
+        // raced partial totals into result[0] and diverged at the barrier for ragged sizes).
         let threadgroupSize = MTLSize(width: threadsPerThreadgroup, height: 1, depth: 1)
-        let threadgroups = MTLSize(
-            width: (dimension + threadsPerThreadgroup - 1) / threadsPerThreadgroup,
-            height: 1,
-            depth: 1
-        )
+        let threadgroups = MTLSize(width: 1, height: 1, depth: 1)
 
         encoder.dispatchThreadgroups(threadgroups, threadsPerThreadgroup: threadgroupSize)
 
@@ -377,15 +377,9 @@ public final class JaccardDistanceKernel: @unchecked Sendable, Metal4Kernel, Fus
             var dim = UInt32(dimension)
             encoder.setBytes(&dim, length: MemoryLayout<UInt32>.size, index: 3)
 
-            var thresh = config.threshold
-            encoder.setBytes(&thresh, length: MemoryLayout<Float>.size, index: 4)
-
+            // One threadgroup per pair — see the dispatch-contract note in `encode` (VA3-001).
             let threadgroupSize = MTLSize(width: threadsPerThreadgroup, height: 1, depth: 1)
-            let threadgroups = MTLSize(
-                width: (dimension + threadsPerThreadgroup - 1) / threadsPerThreadgroup,
-                height: 1,
-                depth: 1
-            )
+            let threadgroups = MTLSize(width: 1, height: 1, depth: 1)
 
             for r in 0..<rows {
                 let offsetA = r * vectorStride

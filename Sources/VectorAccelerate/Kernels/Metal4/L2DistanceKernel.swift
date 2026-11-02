@@ -35,7 +35,9 @@ public final class L2DistanceKernel: @unchecked Sendable, Metal4Kernel {
     /// Encode L2 distance computation into an existing encoder.
     ///
     /// Computes `distance[i] = ||query[i] - target[i]||₂` (or squared) for each
-    /// 1:1 query-target pair.
+    /// 1:1 query-target pair. Rooted mode rescues exceptional squared-accumulator range
+    /// failures; squared mode retains FP32 output limits. See EuclideanRangePolicyTests
+    /// and docs/stability/DISTANCE-RANGE-CONTRACT.md.
     ///
     /// - Parameters:
     ///   - encoder: The compute command encoder to dispatch into

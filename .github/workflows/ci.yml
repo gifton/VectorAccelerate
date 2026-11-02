@@ -3,8 +3,7 @@ name: CI
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  pull_request:  # all base branches, so stacked PRs get CI too
   workflow_dispatch:
 
 # ============================================================================
@@ -173,7 +172,7 @@ jobs:
     name: Test
     runs-on: macos-26
     needs: build
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -195,19 +194,88 @@ jobs:
       - name: Run Tests
         run: |
           set -eo pipefail
-          swift test --parallel 2>&1 | tee test.log
+          # The virtualized runner GPU fails nondeterministically (command-buffer
+          # hangs, runtime pipeline-compile errors) — wall-clock assertions are
+          # separately gated behind VECTORACCELERATE_STRICT_PERF (Tests/.../Utilities/PerfGate.swift).
+          # Retry the suite once; a second failure is treated as a real regression.
+          # Serial on purpose: with --parallel every test is its own process and they all share one
+          # virtual GPU. That setup failed a few different tests per attempt (hangs, compile errors)
+          # on PR #39, whereas serial runs on real hardware have stayed green.
+          if ! swift test 2>&1 | tee test.log; then
+            echo "::warning::swift test failed — retrying once (known virtualized-GPU flakiness)"
+            mv test.log test-attempt1.log
+            swift test 2>&1 | tee test.log
+          fi
 
           # Extract test summary
           TESTS=$(grep -E "Executed [0-9]+ tests" test.log | tail -1 || echo "")
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           echo "$TESTS" >> $GITHUB_STEP_SUMMARY
+          if [ -f test-attempt1.log ]; then
+            echo "⚠️ First attempt failed (virtualized-GPU flakiness); passed on retry" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Upload Test Log
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: test-log
-          path: test.log
+          path: |
+            test.log
+            test-attempt1.log
+          retention-days: 7
+
+  # Release loads shaders differently from Debug: no debug.metallib, so the library comes from the
+  # runtime source compile or default.metallib. A shader missing from that path broke every GPU call
+  # in Release while the Debug suite stayed green (AUDIT-2 VA2-001).
+  test-release:
+    name: Test (Release)
+    runs-on: macos-26
+    needs: build
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
+      - name: Restore SPM Cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .build
+            ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-spm-release-tests-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-release-tests-
+
+      - name: Run Tests
+        run: |
+          set -eo pipefail
+          # Serial with one retry, for the same reasons as the Debug job.
+          if ! swift test -c release 2>&1 | tee test.log; then
+            echo "::warning::swift test failed — retrying once (known virtualized-GPU flakiness)"
+            mv test.log test-attempt1.log
+            swift test -c release 2>&1 | tee test.log
+          fi
+
+          TESTS=$(grep -E "Executed [0-9]+ tests" test.log | tail -1 || echo "")
+          echo "## Test Results (Release)" >> $GITHUB_STEP_SUMMARY
+          echo "$TESTS" >> $GITHUB_STEP_SUMMARY
+          if [ -f test-attempt1.log ]; then
+            echo "⚠️ First attempt failed (virtualized-GPU flakiness); passed on retry" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Test Log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-log-release
+          path: |
+            test.log
+            test-attempt1.log
           retention-days: 7
 
   build-ios:

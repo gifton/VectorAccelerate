@@ -548,11 +548,16 @@ public actor WarmupManager {
     // MARK: - Private Implementation
 
     /// Main warmup loop
+    ///
+    /// This actor is reentrant: while the loop is suspended on a pipeline, `pause`, `cancel`,
+    /// `reportUserActivity`, the thermal handler or a restart can all change `state`. So after any
+    /// suspension the loop writes `state` only if it is still the running loop and still `.warming`.
+    /// Pinned by the state-write tests in `WarmupManagerTests`.
     private func runWarmupLoop() async {
         while !pendingKeys.isEmpty {
-            // Check for cancellation
+            // `cancel()` is the only source of cancellation and has already published `.cancelled`.
+            // Writing it again here would overwrite a run started since.
             if Task.isCancelled {
-                state = .cancelled
                 return
             }
 
@@ -587,8 +592,14 @@ public actor WarmupManager {
                 failures += 1
             }
 
+            if Task.isCancelled {
+                return
+            }
+
             completedCount += 1
-            state = .warming(progress: progress)
+            if case .warming = state {
+                state = .warming(progress: progress)
+            }
         }
 
         // Completed all pipelines

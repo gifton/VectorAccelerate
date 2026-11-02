@@ -1,0 +1,24 @@
+{
+  "originHash" : "3056731bbe63269c92fb7c4776dad5d1479902ffd43b97205b44d7f91b30a544",
+  "pins" : [
+    {
+      "identity" : "metalcompilerplugin",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/schwa/MetalCompilerPlugin",
+      "state" : {
+        "revision" : "9c11db3648fa4e4f02bd4918c4b7db3472a73c64",
+        "version" : "0.1.6"
+      }
+    },
+    {
+      "identity" : "vectorcore",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/gifton/VectorCore",
+      "state" : {
+        "revision" : "fca4b602383589c46b627d8a0de2b6b2a68cd07d",
+        "version" : "0.3.3"
+      }
+    }
+  ],
+  "version" : 3
+}

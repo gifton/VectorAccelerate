@@ -387,7 +387,11 @@ public actor Metal4ShaderCompiler {
 
     // MARK: - Batch Compilation
 
-    /// Compile multiple pipelines concurrently
+    /// Compile multiple pipelines concurrently.
+    ///
+    /// Successes are cached as they land; if ANY key fails, throws an aggregate error naming
+    /// every failed key after the group completes. Pre-audit this silently dropped failures
+    /// (a pre-warm could fail 100% and report nothing — AUDIT-2 VA2-006).
     public func compileMultiple(keys: [PipelineCacheKey]) async throws -> [PipelineCacheKey: any MTLComputePipelineState] {
         var results: [PipelineCacheKey: any MTLComputePipelineState] = [:]
 
@@ -402,29 +406,39 @@ public actor Metal4ShaderCompiler {
         }
 
         // Compile uncached in parallel
-        await withTaskGroup(of: (PipelineCacheKey, (any MTLComputePipelineState)?).self) { group in
+        var failures: [String] = []
+        await withTaskGroup(of: (PipelineCacheKey, Result<any MTLComputePipelineState, any Error>).self) { group in
             for key in uncached {
                 group.addTask {
                     do {
                         let pipeline = try await self.compilePipeline(for: key)
-                        return (key, pipeline)
+                        return (key, .success(pipeline))
                     } catch {
-                        return (key, nil)
+                        return (key, .failure(error))
                     }
                 }
             }
 
-            for await (key, pipeline) in group {
-                if let pipeline = pipeline {
+            for await (key, outcome) in group {
+                switch outcome {
+                case .success(let pipeline):
                     results[key] = pipeline
+                case .failure(let error):
+                    failures.append("\(key.cacheString) → \(key.functionName): \(String(describing: error))")
                 }
             }
         }
 
+        guard failures.isEmpty else {
+            throw VectorError.shaderCompilationFailed(
+                "compileMultiple failed for \(failures.count)/\(keys.count) key(s):\n"
+                + failures.sorted().joined(separator: "\n"))
+        }
         return results
     }
 
-    /// Pre-warm cache with common pipelines
+    /// Pre-warm cache with common pipelines. Best-effort by contract (callers that require
+    /// their keys should use `compileMultiple`, which throws on any failure).
     public func warmUp(keys: [PipelineCacheKey]) async {
         _ = try? await compileMultiple(keys: keys)
     }

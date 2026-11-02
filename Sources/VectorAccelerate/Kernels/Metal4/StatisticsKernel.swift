@@ -300,13 +300,15 @@ public final class StatisticsKernel: @unchecked Sendable, Metal4Kernel {
     // MARK: - Primary API
 
     /// Compute comprehensive statistics for dataset.
+    /// Basic-only configurations propagate any input NaN through all basic numeric
+    /// results, retaining the input count. Requests for moments/quantiles require finite input.
     public func computeStatistics(
         _ data: [Float],
         config: Metal4StatisticsConfig = .default
     ) async throws -> Metal4StatisticsResult {
         let totalStartTime = CACurrentMediaTime()
 
-        try validateInput(data)
+        try validateInput(data, allowNaN: !config.computeHigherMoments && !config.computeQuantiles)
 
         // 1. Basic Statistics
         let basicStats = try await computeBasicStatisticsInternal(data: data, config: config)
@@ -339,8 +341,10 @@ public final class StatisticsKernel: @unchecked Sendable, Metal4Kernel {
     }
 
     /// Compute basic statistics only (faster).
+    /// Any input NaN makes every statistical value NaN, including variance and range;
+    /// count remains the input count. Infinity without a NaN is rejected as before.
     public func computeBasicStatistics(_ data: [Float]) async throws -> Metal4BasicStatistics {
-        try validateInput(data)
+        try validateInput(data, allowNaN: true)
         return try await computeBasicStatisticsInternal(data: data, config: .default)
     }
 
@@ -510,14 +514,15 @@ public final class StatisticsKernel: @unchecked Sendable, Metal4Kernel {
 
         // Edge case: Single element
         if n == 1 {
+            let spread: Float = data[0].isNaN ? .nan : 0
             return Metal4BasicStatistics(
                 count: 1,
                 mean: data[0],
-                variance: 0.0,
-                standardDeviation: 0.0,
+                variance: spread,
+                standardDeviation: spread,
                 minimum: data[0],
                 maximum: data[0],
-                range: 0.0,
+                range: spread,
                 sum: data[0],
                 executionTime: 0.0
             )
@@ -543,7 +548,10 @@ public final class StatisticsKernel: @unchecked Sendable, Metal4Kernel {
         outputBuffer.label = "BasicStats.output"
 
         let params = SIMD2<UInt32>(UInt32(n), 0)
-        // Use power-of-2 threadgroup size for correct parallel reduction
+        // Power-of-two width is a fine default, but no longer a correctness requirement:
+        // the kernel's reduction is dispatch-robust for any tgSize since AUDIT-3 VA3-014
+        // (the old comment here — "for correct parallel reduction" — documented the host
+        // workaround that masked the kernel's non-pow2 orphaning).
         let maxThreads = basicStatsPipeline.maxTotalThreadsPerThreadgroup
         let threadgroupSizeWidth: Int = {
             var size = 1
@@ -583,7 +591,7 @@ public final class StatisticsKernel: @unchecked Sendable, Metal4Kernel {
 
         let denominator = config.biasCorrection ? Float(n - 1) : Float(n)
         let variance = m2 / denominator
-        let standardDeviation = Foundation.sqrt(max(0, variance))
+        let standardDeviation = variance.isNaN ? variance : Foundation.sqrt(max(0, variance))
 
         return Metal4BasicStatistics(
             count: n,
@@ -766,11 +774,19 @@ public final class StatisticsKernel: @unchecked Sendable, Metal4Kernel {
         )
     }
 
-    private func validateInput(_ data: [Float]) throws {
+    private func validateInput(_ data: [Float], allowNaN: Bool = false) throws {
         if data.isEmpty {
             throw VectorError.invalidInput("Input data array cannot be empty")
         }
-        if data.contains(where: { !$0.isFinite }) {
+        var hasNaN = false
+        var hasInfinity = false
+        for value in data {
+            hasNaN = hasNaN || value.isNaN
+            hasInfinity = hasInfinity || value.isInfinite
+        }
+        // NaN dominates mixed NaN/Inf for basic reductions. Other operations keep
+        // their finite-input contract; infinity alone remains rejected everywhere.
+        if (hasNaN && !allowNaN) || (hasInfinity && !(allowNaN && hasNaN)) {
             throw VectorError.invalidInput("Input data contains NaN or infinite values")
         }
     }

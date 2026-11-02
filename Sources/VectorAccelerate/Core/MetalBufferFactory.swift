@@ -3,7 +3,7 @@
 //  VectorAccelerate
 //
 //  Synchronous, non-actor buffer factory for Metal buffers.
-//  Enables zero-copy buffer creation without async boundaries.
+//  Creates buffers and copies payloads without async boundaries.
 //
 
 import Foundation
@@ -28,8 +28,8 @@ import VectorCore
 /// // Synchronous buffer creation
 /// let buffer = factory.createBuffer(length: 4096)
 ///
-/// // Zero-copy from VectorProtocol
-/// let vectorBuffer = factory.createBuffer(from: vectors)
+/// // Copy directly from VectorProtocol storage
+/// let vectorBuffer = factory.createBuffer(fromVectors: vectors)
 /// ```
 ///
 /// ## Relationship to BufferPool
@@ -117,7 +117,10 @@ public final class MetalBufferFactory: @unchecked Sendable {
 
     // MARK: - Aligned Buffer Creation
 
-    /// Create a buffer with guaranteed alignment for SIMD operations
+    /// Create a buffer whose byte length is rounded up to the requested alignment.
+    ///
+    /// This does not promise arbitrary base-address alignment. Invalid/nonpositive
+    /// sizes, non-power-of-two alignment and unsupported rounded lengths return nil.
     /// - Parameters:
     ///   - length: Requested buffer size in bytes
     ///   - alignment: Required alignment in bytes (default 16 for float4)
@@ -128,11 +131,15 @@ public final class MetalBufferFactory: @unchecked Sendable {
         alignment: Int = 16,
         options: MTLResourceOptions? = nil
     ) -> (any MTLBuffer)? {
-        let alignedLength = (length + alignment - 1) & ~(alignment - 1)
+        guard let alignedLength = Self.checkedAlignedLength(
+            length, alignment: alignment, maximum: device.maxBufferLength
+        ) else { return nil }
         return createBuffer(length: alignedLength, options: options)
     }
 
-    /// Create an aligned buffer from an array
+    /// Copy an array into a buffer with a rounded byte length and zeroed tail padding.
+    /// Empty payloads, invalid sizes/alignment, and CPU-inaccessible storage modes return nil.
+    /// Source elements must be safe to copy as raw bytes, as with the unaligned array API.
     /// - Parameters:
     ///   - data: Array of elements to copy
     ///   - alignment: Required alignment in bytes (default 16)
@@ -143,19 +150,23 @@ public final class MetalBufferFactory: @unchecked Sendable {
         alignment: Int = 16,
         options: MTLResourceOptions? = nil
     ) -> (any MTLBuffer)? {
-        let actualOptions = options ?? defaultOptions
-        let size = data.count * MemoryLayout<T>.stride
-        let alignedSize = (size + alignment - 1) & ~(alignment - 1)
-
-        return data.withUnsafeBytes { bytes in
-            guard let base = bytes.baseAddress else { return nil }
-            return device.makeBuffer(bytes: base, length: alignedSize, options: actualOptions)
+        guard let byteCount = Self.checkedByteCount(data.count, stride: MemoryLayout<T>.stride) else {
+            return nil
+        }
+        return createInitializedBuffer(byteCount: byteCount, alignment: alignment, options: options) { destination in
+            data.withUnsafeBytes { bytes in
+                guard bytes.count == byteCount, let base = bytes.baseAddress else { return false }
+                destination.copyMemory(from: base, byteCount: byteCount)
+                return true
+            }
         }
     }
 
-    // MARK: - Zero-Copy VectorProtocol Buffer Creation
+    // MARK: - VectorProtocol Buffer Creation
 
-    /// Create an aligned buffer directly from VectorProtocol types without intermediate allocations.
+    /// Copy a rectangular batch directly into a buffer with zeroed tail padding.
+    /// Empty/ragged rows, mismatched exposed counts, invalid sizes/alignment, and
+    /// CPU-inaccessible storage modes return nil. Alignment rounds byte length only.
     ///
     /// This method avoids the `.toArray()` anti-pattern by using `withUnsafeBufferPointer`
     /// to copy vector data directly into the Metal buffer.
@@ -173,36 +184,32 @@ public final class MetalBufferFactory: @unchecked Sendable {
         alignment: Int = 16,
         options: MTLResourceOptions? = nil
     ) -> (any MTLBuffer)? where V.Scalar == Float {
-        guard !vectors.isEmpty else { return nil }
-
-        let actualOptions = options ?? defaultOptions
-        let dimension = vectors[0].count
-        let totalCount = vectors.count * dimension
-        let byteSize = totalCount * MemoryLayout<Float>.stride
-        let alignedSize = (byteSize + alignment - 1) & ~(alignment - 1)
-
-        // Create buffer with aligned size
-        guard let buffer = device.makeBuffer(length: alignedSize, options: actualOptions) else {
+        guard let first = vectors.first else { return nil }
+        let dimension = first.count
+        guard dimension > 0, vectors.allSatisfy({ $0.count == dimension }) else { return nil }
+        let (totalCount, overflow) = vectors.count.multipliedReportingOverflow(by: dimension)
+        guard !overflow, let byteCount = Self.checkedByteCount(totalCount, stride: MemoryLayout<Float>.stride) else {
             return nil
         }
 
-        // Get pointer to buffer contents
-        let destination = buffer.contents().bindMemory(to: Float.self, capacity: totalCount)
-
-        // Copy each vector directly using withUnsafeBufferPointer (zero intermediate allocation)
-        for (i, vector) in vectors.enumerated() {
-            let offset = i * dimension
-            vector.withUnsafeBufferPointer { srcPtr in
-                guard let srcBase = srcPtr.baseAddress else { return }
-                let dst = destination.advanced(by: offset)
-                dst.update(from: srcBase, count: min(srcPtr.count, dimension))
+        return createInitializedBuffer(byteCount: byteCount, alignment: alignment, options: options) { destination in
+            for (i, vector) in vectors.enumerated() {
+                let copied = vector.withUnsafeBufferPointer { source in
+                    guard source.count == dimension, let base = source.baseAddress else { return false }
+                    // The complete product was checked before allocation; every row lies within it.
+                    destination.advanced(by: i * dimension * MemoryLayout<Float>.stride)
+                        .copyMemory(from: base, byteCount: dimension * MemoryLayout<Float>.stride)
+                    return true
+                }
+                guard copied else { return false }
             }
+            return true
         }
-
-        return buffer
     }
 
-    /// Create a buffer from a single VectorProtocol without intermediate allocation.
+    /// Copy a single VectorProtocol payload into a buffer with zeroed tail padding.
+    /// Empty payloads, mismatched exposed counts, invalid sizes/alignment, and
+    /// CPU-inaccessible storage modes return nil. Alignment rounds byte length only.
     ///
     /// - Parameters:
     ///   - vector: Single VectorProtocol-conforming vector
@@ -215,15 +222,16 @@ public final class MetalBufferFactory: @unchecked Sendable {
         alignment: Int = 16,
         options: MTLResourceOptions? = nil
     ) -> (any MTLBuffer)? where V.Scalar == Float {
-        let actualOptions = options ?? defaultOptions
         let count = vector.count
-        let byteSize = count * MemoryLayout<Float>.stride
-        let alignedSize = (byteSize + alignment - 1) & ~(alignment - 1)
-
-        // Use withUnsafeBufferPointer to create buffer directly from vector storage
-        return vector.withUnsafeBufferPointer { srcPtr in
-            guard let srcBase = srcPtr.baseAddress else { return nil }
-            return device.makeBuffer(bytes: srcBase, length: alignedSize, options: actualOptions)
+        guard let byteCount = Self.checkedByteCount(count, stride: MemoryLayout<Float>.stride) else {
+            return nil
+        }
+        return createInitializedBuffer(byteCount: byteCount, alignment: alignment, options: options) { destination in
+            vector.withUnsafeBufferPointer { source in
+                guard source.count == count, let base = source.baseAddress else { return false }
+                destination.copyMemory(from: base, byteCount: byteCount)
+                return true
+            }
         }
     }
 
@@ -251,6 +259,58 @@ public final class MetalBufferFactory: @unchecked Sendable {
         return (bufferA, bufferB)
     }
 
+    // MARK: - Checked initialized storage
+
+    @usableFromInline
+    internal static func checkedByteCount(_ count: Int, stride: Int) -> Int? {
+        guard count > 0, stride > 0 else { return nil }
+        let (bytes, overflow) = count.multipliedReportingOverflow(by: stride)
+        return overflow ? nil : bytes
+    }
+
+    @usableFromInline
+    internal static func checkedAlignedLength(_ length: Int, alignment: Int, maximum: Int) -> Int? {
+        guard length > 0, alignment > 0, alignment & (alignment - 1) == 0 else { return nil }
+        let (sum, overflow) = length.addingReportingOverflow(alignment - 1)
+        guard !overflow else { return nil }
+        let rounded = sum & ~(alignment - 1)
+        return rounded <= maximum ? rounded : nil
+    }
+
+    /// Allocate capacity independently from source payload length. The copy closure
+    /// writes exactly byteCount bytes; only destination padding is initialized afterward.
+    @usableFromInline
+    internal func createInitializedBuffer(
+        byteCount: Int,
+        alignment: Int,
+        options: MTLResourceOptions?,
+        copy: (UnsafeMutableRawPointer) -> Bool
+    ) -> (any MTLBuffer)? {
+        guard let length = Self.checkedAlignedLength(
+            byteCount, alignment: alignment, maximum: device.maxBufferLength
+        ) else { return nil }
+        let actualOptions = options ?? defaultOptions
+        let storageMode = (actualOptions.rawValue & MTLResourceStorageModeMask) >> MTLResourceStorageModeShift
+        var cpuAccessible = storageMode == MTLStorageMode.shared.rawValue
+        #if os(macOS)
+        cpuAccessible = cpuAccessible || storageMode == MTLStorageMode.managed.rawValue
+        #endif
+        guard cpuAccessible,
+              let buffer = device.makeBuffer(length: length, options: actualOptions),
+              buffer.length >= length else { return nil }
+        let destination = buffer.contents()
+        guard copy(destination) else { return nil }
+        destination.advanced(by: byteCount).initializeMemory(
+            as: UInt8.self, repeating: 0, count: length - byteCount
+        )
+        #if os(macOS)
+        if buffer.storageMode == .managed {
+            buffer.didModifyRange(0..<length)
+        }
+        #endif
+        return buffer
+    }
+
     // MARK: - Bucket Size Helpers (for BufferPool integration)
 
     /// Standard bucket sizes for buffer pooling
@@ -268,7 +328,9 @@ public final class MetalBufferFactory: @unchecked Sendable {
 
     /// Select appropriate bucket size for a requested size
     /// - Parameter requestedSize: The size needed in bytes
-    /// - Returns: The smallest bucket size >= requestedSize, or max bucket size
+    /// - Returns: The smallest bucket size >= requestedSize, or max bucket size.
+    ///   This is a lookup helper and intentionally caps its result; allocation entry
+    ///   points validate the original request before using it.
     public static func selectBucketSize(for requestedSize: Int) -> Int {
         for size in standardBucketSizes {
             if size >= requestedSize {
@@ -282,13 +344,25 @@ public final class MetalBufferFactory: @unchecked Sendable {
     /// - Parameters:
     ///   - requestedSize: The minimum size needed
     ///   - options: Metal resource options (uses default if not specified)
-    /// - Returns: Buffer with bucket-rounded size, or nil if allocation fails
+    /// - Returns: Buffer with bucket-rounded size, or nil if the original request is
+    ///   negative, exceeds the largest standard bucket or device limit, or allocation fails
     public func createBucketedBuffer(
         size requestedSize: Int,
         options: MTLResourceOptions? = nil
     ) -> (any MTLBuffer)? {
+        guard requestedSize >= 0,
+              let maximum = Self.standardBucketSizes.last,
+              requestedSize <= maximum else {
+            return nil
+        }
         let bucketSize = Self.selectBucketSize(for: requestedSize)
-        return createBuffer(length: bucketSize, options: options)
+        guard bucketSize <= device.maxBufferLength,
+              let buffer = createBuffer(length: bucketSize, options: options),
+              buffer.length >= requestedSize,
+              buffer.length >= bucketSize else {
+            return nil
+        }
+        return buffer
     }
 
     // MARK: - Buffer Utilities

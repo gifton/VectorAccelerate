@@ -76,9 +76,12 @@ public struct TopKParameters: Sendable {
     ) {
         self.batchSize = UInt32(batchSize)
         self.numElements = UInt32(numElements)
-        self.k = UInt32(min(k, Self.maxK))
+        // VA3-011: preserve the request — the old `min(k, maxK)` clamp silently turned a
+        // top-200 request into top-128. Over-cap k now reads back as an all-sentinel row
+        // from the kernel (CapabilityCapPolicyTests); `select()` still throws host-side.
+        self.k = UInt32(k)
         self.inputStride = UInt32(numElements)
-        self.outputStride = UInt32(min(k, Self.maxK))
+        self.outputStride = UInt32(k)
         self.mode = mode.rawValue
         self.sorted = sorted ? 1 : 0
     }
@@ -95,7 +98,10 @@ public struct TopKParameters: Sendable {
     ) {
         self.batchSize = UInt32(batchSize)
         self.numElements = UInt32(numElements)
-        self.k = UInt32(min(k, Self.maxK))
+        // VA3-011: preserve the request — the old `min(k, maxK)` clamp silently turned a
+        // top-200 request into top-128. Over-cap k now reads back as an all-sentinel row
+        // from the kernel (CapabilityCapPolicyTests); `select()` still throws host-side.
+        self.k = UInt32(k)
         self.inputStride = UInt32(inputStride)
         self.outputStride = UInt32(outputStride)
         self.mode = mode.rawValue
@@ -150,6 +156,11 @@ public struct Metal4TopKResult: Sendable {
 ///
 /// Selects the K largest or smallest elements from each row of an input matrix.
 /// Commonly used after distance computation to find nearest neighbors.
+/// Numeric values precede NaNs in either mode. Equal scores (including signed zero)
+/// and NaNs prefer smaller original row indices for membership and sorted output.
+/// Unsorted output retains the same membership. Results contain min(k, row count)
+/// entries; unused buffer slots carry the invalid-index sentinel.
+/// See TopKNaNPolicyTests for both shader compilation paths.
 ///
 /// ## Fusion Pattern
 ///

@@ -113,8 +113,9 @@ struct UMAPParamsGPU: Sendable {
 
 /// Metal 4 kernel for UMAP gradient computation.
 ///
-/// This kernel computes UMAP optimization gradients using segmented reduction,
-/// avoiding atomic operations for better GPU utilization.
+/// Source gradients use segmented reduction; target gradients use floating-point
+/// atomic accumulation. Negative sampling reads immutable target coordinates and
+/// publishes separate output after the pass completes.
 ///
 /// ## Algorithm
 ///
@@ -166,6 +167,7 @@ public final class UMAPGradientKernel: @unchecked Sendable, Metal4Kernel {
     private let segmentReducePipeline: any MTLComputePipelineState
     private let applyGradientPipeline: any MTLComputePipelineState
     private let negativeSamplePipeline: any MTLComputePipelineState
+    private let copyEmbeddingPipeline: any MTLComputePipelineState
     private let accumulateTargetPipeline: any MTLComputePipelineState
 
     // MARK: - Initialization
@@ -203,6 +205,10 @@ public final class UMAPGradientKernel: @unchecked Sendable, Metal4Kernel {
             )
         }
 
+        guard let copyEmbeddingFunc = library.makeFunction(name: "umap_copy_embedding_kernel") else {
+            throw VectorError.shaderNotFound(name: "umap_copy_embedding_kernel. Ensure UMAPGradient.metal is compiled.")
+        }
+
         guard let accumulateTargetFunc = library.makeFunction(name: "umap_accumulate_target_gradients_kernel") else {
             throw VectorError.shaderNotFound(
                 name: "umap_accumulate_target_gradients_kernel. Ensure UMAPGradient.metal is compiled."
@@ -214,6 +220,7 @@ public final class UMAPGradientKernel: @unchecked Sendable, Metal4Kernel {
         self.segmentReducePipeline = try await device.makeComputePipelineState(function: segmentReduceFunc)
         self.applyGradientPipeline = try await device.makeComputePipelineState(function: applyGradFunc)
         self.negativeSamplePipeline = try await device.makeComputePipelineState(function: negSampleFunc)
+        self.copyEmbeddingPipeline = try await device.makeComputePipelineState(function: copyEmbeddingFunc)
         self.accumulateTargetPipeline = try await device.makeComputePipelineState(function: accumulateTargetFunc)
     }
 
@@ -406,7 +413,8 @@ public final class UMAPGradientKernel: @unchecked Sendable, Metal4Kernel {
 
     /// Applies repulsive gradients from negative samples.
     ///
-    /// Each point is pushed away from randomly selected non-neighbor points.
+    /// Target coordinates stay fixed during the pass; each source evolves in sample order.
+    /// Self and out-of-range targets are skipped. Temporary storage is N × D Float32.
     ///
     /// - Parameters:
     ///   - embedding: The embedding buffer to modify [N, D] (Float32)
@@ -421,24 +429,13 @@ public final class UMAPGradientKernel: @unchecked Sendable, Metal4Kernel {
         d: Int,
         params: UMAPParameters
     ) async throws {
+        let bytes = try negativeSamplingByteCount(embedding: embedding, randomTargets: randomTargets,
+                                                 n: n, d: d, rate: params.negativeSampleRate)
+        guard bytes > 0 else { return }
+        let scratch = try makeNegativeSamplingScratch(bytes: bytes)
         try await context.executeAndWait { [self] _, encoder in
-            var gpuParams = UMAPParamsGPU(
-                a: params.a,
-                b: params.b,
-                learningRate: params.learningRate,
-                epsilon: params.epsilon,
-                n: UInt32(n),
-                d: UInt32(d),
-                edgeCount: 0,
-                negSampleRate: UInt32(params.negativeSampleRate)
-            )
-
-            encoder.setComputePipelineState(negativeSamplePipeline)
-            encoder.label = "UMAP.negativeSample"
-            encoder.setBuffer(embedding, offset: 0, index: 0)
-            encoder.setBuffer(randomTargets, offset: 0, index: 1)
-            encoder.setBytes(&gpuParams, length: MemoryLayout<UMAPParamsGPU>.size, index: 2)
-            dispatchLinear(encoder: encoder, pipeline: negativeSamplePipeline, count: n)
+            try encodeNegativeSampling(into: encoder, embedding: embedding, randomTargets: randomTargets,
+                                       scratch: scratch, n: n, d: d, params: params)
         }
     }
 
@@ -816,7 +813,13 @@ public final class UMAPGradientKernel: @unchecked Sendable, Metal4Kernel {
         )
     }
 
-    /// Encode negative sampling into an existing encoder.
+    /// Encode negative sampling, allocating temporary output storage.
+    ///
+    /// Target coordinates are frozen at the start of this pass. Each point evolves
+    /// in sample order, then completed output is copied back to `embedding`.
+    /// This overload requires a command buffer with retained resource references.
+    /// For unretained command buffers or repeated epochs, use the scratch overload
+    /// and retain its buffers until GPU completion. May throw before encoding.
     @discardableResult
     public func encodeNegativeSampling(
         into encoder: any MTLComputeCommandEncoder,
@@ -825,32 +828,109 @@ public final class UMAPGradientKernel: @unchecked Sendable, Metal4Kernel {
         n: Int,
         d: Int,
         params: UMAPParameters
-    ) -> Metal4EncodingResult {
-        var gpuParams = UMAPParamsGPU(
-            a: params.a,
-            b: params.b,
-            learningRate: params.learningRate,
-            epsilon: params.epsilon,
-            n: UInt32(n),
-            d: UInt32(d),
-            edgeCount: 0,
-            negSampleRate: UInt32(params.negativeSampleRate)
-        )
+    ) throws -> Metal4EncodingResult {
+        let bytes = try negativeSamplingByteCount(embedding: embedding, randomTargets: randomTargets,
+                                                 n: n, d: d, rate: params.negativeSampleRate)
+        guard bytes > 0 else { return emptyNegativeSamplingResult }
+        let scratch = try makeNegativeSamplingScratch(bytes: bytes)
+        return try encodeNegativeSampling(into: encoder, embedding: embedding, randomTargets: randomTargets,
+                                          scratch: scratch, n: n, d: d, params: params)
+    }
 
+    /// Encode negative sampling using caller-owned temporary output [N, D] Float32.
+    ///
+    /// `scratch` need not be initialized and must not alias either input. All buffers
+    /// must belong to this context's device. Keep them alive and exclusively available
+    /// until GPU completion; reuse scratch only across ordered passes. This method
+    /// inserts buffer barriers before sampling, before copy-back, and after copy-back,
+    /// including for concurrent compute encoders. Other queues need caller synchronization.
+    /// Self and out-of-range target IDs are skipped. Zero N, D or sample rate is a no-op.
+    /// Returns dispatch geometry for the sampling pass (a copy pass is also encoded).
+    @discardableResult
+    public func encodeNegativeSampling(
+        into encoder: any MTLComputeCommandEncoder,
+        embedding: any MTLBuffer,
+        randomTargets: any MTLBuffer,
+        scratch: any MTLBuffer,
+        n: Int,
+        d: Int,
+        params: UMAPParameters
+    ) throws -> Metal4EncodingResult {
+        let bytes = try negativeSamplingByteCount(embedding: embedding, randomTargets: randomTargets,
+                                                 n: n, d: d, rate: params.negativeSampleRate)
+        guard bytes > 0 else { return emptyNegativeSamplingResult }
+        guard encoder.device.registryID == context.device.rawDevice.registryID,
+              scratch.device.registryID == context.device.rawDevice.registryID,
+              scratch.length >= bytes,
+              !negativeSamplingBuffersOverlap(scratch, embedding),
+              !negativeSamplingBuffersOverlap(scratch, randomTargets) else {
+            throw VectorError.invalidInput("UMAP negative sampling requires distinct, sufficient scratch on the context device")
+        }
+        var gpuParams = UMAPParamsGPU(
+            a: params.a, b: params.b, learningRate: params.learningRate, epsilon: params.epsilon,
+            n: UInt32(n), d: UInt32(d), edgeCount: 0, negSampleRate: UInt32(params.negativeSampleRate)
+        )
+        encoder.memoryBarrier(scope: .buffers)
         encoder.setComputePipelineState(negativeSamplePipeline)
         encoder.label = "UMAP.negativeSample"
         encoder.setBuffer(embedding, offset: 0, index: 0)
         encoder.setBuffer(randomTargets, offset: 0, index: 1)
         encoder.setBytes(&gpuParams, length: MemoryLayout<UMAPParamsGPU>.size, index: 2)
-
+        encoder.setBuffer(scratch, offset: 0, index: 3)
         let config = Metal4ThreadConfiguration.linear(count: n, pipeline: negativeSamplePipeline)
         encoder.dispatchThreadgroups(config.threadgroups, threadsPerThreadgroup: config.threadsPerThreadgroup)
 
-        return Metal4EncodingResult(
-            pipelineName: "umap_negative_sample",
-            threadgroups: config.threadgroups,
-            threadsPerThreadgroup: config.threadsPerThreadgroup
-        )
+        encoder.memoryBarrier(scope: .buffers)
+        encoder.setComputePipelineState(copyEmbeddingPipeline)
+        encoder.label = "UMAP.copyNegativeSampleOutput"
+        encoder.setBuffer(scratch, offset: 0, index: 0)
+        encoder.setBuffer(embedding, offset: 0, index: 1)
+        encoder.setBytes(&gpuParams, length: MemoryLayout<UMAPParamsGPU>.size, index: 2)
+        dispatchLinear(encoder: encoder, pipeline: copyEmbeddingPipeline, count: n)
+        encoder.memoryBarrier(scope: .buffers)
+        return Metal4EncodingResult(pipelineName: "umap_negative_sample", threadgroups: config.threadgroups,
+                                    threadsPerThreadgroup: config.threadsPerThreadgroup)
+    }
+
+    private var emptyNegativeSamplingResult: Metal4EncodingResult {
+        Metal4EncodingResult(pipelineName: "umap_negative_sample",
+                             threadgroups: MTLSize(width: 0, height: 1, depth: 1),
+                             threadsPerThreadgroup: MTLSize(width: 1, height: 1, depth: 1))
+    }
+
+    private func makeNegativeSamplingScratch(bytes: Int) throws -> any MTLBuffer {
+        guard let scratch = context.device.rawDevice.makeBuffer(length: bytes, options: .storageModePrivate),
+              scratch.length >= bytes else {
+            throw VectorError.bufferAllocationFailed(size: bytes)
+        }
+        scratch.label = "UMAP.negativeSampleScratch"
+        return scratch
+    }
+
+    private func negativeSamplingBuffersOverlap(_ lhs: any MTLBuffer, _ rhs: any MTLBuffer) -> Bool {
+        let a = lhs.gpuAddress, b = rhs.gpuAddress
+        return a <= b ? b - a < UInt64(lhs.length) : a - b < UInt64(rhs.length)
+    }
+
+    private func negativeSamplingByteCount(embedding: any MTLBuffer, randomTargets: any MTLBuffer,
+                                          n: Int, d: Int, rate: Int) throws -> Int {
+        guard n >= 0, d >= 0, rate >= 0,
+              n <= Int(UInt32.max), d <= Int(UInt32.max), rate <= Int(UInt32.max) else {
+            throw VectorError.invalidInput("UMAP negative sampling counts must be nonnegative UInt32 values")
+        }
+        guard n > 0, d > 0, rate > 0 else { return 0 }
+        let device = context.device.rawDevice
+        let maxElements = device.maxBufferLength / MemoryLayout<Float>.stride
+        guard n <= maxElements / d, n <= maxElements / rate else {
+            throw VectorError.invalidInput("UMAP negative sampling buffer dimensions exceed the device limit")
+        }
+        let bytes = n * d * MemoryLayout<Float>.stride
+        guard embedding.length >= bytes, randomTargets.length >= n * rate * MemoryLayout<UInt32>.stride,
+              embedding.device.registryID == device.registryID, randomTargets.device.registryID == device.registryID,
+              !negativeSamplingBuffersOverlap(embedding, randomTargets) else {
+            throw VectorError.invalidInput("UMAP negative sampling requires sufficient, nonaliasing input buffers on the context device")
+        }
+        return bytes
     }
 
     /// Encode target gradient accumulation into an existing encoder.
@@ -960,7 +1040,8 @@ public final class UMAPGradientKernel: @unchecked Sendable, Metal4Kernel {
     /// Execute one epoch of UMAP optimization on GPU buffers.
     ///
     /// This is the most efficient API for repeated optimization epochs.
-    /// Buffers are not copied - modifications happen in place.
+    /// Results are published in place. Negative sampling uses temporary N × D output
+    /// storage and a GPU copy-back to avoid racing target-coordinate reads.
     ///
     /// - Parameters:
     ///   - embedding: Embedding buffer [N, D] (modified in place)
@@ -1063,7 +1144,7 @@ public final class UMAPGradientKernel: @unchecked Sendable, Metal4Kernel {
             // Step 4: Negative sampling
             if let targets = randomTargets, params.negativeSampleRate > 0 {
                 encoder.memoryBarrier(scope: .buffers)
-                encodeNegativeSampling(
+                try encodeNegativeSampling(
                     into: encoder,
                     embedding: embedding,
                     randomTargets: targets,

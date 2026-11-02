@@ -261,11 +261,41 @@ public actor Metal4Context: AccelerationProvider {
         }
 
         // Eagerly pre-compile and cache critical path pipelines
-        // This ensures hot paths don't incur compilation latency
+        // This ensures hot paths don't incur compilation latency.
+        //
+        // A key naming a missing kernel is LOUD in debug (AUDIT-2 VA2-006): before the audit, every
+        // one of these keys could fail to resolve — four of them did, for months, via phantom
+        // functionName derivations — and the `try?` swallow meant nothing ever noticed. A compile
+        // error on a kernel that exists is logged instead, because it can be transient and this
+        // task runs detached from whatever work it would abort. See `WarmUpFailurePolicyTests`.
         let cache = self.pipelineCache
         Task {
-            await cache.warmUp(keys: PipelineCacheKey.commonKeys)
+            let failures = await cache.warmUp(keys: PipelineCacheKey.commonKeys)
+            if let message = Metal4Context.warmUpAssertionMessage(for: failures) {
+                assertionFailure(message)
+            }
+            let compileFailures = failures.filter { !$0.isMissingKernel }
+            if !compileFailures.isEmpty {
+                await Logger.shared.warning(
+                    "Warm-up could not compile \(compileFailures.count) pipeline(s); "
+                        + "they compile on first use:\n\(Metal4Context.describe(compileFailures))"
+                )
+            }
         }
+    }
+
+    /// The assertion message for warm-up failures that name a missing kernel, or `nil` if none do.
+    static func warmUpAssertionMessage(for failures: [PipelineWarmUpFailure]) -> String? {
+        let missing = failures.filter(\.isMissingKernel)
+        guard !missing.isEmpty else { return nil }
+        return "Metal4Context warm-up found \(missing.count) key(s) naming a missing kernel:\n\(describe(missing))"
+    }
+
+    private static func describe(_ failures: [PipelineWarmUpFailure]) -> String {
+        failures
+            .map { "\($0.key.cacheString) → \($0.key.functionName): \($0.error)" }
+            .sorted()
+            .joined(separator: "\n")
     }
 
     // MARK: - Command Buffer Creation
@@ -289,6 +319,11 @@ public actor Metal4Context: AccelerationProvider {
     }
 
     // MARK: - Execution
+
+    /// Audit trace (Phase-0 provenance): when the environment variable `VA_AUDIT_TRACE` is "1",
+    /// every command-buffer submission prints one `[VA_AUDIT] gpu-submit` line so a test-suite run
+    /// can be attributed per test case. Evaluated once; zero cost when disabled.
+    static let auditTraceGPUSubmits: Bool = ProcessInfo.processInfo.environment["VA_AUDIT_TRACE"] == "1"
 
     /// Execute a compute operation
     ///
@@ -316,12 +351,26 @@ public actor Metal4Context: AccelerationProvider {
 
         let profilingStart = ContinuousClock.now
 
-        let result = try await operation(commandBuffer, encoder)
+        // A throwing encode closure must NOT leak an open encoder: Metal API validation
+        // aborts the process on dealloc ("Command encoder released without endEncoding"),
+        // turning a recoverable host-side validation throw into a crash — the AUDIT-2
+        // "throw-mid-encode" anchor, armed by the VA3-011 capability guards (red: signal-6
+        // abort in CapabilityCapPolicyTests pre-fix; pinned by
+        // testThrowingEncodeClosurePropagatesWithoutCrash). The command buffer is simply
+        // never committed.
+        let result: T
+        do {
+            result = try await operation(commandBuffer, encoder)
+        } catch {
+            encoder.endEncoding()
+            throw error
+        }
 
         encoder.endEncoding()
 
         // Submit via queue (Metal 4 pattern)
         // In Metal 4: commandQueue.commit([commandBuffer])
+        if Self.auditTraceGPUSubmits { print("[VA_AUDIT] gpu-submit") }
         await commandBuffer.commitAndWait()
 
         if configuration.enableProfiling {
@@ -357,7 +406,19 @@ public actor Metal4Context: AccelerationProvider {
 
         let profilingStart = ContinuousClock.now
 
-        try await operation(commandBuffer, encoder)
+        // A throwing encode closure must NOT leak an open encoder: Metal API validation
+        // aborts the process on dealloc ("Command encoder released without endEncoding"),
+        // turning a recoverable host-side validation throw into a crash — the AUDIT-2
+        // "throw-mid-encode" anchor, armed by the VA3-011 capability guards (red: signal-6
+        // abort in CapabilityCapPolicyTests pre-fix; pinned by
+        // testThrowingEncodeClosurePropagatesWithoutCrash). The command buffer is simply
+        // never committed.
+        do {
+            try await operation(commandBuffer, encoder)
+        } catch {
+            encoder.endEncoding()
+            throw error
+        }
 
         encoder.endEncoding()
 
@@ -374,6 +435,7 @@ public actor Metal4Context: AccelerationProvider {
         commandBuffer.addCompletedHandler { _ in
             event.signaledValue = targetValue
         }
+        if Self.auditTraceGPUSubmits { print("[VA_AUDIT] gpu-submit") }
         commandBuffer.commit()
 
         // Check for cancellation before waiting
@@ -428,7 +490,19 @@ public actor Metal4Context: AccelerationProvider {
             throw VectorError.encoderCreationFailed()
         }
 
-        try operation(commandBuffer, blitEncoder)
+        // A throwing encode closure must NOT leak an open encoder: Metal API validation
+        // aborts the process on dealloc ("Command encoder released without endEncoding"),
+        // turning a recoverable host-side validation throw into a crash — the AUDIT-2
+        // "throw-mid-encode" anchor, armed by the VA3-011 capability guards (red: signal-6
+        // abort in CapabilityCapPolicyTests pre-fix; pinned by
+        // testThrowingEncodeClosurePropagatesWithoutCrash). The command buffer is simply
+        // never committed.
+        do {
+            try operation(commandBuffer, blitEncoder)
+        } catch {
+            blitEncoder.endEncoding()
+            throw error
+        }
 
         blitEncoder.endEncoding()
 
@@ -441,6 +515,7 @@ public actor Metal4Context: AccelerationProvider {
         commandBuffer.addCompletedHandler { _ in
             event.signaledValue = targetValue
         }
+        if Self.auditTraceGPUSubmits { print("[VA_AUDIT] gpu-submit") }
         commandBuffer.commit()
 
         try Task.checkCancellation()

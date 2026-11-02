@@ -1,5 +1,11 @@
 # MinkowskiDistance Kernel - Phase 2 Complete
 
+> **Historical guidance — superseded 2026-09-13.** Preserve this document as a record
+> of earlier work. Its clamping, approximate integer-p handling and completion claims
+> do not describe the current policy. Follow the [reconciled numerical backlog](NUMERICAL_STABILITY_FINDINGS.md),
+> [distance range contract](DISTANCE-RANGE-CONTRACT.md) and audit VA3-022 instead.
+
+
 ## Status: COMPLETED (2026-01-09)
 
 All Phase 2 tasks have been implemented and validated.
