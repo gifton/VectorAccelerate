@@ -125,21 +125,24 @@ public actor PerformanceMonitor {
         let memInfo = ProcessInfo.processInfo
         let physicalMemory = memInfo.physicalMemory
         
-        // Get memory usage (this is a simplified approach)
+        // Get memory usage (this is a simplified approach). The resident size is read inside the borrow
+        // (VectorCore's T15 "W2" shape): `task_info` receives the pointer by value, so this is not the
+        // VC-C001 inout-writer miscompile shape, and reading inside keeps LostStoreShapeGuardTests free of
+        // allowlist entries for production code.
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
-        
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+
+        let residentSize: UInt64? = withUnsafeMutablePointer(to: &info) { infoPointer -> UInt64? in
+            let result = infoPointer.withMemoryRebound(to: integer_t.self, capacity: 1) {
                 task_info(mach_task_self_,
                          task_flavor_t(MACH_TASK_BASIC_INFO),
                          $0,
                          &count)
             }
+            return result == KERN_SUCCESS ? infoPointer.pointee.resident_size : nil
         }
-        
-        if result == KERN_SUCCESS {
-            let memoryUsage = info.resident_size
+
+        if let memoryUsage = residentSize {
             let memoryRatio = Double(memoryUsage) / Double(physicalMemory)
             
             if memoryRatio > 0.9 {

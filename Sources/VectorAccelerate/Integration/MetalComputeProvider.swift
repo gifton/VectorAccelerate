@@ -127,7 +127,7 @@ public actor MetalComputeProvider: BatchKernelProvider {
 
     /// Convenience initializer that builds a default Metal4Context.
     public init(configuration: Configuration = .init()) async throws {
-        guard ComputeDevice.gpu().isAvailable else { throw VectorError.metalNotAvailable() }
+        guard MetalDevice.isGPUAvailable() else { throw VectorError.metalNotAvailable() }
         let ctx = try await Metal4Context()
         try await self.init(context: ctx, configuration: configuration)
     }
@@ -218,9 +218,17 @@ public actor MetalComputeProvider: BatchKernelProvider {
     }
 
     /// Chebyshev (L∞) distance — no Accelerate primitive; computed inline.
+    ///
+    /// NaN propagates (owner decision 2026-10-31, matching VectorCore 0.4.0's `ChebyshevDistance`, upgrade
+    /// row BH-15): a NaN coordinate, or the same infinity on both sides, makes the distance NaN; `max` alone
+    /// would drop it. `ChebyshevNaNPolicyTests` pins every VectorAccelerate Chebyshev path against Core's witness.
     static func chebyshev(_ a: [Float], _ b: [Float]) -> Float {
         var m: Float = 0
-        for i in 0..<min(a.count, b.count) { m = max(m, abs(a[i] - b[i])) }
+        for i in 0..<min(a.count, b.count) {
+            let d = abs(a[i] - b[i])
+            if d.isNaN { return .nan }
+            m = max(m, d)
+        }
         return m
     }
 

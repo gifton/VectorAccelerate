@@ -64,6 +64,13 @@ kernel void manhattanDistance(
 
 // Single-pair Chebyshev distance: max |a_i − b_i|. Same dispatch contract and history as
 // `manhattanDistance` above (AUDIT-3 VA3-013).
+//
+// NaN propagates (owner decision 2026-10-31, matching VectorCore 0.4.0's `ChebyshevDistance`): a NaN
+// coordinate, or the same infinity on both sides, makes the result NaN. `max` drops NaN, and under
+// fast math `isnan` may be folded away, so NaN is detected on the integer bit pattern (as the Top-K
+// ordering and the Euclidean rescue in Metal4Common.h do) and carried as a flag through the
+// threadgroup reduction. ChebyshevNaNPolicyTests exercises this kernel through
+// `Metal4ComputeEngine.chebyshevDistance`.
 kernel void chebyshevDistance(
     constant float* vectorA [[buffer(0)]],
     constant float* vectorB [[buffer(1)]],
@@ -73,23 +80,30 @@ kernel void chebyshevDistance(
     uint tgSize [[threads_per_threadgroup]]
 ) {
     threadgroup float partial_max[256];
+    threadgroup uint partial_nan[256];
     const uint lanes = min(tgSize, 256u);
 
     if (tid < lanes) {
         float local_max = 0.0f;
+        uint local_nan = 0u;
         for (uint i = tid; i < dimension; i += lanes) {
-            local_max = max(local_max, abs(vectorA[i] - vectorB[i]));
+            const float d = abs(vectorA[i] - vectorB[i]);
+            local_nan |= uint((as_type<uint>(d) & 0x7FFFFFFFu) > 0x7F800000u);
+            local_max = max(local_max, d);
         }
         partial_max[tid] = local_max;
+        partial_nan[tid] = local_nan;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     if (tid == 0) {
         float maximum = 0.0f;
+        uint any_nan = 0u;
         for (uint i = 0; i < lanes; i++) {
             maximum = max(maximum, partial_max[i]);
+            any_nan |= partial_nan[i];
         }
-        result[0] = maximum;
+        result[0] = any_nan ? as_type<float>(0x7FC00000u) : maximum;
     }
 }
 

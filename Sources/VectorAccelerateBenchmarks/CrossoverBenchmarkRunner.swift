@@ -51,7 +51,7 @@ public struct CrossoverBenchmarkRunner {
         print(String(repeating: "=", count: 80))
         print()
 
-        guard ComputeDevice.gpu().isAvailable else {
+        guard MetalDevice.isGPUAvailable() else {
             print("Metal is not available on this system")
             return
         }

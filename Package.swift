@@ -94,6 +94,10 @@ let package = Package(
     ],
     dependencies: [
         // VectorCore 0.3.3 supplies the NaN-last Top-K contract and original-index ties.
+        // Prepared for the unreleased VectorCore 0.4.0 candidate (379e610f4365e820454c8c5328c4f87dfaa2031b;
+        // tested implementation 73d6a5bcd4fa1063e39d467284638b2812a84e7d) through a local
+        // `swift package edit VectorCore --path <checkout>` override only. The floor moves to 0.4.0 when that
+        // candidate is tagged; see docs/migrations/VECTORCORE-0.4.0-CANDIDATE.md.
         .package(url: "https://github.com/gifton/VectorCore", from: "0.3.3"),
         // MetalCompilerPlugin for debuggable Metal shaders (enables Xcode Metal Debugger)
         .package(url: "https://github.com/schwa/MetalCompilerPlugin", from: "0.1.5")

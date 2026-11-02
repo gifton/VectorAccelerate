@@ -2,17 +2,21 @@
 //  ShaderLibraryCompletenessTests.swift
 //  VectorAccelerateTests
 //
-//  Phase-1.2 hardening audit: the runtime combined-source compile
-//  (`KernelContext.makeLibraryFromBundleSources`) is the primary shader load path in release
-//  builds — `debug.metallib` is `#if DEBUG`-gated and SPM emits no `default.metallib` alongside
-//  MetalCompilerPlugin. A `.metal` file missing from `runtimeCompileShaderFiles` silently strands
-//  every kernel it defines (AUDIT-2 VA2-001: `SoADistance.metal` was missing from 0.6.0 until this
-//  audit, so `MetalComputeProvider.init` threw in every release-configuration process).
+//  Phase-1.2 hardening audit. Which shader library a Release build loads depends on the build
+//  system (owner decision 2026-10-31, docs/migrations/VECTORCORE-0.4.0-CANDIDATE.md §6): under
+//  Swift Build it is `default.metallib`, compiled per file from the `.process`ed sources; under
+//  SwiftPM's native build system it is the runtime combined-source compile
+//  (`KernelContext.makeLibraryFromBundleSources`), where a `.metal` file missing from
+//  `runtimeCompileShaderFiles` stranded every kernel it defines (AUDIT-2 VA2-001: `SoADistance.metal`
+//  was missing from 0.6.0 until this audit, so `MetalComputeProvider.init` threw in every
+//  release-configuration process; the compile now throws on a missing listed file).
 //
-//  These guards are GENERATED from the shader directory, not hand-maintained lists:
-//    * every kernel in every non-excluded .metal file exists in the runtime-compiled library,
+//  These guards are GENERATED from the shader directory, not hand-maintained lists, and run
+//  against every library the bundle ships (`ShippedMetalLibraries`):
+//    * every kernel in every non-excluded .metal file exists in every shipped library,
 //    * the compiled/excluded lists exactly tile the shader directory,
-//    * the runtime-compiled library's kernel set matches the plugin-built metallib's.
+//    * every shipped library exposes the same kernel set (plugin, SPM and runtime compiles of the
+//      same sources must not drift).
 //
 
 import XCTest
@@ -53,29 +57,28 @@ final class ShaderLibraryCompletenessTests: XCTestCase {
         return try Self.metalFiles()
     }
 
-    /// Every kernel in every non-excluded `.metal` file must exist in the runtime-compiled library.
-    func testRuntimeCompiledLibraryContainsEveryKernel() throws {
+    /// Every kernel in every non-excluded `.metal` file must exist in every library the bundle ships.
+    func testEveryShippedLibraryContainsEveryKernel() throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal not available") }
         let files = try requireRepoShaders()
         // 27 after AUDIT-3 Group F deleted CosineSimilarity.metal (the never-dispatched
         // specialized matrix-cosine family).
         XCTAssertGreaterThanOrEqual(files.count, 27, "expected the full shader corpus at \(Self.shadersDir.path)")
 
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle(),
-                                   "VectorAccelerate resource bundle not found")
-        let library = try KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle)
-        let available = Set(library.functionNames)
-
-        var missing: [String] = []
-        for file in files {
-            let base = file.deletingPathExtension().lastPathComponent
-            if KernelContext.runtimeCompileExcludedShaderFiles[base] != nil { continue }
-            for name in try Self.kernelNames(inMetalFile: file) where !available.contains(name) {
-                missing.append("\(base).metal: \(name)")
+        for entry in try ShippedMetalLibraries.entries(device: device) {
+            let available = Set(entry.library.functionNames)
+            var missing: [String] = []
+            for file in files {
+                let base = file.deletingPathExtension().lastPathComponent
+                // Excluded files are deliberately absent from the runtime combined compile only.
+                if entry.label == "runtime", KernelContext.runtimeCompileExcludedShaderFiles[base] != nil { continue }
+                for name in try Self.kernelNames(inMetalFile: file) where !available.contains(name) {
+                    missing.append("\(base).metal: \(name)")
+                }
             }
+            XCTAssertTrue(missing.isEmpty,
+                "\(entry.label) library is missing \(missing.count) kernel(s):\n" + missing.joined(separator: "\n"))
         }
-        XCTAssertTrue(missing.isEmpty,
-            "runtime-compiled library is missing \(missing.count) kernel(s):\n" + missing.joined(separator: "\n"))
     }
 
     // MARK: - VA3-031 class closure
@@ -209,31 +212,27 @@ final class ShaderLibraryCompletenessTests: XCTestCase {
             """)
     }
 
-    /// The runtime-compiled library and the plugin-built metallib must expose the same kernel set —
-    /// they are two compilations of the same sources and MUST NOT drift.
-    func testRuntimeLibraryMatchesMetallib() throws {
+    /// Every library the bundle ships must expose the same kernel set — the plugin's `debug.metallib`, Swift
+    /// Build's `default.metallib` and the runtime combined compile are compilations of the same sources and
+    /// MUST NOT drift. Excluded files are deliberately absent from the runtime compile only.
+    func testShippedLibrariesExposeTheSameKernelSet() throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal not available") }
         _ = try requireRepoShaders()
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle())
-        guard let metallibURL = bundle.url(forResource: "debug", withExtension: "metallib")
-                ?? bundle.url(forResource: "default", withExtension: "metallib") else {
-            throw XCTSkip("no prebuilt metallib in the resource bundle")
-        }
-        let metallib = try device.makeLibrary(URL: metallibURL)
-        let runtime = try KernelContext.makeLibraryFromBundleSources(
-            device: device, bundle: bundle)
-
-        // Compare kernel names only for non-excluded files (excluded files are in the metallib
-        // — per-file compiles can't conflict — but deliberately not in the combined compile).
+        let entries = try ShippedMetalLibraries.entries(device: device)
+        XCTAssertGreaterThanOrEqual(entries.count, 1)
         let excludedKernels = Set(try KernelContext.runtimeCompileExcludedShaderFiles.keys.flatMap {
             try Self.kernelNames(inMetalFile: Self.shadersDir.appendingPathComponent("\($0).metal"))
         })
-        let fromMetallib = Set(metallib.functionNames).subtracting(excludedKernels)
-        let fromRuntime = Set(runtime.functionNames)
-        let missingInRuntime = fromMetallib.subtracting(fromRuntime).sorted()
-        let extraInRuntime = fromRuntime.subtracting(Set(metallib.functionNames)).sorted()
-        XCTAssertTrue(missingInRuntime.isEmpty, "metallib kernels absent from the runtime compile: \(missingInRuntime)")
-        XCTAssertTrue(extraInRuntime.isEmpty, "runtime-compile kernels absent from the metallib: \(extraInRuntime)")
+        func comparable(_ entry: ShippedMetalLibraries.Entry) -> Set<String> {
+            Set(entry.library.functionNames).subtracting(excludedKernels)
+        }
+        guard let reference = entries.first else { return }
+        for other in entries.dropFirst() {
+            let missing = comparable(reference).subtracting(comparable(other)).sorted()
+            let extra = comparable(other).subtracting(comparable(reference)).sorted()
+            XCTAssertTrue(missing.isEmpty, "\(reference.label) kernels absent from \(other.label): \(missing)")
+            XCTAssertTrue(extra.isEmpty, "\(other.label) kernels absent from \(reference.label): \(extra)")
+        }
     }
 
     /// AUDIT-2 VA2-006 (FIXED): every `PipelineCacheKey.functionName` derivation for the
@@ -245,13 +244,7 @@ final class ShaderLibraryCompletenessTests: XCTestCase {
     func testCommonPipelineKeysResolveToRealFunctions() throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal not available") }
         _ = try requireRepoShaders()
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle())
-        let runtime = try KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle)
-        var known = Set(runtime.functionNames)
-        if let metallibURL = bundle.url(forResource: "debug", withExtension: "metallib"),
-           let metallib = try? device.makeLibrary(URL: metallibURL) {
-            known.formUnion(metallib.functionNames)
-        }
+        let known = try ShippedMetalLibraries.allFunctionNames(device: device)
 
         let unresolved = (PipelineCacheKey.commonKeys + PipelineCacheKey.embeddingModelKeys)
             .filter { !known.contains($0.functionName) }
@@ -271,13 +264,7 @@ final class ShaderLibraryCompletenessTests: XCTestCase {
     func testBuiltInRegistryKeysResolveToRealFunctions() throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal not available") }
         _ = try requireRepoShaders()
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle())
-        let runtime = try KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle)
-        var known = Set(runtime.functionNames)
-        if let metallibURL = bundle.url(forResource: "debug", withExtension: "metallib"),
-           let metallib = try? device.makeLibrary(URL: metallibURL) {
-            known.formUnion(metallib.functionNames)
-        }
+        let known = try ShippedMetalLibraries.allFunctionNames(device: device)
 
         let registries: [(String, PipelineRegistry)] = [
             ("default", .default),

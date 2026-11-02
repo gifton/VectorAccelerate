@@ -440,8 +440,8 @@ public actor MetalDevice {
     /// Get VectorCore-compatible device information
     /// - Returns: Tuple with key capabilities that map to VectorCore's abstraction
     ///
-    /// Note: VectorCore's DeviceCapabilities has internal initializer, so we can't
-    /// create it directly. This method provides the information that would be included.
+    /// Note: VectorCore 0.4.0 has no device-capability type (its `DeviceCapabilities` was removed,
+    /// upgrade row CB-02); this tuple is VectorAccelerate's own description of the Metal device.
     public func getVectorCoreCompatibleInfo() -> (
         maxParallelism: Int,
         availableMemory: Int?,
@@ -456,10 +456,15 @@ public actor MetalDevice {
         )
     }
 
-    /// Check if Metal GPU is available using VectorCore's ComputeDevice abstraction
-    /// - Returns: true if GPU compute is available on this system
+    /// Whether a Metal GPU is present on this system.
+    ///
+    /// A runtime check: `MTLCreateSystemDefaultDevice()` returns a device. VectorCore 0.3.3's
+    /// `ComputeDevice.gpu().isAvailable` was a compile-time constant (`true` wherever Metal could be
+    /// imported outside the simulator) and VectorCore 0.4.0 removes it (downstream upgrade row
+    /// CB-02), so this is the single availability check behind every VectorAccelerate guard.
+    /// - Returns: true if a Metal device can be created on this system
     public static nonisolated func isGPUAvailable() -> Bool {
-        ComputeDevice.gpu().isAvailable
+        isAvailable
     }
 
     // MARK: - Metal 4 Support

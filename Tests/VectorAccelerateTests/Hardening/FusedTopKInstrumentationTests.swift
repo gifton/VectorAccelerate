@@ -5,15 +5,10 @@ import XCTest
 final class FusedTopKInstrumentationTests: XCTestCase {
     private func withPipelines(_ body: (any MTLDevice, any MTLComputePipelineState, String) throws -> Void) throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal unavailable") }
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle())
-        func check(_ library: any MTLLibrary, _ label: String) throws {
+        try ShippedMetalLibraries.forEach(device: device) { library, label in
             let function = try XCTUnwrap(library.makeFunction(name: "fused_l2_topk"))
             try body(device, device.makeComputePipelineState(function: function), label)
         }
-        #if DEBUG
-        try check(device.makeLibrary(URL: XCTUnwrap(bundle.url(forResource: "debug", withExtension: "metallib"))), "plugin")
-        #endif
-        try check(KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle), "runtime")
     }
 
     // With MTL_SHADER_VALIDATION=1 the old shared candidate array exceeds the

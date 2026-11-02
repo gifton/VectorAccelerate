@@ -272,12 +272,19 @@ public struct FallbackProvider: Sendable {
     /// - Parameters:
     ///   - a: First vector
     ///   - b: Second vector
-    /// - Returns: Maximum absolute difference
+    /// - Returns: Maximum absolute difference; NaN when any difference is NaN (a NaN coordinate, or the same
+    ///   infinity on both sides), the VectorCore 0.4.0 `ChebyshevDistance` policy (`ChebyshevNaNPolicyTests`).
     public func chebyshevDistance(from a: [Float], to b: [Float]) throws -> Float {
         guard a.count == b.count else {
             throw VectorError.dimensionMismatch(expected: a.count, actual: b.count)
         }
-        return zip(a, b).reduce(0) { max($0, abs($1.0 - $1.1)) }
+        var m: Float = 0
+        for (x, y) in zip(a, b) {
+            let d = abs(x - y)
+            if d.isNaN { return .nan }
+            m = max(m, d)
+        }
+        return m
     }
 
     /// Distance computation using specified metric.

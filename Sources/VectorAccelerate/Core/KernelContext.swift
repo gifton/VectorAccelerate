@@ -217,11 +217,13 @@ public final class KernelContext: @unchecked Sendable {
 
     /// Compile Metal shader sources from bundle resources.
     ///
-    /// This is a fallback for edge cases where pre-compiled metallib is unavailable
-    /// — which in **release** builds is the primary path, since `debug.metallib` is
-    /// only loaded under `#if DEBUG`. A single compile error here disables every
-    /// kernel in the package, so `NormalizationParityTests` exercises this entry
-    /// point directly as a regression guard.
+    /// A fallback behind the precompiled libraries. Which library a build loads depends on the build system
+    /// (owner decision 2026-10-31, docs/migrations/VECTORCORE-0.4.0-CANDIDATE.md §6): under Swift Build (the
+    /// default since Swift 6.4) the bundle holds `default.metallib` and no `.metal` sources, so Release loads
+    /// the precompiled library and this path throws loudly; under SwiftPM's native build system the bundle
+    /// holds the sources and no `default.metallib`, so Release loads this compile. A single compile error here
+    /// disables every kernel in the package. The hardening suites certify whichever libraries the bundle ships
+    /// (`ShippedMetalLibraries` in the test target); `ShaderLibraryCompletenessTests` compares their kernel sets.
     ///
     /// - Parameters:
     ///   - device: The Metal device to create the library for
@@ -245,13 +247,13 @@ public final class KernelContext: @unchecked Sendable {
     /// Every `.metal` file compiled into the runtime combined-source library, by base name.
     ///
     /// !! This list MUST cover every shader file the package ships — on the runtime-compile
-    /// load path (the primary path in release builds, where `debug.metallib` is `#if DEBUG`-
-    /// gated and SPM produces no `default.metallib` alongside MetalCompilerPlugin) a file
-    /// missing from this list silently strands every kernel it defines. `SoADistance` was
-    /// missing here from 0.6.0 until the 2026-08 hardening audit, which made
-    /// `MetalComputeProvider` init throw in every release-configuration process (AUDIT-2
-    /// VA2-001). `ShaderLibraryCompletenessTests` now asserts directory ↔ list parity and
-    /// per-kernel presence in the compiled library.
+    /// load path (the Release path under SwiftPM's native build system, where `debug.metallib`
+    /// is `#if DEBUG`-gated and no `default.metallib` is produced) a file missing from this list
+    /// strands every kernel it defines. `SoADistance` was missing here from 0.6.0 until the
+    /// 2026-08 hardening audit, which made `MetalComputeProvider` init throw in every
+    /// release-configuration process (AUDIT-2 VA2-001). `ShaderLibraryCompletenessTests` asserts
+    /// directory ↔ list parity and per-kernel presence in every shipped library, and
+    /// `makeLibraryFromBundleSources` now throws when a listed source is missing from the bundle.
     internal static let runtimeCompileShaderFiles: [String] = [
         // Core distance kernels (CosineSimilarity.metal — the never-dispatched specialized
         // matrix-cosine family — was deleted in AUDIT-3 Group F; live cosine kernels are in
@@ -300,6 +302,15 @@ public final class KernelContext: @unchecked Sendable {
         // NOTE: All shaders now use VA_* prefixed guards to avoid conflicts
         // NOTE: Histogram kernels are in StatisticsShaders.metal
     ]
+
+    /// The `.metal` sources of `runtimeCompileShaderFiles` that the resource bundle actually carries.
+    ///
+    /// Under SwiftPM's native build system the bundle holds every source; under Swift Build (the default since
+    /// Swift 6.4) it holds none, because `.process` compiles them into `default.metallib` instead. Empty means
+    /// the runtime compile has nothing to do, and `makeLibraryFromBundleSources` throws.
+    internal static func bundledShaderSourceURLs(in bundle: Bundle) -> [URL] {
+        runtimeCompileShaderFiles.compactMap { bundle.url(forResource: $0, withExtension: "metal") }
+    }
 
     /// Shader files deliberately NOT in the runtime combined compile, with the reason.
     /// `ShaderLibraryCompletenessTests` enforces: directory = listed ∪ excluded (disjoint).
@@ -512,39 +523,56 @@ public final class KernelContext: @unchecked Sendable {
         device: any MTLDevice,
         bundle: Bundle
     ) throws -> any MTLLibrary {
-        let shaderFiles = runtimeCompileShaderFiles
+        // A bundle without the sources is a packaging state, not a compile input: Swift Build (the default
+        // build system since Swift 6.4) compiles the `.process`ed `.metal` resources into `default.metallib`
+        // and copies none of them, so this path has nothing to compile and must say so instead of returning
+        // a library that holds only the preamble (owner decision 2026-10-31: the precompiled metallib is the
+        // shipped library; this is a fallback). A partial set is a packaging defect too: a missing file
+        // used to be skipped silently and stranded every kernel it defines (AUDIT-2 VA2-001).
+        let sources = bundledShaderSourceURLs(in: bundle)
+        guard !sources.isEmpty else {
+            throw VectorError.shaderCompilationFailed(
+                "runtime shader compile: the resource bundle at \(bundle.bundlePath) carries no .metal sources "
+                + "(Swift Build packages them as default.metallib); nothing to compile")
+        }
+        let missing = runtimeCompileShaderFiles.filter { bundle.url(forResource: $0, withExtension: "metal") == nil }
+        guard missing.isEmpty else {
+            throw VectorError.shaderCompilationFailed(
+                "runtime shader compile: the resource bundle is missing \(missing.count) of "
+                + "\(runtimeCompileShaderFiles.count) listed .metal sources: \(missing.joined(separator: ", "))")
+        }
+
         var combinedSource = runtimeCompilePreamble
 
-        for fileName in shaderFiles {
-            if let url = bundle.url(forResource: fileName, withExtension: "metal"),
-               let source = try? String(contentsOf: url, encoding: .utf8) {
-                // Strip duplicate includes and namespace declarations
-                var cleanedSource = source
-                    .replacingOccurrences(of: "#include <metal_stdlib>", with: "")
-                    .replacingOccurrences(of: "#include <metal_simdgroup>", with: "")
-                    .replacingOccurrences(of: "#include <metal_math>", with: "")
-                    .replacingOccurrences(of: "#include <metal_atomic>", with: "")
-                    .replacingOccurrences(of: "#include \"Metal4Common.h\"", with: "")
-                    .replacingOccurrences(of: "using namespace metal;", with: "")
+        for url in sources {
+            let fileName = url.deletingPathExtension().lastPathComponent
+            let source = try String(contentsOf: url, encoding: .utf8)
+            // Strip duplicate includes and namespace declarations
+            var cleanedSource = source
+                .replacingOccurrences(of: "#include <metal_stdlib>", with: "")
+                .replacingOccurrences(of: "#include <metal_simdgroup>", with: "")
+                .replacingOccurrences(of: "#include <metal_math>", with: "")
+                .replacingOccurrences(of: "#include <metal_atomic>", with: "")
+                .replacingOccurrences(of: "#include \"Metal4Common.h\"", with: "")
+                .replacingOccurrences(of: "using namespace metal;", with: "")
 
-                // NOTE: the EPSILON string surgery that used to live here (stripping four
-                // exact spellings of `constant float EPSILON = …;` and rewriting every
-                // VA_EPSILON token to EPSILON) is deliberately GONE (AUDIT-3 VA3-012): the
-                // rewrite turned DistanceShaders' file-local macro shadow into a
-                // redefinition of the shared value for every downstream file, and the
-                // whitespace-fragile exact-string strips had no remaining targets.
-                // VA_EPSILON is provided by the preamble under its real name; a file needing
-                // a different floor names its own constant (EpsilonCompileParityTests
-                // enforces this corpus-wide).
-                cleanedSource = cleanedSource.replacingOccurrences(
-                    of: "VA_INVALID_INDEX",
-                    with: "0xFFFFFFFF"
-                )
+            // NOTE: the EPSILON string surgery that used to live here (stripping four
+            // exact spellings of `constant float EPSILON = …;` and rewriting every
+            // VA_EPSILON token to EPSILON) is deliberately GONE (AUDIT-3 VA3-012): the
+            // rewrite turned DistanceShaders' file-local macro shadow into a
+            // redefinition of the shared value for every downstream file, and the
+            // whitespace-fragile exact-string strips had no remaining targets.
+            // VA_EPSILON is provided by the preamble under its real name; a file needing
+            // a different floor names its own constant (EpsilonCompileParityTests
+            // enforces this corpus-wide).
+            cleanedSource = cleanedSource.replacingOccurrences(
+                of: "VA_INVALID_INDEX",
+                with: "0xFFFFFFFF"
+            )
 
-                combinedSource += "\n// === \(fileName).metal ===\n"
-                combinedSource += cleanedSource
-                combinedSource += "\n"
-            }
+            combinedSource += "\n// === \(fileName).metal ===\n"
+            combinedSource += cleanedSource
+            combinedSource += "\n"
         }
 
         // Compile the combined source

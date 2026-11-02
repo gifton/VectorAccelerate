@@ -78,12 +78,7 @@ final class VectorAlignmentTests: XCTestCase {
     }
 
     private func withLibraries(_ body: (any MTLDevice, any MTLLibrary, String) throws -> Void) throws {
-        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal unavailable") }
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle())
-        #if DEBUG
-        try body(device, device.makeLibrary(URL: XCTUnwrap(bundle.url(forResource: "debug", withExtension: "metallib"))), "plugin")
-        #endif
-        try body(device, KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle), "runtime")
+        try ShippedMetalLibraries.forEach(body)
     }
 
     private func buffer<T: BitwiseCopyable>(_ data: [T], _ device: any MTLDevice) throws -> any MTLBuffer {
@@ -243,8 +238,19 @@ final class VectorAlignmentTests: XCTestCase {
     /// from value tests and GPU validation after optimization.
     func testNeuralTailNeverRequestsWeightsPastBufferEnd() throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal unavailable") }
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle())
-        let url = try XCTUnwrap(bundle.url(forResource: "NeuralQuantization", withExtension: "metal"))
+        // This instruments the shader *source text*, so read it from the repository: under Swift Build the
+        // bundle ships compiled metallibs and no `.metal` sources (owner decision 2026-10-31). A bundled copy
+        // is the fallback for a run outside the repository.
+        let repoSource = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // Hardening/
+            .deletingLastPathComponent()   // VectorAccelerateTests/
+            .deletingLastPathComponent()   // Tests/
+            .deletingLastPathComponent()   // repo root
+            .appendingPathComponent("Sources/VectorAccelerate/Metal/Shaders/NeuralQuantization.metal")
+        let url = FileManager.default.fileExists(atPath: repoSource.path)
+            ? repoSource
+            : try XCTUnwrap(KernelContext.findVectorAccelerateBundle()?.url(forResource: "NeuralQuantization", withExtension: "metal"),
+                            "NeuralQuantization.metal not found in the repository or the resource bundle")
         let source = try String(contentsOf: url, encoding: .utf8)
         let structStart = try XCTUnwrap(source.range(of: "struct NeuralQuantParams {"))
         let structEnd = try XCTUnwrap(source.range(of: "};", range: structStart.upperBound..<source.endIndex))
