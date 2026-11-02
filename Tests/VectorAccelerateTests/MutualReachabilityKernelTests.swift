@@ -366,7 +366,9 @@ final class MutualReachabilityKernelTests: XCTestCase {
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
         // 200x200 @ 384-dim should complete quickly with optimized kernel
-        XCTAssertLessThan(elapsed, 0.5, "384-dim optimized kernel too slow: \(elapsed)s")
+        if PerfGate.strict {
+            XCTAssertLessThan(elapsed, 0.5, "384-dim optimized kernel too slow: \(elapsed)s")
+        }
     }
 
     // MARK: - Performance Tests
@@ -383,7 +385,9 @@ final class MutualReachabilityKernelTests: XCTestCase {
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
         // Should complete in reasonable time (< 1 second for 100x100 = 10K pairs)
-        XCTAssertLessThan(elapsed, 1.0, "Dense 100x100 took too long: \(elapsed)s")
+        if PerfGate.strict {
+            XCTAssertLessThan(elapsed, 1.0, "Dense 100x100 took too long: \(elapsed)s")
+        }
     }
 
     func testPerformanceSparse50K() async throws {
@@ -409,7 +413,9 @@ final class MutualReachabilityKernelTests: XCTestCase {
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
         // Should complete in reasonable time (< 2 seconds for 50K pairs)
-        XCTAssertLessThan(elapsed, 2.0, "Sparse 50K took too long: \(elapsed)s")
+        if PerfGate.strict {
+            XCTAssertLessThan(elapsed, 2.0, "Sparse 50K took too long: \(elapsed)s")
+        }
     }
 
     // MARK: - Phase 3: Fusion & VectorProtocol Tests

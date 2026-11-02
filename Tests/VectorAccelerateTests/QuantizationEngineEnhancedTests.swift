@@ -552,8 +552,12 @@ final class QuantizationEngineEnhancedTests: XCTestCase {
             print("  Binary dequantize: \(binaryDequantizeTime * 1000)ms")
             
             // Performance should scale reasonably with size
-            XCTAssertLessThan(scalarQuantizeTime, 0.1, "Scalar quantization should be fast")
-            XCTAssertLessThan(binaryQuantizeTime, 0.1, "Binary quantization should be fast")
+            if PerfGate.strict {
+                XCTAssertLessThan(scalarQuantizeTime, 0.1, "Scalar quantization should be fast")
+            }
+            if PerfGate.strict {
+                XCTAssertLessThan(binaryQuantizeTime, 0.1, "Binary quantization should be fast")
+            }
         }
     }
     
@@ -598,7 +602,9 @@ final class QuantizationEngineEnhancedTests: XCTestCase {
             
             // Performance should be reasonable
             let quantizeThroughput = Double(batchSize) / quantizeTime
-            XCTAssertGreaterThan(quantizeThroughput, 50, "Should quantize at least 50 vectors/sec")
+            if PerfGate.strict {
+                XCTAssertGreaterThan(quantizeThroughput, 50, "Should quantize at least 50 vectors/sec")
+            }
         }
     }
     

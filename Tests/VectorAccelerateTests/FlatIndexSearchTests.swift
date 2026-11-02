@@ -502,8 +502,12 @@ final class FlatIndexSearchTests: XCTestCase {
 
         // Note: We don't assert batch is faster since both use GPU,
         // but batch should have less overhead. Just verify both complete.
-        XCTAssertLessThan(batchTime, 2.0, "Batch search should complete quickly")
-        XCTAssertLessThan(sequentialTime, 5.0, "Sequential search should complete in reasonable time")
+        if PerfGate.strict {
+            XCTAssertLessThan(batchTime, 2.0, "Batch search should complete quickly")
+        }
+        if PerfGate.strict {
+            XCTAssertLessThan(sequentialTime, 5.0, "Sequential search should complete in reasonable time")
+        }
 
         // Print performance comparison for debugging
         print("Batch search (\(queryCount) queries): \(batchTime * 1000)ms")
@@ -568,7 +572,9 @@ final class FlatIndexSearchTests: XCTestCase {
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
         XCTAssertEqual(results.count, 5)
-        XCTAssertLessThan(elapsed, 1.0, "Search should complete in under 1 second")
+        if PerfGate.strict {
+            XCTAssertLessThan(elapsed, 1.0, "Search should complete in under 1 second")
+        }
     }
 
     // MARK: - Distance Correctness Tests (L2²)

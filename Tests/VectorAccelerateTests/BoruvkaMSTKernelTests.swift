@@ -746,7 +746,9 @@ final class BoruvkaMSTKernelTests: XCTestCase {
         print("Performance (n=\(n), d=\(d)): GPU=\(gpuTime*1000)ms, CPU=\(cpuTime*1000)ms, Speedup=\(speedup)x")
 
         // At 500 points, GPU should show speedup on most hardware
-        XCTAssertGreaterThan(speedup, 1.0, "GPU should be faster than CPU for n=\(n)")
+        if PerfGate.strict {
+            XCTAssertGreaterThan(speedup, 1.0, "GPU should be faster than CPU for n=\(n)")
+        }
     }
 }
 

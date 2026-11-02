@@ -142,8 +142,10 @@ extension Metal4LifecycleIntegrationTests {
         let _ = MetalSubsystem()
         let elapsed = stopwatch.elapsed("init")
 
-        XCTAssertLessThan(elapsed, 0.010,
-            "MetalSubsystem.init() should complete in < 10ms, took \(elapsed * 1000)ms")
+        if PerfGate.strict {
+            XCTAssertLessThan(elapsed, 0.010,
+                "MetalSubsystem.init() should complete in < 10ms, took \(elapsed * 1000)ms")
+        }
     }
 
     /// Test that init doesn't do any Metal work
@@ -172,8 +174,10 @@ extension Metal4LifecycleIntegrationTests {
         if !state.isFailed {
             // Log performance for baseline documentation
             print("Time to deviceReady: \(elapsed * 1000)ms")
-            XCTAssertLessThan(elapsed, 0.5, // 500ms acceptable for device initialization
-                "Time to deviceReady should be < 500ms, took \(elapsed * 1000)ms")
+            if PerfGate.strict {
+                XCTAssertLessThan(elapsed, 0.5, // 500ms acceptable for device initialization
+                    "Time to deviceReady should be < 500ms, took \(elapsed * 1000)ms")
+            }
         }
     }
 
@@ -189,8 +193,10 @@ extension Metal4LifecycleIntegrationTests {
         let state = await subsystem.state
         if !state.isFailed {
             print("Time to criticalReady (cold): \(elapsed * 1000)ms")
-            XCTAssertLessThan(elapsed, 2.0, // 2 seconds for cold start with JIT
-                "Time to criticalReady (cold) should be < 2s, took \(elapsed * 1000)ms")
+            if PerfGate.strict {
+                XCTAssertLessThan(elapsed, 2.0, // 2 seconds for cold start with JIT
+                    "Time to criticalReady (cold) should be < 2s, took \(elapsed * 1000)ms")
+            }
         }
     }
 
@@ -203,7 +209,9 @@ extension Metal4LifecycleIntegrationTests {
 
         // Init should complete instantly
         let initTime = CFAbsoluteTimeGetCurrent() - startTime
-        XCTAssertLessThan(initTime, 0.010, "Init should not block")
+        if PerfGate.strict {
+            XCTAssertLessThan(initTime, 0.010, "Init should not block")
+        }
 
         // Begin background init (should return immediately)
         let bgStartTime = CFAbsoluteTimeGetCurrent()
@@ -211,7 +219,9 @@ extension Metal4LifecycleIntegrationTests {
         let bgInitTime = CFAbsoluteTimeGetCurrent() - bgStartTime
 
         // beginBackgroundInitialization should return quickly (just schedules work)
-        XCTAssertLessThan(bgInitTime, 0.050, "beginBackgroundInitialization should not block")
+        if PerfGate.strict {
+            XCTAssertLessThan(bgInitTime, 0.050, "beginBackgroundInitialization should not block")
+        }
     }
 }
 

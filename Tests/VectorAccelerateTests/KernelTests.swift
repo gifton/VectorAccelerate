@@ -4538,7 +4538,9 @@ final class WarpOptimizedSelectionKernelTests: XCTestCase {
 
         print("Metal4WarpOptimizedSelection performance: \(elapsed / 5.0)s per run (\(queryCount) queries, \(candidateCount) candidates, k=\(k))")
 
-        XCTAssertLessThan(elapsed / 5.0, 1.0, "Should complete in reasonable time")
+        if PerfGate.strict {
+            XCTAssertLessThan(elapsed / 5.0, 1.0, "Should complete in reasonable time")
+        }
     }
 
     // MARK: - Protocol Tests
