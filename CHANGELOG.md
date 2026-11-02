@@ -5,6 +5,45 @@ All notable changes to VectorAccelerate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+The hardening audit of the Metal stack. `docs/audits/AUDIT-2.md` and `docs/audits/AUDIT-3-shaders.md` are the per-finding record, and `docs/stability/` holds the resulting contracts.
+
+### Fixed
+- **`MetalComputeProvider` was unusable in Release builds.** `SoADistance.metal` was missing from the runtime shader compile, the only load path in those builds, and several pipeline keys named kernels that don't exist. The GPU cosine fused and batch paths had never run in any build because their kernel didn't exist.
+- **`batchDistance` could not reach the GPU under default configuration**, so its GPU legs ran on the CPU.
+- **Numerics.** GPU cosine, rooted L2, Minkowski and correlation misbehaved on huge, tiny and mixed-scale finite inputs. See `docs/stability/DISTANCE-RANGE-CONTRACT.md` for what is rescued and what keeps FP32 limits.
+- **NaN handling.** GPU Top-K now orders NaN last and breaks ties by smaller original index, matching VectorCore 0.3.3. LogSumExp and basic statistics propagate NaN.
+- **Dispatch-geometry bugs.** Reduction trees, barriers and threadgroup initializers gave wrong results or undefined behaviour at non-power-of-two widths in Jaccard, Manhattan, Chebyshev, Minkowski, LogSumExp, statistics and the single-pair basic kernels.
+- **Out-of-bounds access.** Bounds are now enforced in PQ codes and ADC tables, Borůvka candidates, fused IVF candidates, sparse c-TF-IDF tails, batch matrix bias and quantization statistics. Device row and address arithmetic no longer overflows 32 bits, and unaligned vector loads are gone.
+- **UMAP negative sampling race.** Targets are now frozen for the pass, so sampling no longer reads the embedding while writing it.
+- **Ignored and mishandled neural options.** `useActivation`, `normalizeProjected` and `normalizeLatent` are honoured, and per-vector reconstruction scales are preserved.
+- **Buffer lifecycle.** Pool allocation bounds, return routing across pool lifetimes, argument-table ownership and cache-clear accounting.
+- **Shader validation.** Fused Top-K and IVF list search now fit the instrumented threadgroup memory budget.
+- **`WarmupManager` lost pauses and cancels.** The warm-up loop wrote `state` after suspending on a pipeline, so `reportUserActivity()`, `pause(reason:)` and thermal pauses were overwritten and warm-up kept running. A restart could also be overwritten with `.cancelled`, leaving `beginWarmup` waiting forever.
+- **A pipeline compile error during `Metal4Context` warm-up aborted Debug processes.** Only a key naming a missing kernel asserts now. Compile errors are logged and the pipeline compiles on first use.
+
+### Changed
+- **Dependency: VectorCore floor raised to 0.3.3** for the NaN-last Top-K contract and original-index ties.
+- **Minkowski no longer silently returns Chebyshev for large `p`.** The approximation is the explicit opt-in `Metal4MinkowskiConfig.chebyshevApproximation`.
+- **Unsupported sizes now throw instead of being silently capped**, including attention head dimension, learned projection dimension, neural latent dimension and IVF `nprobe`. `TopKParameters` no longer clamps `k`.
+- **Basic statistics accept NaN input** and propagate it, where they previously threw.
+- **`encodeNegativeSampling` now throws** and has an overload taking caller-owned scratch.
+- **`Metal4NeuralEncodingResult` exposes `scales`, one per row.** `scale` is now a deprecated diagnostic average.
+- **Raw kernel bindings changed** for callers encoding shaders directly: `minkowski_distance_batch` buffer(7), `neural_encode_pass1` buffer(8), the UMAP negative-sampling output at buffer(3), and capacity words in the Borůvka and fused IVF parameter structs.
+- **`PipelineCache.warmUp(keys:)` returns `[PipelineWarmUpFailure]`** instead of tuples with an error string.
+- **Wall-clock test assertions run only under `VECTORACCELERATE_STRICT_PERF=1`**, enforced by `PerfGateCoverageTests`.
+
+### Added
+- `MetalComputeProvider.RoutingTelemetry`, which reports whether the GPU actually served a call.
+- `BatchBiasLayout` and `PipelineWarmUpFailure`.
+- The permanent guard suites in `Tests/VectorAccelerateTests/Hardening/`.
+- A CI job that runs the test suite in Release, the configuration where the missing shader went unnoticed.
+
+### Removed
+- `encodeTiledEncode`, `encodeTiledEncodeQuantize`, `encodeTiledEncodeQuantizeV2`, their `isTiled…Available` properties and `TiledEncodeParameters`. Their kernels never existed, so they could only throw. `encodeTiledV3` is the shipping tiled path.
+- `PipelineCacheKey.cosineSimilarity` and about 2400 lines of dead or unsound shaders.
+
 ## [0.6.0] - 2026-08-15
 
 The zero-copy SoA scoring release, plus the removal promised in 0.5.0. The minor bump reflects the removed deprecated GPU surface, the `L2NormalizationParameters.epsilon` default change, and the new SoA scoring API. The normalization parity work was validated with measured GPU evidence (fast-math reassociation and FTZ boundary behavior probed on hardware) and is gated by a release-configuration test that also guards the runtime shader-compile path.

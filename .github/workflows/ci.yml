@@ -222,6 +222,59 @@ jobs:
             test-attempt1.log
           retention-days: 7
 
+  # Release loads shaders differently from Debug: no debug.metallib, so the library comes from the
+  # runtime source compile or default.metallib. A shader missing from that path broke every GPU call
+  # in Release while the Debug suite stayed green (AUDIT-2 VA2-001).
+  test-release:
+    name: Test (Release)
+    runs-on: macos-26
+    needs: build
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
+      - name: Restore SPM Cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .build
+            ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-spm-release-tests-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-release-tests-
+
+      - name: Run Tests
+        run: |
+          set -eo pipefail
+          # Same one retry as the Debug job, for the same virtualized-GPU reasons.
+          if ! swift test -c release --parallel 2>&1 | tee test.log; then
+            echo "::warning::swift test failed — retrying once (known virtualized-GPU flakiness)"
+            mv test.log test-attempt1.log
+            swift test -c release --parallel 2>&1 | tee test.log
+          fi
+
+          TESTS=$(grep -E "Executed [0-9]+ tests" test.log | tail -1 || echo "")
+          echo "## Test Results (Release)" >> $GITHUB_STEP_SUMMARY
+          echo "$TESTS" >> $GITHUB_STEP_SUMMARY
+          if [ -f test-attempt1.log ]; then
+            echo "⚠️ First attempt failed (virtualized-GPU flakiness); passed on retry" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Test Log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-log-release
+          path: |
+            test.log
+            test-attempt1.log
+          retention-days: 7
+
   build-ios:
     name: Build (iOS)
     runs-on: macos-26
