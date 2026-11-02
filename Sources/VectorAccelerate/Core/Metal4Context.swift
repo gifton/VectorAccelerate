@@ -263,21 +263,39 @@ public actor Metal4Context: AccelerationProvider {
         // Eagerly pre-compile and cache critical path pipelines
         // This ensures hot paths don't incur compilation latency.
         //
-        // Warm-up failures are LOUD in debug (AUDIT-2 VA2-006): before the audit, every one of
-        // these keys could fail to resolve — four of them did, for months, via phantom
-        // functionName derivations — and the `try?` swallow meant nothing ever noticed. A
-        // failure here means a commonKeys entry names a kernel that no longer exists.
+        // A key naming a missing kernel is LOUD in debug (AUDIT-2 VA2-006): before the audit, every
+        // one of these keys could fail to resolve — four of them did, for months, via phantom
+        // functionName derivations — and the `try?` swallow meant nothing ever noticed. A compile
+        // error on a kernel that exists is logged instead, because it can be transient and this
+        // task runs detached from whatever work it would abort. See `WarmUpFailurePolicyTests`.
         let cache = self.pipelineCache
         Task {
             let failures = await cache.warmUp(keys: PipelineCacheKey.commonKeys)
-            if !failures.isEmpty {
-                let detail = failures
-                    .map { "\($0.key.cacheString) → \($0.key.functionName): \($0.error)" }
-                    .sorted()
-                    .joined(separator: "\n")
-                assertionFailure("Metal4Context warm-up failed for \(failures.count) pipeline key(s):\n\(detail)")
+            if let message = Metal4Context.warmUpAssertionMessage(for: failures) {
+                assertionFailure(message)
+            }
+            let compileFailures = failures.filter { !$0.isMissingKernel }
+            if !compileFailures.isEmpty {
+                await Logger.shared.warning(
+                    "Warm-up could not compile \(compileFailures.count) pipeline(s); "
+                        + "they compile on first use:\n\(Metal4Context.describe(compileFailures))"
+                )
             }
         }
+    }
+
+    /// The assertion message for warm-up failures that name a missing kernel, or `nil` if none do.
+    static func warmUpAssertionMessage(for failures: [PipelineWarmUpFailure]) -> String? {
+        let missing = failures.filter(\.isMissingKernel)
+        guard !missing.isEmpty else { return nil }
+        return "Metal4Context warm-up found \(missing.count) key(s) naming a missing kernel:\n\(describe(missing))"
+    }
+
+    private static func describe(_ failures: [PipelineWarmUpFailure]) -> String {
+        failures
+            .map { "\($0.key.cacheString) → \($0.key.functionName): \($0.error)" }
+            .sorted()
+            .joined(separator: "\n")
     }
 
     // MARK: - Command Buffer Creation

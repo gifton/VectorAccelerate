@@ -85,6 +85,24 @@ public struct PipelineCacheEntry: Codable, Sendable {
 
 // MARK: - Pipeline Cache
 
+/// A pipeline that warm-up could not produce.
+public struct PipelineWarmUpFailure: Sendable {
+    public let key: PipelineCacheKey
+    public let error: any Error
+
+    public init(key: PipelineCacheKey, error: any Error) {
+        self.key = key
+        self.error = error
+    }
+
+    /// True when no library has the kernel, which is a bug in the key: `makeFunction` throws
+    /// `shaderNotFound`, kind `.resourceUnavailable`. False for a compile error on a kernel that
+    /// does exist, which can be transient. Pinned by `WarmUpFailurePolicyTests`.
+    public var isMissingKernel: Bool {
+        (error as? VectorError)?.kind == .resourceUnavailable
+    }
+}
+
 /// Pipeline cache with memory and optional disk persistence
 ///
 /// Features:
@@ -261,27 +279,27 @@ public actor PipelineCache {
 
     /// Warm up cache with common pipelines.
     ///
-    /// Returns the keys that FAILED to warm, with their error descriptions — pre-audit this was
-    /// `try?`-swallowed, so a warm-up could fail for every key (e.g. the four phantom
-    /// `PipelineCacheKey.functionName` derivations, AUDIT-2 VA2-006) and nothing ever noticed.
-    /// Callers that treat warm-up as best-effort can discard the result; callers that expect
-    /// their keys to exist should assert on it.
+    /// Returns the keys that FAILED to warm — pre-audit this was `try?`-swallowed, so a warm-up
+    /// could fail for every key (e.g. the four phantom `PipelineCacheKey.functionName` derivations,
+    /// AUDIT-2 VA2-006) and nothing ever noticed. Callers that treat warm-up as best-effort can
+    /// discard the result; callers that expect their keys to exist should check
+    /// `PipelineWarmUpFailure.isMissingKernel`.
     @discardableResult
-    public func warmUp(keys: [PipelineCacheKey]) async -> [(key: PipelineCacheKey, error: String)] {
-        await withTaskGroup(of: (PipelineCacheKey, String?).self) { group in
+    public func warmUp(keys: [PipelineCacheKey]) async -> [PipelineWarmUpFailure] {
+        await withTaskGroup(of: PipelineWarmUpFailure?.self) { group in
             for key in keys {
                 group.addTask {
                     do {
                         _ = try await self.getPipeline(for: key)
-                        return (key, nil)
+                        return nil
                     } catch {
-                        return (key, String(describing: error))
+                        return PipelineWarmUpFailure(key: key, error: error)
                     }
                 }
             }
-            var failures: [(key: PipelineCacheKey, error: String)] = []
-            for await (key, error) in group {
-                if let error { failures.append((key, error)) }
+            var failures: [PipelineWarmUpFailure] = []
+            for await failure in group {
+                if let failure { failures.append(failure) }
             }
             return failures
         }
