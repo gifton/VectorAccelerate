@@ -26,8 +26,8 @@
 //    * the input is returned BIT-EXACTLY unchanged otherwise (zero vector, deep
 //      subnormals) — the observable behavior of `NormalizeKernels.normalizeUnchecked`,
 //    * GPU and CPU agree elementwise within 1e-5,
-//    * the runtime-compiled Metal library (the only library load path in release
-//      builds) still contains every normalize kernel.
+//    * every Metal library the bundle ships (precompiled metallibs, and the runtime
+//      compile where the sources are bundled) still contains every normalize kernel.
 //
 
 import XCTest
@@ -258,36 +258,30 @@ final class NormalizationParityTests: XCTestCase {
         return outputBuffer.copyData(as: Float.self, count: dimension)
     }
 
-    // MARK: - Release-configuration library guard
+    // MARK: - Shipped-library guard
 
-    /// The Metal library that `KernelContext` compiles from bundled `.metal`
-    /// sources must contain every normalize kernel.
+    /// Every Metal library this build's bundle ships must contain every normalize kernel.
     ///
-    /// This is the **only** library load path in release builds: `debug.metallib`
-    /// is loaded under `#if DEBUG`, and no `default.metallib` ships in the bundle.
-    /// That path strips `#include "Metal4Common.h"` and substitutes its own
-    /// preamble, so a constant added to the header but not mirrored into
-    /// `KernelContext`'s preamble makes the single combined source fail to compile
-    /// — taking down *every* kernel in the package, in release only. This test runs
-    /// in both configurations and fails loudly with the compiler diagnostic.
-    func testRuntimeCompiledLibraryContainsNormalizeKernels() throws {
-        guard let device = MTLCreateSystemDefaultDevice() else {
-            throw XCTSkip("Metal device not available")
-        }
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle(),
-                                   "VectorAccelerate resource bundle not found")
-
-        let library = try KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle)
-
-        for name in [
-            "vectorNormalize", "normalizeVectors", "batchNormalize",
-            "l2_normalize_general_kernel", "l2_normalize_inplace_kernel",
-            "l2_normalize_512_kernel", "l2_normalize_768_kernel", "l2_normalize_1536_kernel",
-            // Sentinels used by KernelContext.isVectorAccelerateLibrary
-            "l2_distance_kernel", "dot_product_kernel"
-        ] {
-            XCTAssertNotNil(library.makeFunction(name: name),
-                            "runtime-compiled library is missing '\(name)'")
+    /// Which library Release loads depends on the build system (owner decision 2026-10-31,
+    /// docs/stability/SHADER-LIBRARY-PACKAGING-CONTRACT.md): `default.metallib` under Swift Build,
+    /// the runtime compile from bundled `.metal` sources under SwiftPM's native build system.
+    /// The runtime path strips `#include "Metal4Common.h"` and substitutes its own preamble,
+    /// so a constant added to the header but not mirrored into `KernelContext`'s preamble
+    /// makes the single combined source fail to compile — taking down *every* kernel in the
+    /// package on that path. `ShippedMetalLibraries` runs the check against each library the
+    /// bundle actually carries and fails loudly with the compiler diagnostic.
+    func testEveryShippedLibraryContainsNormalizeKernels() throws {
+        try ShippedMetalLibraries.forEach { _, library, label in
+            for name in [
+                "vectorNormalize", "normalizeVectors", "batchNormalize",
+                "l2_normalize_general_kernel", "l2_normalize_inplace_kernel",
+                "l2_normalize_512_kernel", "l2_normalize_768_kernel", "l2_normalize_1536_kernel",
+                // Sentinels used by KernelContext.isVectorAccelerateLibrary
+                "l2_distance_kernel", "dot_product_kernel"
+            ] {
+                XCTAssertNotNil(library.makeFunction(name: name),
+                                "\(label) library is missing '\(name)'")
+            }
         }
     }
 

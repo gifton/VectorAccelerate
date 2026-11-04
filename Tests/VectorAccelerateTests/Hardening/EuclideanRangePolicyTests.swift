@@ -6,12 +6,7 @@ import XCTest
 @available(macOS 26.0, iOS 26.0, tvOS 26.0, visionOS 3.0, *)
 final class EuclideanRangePolicyTests: XCTestCase {
     private func withLibraries(_ body: (any MTLDevice, any MTLLibrary, String) throws -> Void) throws {
-        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal unavailable") }
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle())
-        #if DEBUG
-        try body(device, device.makeLibrary(URL: XCTUnwrap(bundle.url(forResource: "debug", withExtension: "metallib"))), "plugin")
-        #endif
-        try body(device, KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle), "runtime")
+        try ShippedMetalLibraries.forEach(body)
     }
 
     private func buffer<T: BitwiseCopyable>(_ data: [T], _ device: any MTLDevice) throws -> any MTLBuffer {

@@ -127,7 +127,7 @@ public actor MetalComputeProvider: BatchKernelProvider {
 
     /// Convenience initializer that builds a default Metal4Context.
     public init(configuration: Configuration = .init()) async throws {
-        guard ComputeDevice.gpu().isAvailable else { throw VectorError.metalNotAvailable() }
+        guard MetalDevice.isGPUAvailable() else { throw VectorError.metalNotAvailable() }
         let ctx = try await Metal4Context()
         try await self.init(context: ctx, configuration: configuration)
     }

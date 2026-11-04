@@ -121,6 +121,7 @@ let scalar = try await ScalarQuantKernel(context: context)
 - **macOS 26.0+** / **iOS 26.0+** / **tvOS 26.0+** / **visionOS 3.0+**
 - **Metal 4** capable device (Apple Silicon)
 - **Swift 6.0+**
+- **Metal Toolchain** component on the build host, needed to compile the shaders: `xcodebuild -downloadComponent MetalToolchain`
 
 ### Dependencies
 - **VectorCore 0.3.3+**: The foundational vector mathematics package, including NaN-last CPU Top-K selection

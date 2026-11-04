@@ -31,7 +31,7 @@ public actor AcceleratedVectorOperations: VectorOperationsProvider {
     private let context: Metal4Context
 
     public init() async throws {
-        guard ComputeDevice.gpu().isAvailable else {
+        guard MetalDevice.isGPUAvailable() else {
             throw VectorError.metalNotAvailable()
         }
 
@@ -134,7 +134,7 @@ public enum AcceleratedVectorFactory {
 
     /// Check if acceleration is available
     public static var isAccelerationAvailable: Bool {
-        ComputeDevice.gpu().isAvailable
+        MetalDevice.isGPUAvailable()
     }
 }
 
@@ -252,7 +252,7 @@ public struct VectorCoreIntegration: Sendable {
 
     /// Create a GPU-accelerated vector operations provider
     public func createVectorOperations() async throws -> AcceleratedVectorOperations {
-        guard ComputeDevice.gpu().isAvailable else { throw IntegrationError.metalUnavailable }
+        guard MetalDevice.isGPUAvailable() else { throw IntegrationError.metalUnavailable }
         return try await AcceleratedVectorOperations(context: context)
     }
 }

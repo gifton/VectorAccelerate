@@ -89,6 +89,12 @@ final class EpsilonCompileParityTests: XCTestCase {
             throw XCTSkip("no prebuilt metallib in the resource bundle")
         }
         let metallib = try device.makeLibrary(URL: metallibURL)
+        // This suite compares the header-driven metallib with the preamble-driven runtime compile. Under Swift
+        // Build the bundle ships no `.metal` sources (owner decision 2026-10-31: `default.metallib` is the
+        // shipped library), so there is no runtime compile to compare and the comparison is skipped, not faked.
+        guard !KernelContext.bundledShaderSourceURLs(in: bundle).isEmpty else {
+            throw XCTSkip("no bundled .metal sources: this build ships only precompiled metallibs, so the preamble compile path does not exist here")
+        }
         let runtime = try KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle)
         return (metallib, runtime, device)
     }

@@ -15,8 +15,8 @@ struct BenchmarkRunner {
         print("🚀 VectorAccelerate Benchmark Suite (Metal 4)")
         print("=============================================\n")
 
-        // Check Metal availability using VectorCore's ComputeDevice
-        guard ComputeDevice.gpu().isAvailable else {
+        // Check Metal availability (runtime device check)
+        guard MetalDevice.isGPUAvailable() else {
             print("❌ Metal is not available on this system")
             return
         }

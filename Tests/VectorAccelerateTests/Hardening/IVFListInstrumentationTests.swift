@@ -6,15 +6,10 @@ import VectorCore
 final class IVFListInstrumentationTests: XCTestCase {
     private func withPipelines(_ body: (any MTLDevice, any MTLComputePipelineState, String) throws -> Void) throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal unavailable") }
-        let bundle = try XCTUnwrap(KernelContext.findVectorAccelerateBundle())
-        func check(_ library: any MTLLibrary, _ path: String) throws {
+        try ShippedMetalLibraries.forEach(device: device) { library, path in
             let function = try XCTUnwrap(library.makeFunction(name: "ivf_list_search"))
             try body(device, device.makeComputePipelineState(function: function), path)
         }
-        #if DEBUG
-        try check(device.makeLibrary(URL: XCTUnwrap(bundle.url(forResource: "debug", withExtension: "metallib"))), "plugin")
-        #endif
-        try check(KernelContext.makeLibraryFromBundleSources(device: device, bundle: bundle), "runtime")
     }
 
     // Check actual compiled storage before dispatch: the old instrumented kernel
