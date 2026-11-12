@@ -136,3 +136,50 @@ Measured during the normalization parity audit (Task 4, fix-round discussions); 
   `leastNormalMagnitude`; normalization subnormal handling (BE3 4.4) audited and fixed in the
   0.6.0 branch — all five VA normalize implementations unified on VectorCore's algorithm, and
   three upstream defects filed above (D1–D3).
+
+## Requests from the VectorCore 0.4.0 candidate preparation (2026-10-30)
+
+Filed against candidate `379e610f4365e820454c8c5328c4f87dfaa2031b` (unmerged, untagged). Full context,
+reproducers and the row-by-row checklist: `docs/migrations/VECTORCORE-0.4.0-CANDIDATE.md` §7.
+
+### R6 — Narrow `BatchKernelProvider` to `any DistanceMetric<Float>` (P2)
+
+> **OPEN — requested 2026-10-30.**
+
+R01 narrowed the Float search facades to `any DistanceMetric<Float>` but left the three `BatchKernelProvider`
+requirements at `any DistanceMetric`, so `MetalComputeProvider` still downcasts at runtime and throws on a
+mismatch that cannot occur through `Operations` (`M.Scalar == Float`). **Ask:** narrow the protocol in the same
+breaking release, with the dead-overload warning SG-05 already carries; VA changes its three witnesses in step.
+
+### R7 — Document the flush-to-zero exception to N01's all-subnormal normalization (P3, documentation)
+
+> **OPEN — requested 2026-10-30.**
+
+The candidate normalizes a vector whose coordinates are all subnormal (exact unit vector); a Metal kernel in
+fast-math mode cannot, because the subnormal inputs flush to zero before any arithmetic, so VA passes that class
+through on every path (pinned by `NormalizationParityTests.testAllSubnormalClassIsNormalizedByVectorCore040ButPassedThroughHere`).
+**Ask:** one sentence in the N01 entry or `Docs/Memory_Alignment.md` so the divergence is documented upstream too.
+
+### R8 — `Vector<D>.isNormalized` can report `false` for a unit vector at 512 dimensions (P3)
+
+> **OPEN — requested 2026-10-30.**
+
+The witness is `abs(magnitudeSquared - 1) < 1e-6` on an FP32 `magnitudeSquared`; at 512 dimensions the
+accumulation error is of the threshold's order, so freshly `normalized()` vectors are not all recognized
+(measured count in `VECTORCORE-0.4.0-CANDIDATE.md` §7 C3). Consumers that route on the hint get a data-dependent
+route. **Ask:** a dimension-aware tolerance or Double accumulation, or a documented "strict check, may miss unit
+vectors" statement.
+
+### R9 — Tag the candidate (blocks pinning)
+
+> **OPEN — requested 2026-10-30.**
+
+`revision:` pins need a pushed commit and `VectorCoreVersion` still reports 0.3.3 (LM-02); until a tag exists VA
+can only consume the candidate through `swift package edit`, which also drops the dependency from `Package.resolved`.
+
+### Status of D1–D3 at the candidate
+
+D2 and D3 are resolved by N01: `normalizeUnchecked` now normalizes `[1e-38]×512` to unit norm and `[FLT_MAX]×512`
+to the exact unit vector; D1 (`Vector<D>.normalized()` on all-subnormal input) now also returns a unit vector.
+Verified by `NormalizationParityTests.testUpstreamNormalizationReportsD1D2D3ResolvedInVectorCore040`; the
+0.3.3 baseline still shows the reported behaviour.

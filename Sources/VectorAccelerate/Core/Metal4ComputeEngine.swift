@@ -401,11 +401,15 @@ public actor Metal4ComputeEngine {
 
         let dimension = vectorA.count
 
-        // Route to CPU for small vectors (adaptive when decision engine is available)
+        // Route to CPU for small vectors (adaptive when decision engine is available).
+        // NaN propagates on both paths (the `chebyshevDistance` kernel does the same), matching VectorCore
+        // 0.4.0's `ChebyshevDistance`; `ChebyshevNaNPolicyTests` exercises both.
         if await !shouldUseGPU(operation: .chebyshevDistance, dimension: dimension, fallbackThreshold: 64) {
             var maxDiff: Float = 0
             for i in 0..<dimension {
-                maxDiff = max(maxDiff, abs(vectorA[i] - vectorB[i]))
+                let d = abs(vectorA[i] - vectorB[i])
+                if d.isNaN { return .nan }
+                maxDiff = max(maxDiff, d)
             }
             return maxDiff
         }

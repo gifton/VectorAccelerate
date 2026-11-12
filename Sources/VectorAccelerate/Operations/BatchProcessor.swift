@@ -424,10 +424,13 @@ struct SimilarityOperation: BatchOperation {
         return sum
     }
 
+    /// NaN propagates (VectorCore 0.4.0 `ChebyshevDistance` policy; `max` alone would drop it).
     private func computeChebyshevDistance(_ a: [Float], _ b: [Float]) -> Float {
         var maxDiff: Float = 0
         for i in 0..<a.count {
-            maxDiff = max(maxDiff, abs(a[i] - b[i]))
+            let d = abs(a[i] - b[i])
+            if d.isNaN { return .nan }
+            maxDiff = max(maxDiff, d)
         }
         return maxDiff
     }

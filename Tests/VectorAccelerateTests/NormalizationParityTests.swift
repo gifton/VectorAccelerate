@@ -24,7 +24,10 @@
 //      whose ‖v‖₂ is not itself representable in FP32 (elements ≥ 1e38), since
 //      1/‖v‖₂ is never formed,
 //    * the input is returned BIT-EXACTLY unchanged otherwise (zero vector, deep
-//      subnormals) — the observable behavior of `NormalizeKernels.normalizeUnchecked`,
+//      subnormals) — the observable behavior of VectorCore 0.3.3's
+//      `NormalizeKernels.normalizeUnchecked`; VectorCore 0.4.0 normalizes the
+//      all-subnormal class, a divergence pinned by
+//      `testAllSubnormalClassIsNormalizedByVectorCore040ButPassedThroughHere`,
 //    * GPU and CPU agree elementwise within 1e-5,
 //    * every Metal library the bundle ships (precompiled metallibs, and the runtime
 //      compile where the sources are bundled) still contains every normalize kernel.
@@ -76,10 +79,15 @@ final class NormalizationParityTests: XCTestCase {
         for i in 0..<dimension { random[i] = rng.nextFloat(in: -1...1) }
 
         return [
-            // ‖v‖ = 2.26e-39 → 1/‖v‖ = 4.4e38 > FLT_MAX: not normalizable in FP32.
+            // ‖v‖ = 2.26e-39 → 1/‖v‖ = 4.4e38 > FLT_MAX: not normalizable in FP32 on the
+            // GPU, whose fast-math mode flushes the subnormal inputs to zero before any
+            // arithmetic; the CPU fallbacks mirror the GPU. VectorCore 0.4.0 (N01, row
+            // BH-33) normalizes this class in widened arithmetic, so it is no longer a
+            // cross-check reference here; the divergence is pinned separately by
+            // `testAllSubnormalClassIsNormalizedByVectorCore040ButPassedThroughHere`.
             Fixture(name: "all-subnormal(1e-40)",
                     input: [Float](repeating: subnormal, count: dimension),
-                    isNormalizable: false, crossCheckVectorCore: true),
+                    isNormalizable: false, crossCheckVectorCore: false),
             // Naive Σ v² = 5.1e-38 survives, but the old GPU epsilon (1e-7/1e-8)
             // rejected the 2.26e-19 norm and returned zeros / the input unchanged.
             Fixture(name: "micro(1e-20)",
@@ -315,6 +323,50 @@ final class NormalizationParityTests: XCTestCase {
                 NormalizeKernels.normalizeUnchecked(p.baseAddress!, dimension: p.count)
             }
             assertParity(reference, buffer, label: "VectorCore.normalizeUnchecked/\(fixture.name)")
+        }
+    }
+
+    /// VectorCore 0.4.0 (N01, downstream upgrade row BH-33) normalizes a vector whose coordinates
+    /// are all subnormal: its widened plan returns the exact unit vector `1/√D`. VectorAccelerate
+    /// keeps the unified pass-through policy for this class because Metal's fast-math mode flushes
+    /// the subnormal *inputs* to zero before any arithmetic, so the GPU cannot form the scaled
+    /// terms, and the CPU fallbacks mirror the GPU so all five implementations agree with each
+    /// other. This pins the divergence knowingly (0.4.0 behaviour: against 0.3.3,
+    /// `normalizeUnchecked` passed the vector through exactly as VectorAccelerate does).
+    func testAllSubnormalClassIsNormalizedByVectorCore040ButPassedThroughHere() {
+        let dimension = 512
+        let input = [Float](repeating: Self.subnormal, count: dimension)
+        var core = input
+        core.withUnsafeMutableBufferPointer { p in
+            NormalizeKernels.normalizeUnchecked(p.baseAddress!, dimension: p.count)
+        }
+        XCTAssertEqual(l2Norm(core), 1.0, accuracy: 1e-5, "VectorCore 0.4.0 normalizes the all-subnormal vector (BH-33)")
+        XCTAssertEqual(core[0], 1 / Float(dimension).squareRoot(), accuracy: 1e-7)
+        let ours = StableNormalization.normalizedAccelerate(input)
+        XCTAssertEqual(ours.map(\.bitPattern), input.map(\.bitPattern),
+                       "VectorAccelerate's unified policy passes the all-subnormal class through (GPU FTZ constraint)")
+    }
+
+    /// The three upstream normalization reports filed from the 0.6.0 parity work
+    /// (docs/VECTORCORE_INTEGRATION_REQUESTS.md, D1–D3) are resolved by VectorCore 0.4.0's N01.
+    /// 0.4.0 behaviour: against 0.3.3 each assertion fails in the way its report describes.
+    func testUpstreamNormalizationReportsD1D2D3ResolvedInVectorCore040() throws {
+        let dimension = 512
+        // D1: generic `Vector<D>.normalized()` returned +Inf for all-subnormal input.
+        let d1 = try Vector<Dim512>([Float](repeating: Self.subnormal, count: dimension)).normalized().get().toArray()
+        assertNoNonFinite(d1, "D1")
+        XCTAssertEqual(l2Norm(d1), 1.0, accuracy: 1e-5, "D1: all-subnormal input normalizes to a unit vector")
+        // D2: `normalizeUnchecked` reconstructed the magnitude with the unclamped maxAbs ([1e-38]×512 → norm 1.1755).
+        var d2 = [Float](repeating: 1e-38, count: dimension)
+        d2.withUnsafeMutableBufferPointer { NormalizeKernels.normalizeUnchecked($0.baseAddress!, dimension: $0.count) }
+        XCTAssertEqual(l2Norm(d2), 1.0, accuracy: 1e-5, "D2: [1e-38]×512 normalizes to unit norm")
+        // D3: `normalizeUnchecked` returned all-zeros whenever ‖v‖₂ > FLT_MAX.
+        for magnitude: Float in [1e38, .greatestFiniteMagnitude] {
+            var d3 = [Float](repeating: magnitude, count: dimension)
+            d3.withUnsafeMutableBufferPointer { NormalizeKernels.normalizeUnchecked($0.baseAddress!, dimension: $0.count) }
+            assertNoNonFinite(d3, "D3(\(magnitude))")
+            XCTAssertEqual(l2Norm(d3), 1.0, accuracy: 1e-5, "D3: ‖v‖₂ > FLT_MAX normalizes to a unit vector instead of zeros")
+            XCTAssertEqual(d3[0], 1 / Float(dimension).squareRoot(), accuracy: 1e-7)
         }
     }
 

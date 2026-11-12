@@ -455,9 +455,12 @@ public actor MemoryMapManager {
             return -dot  // Negate for distance (higher dot product = closer)
 
         case .chebyshev:
+            // NaN propagates (VectorCore 0.4.0 `ChebyshevDistance` policy; `max` alone would drop it).
             var maxDiff: Float = 0
             for i in 0..<a.count {
-                maxDiff = max(maxDiff, abs(a[i] - b[i]))
+                let d = abs(a[i] - b[i])
+                if d.isNaN { return .nan }
+                maxDiff = max(maxDiff, d)
             }
             return maxDiff
         }

@@ -102,8 +102,12 @@ kernel void minkowski_distance_batch(
     const bool is_manhattan = !is_chebyshev && (p == 1.0f);
     const bool is_euclidean = !is_chebyshev && (p == 2.0f);
 
-    // For the opted-in Chebyshev (L∞) path
+    // For the opted-in Chebyshev (L∞) path. NaN propagates (owner decision 2026-10-31, matching
+    // VectorCore 0.4.0's `ChebyshevDistance`): `max` drops NaN and fast math may fold `isnan`, so a
+    // NaN difference is detected on its bit pattern and carried as a flag to the final write.
+    // ChebyshevNaNPolicyTests exercises this path through `MinkowskiDistanceKernel.chebyshevDistances`.
     float max_diff = 0.0f;
+    bool has_nan = false;
     
     // Process dimensions in tiles
     for (uint d_start = 0; d_start < D; d_start += MINK_TILE_D) {
@@ -199,20 +203,23 @@ kernel void minkowski_distance_batch(
             }
         }
         else if (is_chebyshev) {
-            // Opted-in exact L∞: running max over |diff|
+            // Opted-in exact L∞: running max over |diff|, with NaN carried as a flag
             const uint vec_end = tile_end / 4;
             for (uint k = 0; k < vec_end; ++k) {
                 float4 q_val = shared_Q_f4[tid.y * MINK_TILE_D_VEC + k];
                 float4 n_val = shared_N_f4[tid.x * MINK_TILE_D_VEC + k];
                 float4 diff = abs(q_val - n_val);
+                has_nan = has_nan || any((as_type<uint4>(diff) & 0x7FFFFFFFu) > 0x7F800000u);
                 float local_max = max(max(diff.x, diff.y), max(diff.z, diff.w));
                 max_diff = max(max_diff, local_max);
             }
-            
+
             for (uint d = vec_end * 4; d < tile_end; ++d) {
                 float q_val = shared_Q[tid.y * MINK_TILE_D + d];
                 float n_val = shared_N[tid.x * MINK_TILE_D + d];
-                max_diff = max(max_diff, abs(q_val - n_val));
+                const float diff = abs(q_val - n_val);
+                has_nan = has_nan || ((as_type<uint>(diff) & 0x7FFFFFFFu) > 0x7F800000u);
+                max_diff = max(max_diff, diff);
             }
         }
         else {
@@ -250,7 +257,7 @@ kernel void minkowski_distance_batch(
             result = sqrt(accumulator);
         }
         else if (is_chebyshev) {
-            result = max_diff;  // exact L∞ (opted in)
+            result = has_nan ? as_type<float>(0x7FC00000u) : max_diff;  // exact L∞ (opted in), NaN-propagating
         }
         else {
             // General case: take p-th root
