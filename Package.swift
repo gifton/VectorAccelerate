@@ -93,8 +93,8 @@ let package = Package(
             targets: ["VectorAccelerateBenchmarks"]),
     ],
     dependencies: [
-        // Pinned to an exact pre-release: SwiftPM never selects a pre-release through a range, and an
-        // alpha may change API between tags, so this branch must track one reviewed tag deliberately.
+        // Pinned exactly, as VectorCore's release status instructs for this integration preview.
+        // An alpha may change API between tags, so this branch tracks one reviewed tag on purpose.
         .package(url: "https://github.com/gifton/VectorCore", exact: "0.4.0-alpha.1"),
         // MetalCompilerPlugin for debuggable Metal shaders (enables Xcode Metal Debugger)
         .package(url: "https://github.com/schwa/MetalCompilerPlugin", from: "0.1.5")
