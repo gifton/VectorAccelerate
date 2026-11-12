@@ -93,8 +93,9 @@ let package = Package(
             targets: ["VectorAccelerateBenchmarks"]),
     ],
     dependencies: [
-        // VectorCore 0.3.3 supplies the NaN-last Top-K contract and original-index ties.
-        .package(url: "https://github.com/gifton/VectorCore", from: "0.3.3"),
+        // Pinned to an exact pre-release: SwiftPM never selects a pre-release through a range, and an
+        // alpha may change API between tags, so this branch must track one reviewed tag deliberately.
+        .package(url: "https://github.com/gifton/VectorCore", exact: "0.4.0-alpha.1"),
         // MetalCompilerPlugin for debuggable Metal shaders (enables Xcode Metal Debugger)
         .package(url: "https://github.com/schwa/MetalCompilerPlugin", from: "0.1.5")
     ],
