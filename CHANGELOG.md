@@ -42,6 +42,7 @@ The hardening audit of the Metal stack. `docs/audits/AUDIT-2.md` and `docs/audit
 - **Normalization parity with VectorCore 0.4.0 is pinned with one known divergence.** VectorCore 0.4.0 normalizes a vector whose coordinates are all subnormal (its widened plan returns the exact unit vector); VectorAccelerate keeps the unified pass-through for that class because Metal's fast-math mode flushes the subnormal inputs to zero before any arithmetic and the CPU fallbacks mirror the GPU. `NormalizationParityTests` no longer uses that fixture as a cross-check and pins the divergence explicitly (`testAllSubnormalClassIsNormalizedByVectorCore040ButPassedThroughHere`). Every other fixture still matches VectorCore's `NormalizeKernels.normalizeUnchecked` elementwise.
 
 ### Added
+- **Verified against VectorCore 0.4.0-alpha.1** (pinned `exact:`): see `docs/migrations/VECTORCORE-0.4.0-ALPHA1.md` for the pins, commands, results, outcome differences and what was not checked.
 - `MetalComputeProvider.RoutingTelemetry`, which reports whether the GPU actually served a call.
 - `BatchBiasLayout` and `PipelineWarmUpFailure`.
 - The permanent guard suites in `Tests/VectorAccelerateTests/Hardening/`.
