@@ -31,6 +31,14 @@ final class VectorCore040CompatTests: XCTestCase {
         guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("Metal device not available") }
     }
 
+    // MARK: - Linked version
+
+    /// Guard: the test binary is linked against the exact pre-release the manifest pins (`exact: "0.4.0-alpha.1"`).
+    func testLinkedVectorCoreIsTheAlpha() {
+        XCTAssertEqual(VectorCoreVersion.version, "0.4.0-alpha.1")
+        XCTAssertEqual(VectorCoreVersion.prerelease, "alpha.1")
+    }
+
     // MARK: - Fixtures
 
     /// Deterministic values in [-1, 1) (the SoAScoringParityTests generator; no Date / Math.random).
